@@ -250,10 +250,10 @@ class _ArrivalBanner extends StatelessWidget {
                       padding: const EdgeInsets.all(12),
                       child: Row(
                         children: [
-                          const CircleAvatar(
+                          CircleAvatar(
                             radius: 18,
-                            backgroundColor: AppTheme.primary,
-                            child: Icon(
+                            backgroundColor: context.roleColors.primary,
+                            child: const Icon(
                               Icons.chat_bubble_outline,
                               color: Colors.white,
                               size: 18,

@@ -33,8 +33,8 @@ class RoleSelectionScreen extends StatelessWidget {
           const SizedBox(height: 22),
           _RoleCard(
             icon: Icons.eco,
-            iconBg: AppTheme.fieldGreenTint,
-            iconColor: AppTheme.fieldGreen,
+            iconBg: context.roleColors.tint,
+            iconColor: context.roleColors.primary,
             title: l10n.farmer,
             description: l10n.farmerDescription,
             isSelected: selectedRole == UserRole.farmer,
@@ -43,8 +43,8 @@ class RoleSelectionScreen extends StatelessWidget {
           const SizedBox(height: 12),
           _RoleCard(
             icon: Icons.local_shipping_outlined,
-            iconBg: AppTheme.actionCream,
-            iconColor: AppTheme.money,
+            iconBg: AppTheme.orangeTint,
+            iconColor: context.roleColors.primary,
             title: l10n.trucker,
             description: l10n.truckerDescription,
             isSelected: selectedRole == UserRole.trucker,
@@ -53,8 +53,8 @@ class RoleSelectionScreen extends StatelessWidget {
           const SizedBox(height: 12),
           _RoleCard(
             icon: Icons.shopping_bag_outlined,
-            iconBg: AppTheme.dropoffBlueTint,
-            iconColor: AppTheme.dropoffBlue,
+            iconBg: AppTheme.dropoffSlateTint,
+            iconColor: AppTheme.dropoffSlate,
             title: l10n.buyer,
             description: l10n.buyerDescription,
             isSelected: selectedRole == UserRole.buyer,
@@ -68,7 +68,7 @@ class RoleSelectionScreen extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 13,
                 height: 1.5,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ),
           ),
@@ -116,7 +116,7 @@ class _RoleCard extends StatelessWidget {
               color: AppTheme.surfaceWhite,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: isSelected ? AppTheme.soilDark : AppTheme.whisperBorder,
+                color: isSelected ? AppTheme.ink : AppTheme.line,
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -141,7 +141,7 @@ class _RoleCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w800,
-                          color: AppTheme.soilDark,
+                          color: AppTheme.ink,
                         ),
                       ),
                       const SizedBox(height: 3),
@@ -149,7 +149,7 @@ class _RoleCard extends StatelessWidget {
                         description,
                         style: const TextStyle(
                           fontSize: 13,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         ),
                       ),
                     ],
@@ -181,7 +181,7 @@ class _Radio extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-          color: selected ? AppTheme.soilDark : AppTheme.fieldBorder,
+          color: selected ? AppTheme.ink : AppTheme.fieldBorder,
           width: 2,
         ),
       ),
@@ -191,7 +191,7 @@ class _Radio extends StatelessWidget {
               height: 12,
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             )
           : null,

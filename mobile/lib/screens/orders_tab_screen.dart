@@ -205,7 +205,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                   child: const Icon(
                     Icons.arrow_back,
                     size: 20,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -243,7 +243,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
           const Icon(
             Icons.receipt_long_outlined,
             size: 56,
-            color: AppTheme.mutedSteel,
+            color: AppTheme.slate,
           ),
           const SizedBox(height: 16),
           Text(l10n.noOrders, style: FwText.cardTitle),

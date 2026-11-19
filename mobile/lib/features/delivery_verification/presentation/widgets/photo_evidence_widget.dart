@@ -58,7 +58,7 @@ class PhotoEvidenceWidget extends StatelessWidget {
           style: const TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w500,
-            color: AppTheme.mutedSteel,
+            color: AppTheme.slate,
           ),
         ),
       ],
@@ -224,7 +224,7 @@ class _OnlineOnlyBox extends StatelessWidget {
           const Icon(
             Icons.cloud_off_outlined,
             size: 24,
-            color: AppTheme.mutedSteel,
+            color: AppTheme.slate,
           ),
           const SizedBox(height: 6),
           Padding(
@@ -235,7 +235,7 @@ class _OnlineOnlyBox extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ),
           ),
@@ -254,10 +254,10 @@ class _ChalkTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppTheme.chalkBackground,
+      color: AppTheme.ground,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: AppTheme.whisperBorder),
+        side: const BorderSide(color: AppTheme.line),
       ),
       clipBehavior: Clip.antiAlias,
       child: SizedBox(width: 120, height: 120, child: Center(child: child)),
@@ -276,14 +276,14 @@ class _PlaceholderBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ink = canCapture ? AppTheme.fieldGreen : AppTheme.mutedSteel;
+    final ink = canCapture ? context.roleColors.primary : AppTheme.slate;
     return Semantics(
       button: canCapture,
       child: Material(
-        color: AppTheme.chalkBackground,
+        color: AppTheme.ground,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
-          side: const BorderSide(color: AppTheme.whisperBorder),
+          side: const BorderSide(color: AppTheme.line),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(

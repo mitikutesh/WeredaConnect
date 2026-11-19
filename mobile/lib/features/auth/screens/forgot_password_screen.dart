@@ -108,7 +108,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         }
       },
       child: Scaffold(
-        backgroundColor: AppTheme.chalkBackground,
+        backgroundColor: AppTheme.ground,
         body: SafeArea(
           child: FwContentWidth(
             maxWidth: 480,

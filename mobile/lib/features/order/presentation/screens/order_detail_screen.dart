@@ -623,7 +623,7 @@ class _OrderDetailBody extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 13,
                             height: 1.5,
-                            color: AppTheme.mutedSteel,
+                            color: AppTheme.slate,
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -1409,7 +1409,7 @@ class _FarmerReceiveCard extends StatelessWidget {
                   l10n.orderYouReceive,
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
               ),
@@ -1428,7 +1428,7 @@ class _FarmerReceiveCard extends StatelessWidget {
                   fontSize: 24,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.5,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
             ],
@@ -1442,7 +1442,7 @@ class _FarmerReceiveCard extends StatelessWidget {
                   '${l10n.etbCurrency(formatEtbAmount(order.pricePerUnit))}',
                   style: const TextStyle(
                     fontSize: 14,
-                    color: AppTheme.unselectedNav,
+                    color: AppTheme.inkSoft,
                   ),
                 ),
               ),
@@ -1450,18 +1450,18 @@ class _FarmerReceiveCard extends StatelessWidget {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.lock_outline,
                       size: 14,
-                      color: AppTheme.fieldGreen,
+                      color: context.roleColors.primary,
                     ),
                     const SizedBox(width: 6),
                     Text(
                       l10n.detailPaidIntoEscrow,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.fieldGreen,
+                        color: context.roleColors.primary,
                       ),
                     ),
                   ],
@@ -1504,7 +1504,7 @@ class _FactRow extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(fontSize: 14, color: AppTheme.mutedSteel),
+          style: const TextStyle(fontSize: 14, color: AppTheme.slate),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -1514,7 +1514,7 @@ class _FactRow extends StatelessWidget {
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
         ),
@@ -1547,25 +1547,25 @@ class _TruckerPayCard extends StatelessWidget {
                   l10n.orderYourTransportPay,
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
                 if (held) ...[
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.lock_outline,
                         size: 14,
-                        color: AppTheme.fieldGreen,
+                        color: context.roleColors.primary,
                       ),
                       const SizedBox(width: 6),
                       Text(
                         l10n.detailPaidIntoEscrow,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: AppTheme.fieldGreen,
+                          color: context.roleColors.primary,
                         ),
                       ),
                     ],
@@ -1589,7 +1589,7 @@ class _TruckerPayCard extends StatelessWidget {
                 fontSize: 24,
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.5,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             ),
         ],
@@ -1656,7 +1656,7 @@ class _BuyerTotalRow extends StatelessWidget {
           Icon(
             held ? Icons.lock_outline : Icons.receipt_long_outlined,
             size: 18,
-            color: AppTheme.unselectedNav,
+            color: AppTheme.inkSoft,
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1664,7 +1664,7 @@ class _BuyerTotalRow extends StatelessWidget {
               held ? l10n.detailHeldInEscrow : l10n.orderTotal,
               style: const TextStyle(
                 fontSize: 14,
-                color: AppTheme.unselectedNav,
+                color: AppTheme.inkSoft,
               ),
             ),
           ),
@@ -1675,7 +1675,7 @@ class _BuyerTotalRow extends StatelessWidget {
             style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w800,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
         ],
@@ -1958,7 +1958,7 @@ class _StatusTimeline extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 12,
                 height: 1.4,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ),
           ] else ...[
@@ -1968,7 +1968,7 @@ class _StatusTimeline extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 12,
                 height: 1.4,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ),
           ],
@@ -2167,7 +2167,7 @@ class _StatusTimeline extends StatelessWidget {
 const TextStyle _cardTitle = TextStyle(
   fontSize: 15,
   fontWeight: FontWeight.w800,
-  color: AppTheme.soilDark,
+  color: AppTheme.ink,
 );
 
 /// One step of the timeline: its state icon and a 4 px bar over its name.
@@ -2189,15 +2189,15 @@ class _TimelineStepTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bar = done
-        ? AppTheme.fieldGreen
+        ? context.roleColors.primary
         : current
-            ? AppTheme.accentSoft
-            : AppTheme.whisperBorder;
+            ? AppTheme.orange
+            : AppTheme.line;
     final ink = current
-        ? AppTheme.money
+        ? context.roleColors.primary
         : done
-            ? AppTheme.soilDark
-            : AppTheme.mutedSteel;
+            ? AppTheme.ink
+            : AppTheme.slate;
     final l10n = AppLocalizations.of(context)!;
     // The status chips' glyphs: done is their success check, a step ahead
     // their neutral empty circle, and the current step that circle filled.
@@ -2223,7 +2223,7 @@ class _TimelineStepTile extends StatelessWidget {
                 Icon(
                   icon,
                   size: 18,
-                  color: done ? AppTheme.fieldGreen : ink,
+                  color: done ? context.roleColors.primary : ink,
                 ),
                 const SizedBox(width: 4),
                 Expanded(
@@ -2432,13 +2432,13 @@ class _ContactRow extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 19,
-                      backgroundColor: AppTheme.fieldGreenTint,
+                      backgroundColor: context.roleColors.tint,
                       child: Text(
                         initials,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
-                          color: AppTheme.fieldGreen,
+                          color: context.roleColors.primary,
                         ),
                       ),
                     ),
@@ -2452,14 +2452,14 @@ class _ContactRow extends StatelessWidget {
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w700,
-                              color: AppTheme.soilDark,
+                              color: AppTheme.ink,
                             ),
                           ),
                           Text(
                             role,
                             style: const TextStyle(
                               fontSize: 12,
-                              color: AppTheme.mutedSteel,
+                              color: AppTheme.slate,
                             ),
                           ),
                         ],
@@ -2477,7 +2477,7 @@ class _ContactRow extends StatelessWidget {
             child: const Icon(
               Icons.chat_bubble_outline,
               size: 18,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
           const SizedBox(width: 8),
@@ -2485,7 +2485,7 @@ class _ContactRow extends StatelessWidget {
             button: true,
             label: l10n.detailCallParty(name),
             child: Material(
-              color: AppTheme.fieldGreen,
+              color: context.roleColors.primary,
               borderRadius: BorderRadius.circular(14),
               clipBehavior: Clip.antiAlias,
               child: InkWell(
@@ -2522,8 +2522,7 @@ class _LockedContactRow extends StatelessWidget {
           const CircleAvatar(
             radius: 19,
             backgroundColor: AppTheme.segmentTrack,
-            child:
-                Icon(Icons.lock_outline, size: 16, color: AppTheme.mutedSteel),
+            child: Icon(Icons.lock_outline, size: 16, color: AppTheme.slate),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -2535,14 +2534,14 @@ class _LockedContactRow extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 Text(
                   note,
                   style: const TextStyle(
                     fontSize: 12,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
               ],

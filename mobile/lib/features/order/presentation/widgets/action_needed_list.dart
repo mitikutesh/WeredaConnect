@@ -445,7 +445,7 @@ class _ActionNeededListState extends State<ActionNeededList> {
                   key: const Key('action_needed_more'),
                   onPressed: onShowAll,
                   style: TextButton.styleFrom(
-                    foregroundColor: AppTheme.money,
+                    foregroundColor: context.roleColors.primary,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     minimumSize: const Size(0, 36),
                     // A 36 tall link in a 48 by 48 hit area.
@@ -527,7 +527,7 @@ class _ActionNeededCard extends StatelessWidget {
     return Semantics(
       button: true,
       child: Material(
-        color: AppTheme.actionCream,
+        color: AppTheme.orangeTint,
         borderRadius: BorderRadius.circular(20),
         child: InkWell(
           onTap: onTap,
@@ -542,11 +542,11 @@ class _ActionNeededCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         l10n.actionNeededTitle.toUpperCase(),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0.9,
-                          color: AppTheme.money,
+                          color: context.roleColors.primary,
                         ),
                       ),
                     ),
@@ -556,7 +556,7 @@ class _ActionNeededCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: AppTheme.actionInk,
+                          color: AppTheme.orangeInk,
                         ),
                       ),
                   ],
@@ -568,7 +568,7 @@ class _ActionNeededCard extends StatelessWidget {
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.2,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -580,7 +580,7 @@ class _ActionNeededCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
-                          color: AppTheme.actionInk,
+                          color: AppTheme.orangeInk,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -589,7 +589,7 @@ class _ActionNeededCard extends StatelessWidget {
                     const Icon(
                       Icons.chevron_right,
                       size: 20,
-                      color: AppTheme.actionInk,
+                      color: AppTheme.orangeInk,
                     ),
                   ],
                 ),

@@ -56,16 +56,16 @@ class DataUsageScreen extends StatelessWidget {
                       label: l10n.dataUsageUploaded,
                       value:
                           DataUsageTracker.formatBytes(tracker.bytesUploaded),
-                      color: AppTheme.money,
-                      background: AppTheme.actionCream,
+                      color: context.roleColors.primary,
+                      background: AppTheme.orangeTint,
                     ),
                     const Divider(indent: 16, endIndent: 16),
                     _StatRow(
                       icon: Icons.data_usage,
                       label: l10n.dataUsageTotal,
                       value: DataUsageTracker.formatBytes(tracker.totalBytes),
-                      color: AppTheme.fieldGreen,
-                      background: AppTheme.fieldGreenTint,
+                      color: context.roleColors.primary,
+                      background: context.roleColors.tint,
                     ),
                   ],
                 ),
@@ -170,7 +170,7 @@ class _StatRow extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             ),
           ),
@@ -180,7 +180,7 @@ class _StatRow extends StatelessWidget {
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w800,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
         ],

@@ -205,7 +205,7 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       },
       child: Scaffold(
-        backgroundColor: AppTheme.chalkBackground,
+        backgroundColor: AppTheme.ground,
         body: SafeArea(
           child: FwContentWidth(
             maxWidth: 480,
@@ -235,7 +235,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       fontSize: 12,
-                      color: AppTheme.mutedSteel,
+                      color: AppTheme.slate,
                     ),
                   ),
                 ],
@@ -300,7 +300,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: AppTheme.fieldGreen,
+                          color: context.roleColors.primary,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Icon(
@@ -319,7 +319,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             fontSize: 17,
                             fontWeight: FontWeight.w800,
                             letterSpacing: -0.3,
-                            color: AppTheme.soilDark,
+                            color: AppTheme.ink,
                           ),
                         ),
                       ),
@@ -338,7 +338,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: const TextStyle(
                     fontSize: 30,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                     letterSpacing: -0.9,
                     height: 1.1,
                   ),
@@ -353,18 +353,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   _roleBadge(
                     l10n.farmer,
-                    AppTheme.fieldGreenTint,
-                    AppTheme.fieldGreen,
+                    context.roleColors.tint,
+                    context.roleColors.primary,
                   ),
                   _roleBadge(
                     l10n.trucker,
-                    AppTheme.actionCream,
-                    AppTheme.money,
+                    AppTheme.orangeTint,
+                    context.roleColors.primary,
                   ),
                   _roleBadge(
                     l10n.buyer,
-                    AppTheme.dropoffBlueTint,
-                    AppTheme.dropoffBlue,
+                    AppTheme.dropoffSlateTint,
+                    AppTheme.dropoffSlate,
                   ),
                 ],
               ),
@@ -376,7 +376,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 decoration: BoxDecoration(
                   color: AppTheme.surfaceWhite,
                   borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: AppTheme.whisperBorder),
+                  border: Border.all(color: AppTheme.line),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -413,7 +413,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
-                        color: AppTheme.mutedSteel,
+                        color: AppTheme.slate,
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -467,12 +467,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         child: Text(
                           l10n.forgotPassword,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
-                            color: AppTheme.fieldGreen,
+                            color: context.roleColors.primary,
                             decoration: TextDecoration.underline,
-                            decorationColor: AppTheme.fieldGreen,
+                            decorationColor: context.roleColors.primary,
                           ),
                         ),
                       ),

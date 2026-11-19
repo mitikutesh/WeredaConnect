@@ -61,12 +61,12 @@ class ShareConsentSheet extends StatelessWidget {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: AppTheme.actionCream,
+                    color: AppTheme.orangeTint,
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.place_outlined,
-                    color: AppTheme.money,
+                    color: context.roleColors.primary,
                     size: 26,
                   ),
                 ),
@@ -79,7 +79,7 @@ class ShareConsentSheet extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.5,
                   height: 1.2,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
               const SizedBox(height: 8),
@@ -88,7 +88,7 @@ class ShareConsentSheet extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 14,
                   height: 1.5,
-                  color: AppTheme.unselectedNav,
+                  color: AppTheme.inkSoft,
                 ),
               ),
               const SizedBox(height: 16),
@@ -118,8 +118,7 @@ class ShareConsentSheet extends StatelessWidget {
                 web
                     ? l10n.liveTripConsentWebNote
                     : l10n.liveTripConsentAndroidNote,
-                style:
-                    const TextStyle(fontSize: 12, color: AppTheme.mutedSteel),
+                style: const TextStyle(fontSize: 12, color: AppTheme.slate),
               ),
               const SizedBox(height: 16),
               FilledButton(
@@ -127,7 +126,7 @@ class ShareConsentSheet extends StatelessWidget {
                 onPressed: () =>
                     Navigator.of(context).pop(ShareConsentChoice.share),
                 style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.soilDark,
+                  backgroundColor: AppTheme.ink,
                   foregroundColor: Colors.white,
                   minimumSize: const Size.fromHeight(56),
                   textStyle: const TextStyle(
@@ -148,7 +147,7 @@ class ShareConsentSheet extends StatelessWidget {
                 onPressed: () =>
                     Navigator.of(context).pop(ShareConsentChoice.scansOnly),
                 style: TextButton.styleFrom(
-                  foregroundColor: AppTheme.unselectedNav,
+                  foregroundColor: AppTheme.inkSoft,
                   minimumSize: const Size.fromHeight(44),
                   textStyle: const TextStyle(
                     fontFamily: AppTheme.fontFamily,
@@ -194,10 +193,10 @@ class _ConsentRow extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: AppTheme.chalkBackground,
+              color: AppTheme.ground,
               borderRadius: BorderRadius.circular(11),
             ),
-            child: Icon(icon, size: 20, color: AppTheme.soilDark),
+            child: Icon(icon, size: 20, color: AppTheme.ink),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -209,7 +208,7 @@ class _ConsentRow extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -218,7 +217,7 @@ class _ConsentRow extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 13,
                     height: 1.4,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
               ],

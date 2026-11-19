@@ -135,6 +135,7 @@ class AdaptiveShell extends StatelessWidget {
     UserRole role, {
     required bool onTabRoot,
     bool expanded = false,
+    bool floating = false,
   }) {
     return ValueListenableBuilder<int>(
       valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
@@ -143,6 +144,7 @@ class AdaptiveShell extends StatelessWidget {
         return RoleCreateButton(
           role: role,
           expanded: expanded,
+          floating: floating,
           onPressed: () => _onFabPressed(context, role),
         );
       },
@@ -180,9 +182,6 @@ class AdaptiveShell extends StatelessWidget {
                 enabled: onTabRoot && pushed == 0,
                 child: child,
               ),
-              floatingActionButton: _fab(context, role, onTabRoot: onTabRoot),
-              floatingActionButtonLocation:
-                  FloatingActionButtonLocation.centerFloat,
               bottomNavigationBar: fullPage
                   ? null
                   : RoleNavBar(
@@ -193,6 +192,9 @@ class AdaptiveShell extends StatelessWidget {
                       currentIndex: selectedIndex < 0 ? null : selectedIndex,
                       onSelected: (i) =>
                           _onDestinationSelected(context, i, dests),
+                      // The create verb belongs to a tab's own page.
+                      onCreate:
+                          onTabRoot ? () => _onFabPressed(context, role) : null,
                     ),
             );
           },
@@ -209,19 +211,20 @@ class AdaptiveShell extends StatelessWidget {
     return CreateButtonScrollScope(
       resetKey: selectedIndex,
       child: Scaffold(
-        backgroundColor: AppTheme.chalkBackground,
+        backgroundColor: AppTheme.ground,
         // The rail has no room for the labelled button: it floats over the
         // content as on the phone.
-        floatingActionButton:
-            isDesktop ? null : _fab(context, role, onTabRoot: onTabRoot),
+        floatingActionButton: isDesktop
+            ? null
+            : _fab(context, role, onTabRoot: onTabRoot, floating: true),
         floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
         body: _SidebarThenPage(
           sidebar: _Sidebar(
             expanded: isDesktop,
             selectedIndex: selectedIndex,
             destinations: dests,
-            accent: AppTheme.roleAccent(role),
-            accentTint: AppTheme.roleAccentTint(role),
+            accent: context.roleColors.primary,
+            accentTint: context.roleColors.tint,
             currentLocation: GoRouterState.of(context).matchedLocation,
             onSelected: (i) => _onDestinationSelected(context, i, dests),
             onProfileTap: () => context.go('/profile'),
@@ -445,7 +448,7 @@ class _Sidebar extends StatelessWidget {
         color: Colors.white,
         border: Border(
           right: BorderSide(
-            color: AppTheme.whisperBorder,
+            color: AppTheme.line,
           ),
         ),
       ),
@@ -476,7 +479,7 @@ class _Sidebar extends StatelessWidget {
             ),
           ),
           // Bottom section: profile + settings
-          const Divider(color: AppTheme.whisperBorder, height: 1),
+          const Divider(color: AppTheme.line, height: 1),
           _SidebarFooter(
             expanded: expanded,
             role: role,
@@ -513,7 +516,7 @@ class _SidebarHeader extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: AppTheme.fieldGreen,
+              color: context.roleColors.primary,
               borderRadius: BorderRadius.circular(11),
             ),
             // The boards' mark: a route between two places.
@@ -529,7 +532,7 @@ class _SidebarHeader extends StatelessWidget {
               child: Text(
                 AppLocalizations.of(context)!.appName,
                 style: const TextStyle(
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.4,
@@ -659,8 +662,8 @@ class _SidebarItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final iconColor = selected ? accent : AppTheme.unselectedNav;
-    final textColor = selected ? accent : AppTheme.unselectedNav;
+    final iconColor = selected ? accent : AppTheme.inkSoft;
+    final textColor = selected ? accent : AppTheme.inkSoft;
     final borderRadius = BorderRadius.circular(12);
 
     return Padding(
@@ -779,12 +782,12 @@ class _SidebarFooter extends StatelessWidget {
             selected: isProfileActive,
             onTap: onProfileTap,
             borderRadius: BorderRadius.circular(12),
-            focusColor: AppTheme.fieldGreen,
+            focusColor: context.roleColors.primary,
             builder: (context, _) => Container(
               padding: EdgeInsets.all(expanded ? 8 : 6),
               decoration: BoxDecoration(
                 color: isProfileActive
-                    ? AppTheme.fieldGreenTint
+                    ? context.roleColors.tint
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -816,7 +819,7 @@ class _SidebarFooter extends StatelessWidget {
                               Text(
                                 name.isNotEmpty ? name : roleName,
                                 style: const TextStyle(
-                                  color: AppTheme.soilDark,
+                                  color: AppTheme.ink,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -825,7 +828,7 @@ class _SidebarFooter extends StatelessWidget {
                               Text(
                                 subtitle,
                                 style: const TextStyle(
-                                  color: AppTheme.mutedSteel,
+                                  color: AppTheme.slate,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -885,7 +888,7 @@ class _SidebarFooterButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isActive ? AppTheme.fieldGreen : AppTheme.mutedSteel;
+    final color = isActive ? context.roleColors.primary : AppTheme.slate;
     final displayIcon = isActive ? (selectedIcon ?? icon) : icon;
     final borderRadius = BorderRadius.circular(10);
 
@@ -894,7 +897,7 @@ class _SidebarFooterButton extends StatelessWidget {
       selected: isActive,
       onTap: onTap,
       borderRadius: borderRadius,
-      focusColor: AppTheme.fieldGreen,
+      focusColor: context.roleColors.primary,
       builder: (context, hovered) => Container(
         height: 38,
         padding: EdgeInsets.symmetric(
@@ -902,7 +905,7 @@ class _SidebarFooterButton extends StatelessWidget {
         ),
         decoration: BoxDecoration(
           color: isActive
-              ? AppTheme.fieldGreenTint
+              ? context.roleColors.tint
               : hovered
                   ? const Color(0xFFF3F1EB)
                   : Colors.transparent,

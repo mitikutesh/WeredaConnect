@@ -337,8 +337,8 @@ class _StandingCard extends StatelessWidget {
       title = l10n.reputationTierGood;
       body = l10n.reputationTierGoodBody;
       icon = Icons.check_circle_outline;
-      ink = AppTheme.fieldGreen;
-      ground = AppTheme.fieldGreenTint;
+      ink = context.roleColors.primary;
+      ground = context.roleColors.tint;
     }
 
     final notes = <String>[
@@ -380,7 +380,7 @@ class _StandingCard extends StatelessWidget {
                       key: const Key('reputation_points'),
                       style: FwText.body.copyWith(
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                   ],
@@ -432,7 +432,8 @@ class _RatingCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.star_rounded, size: 22, color: AppTheme.money),
+              Icon(Icons.star_rounded,
+                  size: 22, color: context.roleColors.primary,),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -555,11 +556,11 @@ class _EventCard extends StatelessWidget {
                       ? l10n.reputationEventPoints(event.points)
                       : l10n.reputationEventNoPoints,
                   background: event.points > 0 && event.isActive
-                      ? AppTheme.actionCream
+                      ? AppTheme.orangeTint
                       : AppTheme.segmentTrack,
                   foreground: event.points > 0 && event.isActive
-                      ? AppTheme.money
-                      : AppTheme.unselectedNav,
+                      ? context.roleColors.primary
+                      : AppTheme.inkSoft,
                 ),
               ],
             ],

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Create trip</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&amp;family=Noto+Sans+Ethiopic:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#2B62C4}a:hover{color:#1F4A96}
+</style>
+</helmet>
+<div style="width: 390px; height: 920px; box-sizing: border-box; position: relative; background: #FFFFFF; color: #1A1516; font-family: 'Bricolage Grotesque', 'Noto Sans Ethiopic', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+  <header style="position: relative; padding: 24px 20px 0; display: flex; align-items: center; gap: 14px">
+    <a href="TruckerHomeM.dc.html" aria-label="Back" style="width: 44px; height: 44px; border-radius: 999px; background: #F5F3F1; color: #1A1516; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></a>
+    <h1 style="margin: 0; font-size: 30px; line-height: 1.05; font-weight: 800; letter-spacing: -0.035em">Create Trip</h1>
+    <svg data-sketch="trucker" width="92" height="45" sc-camel-view-box="0 0 140 68" fill="none" stroke="#C9BEB5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="position: absolute; pointer-events: none; right: 20px; top: 24px"><path d="M4 62 C 46 58, 96 60, 138 56" stroke-width="1.9"></path><path d="M58 12 H 120 V 46 H 58 Z" stroke-width="2.1"></path><path d="M66 12 C 68 5, 78 5, 80 12" stroke-width="1.8"></path><path d="M82 12 C 84 4, 96 4, 98 12" stroke-width="1.8"></path><path d="M100 12 C 102 6, 112 6, 114 12" stroke-width="1.8"></path><path d="M58 22 L 40 22 C 36 22, 33 25, 31 30 L 27 40 L 27 46 L 120 46" stroke-width="2.1"></path><path d="M39 26 L 52 26 L 52 35 L 35 35 Z" stroke-width="1.8"></path><circle cx="44" cy="50" r="7" stroke-width="2.1"></circle><circle cx="104" cy="50" r="7" stroke-width="2.1"></circle><circle cx="44" cy="50" r="2" stroke-width="1.7"></circle><circle cx="104" cy="50" r="2" stroke-width="1.7"></circle></svg>
+  </header>
+
+  <form style="padding: 16px 20px 124px; display: flex; flex-direction: column; gap: 14px">
+    <button type="button" style="align-self: flex-start; height: 44px; padding: 0 16px 0 12px; border-radius: 999px; border: 1px solid #8E857E; background: transparent; color: #1A1516; font: 700 13px 'Bricolage Grotesque', sans-serif; display: flex; align-items: center; gap: 8px"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v6h6"></path><path d="M5 15a8 8 0 1 0 2-9l-3 4"></path></svg>Repeat Last Trip · Meki → Addis Ababa</button>
+
+    <div style="position: relative; display: flex; flex-direction: column; gap: 10px">
+      <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #4A4340">From (Origin)
+        <span style="height: 52px; padding: 0 16px; border-radius: 16px; border: 1px solid #8F8780; background: #F5F3F1; display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; color: #1A1516"><span style="width: 10px; height: 10px; border-radius: 999px; border: 3px solid #2B62C4; box-sizing: border-box" aria-hidden="true"></span>Meki <span style="font-size: 13px; font-weight: 500; color: #5C5450">· Oromia</span></span>
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #4A4340">To (Destination)
+        <span style="height: 52px; padding: 0 16px; border-radius: 16px; border: 1px solid #8F8780; background: #F5F3F1; display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; color: #1A1516"><span style="width: 10px; height: 10px; border-radius: 999px; background: #1A1516" aria-hidden="true"></span>Addis Ababa</span>
+      </label>
+      <button type="button" aria-label="Swap origin and destination" style="position: absolute; right: 14px; top: 58px; width: 44px; height: 44px; border-radius: 999px; border: none; background: #1A1516; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M7 4L4 7M7 4l3 3M17 20V4M17 20l-3-3M17 20l3-3"></path></svg></button>
+    </div>
+
+    <div style="border-radius: 28px; background: #F5F3F1; overflow: hidden; box-shadow: 0 14px 30px rgba(26,21,22,0.14); border: 1px solid #DDD5CE">
+      <svg width="350" height="116" sc-camel-view-box="0 0 350 120" sc-camel-preserve-aspect-ratio="xMidYMid slice" role="img" aria-label="Route preview from Meki to Addis Ababa, drawn on the phone" style="display: block">
+        <rect width="350" height="120" fill="#DCD5C9"></rect>
+        <path d="M-10 62 C 80 40, 200 96, 360 70" stroke="#EFEBE4" stroke-width="12" fill="none"></path>
+        <path d="M120 -10 L 76 130" stroke="#EFEBE4" stroke-width="10" fill="none"></path>
+        <path d="M34 100 L306 22" stroke="#1A1516" stroke-opacity="0.55" stroke-width="2.5" stroke-dasharray="5 5" fill="none"></path>
+        <g fill="#FFFFFF" stroke="#5C5450" stroke-width="2"><circle cx="86" cy="86" r="3.5"></circle><circle cx="150" cy="66" r="3.5"></circle><circle cx="196" cy="54" r="3.5"></circle><circle cx="240" cy="42" r="3.5"></circle></g>
+        <circle cx="34" cy="100" r="7" fill="#FFFFFF" stroke="#2B62C4" stroke-width="3.5"></circle>
+        <circle cx="306" cy="22" r="8" fill="#1A1516"></circle>
+        <g font-family="'Bricolage Grotesque', sans-serif" font-size="13" font-weight="700" fill="#1A1516" stroke="#DCD5C9" stroke-width="3" paint-order="stroke">
+          <text x="48" y="106">Meki</text>
+          <text x="152" y="84">Mojo</text>
+          <text x="246" y="60">Dukem</text>
+          <text x="206" y="18">Addis Ababa</text>
+        </g>
+      </svg>
+      <div style="display: flex; justify-content: space-between; padding: 10px 16px 12px; font-size: 13px; color: #5C5450"><span>About 130 km · towns on the way, no download</span></div>
+    </div>
+
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #4A4340">Departure Date
+      <span style="height: 52px; padding: 0 16px; border-radius: 16px; border: 1px solid #8F8780; background: #F5F3F1; display: flex; align-items: center; justify-content: space-between; font-size: 16px; font-weight: 700; color: #1A1516">Thu 30 Oct 2026<svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="#5C5450" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16v14H4z"></path><path d="M4 10h16M8 3v4M16 3v4"></path></svg></span>
+      <span style="font-size: 13px; font-weight: 500; color: #5C5450">Buyers can book until 24 h before you leave.</span>
+    </label>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+      <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #4A4340">Capacity (kg)
+        <input type="text" inputmode="decimal" value="5,000" style="height: 52px; width: 100%; box-sizing: border-box; padding: 0 16px; border-radius: 16px; border: 1px solid #8F8780; background: #F5F3F1; font: 800 17px 'Bricolage Grotesque', sans-serif; color: #1A1516">
+        <span style="font-size: 13px; font-weight: 500; color: #5C5450">(50 quintals)</span>
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #4A4340">Price per 100 kg (ETB)
+        <input type="text" inputmode="decimal" value="150" style="height: 52px; width: 100%; box-sizing: border-box; padding: 0 16px; border-radius: 16px; border: 1px solid #8F8780; background: #F5F3F1; font: 800 17px 'Bricolage Grotesque', sans-serif; color: #1A1516">
+        <span style="font-size: 13px; font-weight: 500; color: #5C5450">(per quintal)</span>
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #4A4340">Vehicle Plate
+        <input type="text" value="[PLATE]" style="height: 52px; width: 100%; box-sizing: border-box; padding: 0 16px; border-radius: 16px; border: 1px solid #8F8780; background: #F5F3F1; font: 600 16px 'Bricolage Grotesque', sans-serif; color: #1A1516">
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #4A4340">Vehicle Description
+        <input type="text" value="Isuzu FSR 5 t" style="height: 52px; width: 100%; box-sizing: border-box; padding: 0 16px; border-radius: 16px; border: 1px solid #8F8780; background: #F5F3F1; font: 600 16px 'Bricolage Grotesque', sans-serif; color: #1A1516">
+      </label>
+    </div>
+  </form>
+
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; background: #FFFFFF; border-top: 1px solid #DDD5CE; padding: 12px 20px 16px; display: flex; flex-direction: column; gap: 8px">
+    <a href="TripDetailM.dc.html" style="height: 54px; border-radius: 999px; background: #F0873A; color: #1A1516; text-decoration: none; font-size: 16px; font-weight: 800; display: flex; align-items: center; justify-content: center">Save</a>
+    <span style="text-align: center; font-size: 13px; color: #5C5450">Saved on your phone first, sent when you have network.</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:920}}">
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+
+
+</body></html>

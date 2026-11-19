@@ -14,14 +14,14 @@ const TextStyle joinTitleStyle = TextStyle(
   fontWeight: FontWeight.w800,
   letterSpacing: -0.8,
   height: 1.15,
-  color: AppTheme.soilDark,
+  color: AppTheme.ink,
 );
 
 /// The line under a board title.
 const TextStyle joinSubtitleStyle = TextStyle(
   fontSize: 15,
   height: 1.4,
-  color: AppTheme.mutedSteel,
+  color: AppTheme.slate,
 );
 
 /// The boards' back button: a 44 by 44 white square with a chevron. Pops
@@ -45,7 +45,7 @@ class JoinBackButton extends StatelessWidget {
       child: FwSquareButton(
         onTap: onTap ?? () => Navigator.of(context).maybePop(),
         semanticLabel: tooltip,
-        child: Icon(icon, size: 18, color: AppTheme.soilDark),
+        child: Icon(icon, size: 18, color: AppTheme.ink),
       ),
     );
   }
@@ -85,7 +85,7 @@ class JoinNote extends StatelessWidget {
   const JoinNote({
     required this.text,
     this.background = AppTheme.surfaceWhite,
-    this.foreground = AppTheme.unselectedNav,
+    this.foreground = AppTheme.inkSoft,
     this.icon,
     this.borderColor,
     super.key,
@@ -93,15 +93,15 @@ class JoinNote extends StatelessWidget {
 
   /// The blue information note.
   const JoinNote.info({required this.text, super.key})
-      : background = AppTheme.dropoffBlueTint,
-        foreground = AppTheme.dropoffBlue,
+      : background = AppTheme.dropoffSlateTint,
+        foreground = AppTheme.dropoffSlate,
         icon = Icons.info_outline,
         borderColor = null;
 
   /// The amber "required" note.
   const JoinNote.warning({required this.text, super.key})
-      : background = AppTheme.actionCream,
-        foreground = AppTheme.actionInk,
+      : background = AppTheme.orangeTint,
+        foreground = AppTheme.orangeInk,
         icon = Icons.info_outline,
         borderColor = null;
 
@@ -115,9 +115,9 @@ class JoinNote extends StatelessWidget {
   /// The white remark with a whisper border.
   const JoinNote.plain({required this.text, super.key})
       : background = AppTheme.surfaceWhite,
-        foreground = AppTheme.unselectedNav,
+        foreground = AppTheme.inkSoft,
         icon = null,
-        borderColor = AppTheme.whisperBorder;
+        borderColor = AppTheme.line;
 
   @override
   Widget build(BuildContext context) {
@@ -161,19 +161,21 @@ class JoinNote extends StatelessWidget {
 class JoinStatusPill extends StatelessWidget {
   final String label;
   final IconData icon;
-  final Color background;
-  final Color foreground;
+  final Color? background;
+  final Color? foreground;
 
   const JoinStatusPill({
     required this.label,
     this.icon = Icons.check,
-    this.background = AppTheme.fieldGreenTint,
-    this.foreground = AppTheme.fieldGreen,
+    this.background,
+    this.foreground,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
+    final background = this.background ?? context.roleColors.tint;
+    final foreground = this.foreground ?? context.roleColors.primary;
     // 30 tall at the default text size; large text makes it taller instead
     // of clipping.
     return Container(
@@ -217,10 +219,10 @@ class JoinIconTile extends StatelessWidget {
       width: 56,
       height: 56,
       decoration: BoxDecoration(
-        color: AppTheme.fieldGreenTint,
+        color: context.roleColors.tint,
         borderRadius: BorderRadius.circular(18),
       ),
-      child: Icon(icon, size: 28, color: AppTheme.fieldGreen),
+      child: Icon(icon, size: 28, color: context.roleColors.primary),
     );
   }
 }

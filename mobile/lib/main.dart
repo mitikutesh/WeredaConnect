@@ -37,6 +37,7 @@ import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart'
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/theme/signed_in_role.dart';
 
 // Conditional import: native runner on mobile, stub on web
 import 'package:wereda_connect/app/run_mobile.dart'
@@ -279,6 +280,8 @@ Future<void> _runWeb({
         ],
         child: Consumer<LanguageProvider>(
           builder: (context, langProvider, child) {
+            // The whole app wears the signed-in role's colours.
+            final role = watchSignedInRole(context);
             return MaterialApp.router(
               title: 'WeredaConnect',
               locale: langProvider.locale,
@@ -293,8 +296,8 @@ Future<void> _runWeb({
                 Locale('am'),
                 Locale('om'),
               ],
-              theme: AppTheme.light(),
-              darkTheme: AppTheme.dark(),
+              theme: AppTheme.light(role: role),
+              darkTheme: AppTheme.dark(role: role),
               // Pinned to light until the raw Colors.* sweep makes all
               // screens dark-safe; then a Settings toggle can ship.
               themeMode: ThemeMode.light,

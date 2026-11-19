@@ -180,13 +180,13 @@ class _ConversationTile extends StatelessWidget {
           children: [
             CircleAvatar(
               radius: 22,
-              backgroundColor: AppTheme.fieldGreenTint,
+              backgroundColor: context.roleColors.tint,
               child: Text(
                 _initials(l10n),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.fieldGreen,
+                  color: context.roleColors.primary,
                 ),
               ),
             ),
@@ -202,7 +202,7 @@ class _ConversationTile extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: hasUnread ? FontWeight.w800 : FontWeight.w700,
-                      color: AppTheme.soilDark,
+                      color: AppTheme.ink,
                     ),
                   ),
                   const SizedBox(height: 3),
@@ -211,7 +211,7 @@ class _ConversationTile extends StatelessWidget {
                     contextType: summary.contextType,
                     contextId: summary.contextId,
                     resolver: resolver,
-                    color: AppTheme.fieldGreen,
+                    color: context.roleColors.primary,
                   ),
                   const SizedBox(height: 3),
                   Text(
@@ -221,9 +221,7 @@ class _ConversationTile extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: hasUnread ? FontWeight.w600 : FontWeight.w500,
-                      color: hasUnread
-                          ? AppTheme.inkSecondary
-                          : AppTheme.mutedSteel,
+                      color: hasUnread ? AppTheme.inkSoft : AppTheme.slate,
                     ),
                   ),
                 ],
@@ -238,7 +236,7 @@ class _ConversationTile extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
                 if (hasUnread) ...[
@@ -249,7 +247,7 @@ class _ConversationTile extends StatelessWidget {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: AppTheme.fieldGreen,
+                      color: context.roleColors.primary,
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
@@ -289,13 +287,13 @@ class _EmptyInbox extends StatelessWidget {
               width: 64,
               height: 64,
               decoration: BoxDecoration(
-                color: AppTheme.fieldGreenTint,
+                color: context.roleColors.tint,
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.forum_outlined,
                 size: 30,
-                color: AppTheme.fieldGreen,
+                color: context.roleColors.primary,
               ),
             ),
             const SizedBox(height: 16),

@@ -197,8 +197,8 @@ class _MatchResultsBody extends StatelessWidget {
             child: FwInfoNote(
               icon: Icons.cloud_off,
               text: l10n.showingCachedResults,
-              background: AppTheme.actionCream,
-              foreground: AppTheme.actionInk,
+              background: AppTheme.orangeTint,
+              foreground: AppTheme.orangeInk,
             ),
           ),
         // The request this list answers: crop, amount, budget, where to.
@@ -224,7 +224,7 @@ class _MatchResultsBody extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
-                          color: AppTheme.soilDark,
+                          color: AppTheme.ink,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -232,14 +232,14 @@ class _MatchResultsBody extends StatelessWidget {
                         '${intent.deliveryWoreda} · ${l10n.matchesFound(matches.length)}',
                         style: const TextStyle(
                           fontSize: 12,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         ),
                       ),
                       Text(
                         l10n.syncedAgo(_timeSinceSync()),
                         style: const TextStyle(
                           fontSize: 12,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         ),
                       ),
                     ],
@@ -364,7 +364,7 @@ class _EmptyState extends StatelessWidget {
               child: const Icon(
                 Icons.search_off,
                 size: 28,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ),
             const SizedBox(height: 14),
@@ -374,7 +374,7 @@ class _EmptyState extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             ),
             const SizedBox(height: 20),

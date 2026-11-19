@@ -26,7 +26,7 @@ class WcCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: color ?? AppTheme.surfaceWhite,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.borderLight),
+        border: Border.all(color: AppTheme.line),
       ),
       child: Padding(
         padding: padding,

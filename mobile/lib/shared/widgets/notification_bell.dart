@@ -80,7 +80,7 @@ class NotificationBell extends StatefulWidget {
     required this.userId,
     required this.l10n,
     this.isOnline = true,
-    this.iconColor = AppTheme.soilDark,
+    this.iconColor = AppTheme.ink,
     this.ringColor = AppTheme.surfaceWhite,
     this.square = false,
     super.key,
@@ -327,7 +327,7 @@ class _NotificationBellState extends State<NotificationBell> {
                   width: 10,
                   height: 10,
                   decoration: BoxDecoration(
-                    color: AppTheme.accentGold,
+                    color: AppTheme.orange,
                     shape: BoxShape.circle,
                     border: Border.all(color: widget.ringColor, width: 2),
                   ),
@@ -397,7 +397,7 @@ class _NotificationBellState extends State<NotificationBell> {
                             width: 40,
                             height: 4,
                             decoration: BoxDecoration(
-                              color: AppTheme.textMuted.withAlpha(60),
+                              color: AppTheme.slate.withAlpha(60),
                               borderRadius: BorderRadius.circular(2),
                             ),
                           ),
@@ -409,7 +409,7 @@ class _NotificationBellState extends State<NotificationBell> {
                                 style: const TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.w800,
-                                  color: AppTheme.textDark,
+                                  color: AppTheme.ink,
                                 ),
                               ),
                               const Spacer(),
@@ -435,7 +435,7 @@ class _NotificationBellState extends State<NotificationBell> {
                                   style: const TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w600,
-                                    color: AppTheme.textMuted,
+                                    color: AppTheme.slate,
                                   ),
                                 ),
                               ],
@@ -455,7 +455,7 @@ class _NotificationBellState extends State<NotificationBell> {
                                   Icon(
                                     Icons.notifications_none,
                                     size: 48,
-                                    color: AppTheme.textMuted.withAlpha(80),
+                                    color: AppTheme.slate.withAlpha(80),
                                   ),
                                   const SizedBox(height: 12),
                                   Text(
@@ -463,7 +463,7 @@ class _NotificationBellState extends State<NotificationBell> {
                                     style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
-                                      color: AppTheme.textMuted,
+                                      color: AppTheme.slate,
                                     ),
                                   ),
                                   const SizedBox(height: 4),
@@ -471,7 +471,7 @@ class _NotificationBellState extends State<NotificationBell> {
                                     widget.l10n.noNotificationsDescription,
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: AppTheme.textMuted.withAlpha(160),
+                                      color: AppTheme.slate.withAlpha(160),
                                     ),
                                   ),
                                 ],
@@ -604,7 +604,7 @@ class _NotifCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: AppTheme.whisperBorder),
+            border: Border.all(color: AppTheme.line),
           ),
           child: Row(
             children: [
@@ -628,7 +628,7 @@ class _NotifCard extends StatelessWidget {
                         fontSize: 14,
                         fontWeight:
                             item.unread ? FontWeight.w800 : FontWeight.w600,
-                        color: AppTheme.textDark,
+                        color: AppTheme.ink,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -638,7 +638,7 @@ class _NotifCard extends StatelessWidget {
                       item.subtitle,
                       style: const TextStyle(
                         fontSize: 12,
-                        color: AppTheme.textMuted,
+                        color: AppTheme.slate,
                       ),
                       maxLines: item.action == _NotifAction.openOrder ? 3 : 1,
                       overflow: TextOverflow.ellipsis,
@@ -650,7 +650,7 @@ class _NotifCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: AppTheme.textDark,
+                          color: AppTheme.ink,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -664,14 +664,14 @@ class _NotifCard extends StatelessWidget {
                 timeLabel,
                 style: const TextStyle(
                   fontSize: 11,
-                  color: AppTheme.textMuted,
+                  color: AppTheme.slate,
                 ),
               ),
               const SizedBox(width: 4),
               Icon(
                 Icons.chevron_right,
                 size: 18,
-                color: AppTheme.textMuted.withAlpha(120),
+                color: AppTheme.slate.withAlpha(120),
               ),
             ],
           ),
@@ -827,7 +827,7 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
       statusText = l10n.syncInProgress;
     } else if (!widget.isOnline) {
       statusIcon = Icons.cloud_off;
-      statusColor = AppTheme.textMuted;
+      statusColor = AppTheme.slate;
       statusText = l10n.offlineModeIndicator;
     } else if (_failedCount > 0) {
       statusIcon = Icons.error_outline;
@@ -854,7 +854,7 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: AppTheme.textMuted.withAlpha(60),
+                color: AppTheme.slate.withAlpha(60),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -891,7 +891,7 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
                 _lastStatusMessage!,
                 style: const TextStyle(
                   fontSize: 12,
-                  color: AppTheme.textMuted,
+                  color: AppTheme.slate,
                 ),
               ),
             ],
@@ -901,9 +901,8 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
               icon: Icons.cloud_upload_outlined,
               label: l10n.syncPending,
               value: '$_pendingCount',
-              color: _pendingCount > 0
-                  ? AppTheme.statusWarning
-                  : AppTheme.textMuted,
+              color:
+                  _pendingCount > 0 ? AppTheme.statusWarning : AppTheme.slate,
             ),
             const SizedBox(height: 10),
             // Failed operations row
@@ -911,8 +910,7 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
               icon: Icons.error_outline,
               label: l10n.syncFailed,
               value: '$_failedCount',
-              color:
-                  _failedCount > 0 ? AppTheme.statusError : AppTheme.textMuted,
+              color: _failedCount > 0 ? AppTheme.statusError : AppTheme.slate,
             ),
             const SizedBox(height: 20),
             // Action buttons
@@ -961,7 +959,7 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
                     _isSyncing ? l10n.syncInProgress : l10n.syncNow,
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryGreen,
+                    backgroundColor: context.roleColors.primary,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
@@ -1002,7 +1000,7 @@ class _SyncInfoRow extends StatelessWidget {
           label,
           style: const TextStyle(
             fontSize: 14,
-            color: AppTheme.textDark,
+            color: AppTheme.ink,
           ),
         ),
         const Spacer(),

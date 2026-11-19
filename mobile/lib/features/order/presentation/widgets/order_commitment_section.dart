@@ -81,7 +81,7 @@ class OrderCommitmentSection extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
             ),
@@ -409,20 +409,20 @@ class _PartyRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (background, foreground) = switch (tone) {
-      _Tone.paid => (AppTheme.dropoffBlueTint, AppTheme.dropoffBlue),
-      _Tone.done => (AppTheme.fieldGreenTint, AppTheme.fieldGreen),
-      _Tone.waiting => (AppTheme.actionCream, AppTheme.money),
+      _Tone.paid => (AppTheme.dropoffSlateTint, AppTheme.dropoffSlate),
+      _Tone.done => (context.roleColors.tint, context.roleColors.primary),
+      _Tone.waiting => (AppTheme.orangeTint, context.roleColors.primary),
       _Tone.failed => (
           AppTheme.statusErrorContainer,
           AppTheme.onStatusErrorContainer
         ),
-      _Tone.idle => (AppTheme.segmentTrack, AppTheme.mutedSteel),
+      _Tone.idle => (AppTheme.segmentTrack, AppTheme.slate),
     };
     final stateColor = switch (state.tone) {
-      _Tone.done => AppTheme.fieldGreen,
-      _Tone.waiting => AppTheme.money,
+      _Tone.done => context.roleColors.primary,
+      _Tone.waiting => context.roleColors.primary,
       _Tone.failed => AppTheme.onStatusErrorContainer,
-      _ => AppTheme.mutedSteel,
+      _ => AppTheme.slate,
     };
     return Row(
       children: [
@@ -436,7 +436,7 @@ class _PartyRow extends StatelessWidget {
         Expanded(
           child: Text.rich(
             text,
-            style: const TextStyle(fontSize: 14, color: AppTheme.soilDark),
+            style: const TextStyle(fontSize: 14, color: AppTheme.ink),
           ),
         ),
         const SizedBox(width: 12),
@@ -479,7 +479,7 @@ class _CommitmentNote extends StatelessWidget {
           fontSize: 13,
           height: 1.5,
           fontWeight: warning ? FontWeight.w700 : FontWeight.w400,
-          color: warning ? AppTheme.actionInk : AppTheme.mutedSteel,
+          color: warning ? AppTheme.orangeInk : AppTheme.slate,
         ),
       );
     }
@@ -487,17 +487,17 @@ class _CommitmentNote extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        color: AppTheme.actionCream,
+        color: AppTheme.orangeTint,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.warning_amber, size: 20, color: AppTheme.actionInk),
+          const Icon(Icons.warning_amber, size: 20, color: AppTheme.orangeInk),
           const SizedBox(width: 12),
           Expanded(
             child: ClockText(
               label,
-              style: const TextStyle(color: AppTheme.actionInk),
+              style: const TextStyle(color: AppTheme.orangeInk),
             ),
           ),
         ],

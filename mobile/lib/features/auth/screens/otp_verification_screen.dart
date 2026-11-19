@@ -182,8 +182,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     final phone = groupPhoneForDisplay(widget.phoneNumber);
     final sentence = l10n.otpSentTo(phone);
     final at = sentence.indexOf(phone);
-    const bold =
-        TextStyle(fontWeight: FontWeight.w700, color: AppTheme.soilDark);
+    const bold = TextStyle(fontWeight: FontWeight.w700, color: AppTheme.ink);
     if (at < 0) return Text(sentence, style: joinSubtitleStyle);
     return Text.rich(
       TextSpan(
@@ -204,7 +203,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     return BlocListener<AuthBloc, AuthState>(
       listener: _onAuthState,
       child: Scaffold(
-        backgroundColor: AppTheme.chalkBackground,
+        backgroundColor: AppTheme.ground,
         body: SafeArea(
           child: FwContentWidth(
             maxWidth: 480,
@@ -311,7 +310,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                                     ),
                                     style: const TextStyle(
                                       fontSize: 13,
-                                      color: AppTheme.mutedSteel,
+                                      color: AppTheme.slate,
                                     ),
                                   ),
                           ),
@@ -326,8 +325,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                               minimumSize: const Size(0, 36),
                               // A 36 tall link in a 48 by 48 hit area.
                               tapTargetSize: MaterialTapTargetSize.padded,
-                              foregroundColor: AppTheme.fieldGreen,
-                              disabledForegroundColor: AppTheme.mutedSteel,
+                              foregroundColor: context.roleColors.primary,
+                              disabledForegroundColor: AppTheme.slate,
                             ),
                             child: Text(
                               _secondsLeft > 0
@@ -411,7 +410,7 @@ class _CodeBoxes extends StatelessWidget {
                       color: error
                           ? Theme.of(context).colorScheme.error
                           : active
-                              ? AppTheme.fieldGreen
+                              ? context.roleColors.primary
                               : AppTheme.fieldBorder,
                     ),
                   ),
@@ -420,7 +419,7 @@ class _CodeBoxes extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w800,
-                      color: AppTheme.soilDark,
+                      color: AppTheme.ink,
                     ),
                   ),
                 );

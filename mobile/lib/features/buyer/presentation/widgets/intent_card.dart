@@ -44,7 +44,7 @@ class IntentCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppTheme.surfaceWhite,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.borderLight),
+            border: Border.all(color: AppTheme.line),
           ),
           child: Row(
             children: [
@@ -71,7 +71,7 @@ class IntentCard extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
-                        color: AppTheme.textDark,
+                        color: AppTheme.ink,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -82,7 +82,7 @@ class IntentCard extends StatelessWidget {
                       '${intent.maxPricePerKg > 0 ? '≤${intent.maxPricePerKg.toStringAsFixed(0)} ${l10n.etbPerKg}' : l10n.anyPrice} → ${intent.deliveryWoreda}',
                       style: const TextStyle(
                         fontSize: 12,
-                        color: AppTheme.textMuted,
+                        color: AppTheme.slate,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -117,7 +117,7 @@ class IntentCard extends StatelessWidget {
                             fontWeight: FontWeight.w500,
                             color: hasNew
                                 ? AppTheme.statusSuccess
-                                : AppTheme.textMuted,
+                                : AppTheme.slate,
                           ),
                         ),
                       ],
@@ -139,7 +139,7 @@ class IntentCard extends StatelessWidget {
                       l10n.noMatchesYet,
                       style: const TextStyle(
                         fontSize: 11,
-                        color: AppTheme.textMuted,
+                        color: AppTheme.slate,
                       ),
                     ),
                 ],
@@ -149,7 +149,7 @@ class IntentCard extends StatelessWidget {
                   icon: const Icon(
                     Icons.more_vert,
                     size: 20,
-                    color: AppTheme.textMuted,
+                    color: AppTheme.slate,
                   ),
                   padding: EdgeInsets.zero,
                   onSelected: (action) => switch (action) {

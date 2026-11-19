@@ -51,7 +51,7 @@ List<Widget> trackReadNotice(BuildContext context, TrackView view) {
       icon: offline ? Icons.cloud_off : Icons.info_outline,
       text: text,
       kind: StatusKind.warning,
-      background: offline ? AppTheme.soilDark : null,
+      background: offline ? AppTheme.ink : null,
       foreground: offline ? Colors.white : null,
     ),
     const SizedBox(height: 12),
@@ -63,7 +63,7 @@ List<Widget> trackReadNotice(BuildContext context, TrackView view) {
 class LiveTripBackButton extends StatelessWidget {
   const LiveTripBackButton({
     this.background = AppTheme.surfaceWhite,
-    this.foreground = AppTheme.soilDark,
+    this.foreground = AppTheme.ink,
     this.border,
     super.key,
   });
@@ -83,7 +83,7 @@ class LiveTripBackButton extends StatelessWidget {
       semanticLabel: l10n.back,
       background: background,
       foreground: foreground,
-      border: border ?? AppTheme.whisperBorder,
+      border: border ?? AppTheme.line,
       onTap: () => Navigator.of(context).maybePop(),
     );
   }
@@ -95,8 +95,8 @@ class LiveTripBackButton extends StatelessWidget {
 class DotPill extends StatelessWidget {
   const DotPill({
     required this.label,
-    this.background = AppTheme.chalkBackground,
-    this.foreground = AppTheme.soilDark,
+    this.background = AppTheme.ground,
+    this.foreground = AppTheme.ink,
     this.dotColor,
     this.icon,
     this.border,
@@ -192,14 +192,20 @@ class CheckInChip extends StatelessWidget {
     // hourly rhythm white, late on cream, paused and scans only on grey,
     // ended on the drop-off blue tint.
     final (background, foreground) = switch (band) {
-      TrackFreshness.late => (AppTheme.actionCream, AppTheme.actionInk),
+      TrackFreshness.late => (AppTheme.orangeTint, AppTheme.orangeInk),
       TrackFreshness.paused || TrackFreshness.scansOnly => (
           AppTheme.segmentTrack,
-          AppTheme.unselectedNav
+          AppTheme.inkSoft
         ),
-      TrackFreshness.ended => (AppTheme.dropoffBlueTint, AppTheme.dropoffBlue),
-      TrackFreshness.fresh => (AppTheme.fieldGreenTint, AppTheme.fieldGreen),
-      TrackFreshness.normal => (AppTheme.surfaceWhite, AppTheme.soilDark),
+      TrackFreshness.ended => (
+          AppTheme.dropoffSlateTint,
+          AppTheme.dropoffSlate
+        ),
+      TrackFreshness.fresh => (
+          context.roleColors.tint,
+          context.roleColors.primary
+        ),
+      TrackFreshness.normal => (AppTheme.surfaceWhite, AppTheme.ink),
     };
     final icon = switch (band) {
       TrackFreshness.late => Icons.signal_cellular_connected_no_internet_0_bar,
@@ -214,13 +220,13 @@ class CheckInChip extends StatelessWidget {
       // The list card's pill: a dot for the rhythm, the band's icon else.
       return DotPill(
         label: text.compact,
-        background: rhythm ? AppTheme.chalkBackground : background,
+        background: rhythm ? AppTheme.ground : background,
         foreground: foreground,
-        border: rhythm ? AppTheme.whisperBorder : null,
+        border: rhythm ? AppTheme.line : null,
         dotColor: rhythm
             ? (band == TrackFreshness.fresh
-                ? AppTheme.fieldGreen
-                : AppTheme.mutedSteel)
+                ? context.roleColors.primary
+                : AppTheme.slate)
             : null,
         icon: rhythm ? null : icon,
         height: 26,
@@ -451,8 +457,8 @@ class RouteRibbon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final done = ended ? AppTheme.textMuted : AppTheme.primary;
-    const ahead = AppTheme.borderLight;
+    final done = ended ? AppTheme.slate : context.roleColors.primary;
+    const ahead = AppTheme.line;
     Widget dot(int i) => Container(
           width: 10,
           height: 10,
@@ -500,8 +506,7 @@ class RouteRibbon extends StatelessWidget {
                     fontSize: 12,
                     fontWeight:
                         i == reached ? FontWeight.w700 : FontWeight.w500,
-                    color:
-                        i == reached ? AppTheme.textDark : AppTheme.textMuted,
+                    color: i == reached ? AppTheme.ink : AppTheme.slate,
                   ),
                 ),
               ),
@@ -605,10 +610,10 @@ class TripProgress extends StatelessWidget {
                     height: 4,
                     decoration: BoxDecoration(
                       color: i < reached
-                          ? AppTheme.fieldGreen
+                          ? context.roleColors.primary
                           : i == reached
-                              ? AppTheme.accentSoft
-                              : AppTheme.whisperBorder,
+                              ? AppTheme.orange
+                              : AppTheme.line,
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
@@ -622,10 +627,10 @@ class TripProgress extends StatelessWidget {
                       fontWeight:
                           i <= reached ? FontWeight.w700 : FontWeight.w600,
                       color: i == reached
-                          ? AppTheme.money
+                          ? context.roleColors.primary
                           : i < reached
-                              ? AppTheme.soilDark
-                              : AppTheme.mutedSteel,
+                              ? AppTheme.ink
+                              : AppTheme.slate,
                     ),
                   ),
                 ],
@@ -667,11 +672,11 @@ class LiveTripNote extends StatelessWidget {
     final iconColor = foreground ??
         (plain
             ? (kind == StatusKind.success
-                ? AppTheme.fieldGreen
+                ? context.roleColors.primary
                 : kind.foreground)
             : kind.foreground);
     final textColor =
-        foreground ?? (plain ? AppTheme.unselectedNav : kind.foreground);
+        foreground ?? (plain ? AppTheme.inkSoft : kind.foreground);
     final row = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -744,14 +749,14 @@ class ArrivalWindowBlock extends StatelessWidget {
     const small = TextStyle(
       fontSize: 12,
       fontWeight: FontWeight.w500,
-      color: AppTheme.mutedSteel,
+      color: AppTheme.slate,
     );
     if (eta == null) {
       return Text(
         l10n.liveTripNoEta,
         style: compact
             ? small
-            : const TextStyle(fontSize: 14, color: AppTheme.mutedSteel),
+            : const TextStyle(fontSize: 14, color: AppTheme.slate),
       );
     }
     final window = clock.window(eta.from, eta.to);
@@ -778,7 +783,7 @@ class ArrivalWindowBlock extends StatelessWidget {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
             ),
           ),
         // One line: a narrow pane shrinks the window instead of breaking
@@ -793,7 +798,7 @@ class ArrivalWindowBlock extends StatelessWidget {
               fontWeight: FontWeight.w800,
               letterSpacing: -0.9,
               height: 1.2,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
         ),
@@ -867,7 +872,7 @@ class LiveTripSquareAction extends StatelessWidget {
     required this.icon,
     required this.semanticLabel,
     required this.onTap,
-    this.background = AppTheme.fieldGreen,
+    this.background = AppTheme.ink,
     this.foreground = Colors.white,
     this.border,
     this.size = 44,
@@ -926,24 +931,12 @@ void openOrderChat(
   );
 }
 
-/// The avatar colours of a party by role (the boards): the farmer on the
-/// green tint, the trucker brown on cream, the buyer on the drop-off blue
-/// tint.
-({Color background, Color foreground}) partyAvatarColors(UserRole? role) =>
-    switch (role) {
-      UserRole.trucker => (
-          background: AppTheme.actionCream,
-          foreground: AppTheme.money
-        ),
-      UserRole.buyer => (
-          background: AppTheme.dropoffBlueTint,
-          foreground: AppTheme.dropoffBlue
-        ),
-      UserRole.farmer || null => (
-          background: AppTheme.fieldGreenTint,
-          foreground: AppTheme.fieldGreen
-        ),
-    };
+/// The avatar colours of a party: that party's own role colour on its
+/// tint (a farmer is plum, a trucker blue, a buyer green in every app).
+({Color background, Color foreground}) partyAvatarColors(UserRole? role) {
+  final colors = RoleColors.forRole(role ?? UserRole.farmer);
+  return (background: colors.tint, foreground: colors.primary);
+}
 
 /// The initials of a display name, two letters at most.
 String partyInitials(String display) => display
@@ -1030,7 +1023,7 @@ class PartyContactTile extends StatelessWidget {
                 style: TextStyle(
                   fontSize: avatarSize >= 44 ? 15 : 14,
                   fontWeight: FontWeight.w700,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
               // Two lines, so a truck and its plate ("Isuzu FSR 5 t ·
@@ -1042,7 +1035,7 @@ class PartyContactTile extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
-                  color: AppTheme.mutedSteel,
+                  color: AppTheme.slate,
                 ),
               ),
             ],
@@ -1056,7 +1049,7 @@ class PartyContactTile extends StatelessWidget {
             child: const Icon(
               Icons.chat_bubble_outline,
               size: 20,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
           const SizedBox(width: 8),
@@ -1122,8 +1115,8 @@ class LiveTripStats extends StatelessWidget {
             Expanded(
               child: figure(
                 stat,
-                valueColor: AppTheme.soilDark,
-                labelColor: AppTheme.mutedSteel,
+                valueColor: AppTheme.ink,
+                labelColor: AppTheme.slate,
               ),
             ),
         ],
@@ -1137,17 +1130,16 @@ class LiveTripStats extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: i == 0 ? AppTheme.fieldGreen : AppTheme.surfaceWhite,
+                color:
+                    i == 0 ? context.roleColors.primary : AppTheme.surfaceWhite,
                 borderRadius: BorderRadius.circular(16),
-                border:
-                    i == 0 ? null : Border.all(color: AppTheme.whisperBorder),
+                border: i == 0 ? null : Border.all(color: AppTheme.line),
               ),
               child: figure(
                 stat,
                 valueSize: 20,
-                valueColor: i == 0 ? Colors.white : AppTheme.soilDark,
-                labelColor:
-                    i == 0 ? const Color(0xFFCFE3D6) : AppTheme.mutedSteel,
+                valueColor: i == 0 ? Colors.white : AppTheme.ink,
+                labelColor: i == 0 ? const Color(0xFFCFE3D6) : AppTheme.slate,
               ),
             ),
           ),

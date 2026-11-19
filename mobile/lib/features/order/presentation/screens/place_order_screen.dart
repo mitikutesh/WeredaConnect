@@ -497,7 +497,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                                     key: const Key('place_order_all'),
                                     onPressed: _orderAll,
                                     style: TextButton.styleFrom(
-                                      foregroundColor: AppTheme.money,
+                                      foregroundColor:
+                                          context.roleColors.primary,
                                       minimumSize: const Size(48, 48),
                                     ),
                                     child: Text(l10n.all),
@@ -522,7 +523,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                         if (trip != null) ...[
                           _PartyCard(
                             icon: Icons.local_shipping_outlined,
-                            iconBackground: AppTheme.actionCream,
+                            iconBackground: AppTheme.orangeTint,
                             title: '${trip.truckerName} · '
                                 '${boardDayInEthiopia(trip.departureDate)}',
                             subtitle: '${trip.fromWoreda} → ${trip.toWoreda} · '
@@ -531,7 +532,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                             trailing: TextButton(
                               onPressed: () => Navigator.of(context).pop(),
                               style: TextButton.styleFrom(
-                                foregroundColor: AppTheme.money,
+                                foregroundColor: context.roleColors.primary,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 8,
                                 ),
@@ -577,7 +578,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                                 style: const TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w800,
-                                  color: AppTheme.soilDark,
+                                  color: AppTheme.ink,
                                 ),
                               ),
                               const SizedBox(height: 11),
@@ -623,7 +624,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                               child: Icon(
                                 Icons.lock_outline,
                                 size: 16,
-                                color: AppTheme.unselectedNav,
+                                color: AppTheme.inkSoft,
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -633,7 +634,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                                 style: const TextStyle(
                                   fontSize: 13,
                                   height: 1.5,
-                                  color: AppTheme.unselectedNav,
+                                  color: AppTheme.inkSoft,
                                 ),
                               ),
                             ),
@@ -696,7 +697,7 @@ class _PartyCard extends StatelessWidget {
   /// The tile's icon; null draws the boards' crop sprout.
   final IconData? icon;
   final Color iconBackground;
-  final Color iconColor;
+  final Color? iconColor;
   final String title;
   final String subtitle;
   final Widget? trailing;
@@ -706,7 +707,7 @@ class _PartyCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.icon,
-    this.iconColor = AppTheme.money,
+    this.iconColor,
     this.trailing,
   });
 
@@ -737,7 +738,7 @@ class _PartyCard extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -745,7 +746,7 @@ class _PartyCard extends StatelessWidget {
                   subtitle,
                   style: const TextStyle(
                     fontSize: 12,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
               ],
@@ -792,7 +793,7 @@ class _QuantityField extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: error == null
-                  ? AppTheme.fieldGreen
+                  ? context.roleColors.primary
                   : Theme.of(context).colorScheme.error,
               width: 2,
             ),
@@ -810,7 +811,7 @@ class _QuantityField extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                   decoration: InputDecoration(
                     hintText: l10n.quantity,
@@ -872,7 +873,7 @@ class _StepButton extends StatelessWidget {
       label: semanticLabel,
       enabled: onPressed != null,
       child: Material(
-        color: AppTheme.chalkBackground,
+        color: AppTheme.ground,
         borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -883,8 +884,7 @@ class _StepButton extends StatelessWidget {
             child: Icon(
               icon,
               size: 20,
-              color:
-                  onPressed == null ? AppTheme.mutedSteel : AppTheme.soilDark,
+              color: onPressed == null ? AppTheme.slate : AppTheme.ink,
             ),
           ),
         ),

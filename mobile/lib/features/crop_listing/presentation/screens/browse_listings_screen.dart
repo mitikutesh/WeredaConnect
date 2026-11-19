@@ -499,7 +499,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                             tooltip: l10n.back,
                             icon: const Icon(
                               Icons.arrow_back,
-                              color: AppTheme.soilDark,
+                              color: AppTheme.ink,
                             ),
                           ),
                         ),
@@ -536,7 +536,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                           trailing: FwSquareButton(
                             semanticLabel: l10n.marketSearchToggle,
                             background: _filtersOpen
-                                ? AppTheme.fieldGreenTint
+                                ? context.roleColors.tint
                                 : AppTheme.surfaceWhite,
                             onTap: () =>
                                 setState(() => _filtersOpen = !_filtersOpen),
@@ -544,8 +544,8 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                               Icons.search,
                               size: 20,
                               color: _filtersOpen
-                                  ? AppTheme.fieldGreen
-                                  : AppTheme.soilDark,
+                                  ? context.roleColors.primary
+                                  : AppTheme.ink,
                             ),
                           ),
                         ),
@@ -651,7 +651,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                             Icon(
                               Icons.eco_outlined,
                               size: 56,
-                              color: AppTheme.textMuted.withAlpha(150),
+                              color: AppTheme.slate.withAlpha(150),
                             ),
                             const SizedBox(height: 16),
                             Text(
@@ -659,7 +659,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
-                                color: AppTheme.textDark,
+                                color: AppTheme.ink,
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -667,7 +667,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                               localizeLoadError(state.code, l10n),
                               style: const TextStyle(
                                 fontSize: 13,
-                                color: AppTheme.textMuted,
+                                color: AppTheme.slate,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -742,7 +742,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                               const Icon(
                                 Icons.eco_outlined,
                                 size: 64,
-                                color: AppTheme.textMuted,
+                                color: AppTheme.slate,
                               ),
                               const SizedBox(height: 16),
                               Text(
@@ -750,7 +750,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                 style: const TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w500,
-                                  color: AppTheme.textMuted,
+                                  color: AppTheme.slate,
                                 ),
                               ),
                               const SizedBox(height: 4),
@@ -758,7 +758,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                 l10n.dataWillSyncWhenOnline,
                                 style: const TextStyle(
                                   fontSize: 13,
-                                  color: AppTheme.textMuted,
+                                  color: AppTheme.slate,
                                 ),
                                 textAlign: TextAlign.center,
                               ),
@@ -805,8 +805,8 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                     key: const Key('my_crops_not_sent_note'),
                                     text: l10n.myCropsNotSentNote,
                                     icon: Icons.cloud_upload_outlined,
-                                    background: AppTheme.actionCream,
-                                    foreground: AppTheme.actionInk,
+                                    background: AppTheme.orangeTint,
+                                    foreground: AppTheme.orangeInk,
                                   ),
                                   const SizedBox(height: 10),
                                   privacy,
@@ -936,14 +936,14 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                           const Icon(
                             Icons.eco_outlined,
                             size: 64,
-                            color: AppTheme.textMuted,
+                            color: AppTheme.slate,
                           ),
                           const SizedBox(height: 16),
                           Text(
                             l10n.noCropListings,
                             style: const TextStyle(
                               fontSize: 16,
-                              color: AppTheme.textMuted,
+                              color: AppTheme.slate,
                             ),
                           ),
                         ],
@@ -972,10 +972,10 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                 if (!mounted) return;
                 _loadListings();
               },
-              backgroundColor: AppTheme.accentGold,
+              backgroundColor: AppTheme.orange,
               // Dark ink on gold (white was 2.6:1), and a name for screen
               // readers and a long press.
-              foregroundColor: AppTheme.soilDark,
+              foregroundColor: AppTheme.ink,
               tooltip: AppLocalizations.of(context)!.sellCrops,
               child: const Icon(Icons.add),
             ),
@@ -1058,20 +1058,20 @@ class _RolePill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       decoration: BoxDecoration(
-        color: AppTheme.fieldGreenTint,
+        color: context.roleColors.tint,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.eco_outlined, size: 16, color: AppTheme.fieldGreen),
+          Icon(Icons.eco_outlined, size: 16, color: context.roleColors.primary),
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: AppTheme.fieldGreen,
+              color: context.roleColors.primary,
             ),
           ),
         ],
@@ -1102,14 +1102,14 @@ class _FilterField extends StatelessWidget {
   Widget build(BuildContext context) {
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(14),
-      borderSide: const BorderSide(color: AppTheme.whisperBorder),
+      borderSide: const BorderSide(color: AppTheme.line),
     );
     return TextField(
       controller: controller,
       keyboardType: numeric ? TextInputType.number : null,
       inputFormatters:
           numeric ? [FilteringTextInputFormatter.digitsOnly] : null,
-      style: const TextStyle(fontSize: 14, color: AppTheme.soilDark),
+      style: const TextStyle(fontSize: 14, color: AppTheme.ink),
       decoration: InputDecoration(
         isDense: true,
         filled: true,
@@ -1118,14 +1118,14 @@ class _FilterField extends StatelessWidget {
         hintStyle: FwText.body.copyWith(fontSize: 14),
         prefixIcon: prefixIcon == null
             ? null
-            : Icon(prefixIcon, size: 20, color: AppTheme.mutedSteel),
+            : Icon(prefixIcon, size: 20, color: AppTheme.slate),
         prefixText: prefixText,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         border: border,
         enabledBorder: border,
         focusedBorder: border.copyWith(
-          borderSide: const BorderSide(color: AppTheme.fieldGreen),
+          borderSide: BorderSide(color: context.roleColors.primary),
         ),
       ),
       onChanged: onChanged,
@@ -1162,7 +1162,7 @@ class _NoMatch extends StatelessWidget {
             Icon(
               icon,
               size: 64,
-              color: AppTheme.textMuted,
+              color: AppTheme.slate,
             ),
             const SizedBox(height: 16),
             Text(
@@ -1170,7 +1170,7 @@ class _NoMatch extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w500,
-                color: AppTheme.textMuted,
+                color: AppTheme.slate,
               ),
               textAlign: TextAlign.center,
             ),
@@ -1179,7 +1179,7 @@ class _NoMatch extends StatelessWidget {
               hint,
               style: const TextStyle(
                 fontSize: 13,
-                color: AppTheme.textMuted,
+                color: AppTheme.slate,
               ),
               textAlign: TextAlign.center,
             ),
@@ -1208,8 +1208,8 @@ class _PrivacyNote extends StatelessWidget {
     required this.text,
     super.key,
     this.icon = Icons.place_outlined,
-    this.background = AppTheme.dropoffBlueTint,
-    this.foreground = AppTheme.dropoffBlue,
+    this.background = AppTheme.dropoffSlateTint,
+    this.foreground = AppTheme.dropoffSlate,
   });
 
   @override
@@ -1357,10 +1357,10 @@ class _CropChip extends StatelessWidget {
         button: true,
         selected: selected,
         child: Material(
-          color: selected ? AppTheme.fieldGreen : AppTheme.surfaceWhite,
+          color: selected ? context.roleColors.primary : AppTheme.surfaceWhite,
           shape: StadiumBorder(
             side: BorderSide(
-              color: selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+              color: selected ? context.roleColors.primary : AppTheme.line,
             ),
           ),
           clipBehavior: Clip.antiAlias,
@@ -1375,7 +1375,7 @@ class _CropChip extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                  color: selected ? Colors.white : AppTheme.soilDark,
+                  color: selected ? Colors.white : AppTheme.ink,
                 ),
               ),
             ),

@@ -312,8 +312,8 @@ class _CropPhotoGalleryState extends State<CropPhotoGallery> {
                     height: 6,
                     decoration: BoxDecoration(
                       color: i == _page
-                          ? AppTheme.fieldGreen
-                          : AppTheme.whisperBorder,
+                          ? context.roleColors.primary
+                          : AppTheme.line,
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),

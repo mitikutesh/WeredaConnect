@@ -49,8 +49,8 @@ class SuggestedTripCard extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
           side: isSelected
-              ? const BorderSide(color: AppTheme.soilDark, width: 2)
-              : const BorderSide(color: AppTheme.whisperBorder),
+              ? const BorderSide(color: AppTheme.ink, width: 2)
+              : const BorderSide(color: AppTheme.line),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -72,7 +72,7 @@ class SuggestedTripCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
-                          color: AppTheme.soilDark,
+                          color: AppTheme.ink,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -82,7 +82,7 @@ class SuggestedTripCard extends StatelessWidget {
                         '${trip.fromWoreda} → ${trip.toWoreda} · $room$rated',
                         style: const TextStyle(
                           fontSize: 12,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -103,14 +103,14 @@ class SuggestedTripCard extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w800,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                     Text(
                       l10n.detailEtbPerQuintalShort,
                       style: const TextStyle(
                         fontSize: 11,
-                        color: AppTheme.mutedSteel,
+                        color: AppTheme.slate,
                       ),
                     ),
                   ],
@@ -138,7 +138,7 @@ class _Radio extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(
-          color: selected ? AppTheme.soilDark : AppTheme.mutedSteel,
+          color: selected ? AppTheme.ink : AppTheme.slate,
           width: 2,
         ),
       ),
@@ -149,7 +149,7 @@ class _Radio extends StatelessWidget {
                 height: 10,
                 decoration: const BoxDecoration(
                   shape: BoxShape.circle,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
             )

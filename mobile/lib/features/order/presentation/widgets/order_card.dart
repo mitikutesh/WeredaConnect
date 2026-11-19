@@ -123,7 +123,7 @@ class OrderCard extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
-                        color: AppTheme.mutedSteel,
+                        color: AppTheme.slate,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -142,7 +142,7 @@ class OrderCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         ),
                       ),
                     Text(
@@ -150,7 +150,7 @@ class OrderCard extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -160,7 +160,7 @@ class OrderCard extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
-                      color: AppTheme.mutedSteel,
+                      color: AppTheme.slate,
                     ),
                   ),
                 ],
@@ -174,7 +174,7 @@ class OrderCard extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ),
           ],
@@ -201,7 +201,7 @@ class OrderCard extends StatelessWidget {
                     child: OutlinedButton(
                       onPressed: actionsEnabled ? onReject : null,
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.soilDark,
+                        foregroundColor: AppTheme.ink,
                         side: const BorderSide(color: Color(0xFFD6D3C8)),
                         minimumSize: const Size.fromHeight(48),
                         shape: RoundedRectangleBorder(
@@ -224,7 +224,7 @@ class OrderCard extends StatelessWidget {
                       onPressed:
                           acceptEnabled && actionsEnabled ? onAccept : null,
                       style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.soilDark,
+                        backgroundColor: AppTheme.ink,
                         foregroundColor: Colors.white,
                         minimumSize: const Size.fromHeight(48),
                         shape: RoundedRectangleBorder(

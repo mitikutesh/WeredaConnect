@@ -41,13 +41,13 @@ class TripSummaryTile extends StatelessWidget {
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: AppTheme.actionCream,
+              color: AppTheme.orangeTint,
               borderRadius: BorderRadius.circular(13),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.local_shipping_outlined,
               size: 22,
-              color: AppTheme.money,
+              color: context.roleColors.primary,
             ),
           ),
           const SizedBox(width: 12),
@@ -60,7 +60,7 @@ class TripSummaryTile extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -84,7 +84,7 @@ class TripSummaryTile extends StatelessWidget {
           ),
           if (onTap != null) ...[
             const SizedBox(width: 8),
-            const Icon(Icons.chevron_right, color: AppTheme.mutedSteel),
+            const Icon(Icons.chevron_right, color: AppTheme.slate),
           ],
         ],
       ),
@@ -99,7 +99,7 @@ Future<Trip?> showChooseTripSheet(BuildContext context, List<Trip> trips) {
   return showModalBottomSheet<Trip>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: AppTheme.chalkBackground,
+    backgroundColor: AppTheme.ground,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),

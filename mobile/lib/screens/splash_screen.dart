@@ -26,7 +26,7 @@ class SplashScreen extends StatelessWidget {
     final languages = context.watch<LanguageProvider?>();
 
     return Scaffold(
-      backgroundColor: AppTheme.chalkBackground,
+      backgroundColor: AppTheme.ground,
       body: SafeArea(
         child: FwContentWidth(
           maxWidth: 480,
@@ -42,7 +42,7 @@ class SplashScreen extends StatelessWidget {
                       width: 40,
                       height: 40,
                       decoration: BoxDecoration(
-                        color: AppTheme.fieldGreen,
+                        color: context.roleColors.primary,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Icon(
@@ -58,7 +58,7 @@ class SplashScreen extends StatelessWidget {
                         fontSize: 17,
                         fontWeight: FontWeight.w800,
                         letterSpacing: -0.3,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                   ],
@@ -72,7 +72,7 @@ class SplashScreen extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 36,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                     height: 1.1,
                     letterSpacing: -1,
                   ),
@@ -87,7 +87,7 @@ class SplashScreen extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                     height: 1.5,
                   ),
                 ),
@@ -131,7 +131,7 @@ class _LanguageChoice extends StatelessWidget {
       children: [
         const Padding(
           padding: EdgeInsets.only(top: 12),
-          child: Icon(Icons.language, size: 22, color: AppTheme.mutedSteel),
+          child: Icon(Icons.language, size: 22, color: AppTheme.slate),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -175,10 +175,10 @@ class _LanguageButton extends StatelessWidget {
         style: OutlinedButton.styleFrom(
           minimumSize: const Size(48, 48),
           backgroundColor:
-              selected ? AppTheme.fieldGreenTint : AppTheme.surfaceWhite,
-          foregroundColor: AppTheme.soilDark,
+              selected ? context.roleColors.tint : AppTheme.surfaceWhite,
+          foregroundColor: AppTheme.ink,
           side: BorderSide(
-            color: selected ? AppTheme.fieldGreen : AppTheme.borderLight,
+            color: selected ? context.roleColors.primary : AppTheme.line,
             width: selected ? 2 : 1,
           ),
           shape: RoundedRectangleBorder(

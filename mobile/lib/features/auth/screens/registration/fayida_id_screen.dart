@@ -93,9 +93,9 @@ class FayidaIdScreen extends StatelessWidget {
               child: isVerifying
                   ? Column(
                       children: [
-                        const CircularProgressIndicator(
+                        CircularProgressIndicator(
                           valueColor: AlwaysStoppedAnimation<Color>(
-                            AppTheme.fieldGreen,
+                            context.roleColors.primary,
                           ),
                         ),
                         const SizedBox(height: 10),
@@ -104,7 +104,7 @@ class FayidaIdScreen extends StatelessWidget {
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 14,
-                            color: AppTheme.mutedSteel,
+                            color: AppTheme.slate,
                           ),
                         ),
                         if (onCancelVerification != null) ...[
@@ -113,8 +113,7 @@ class FayidaIdScreen extends StatelessWidget {
                             onPressed: onCancelVerification,
                             child: Text(
                               l10n.cancel,
-                              style:
-                                  const TextStyle(color: AppTheme.mutedSteel),
+                              style: const TextStyle(color: AppTheme.slate),
                             ),
                           ),
                         ],
@@ -128,7 +127,7 @@ class FayidaIdScreen extends StatelessWidget {
                           child: FilledButton.icon(
                             onPressed: onFaydaVerifyRequested,
                             style: FilledButton.styleFrom(
-                              backgroundColor: AppTheme.soilDark,
+                              backgroundColor: AppTheme.ink,
                               foregroundColor: Colors.white,
                             ),
                             icon: const Icon(Icons.shield_outlined, size: 20),
@@ -145,7 +144,7 @@ class FayidaIdScreen extends StatelessWidget {
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 12,
-                            color: AppTheme.mutedSteel,
+                            color: AppTheme.slate,
                           ),
                         ),
                       ],
@@ -175,7 +174,7 @@ class _DigitalIdCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: verified ? const Color(0xFF193B2B) : AppTheme.soilDark,
+        color: verified ? const Color(0xFF193B2B) : AppTheme.ink,
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
@@ -190,12 +189,12 @@ class _DigitalIdCard extends StatelessWidget {
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 1.2,
-                  color: AppTheme.soilMuted,
+                  color: AppTheme.inkMuted,
                 ),
               ),
               Icon(
                 verified ? Icons.verified_outlined : Icons.shield_outlined,
-                color: AppTheme.soilGreen,
+                color: context.roleColors.mid,
                 size: 26,
               ),
             ],
@@ -207,7 +206,7 @@ class _DigitalIdCard extends StatelessWidget {
                 width: 64,
                 height: 76,
                 decoration: BoxDecoration(
-                  color: AppTheme.soilCard,
+                  color: AppTheme.inkCard,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
@@ -233,9 +232,9 @@ class _DigitalIdCard extends StatelessWidget {
                           const SizedBox(height: 4),
                           Text(
                             l10n.faydaVerifiedWith,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
-                              color: AppTheme.soilGreen,
+                              color: context.roleColors.mid,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -259,7 +258,7 @@ class _DigitalIdCard extends StatelessWidget {
             l10n.faydaLegalNameNote,
             style: const TextStyle(
               fontSize: 13,
-              color: AppTheme.soilMuted,
+              color: AppTheme.inkMuted,
               height: 1.4,
             ),
           ),
@@ -282,7 +281,7 @@ class _PlaceholderLine extends StatelessWidget {
       child: Container(
         height: 10,
         decoration: BoxDecoration(
-          color: AppTheme.soilTrack,
+          color: AppTheme.inkTrack,
           borderRadius: BorderRadius.circular(999),
         ),
       ),

@@ -150,7 +150,7 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
               child: FilledButton.icon(
                 onPressed: _pickLicenseImage,
                 style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.soilDark,
+                  backgroundColor: AppTheme.ink,
                   foregroundColor: Colors.white,
                 ),
                 icon: const Icon(Icons.camera_alt_outlined, size: 20),
@@ -241,7 +241,7 @@ class _CameraFrame extends StatelessWidget {
           width: double.infinity,
           height: 230,
           decoration: BoxDecoration(
-            color: AppTheme.soilCard,
+            color: AppTheme.inkCard,
             borderRadius: BorderRadius.circular(24),
           ),
           clipBehavior: Clip.antiAlias,
@@ -272,7 +272,7 @@ class _CameraFrame extends StatelessWidget {
                           child: Text(
                             placeholder,
                             style: const TextStyle(
-                              color: AppTheme.soilMuted,
+                              color: AppTheme.inkMuted,
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
                             ),
@@ -317,7 +317,7 @@ class _Bracket extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const side = BorderSide(color: AppTheme.accentSoft, width: 4);
+    const side = BorderSide(color: AppTheme.orange, width: 4);
     const corner = Radius.circular(6);
     return Container(
       width: 26,
@@ -409,7 +409,7 @@ class _BuyerTypeOption extends StatelessWidget {
               color: AppTheme.surfaceWhite,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: isSelected ? AppTheme.soilDark : AppTheme.whisperBorder,
+                color: isSelected ? AppTheme.ink : AppTheme.line,
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -419,10 +419,10 @@ class _BuyerTypeOption extends StatelessWidget {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: AppTheme.dropoffBlueTint,
+                    color: AppTheme.dropoffSlateTint,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(icon, size: 22, color: AppTheme.dropoffBlue),
+                  child: Icon(icon, size: 22, color: AppTheme.dropoffSlate),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -431,7 +431,7 @@ class _BuyerTypeOption extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
-                      color: AppTheme.soilDark,
+                      color: AppTheme.ink,
                     ),
                   ),
                 ),
@@ -442,8 +442,7 @@ class _BuyerTypeOption extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color:
-                          isSelected ? AppTheme.soilDark : AppTheme.fieldBorder,
+                      color: isSelected ? AppTheme.ink : AppTheme.fieldBorder,
                       width: 2,
                     ),
                   ),
@@ -453,7 +452,7 @@ class _BuyerTypeOption extends StatelessWidget {
                           height: 12,
                           decoration: const BoxDecoration(
                             shape: BoxShape.circle,
-                            color: AppTheme.soilDark,
+                            color: AppTheme.ink,
                           ),
                         )
                       : null,

@@ -52,6 +52,7 @@ import 'package:wereda_connect/features/order/presentation/widgets/order_card.da
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/trucker_hero_card.dart';
+import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
@@ -186,7 +187,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final header = Container(
         margin: wide ? const EdgeInsets.fromLTRB(20, 16, 20, 0) : null,
         decoration: BoxDecoration(
-          color: AppTheme.soilDark,
+          color: AppTheme.ink,
           borderRadius: wide ? BorderRadius.circular(28) : null,
         ),
         child: _TruckerHomeHeader(
@@ -210,10 +211,10 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           else
             Container(
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
               child: Container(
                 decoration: const BoxDecoration(
-                  color: AppTheme.chalkBackground,
+                  color: AppTheme.ground,
                   borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
                 ),
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
@@ -406,7 +407,7 @@ class _TruckerHomeHeader extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 13,
-                      color: AppTheme.soilMuted,
+                      color: AppTheme.inkMuted,
                     ),
                   ),
                 ),
@@ -612,20 +613,20 @@ class _SyncChipState extends State<_SyncChip> {
                 : (l10n.synced, Icons.check);
     final (background, foreground) = pending > 0
         ? dark
-            ? (AppTheme.soilCard, AppTheme.accentSoft)
-            : (AppTheme.actionCream, AppTheme.actionInk)
+            ? (AppTheme.inkCard, AppTheme.orange)
+            : (AppTheme.orangeTint, AppTheme.orangeInk)
         : !isOnline
             ? dark
-                ? (AppTheme.soilTrack, AppTheme.soilMuted)
-                : (AppTheme.segmentTrack, AppTheme.mutedSteel)
+                ? (AppTheme.inkTrack, AppTheme.inkMuted)
+                : (AppTheme.segmentTrack, AppTheme.slate)
             : failed > 0
                 ? (
                     AppTheme.statusErrorContainer,
                     AppTheme.onStatusErrorContainer
                   )
                 : dark
-                    ? (AppTheme.soilCard, AppTheme.soilGreen)
-                    : (AppTheme.fieldGreenTint, AppTheme.fieldGreen);
+                    ? (AppTheme.inkCard, context.roleColors.mid)
+                    : (context.roleColors.tint, context.roleColors.primary);
 
     // At least 28 tall, taller when the text is scaled up.
     final chip = Container(
@@ -747,10 +748,10 @@ Future<void> _openHomeDest(
         const Scaffold(body: OrdersTabScreen(showBackButton: true)),
       );
     case _HomeDest.deliveries:
-      await tabOrPush(RoleTab.deliveries, null);
+      // Deliveries left the farmer's bar: a pushed page for them.
+      await tabOrPush(RoleTab.deliveries, const DeliveriesPage());
     case _HomeDest.payments:
-      // Payments is only a trucker tab; farmers and buyers get the
-      // payment history screen.
+      // Payments is no bar tab: the payment history screen.
       await tabOrPush(RoleTab.payments, const PaymentHistoryScreen());
   }
 }
@@ -786,8 +787,8 @@ class _GlanceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ink = emphasized ? Colors.white : AppTheme.soilDark;
-    final muted = emphasized ? const Color(0xFFCFE3D6) : AppTheme.mutedSteel;
+    final ink = emphasized ? Colors.white : AppTheme.ink;
+    final muted = emphasized ? const Color(0xFFCFE3D6) : AppTheme.slate;
     final value = this.value;
     final sub = this.sub;
     final valueSize =
@@ -796,12 +797,12 @@ class _GlanceTile extends StatelessWidget {
     return Semantics(
       button: true,
       child: Material(
-        color: emphasized ? AppTheme.fieldGreen : AppTheme.surfaceWhite,
+        color: emphasized ? context.roleColors.primary : AppTheme.surfaceWhite,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(compact ? 16 : 18),
           side: emphasized
               ? BorderSide.none
-              : const BorderSide(color: AppTheme.whisperBorder),
+              : const BorderSide(color: AppTheme.line),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -972,7 +973,7 @@ class _ActiveIntentsSectionState extends State<_ActiveIntentsSection> {
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
-                  color: AppTheme.textDark,
+                  color: AppTheme.ink,
                 ),
               ),
               const SizedBox(height: 8),
@@ -2231,8 +2232,8 @@ class _RecentLineCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (icon, color) = switch (item.type) {
-      _ActivityType.info => (Icons.info_outline, AppTheme.dropoffBlue),
-      _ActivityType.success => (Icons.check, AppTheme.fieldGreen),
+      _ActivityType.info => (Icons.info_outline, AppTheme.dropoffSlate),
+      _ActivityType.success => (Icons.check, context.roleColors.primary),
       _ActivityType.pending => (Icons.schedule, AppTheme.statusTransit),
     };
 
@@ -2249,7 +2250,7 @@ class _RecentLineCard extends StatelessWidget {
         color: AppTheme.surfaceWhite,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: AppTheme.whisperBorder),
+          side: const BorderSide(color: AppTheme.line),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -2267,7 +2268,7 @@ class _RecentLineCard extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
-                      color: AppTheme.unselectedNav,
+                      color: AppTheme.inkSoft,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -2278,14 +2279,14 @@ class _RecentLineCard extends StatelessWidget {
                   timeLabel,
                   style: const TextStyle(
                     fontSize: 12,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
                 const SizedBox(width: 2),
                 const Icon(
                   Icons.chevron_right,
                   size: 18,
-                  color: AppTheme.mutedSteel,
+                  color: AppTheme.slate,
                 ),
               ],
             ),

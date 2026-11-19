@@ -454,7 +454,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
       },
       child: Scaffold(
         // The camera sits on the soil dark page; the result pages are chalk.
-        backgroundColor: scanning ? AppTheme.soilDark : null,
+        backgroundColor: scanning ? AppTheme.ink : null,
         body: SafeArea(
           bottom: scanning,
           child: switch (_phase) {
@@ -545,7 +545,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
               button: true,
               label: l10n.deliveryToggleFlash,
               child: Material(
-                color: AppTheme.soilCard,
+                color: AppTheme.inkCard,
                 borderRadius: BorderRadius.circular(14),
                 clipBehavior: Clip.antiAlias,
                 child: InkWell(
@@ -678,7 +678,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
                       style: const TextStyle(
                         fontSize: 14,
                         height: 1.45,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -694,7 +694,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
                         fontSize: 24,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 4,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                       decoration: InputDecoration(
                         labelText: l10n.qrTypeCodeLabel,
@@ -736,13 +736,13 @@ class _QrScanScreenState extends State<QrScanScreen> {
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
-                            color: AppTheme.fieldGreenTint,
+                            color: context.roleColors.tint,
                             borderRadius: BorderRadius.circular(14),
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.check_circle,
                             size: 24,
-                            color: AppTheme.fieldGreen,
+                            color: context.roleColors.primary,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -751,10 +751,10 @@ class _QrScanScreenState extends State<QrScanScreen> {
                             _typed
                                 ? l10n.deliveryCodeTypedCheckedOnline
                                 : l10n.deliveryQrReadCheckedOnline,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w800,
-                              color: AppTheme.fieldGreen,
+                              color: context.roleColors.primary,
                             ),
                           ),
                         ),
@@ -805,7 +805,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
             ),
           ),
         ],
@@ -816,10 +816,10 @@ class _QrScanScreenState extends State<QrScanScreen> {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 2),
-            child:
-                Icon(Icons.location_on, size: 18, color: AppTheme.fieldGreen),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(Icons.location_on,
+                size: 18, color: context.roleColors.primary,),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -831,14 +831,14 @@ class _QrScanScreenState extends State<QrScanScreen> {
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 Text(
                   l10n.deliveryGpsAccuracy(gps.accuracy!.toStringAsFixed(0)),
                   style: const TextStyle(
                     fontSize: 12,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
               ],
@@ -859,7 +859,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
         const Icon(
           Icons.warning_amber,
           size: 18,
-          color: AppTheme.actionInk,
+          color: AppTheme.orangeInk,
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -868,7 +868,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: AppTheme.actionInk,
+              color: AppTheme.orangeInk,
             ),
           ),
         ),
@@ -949,7 +949,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
                       style: const TextStyle(
                         fontSize: 13,
                         height: 1.5,
-                        color: AppTheme.mutedSteel,
+                        color: AppTheme.slate,
                       ),
                     ),
                   ],
@@ -992,7 +992,7 @@ class _DarkHeader extends StatelessWidget {
                   subtitle,
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.soilMuted,
+                    color: AppTheme.inkMuted,
                   ),
                 ),
                 Semantics(
@@ -1078,7 +1078,7 @@ class QrLocationNeededView extends StatelessWidget {
             const Icon(
               Icons.warning_amber,
               size: 18,
-              color: AppTheme.actionInk,
+              color: AppTheme.orangeInk,
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -1087,7 +1087,7 @@ class QrLocationNeededView extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: AppTheme.actionInk,
+                  color: AppTheme.orangeInk,
                 ),
               ),
             ),
@@ -1100,7 +1100,7 @@ class QrLocationNeededView extends StatelessWidget {
           style: const TextStyle(
             fontSize: 13,
             height: 1.45,
-            color: AppTheme.soilDark,
+            color: AppTheme.ink,
           ),
         ),
         const SizedBox(height: 12),
@@ -1164,7 +1164,7 @@ class QrCameraErrorView extends StatelessWidget {
 
     return ColoredBox(
       key: const Key('qr_camera_error'),
-      color: AppTheme.soilCard,
+      color: AppTheme.inkCard,
       child: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
@@ -1194,7 +1194,7 @@ class QrCameraErrorView extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 14,
                   height: 1.45,
-                  color: AppTheme.soilMuted,
+                  color: AppTheme.inkMuted,
                 ),
               ),
               const SizedBox(height: 16),

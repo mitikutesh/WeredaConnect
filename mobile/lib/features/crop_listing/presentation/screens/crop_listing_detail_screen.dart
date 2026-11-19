@@ -408,7 +408,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                           key: const Key('listing_not_sent_pill'),
                           label: l10n.listingNotSentYet,
                           icon: Icons.cloud_upload_outlined,
-                          foreground: AppTheme.actionInk,
+                          foreground: AppTheme.orangeInk,
                         )
                       else
                         _StatusChip(status: _listing.status),
@@ -423,7 +423,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                         fontSize: 13,
                         height: 1.4,
                         fontWeight: FontWeight.w600,
-                        color: AppTheme.actionInk,
+                        color: AppTheme.orangeInk,
                       ),
                     ),
                   ],
@@ -466,7 +466,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                       style: const TextStyle(
                         fontSize: 14,
                         height: 1.5,
-                        color: AppTheme.unselectedNav,
+                        color: AppTheme.inkSoft,
                       ),
                     ),
                   ],
@@ -485,7 +485,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                       l10n.contactAfterEscrowNote,
                       style: const TextStyle(
                         fontSize: 13,
-                        color: AppTheme.mutedSteel,
+                        color: AppTheme.slate,
                       ),
                     ),
                     // FUP-67: a buyer reports what no check can catch (a
@@ -530,7 +530,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
           child: Center(
             child: Text(
               l10n.noTripsYet,
-              style: const TextStyle(color: AppTheme.mutedSteel),
+              style: const TextStyle(color: AppTheme.slate),
             ),
           ),
         )
@@ -915,7 +915,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
 const TextStyle _sectionTitle = TextStyle(
   fontSize: 15,
   fontWeight: FontWeight.w800,
-  color: AppTheme.soilDark,
+  color: AppTheme.ink,
 );
 
 /// The crop large with how much is left and when it was listed, and the
@@ -948,7 +948,7 @@ class _HeaderSection extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.9,
                     height: 1.1,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
               ),
@@ -958,7 +958,7 @@ class _HeaderSection extends StatelessWidget {
                 ' · $listed',
                 style: const TextStyle(
                   fontSize: 14,
-                  color: AppTheme.mutedSteel,
+                  color: AppTheme.slate,
                 ),
               ),
             ],
@@ -975,12 +975,12 @@ class _HeaderSection extends StatelessWidget {
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.9,
                 height: 1.1,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             ),
             Text(
               l10n.etbPerKg,
-              style: const TextStyle(fontSize: 12, color: AppTheme.mutedSteel),
+              style: const TextStyle(fontSize: 12, color: AppTheme.slate),
             ),
           ],
         ),
@@ -1000,23 +1000,23 @@ class _StatusChip extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final (background, foreground, label) = switch (status) {
       ListingStatus.active => (
-          AppTheme.fieldGreenTint,
-          AppTheme.fieldGreen,
+          context.roleColors.tint,
+          context.roleColors.primary,
           l10n.listingStatusActive,
         ),
       ListingStatus.reserved => (
-          AppTheme.actionCream,
-          AppTheme.actionInk,
+          AppTheme.orangeTint,
+          AppTheme.orangeInk,
           l10n.listingStatusReserved,
         ),
       ListingStatus.draft => (
           AppTheme.segmentTrack,
-          AppTheme.unselectedNav,
+          AppTheme.inkSoft,
           l10n.listingStatusDraft,
         ),
       ListingStatus.sold => (
-          AppTheme.dropoffBlueTint,
-          AppTheme.dropoffBlue,
+          AppTheme.dropoffSlateTint,
+          AppTheme.dropoffSlate,
           l10n.listingStatusSold,
         ),
       ListingStatus.expired => (
@@ -1077,7 +1077,7 @@ class _LocationSection extends StatelessWidget {
           const Icon(
             Icons.location_on_outlined,
             size: 20,
-            color: AppTheme.mutedSteel,
+            color: AppTheme.slate,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -1086,7 +1086,7 @@ class _LocationSection extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             ),
           ),
@@ -1095,7 +1095,7 @@ class _LocationSection extends StatelessWidget {
               '→ $deliverTo',
               style: const TextStyle(
                 fontSize: 13,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ),
         ],
@@ -1148,7 +1148,7 @@ class _FarmerCardState extends State<_FarmerCard> {
         .take(2)
         .map((part) => part.characters.first.toUpperCase())
         .join();
-    const muted = TextStyle(fontSize: 12, color: AppTheme.mutedSteel);
+    const muted = TextStyle(fontSize: 12, color: AppTheme.slate);
     return FutureBuilder<RatingSummary>(
       future: _summaryFuture,
       builder: (context, snapshot) {
@@ -1177,10 +1177,10 @@ class _FarmerCardState extends State<_FarmerCard> {
                   backgroundColor: const Color(0xFFE3EEE6),
                   child: Text(
                     initials,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w800,
-                      color: AppTheme.fieldGreen,
+                      color: context.roleColors.primary,
                     ),
                   ),
                 ),
@@ -1194,7 +1194,7 @@ class _FarmerCardState extends State<_FarmerCard> {
                         style: const TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
-                          color: AppTheme.soilDark,
+                          color: AppTheme.ink,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -1236,18 +1236,18 @@ class _FarmerCardState extends State<_FarmerCard> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.star_rounded,
                         size: 16,
-                        color: AppTheme.money,
+                        color: context.roleColors.primary,
                       ),
                       const SizedBox(width: 3),
                       Text(
                         average.toStringAsFixed(1),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: AppTheme.money,
+                          color: context.roleColors.primary,
                         ),
                       ),
                     ],

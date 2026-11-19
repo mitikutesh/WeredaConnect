@@ -174,13 +174,13 @@ const _rowPadding = EdgeInsets.fromLTRB(16, 4, 12, 4);
 const _rowTitleStyle = TextStyle(
   fontSize: 14,
   fontWeight: FontWeight.w700,
-  color: AppTheme.soilDark,
+  color: AppTheme.ink,
 );
 
 const _rowSubtitleStyle = TextStyle(
   fontSize: 12,
   fontWeight: FontWeight.w500,
-  color: AppTheme.mutedSteel,
+  color: AppTheme.slate,
 );
 
 /// A settings row: icon tile, title, optional subtitle, chevron. A
@@ -203,7 +203,7 @@ Widget _settingsRow({
     trailing: const Icon(
       Icons.chevron_right,
       size: 20,
-      color: AppTheme.mutedSteel,
+      color: AppTheme.slate,
     ),
     onTap: onTap,
   );
@@ -220,10 +220,10 @@ class _SettingsIcon extends StatelessWidget {
       width: 36,
       height: 36,
       decoration: BoxDecoration(
-        color: AppTheme.fieldGreenTint,
+        color: context.roleColors.tint,
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Icon(icon, size: 20, color: AppTheme.fieldGreen),
+      child: Icon(icon, size: 20, color: context.roleColors.primary),
     );
   }
 }

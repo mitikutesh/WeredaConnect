@@ -372,7 +372,7 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
                 },
                 style: TextButton.styleFrom(
                   minimumSize: const Size.fromHeight(44),
-                  foregroundColor: AppTheme.unselectedNav,
+                  foregroundColor: AppTheme.inkSoft,
                 ),
                 child: Text(
                   state is CheckoutPaid || state is CheckoutStopped
@@ -511,7 +511,7 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
   static const TextStyle _noteStyle = TextStyle(
     fontSize: 13,
     height: 1.4,
-    color: AppTheme.mutedSteel,
+    color: AppTheme.slate,
   );
 }
 
@@ -543,7 +543,7 @@ class _OpenTelebirrButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final style = FilledButton.styleFrom(
-      backgroundColor: AppTheme.soilDark,
+      backgroundColor: AppTheme.ink,
       minimumSize: const Size.fromHeight(56),
       textStyle: const TextStyle(
         fontFamily: AppTheme.fontFamily,

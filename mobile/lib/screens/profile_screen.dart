@@ -250,7 +250,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           child: const Icon(
                             Icons.settings_outlined,
                             size: 20,
-                            color: AppTheme.soilDark,
+                            color: AppTheme.ink,
                           ),
                         ),
                       ),
@@ -330,8 +330,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               icon: Icons.verified_user_outlined,
               title: l10n.verifyWithFayda,
               subtitle: l10n.faydaNotVerifiedSubtitle,
-              iconColor: AppTheme.money,
-              iconBackground: AppTheme.actionCream,
+              iconColor: context.roleColors.primary,
+              iconBackground: AppTheme.orangeTint,
               onTap: () => _openFaydaVerification(context),
             ),
           if (myReputationUserId != null)
@@ -457,7 +457,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const Icon(
               Icons.person_off_outlined,
               size: 80,
-              color: AppTheme.textMuted,
+              color: AppTheme.slate,
             ),
             const SizedBox(height: 24),
             Text(
@@ -465,7 +465,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.textDark,
+                color: AppTheme.ink,
               ),
             ),
             const SizedBox(height: 8),
@@ -473,7 +473,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               l10n.profileRestartApp,
               style: const TextStyle(
                 fontSize: 14,
-                color: AppTheme.textMuted,
+                color: AppTheme.slate,
               ),
             ),
           ],
@@ -849,9 +849,9 @@ class _IdentityCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final (pillBackground, pillForeground) = switch (role) {
-      UserRole.farmer => (AppTheme.fieldGreenTint, AppTheme.fieldGreen),
-      UserRole.trucker => (AppTheme.actionCream, AppTheme.money),
-      UserRole.buyer => (AppTheme.dropoffBlueTint, AppTheme.dropoffBlue),
+      UserRole.farmer => (context.roleColors.tint, context.roleColors.primary),
+      UserRole.trucker => (AppTheme.orangeTint, context.roleColors.primary),
+      UserRole.buyer => (AppTheme.dropoffSlateTint, AppTheme.dropoffSlate),
     };
     return FwCard(
       child: Row(
@@ -940,7 +940,7 @@ class _StatsCard extends StatelessWidget {
       width: 1,
       height: 32,
       margin: const EdgeInsets.symmetric(horizontal: 12),
-      color: AppTheme.whisperBorder,
+      color: AppTheme.line,
     );
   }
 }
@@ -965,7 +965,7 @@ class _StatColumn extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             ),
           ),
@@ -976,7 +976,7 @@ class _StatColumn extends StatelessWidget {
             style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
             ),
           ),
         ],
@@ -1043,13 +1043,13 @@ class _ProfileRow extends StatelessWidget {
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: iconBackground ?? AppTheme.fieldGreenTint,
+                color: iconBackground ?? context.roleColors.tint,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
                 icon,
                 size: 20,
-                color: iconColor ?? AppTheme.fieldGreen,
+                color: iconColor ?? context.roleColors.primary,
               ),
             ),
             const SizedBox(width: 14),
@@ -1062,7 +1062,7 @@ class _ProfileRow extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
-                      color: AppTheme.soilDark,
+                      color: AppTheme.ink,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -1071,7 +1071,7 @@ class _ProfileRow extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
-                      color: AppTheme.mutedSteel,
+                      color: AppTheme.slate,
                     ),
                   ),
                 ],
@@ -1080,7 +1080,7 @@ class _ProfileRow extends StatelessWidget {
             const Icon(
               Icons.chevron_right,
               size: 20,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
             ),
           ],
         ),
@@ -1151,13 +1151,13 @@ class _AppLockRowState extends State<_AppLockRow> {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: AppTheme.fieldGreenTint,
+              color: context.roleColors.tint,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.lock_outline,
               size: 20,
-              color: AppTheme.fieldGreen,
+              color: context.roleColors.primary,
             ),
           ),
           title: Text(
@@ -1165,7 +1165,7 @@ class _AppLockRowState extends State<_AppLockRow> {
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
           subtitle: Text(
@@ -1173,7 +1173,7 @@ class _AppLockRowState extends State<_AppLockRow> {
             style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
             ),
           ),
           value: _enabled,

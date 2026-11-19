@@ -619,8 +619,8 @@ class _GpsStatusIndicator extends StatelessWidget {
           label: name == null || name.isEmpty
               ? l10n.deliveryGpsCaptured
               : '${l10n.deliveryGpsCaptured} · $name',
-          background: AppTheme.fieldGreenTint,
-          foreground: AppTheme.fieldGreen,
+          background: context.roleColors.tint,
+          foreground: context.roleColors.primary,
         ),
       );
     }
@@ -630,7 +630,7 @@ class _GpsStatusIndicator extends StatelessWidget {
         FwPill(
           icon: Icons.warning_amber_rounded,
           label: l10n.deliveryGpsUnavailable,
-          foreground: AppTheme.actionInk,
+          foreground: AppTheme.orangeInk,
         ),
         const SizedBox(width: 4),
         IconButton(
@@ -640,7 +640,7 @@ class _GpsStatusIndicator extends StatelessWidget {
           icon: const Icon(
             Icons.refresh,
             size: 18,
-            color: AppTheme.actionInk,
+            color: AppTheme.orangeInk,
           ),
         ),
       ],
@@ -676,12 +676,14 @@ class _CropTypeGrid extends StatelessWidget {
               button: true,
               selected: isSelected,
               child: Material(
-                color: isSelected ? AppTheme.fieldGreen : AppTheme.surfaceWhite,
+                color: isSelected
+                    ? context.roleColors.primary
+                    : AppTheme.surfaceWhite,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                   side: isSelected
                       ? BorderSide.none
-                      : const BorderSide(color: AppTheme.whisperBorder),
+                      : const BorderSide(color: AppTheme.line),
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: InkWell(
@@ -710,8 +712,7 @@ class _CropTypeGrid extends StatelessWidget {
                               fontWeight: isSelected
                                   ? FontWeight.w800
                                   : FontWeight.w600,
-                              color:
-                                  isSelected ? Colors.white : AppTheme.soilDark,
+                              color: isSelected ? Colors.white : AppTheme.ink,
                             ),
                           ),
                         ),

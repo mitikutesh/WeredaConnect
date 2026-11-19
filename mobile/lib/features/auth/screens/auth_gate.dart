@@ -114,7 +114,7 @@ class _LoadingSplash extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
 
     return Scaffold(
-      backgroundColor: AppTheme.primaryGreen,
+      backgroundColor: context.roleColors.primary,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -153,7 +153,7 @@ class _LoadingSplash extends StatelessWidget {
               height: 28,
               child: CircularProgressIndicator(
                 strokeWidth: 3,
-                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.accentGold),
+                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.orange),
               ),
             ),
           ],

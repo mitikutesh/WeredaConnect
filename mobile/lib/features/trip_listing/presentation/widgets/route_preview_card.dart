@@ -117,7 +117,7 @@ class RoutePreviewCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.whisperBorder),
+        border: Border.all(color: AppTheme.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -137,6 +137,7 @@ class RoutePreviewCard extends StatelessWidget {
                     textDirection: Directionality.of(context),
                     fromLabel: fromLabel ?? fromName,
                     toLabel: toLabel ?? toName,
+                    accent: context.roleColors.primary,
                   ),
                 ),
               ),
@@ -146,7 +147,7 @@ class RoutePreviewCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Text(
               footer ?? l10n.createTripRouteDistance(km),
-              style: const TextStyle(fontSize: 12, color: AppTheme.mutedSteel),
+              style: const TextStyle(fontSize: 12, color: AppTheme.slate),
             ),
           ),
         ],
@@ -164,6 +165,7 @@ class _RoutePreviewPainter extends CustomPainter {
     required this.textDirection,
     required this.fromLabel,
     required this.toLabel,
+    required this.accent,
   });
 
   final Place from;
@@ -174,8 +176,11 @@ class _RoutePreviewPainter extends CustomPainter {
   final String fromLabel;
   final String toLabel;
 
+  /// The role's colour: the start of the person's own route.
+  final Color accent;
+
   static const _townDot = Color(0xFFA7ADA9);
-  static const _destination = Color(0xFF2E4C7D);
+  static const _destination = AppTheme.dropoffSlate;
 
   /// An equirectangular projection fitting [from] and [to] into [size]
   /// with [padding] pixels free; at least 20 km shows in each direction.
@@ -205,7 +210,7 @@ class _RoutePreviewPainter extends CustomPainter {
 
     // Dashed straight line: the road is unknown, the direction is not.
     final line = Paint()
-      ..color = AppTheme.soilDark.withValues(alpha: 0.45)
+      ..color = AppTheme.ink.withValues(alpha: 0.45)
       ..strokeWidth = 2.5;
     final total = (b - a).distance;
     if (total > 0) {
@@ -225,7 +230,7 @@ class _RoutePreviewPainter extends CustomPainter {
         a,
         8,
         Paint()
-          ..color = AppTheme.fieldGreen
+          ..color = accent
           ..style = PaintingStyle.stroke
           ..strokeWidth = 3.5,
       )
@@ -269,6 +274,7 @@ class _RoutePreviewPainter extends CustomPainter {
   bool shouldRepaint(_RoutePreviewPainter old) =>
       old.from.id != from.id ||
       old.to.id != to.id ||
+      old.accent != accent ||
       old.languageCode != languageCode ||
       old.towns.length != towns.length ||
       old.fromLabel != fromLabel ||
@@ -287,7 +293,7 @@ Rect? _paintLabel(
   Offset at, {
   required TextDirection textDirection,
   bool alignEnd = false,
-  Color color = AppTheme.unselectedNav,
+  Color color = AppTheme.inkSoft,
   List<Rect> avoid = const [],
 }) {
   TextPainter build(Paint? outline) => TextPainter(
@@ -384,7 +390,7 @@ class PlacePreviewCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.whisperBorder),
+        border: Border.all(color: AppTheme.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -403,6 +409,7 @@ class PlacePreviewCard extends StatelessWidget {
                     towns: towns,
                     languageCode: languageCode,
                     textDirection: Directionality.of(context),
+                    accent: context.roleColors.primary,
                   ),
                 ),
               ),
@@ -427,6 +434,7 @@ class _PlacePreviewPainter extends CustomPainter {
     required this.towns,
     required this.languageCode,
     required this.textDirection,
+    required this.accent,
   });
 
   final double lat;
@@ -435,6 +443,7 @@ class _PlacePreviewPainter extends CustomPainter {
   final List<Place> towns;
   final String languageCode;
   final TextDirection textDirection;
+  final Color accent;
 
   /// Kilometres shown across the card's width.
   static const double _spanKm = 60;
@@ -485,14 +494,14 @@ class _PlacePreviewPainter extends CustomPainter {
       ..drawCircle(
         here,
         18,
-        Paint()..color = AppTheme.fieldGreen.withValues(alpha: 0.14),
+        Paint()..color = accent.withValues(alpha: 0.14),
       )
       ..drawCircle(here, 8, Paint()..color = Colors.white)
       ..drawCircle(
         here,
         8,
         Paint()
-          ..color = AppTheme.fieldGreen
+          ..color = accent
           ..style = PaintingStyle.stroke
           ..strokeWidth = 4,
       );
@@ -508,6 +517,7 @@ class _PlacePreviewPainter extends CustomPainter {
   @override
   bool shouldRepaint(_PlacePreviewPainter old) =>
       old.lat != lat ||
+      old.accent != accent ||
       old.lng != lng ||
       old.label != label ||
       old.languageCode != languageCode ||

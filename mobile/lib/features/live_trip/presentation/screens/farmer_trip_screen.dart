@@ -50,7 +50,7 @@ class FarmerTripScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.chalkBackground,
+      backgroundColor: AppTheme.ground,
       body: SafeArea(
         child: Column(
           children: [
@@ -190,8 +190,8 @@ class _FarmerTripViewState extends State<FarmerTripView> {
         leading: widget.leading,
         trailing: DotPill(
           label: l10n.farmer,
-          background: AppTheme.fieldGreenTint,
-          foreground: AppTheme.fieldGreen,
+          background: context.roleColors.tint,
+          foreground: context.roleColors.primary,
           icon: Icons.eco_outlined,
           height: 32,
           radius: 999,
@@ -206,7 +206,7 @@ class _FarmerTripViewState extends State<FarmerTripView> {
           fontWeight: FontWeight.w800,
           letterSpacing: -0.7,
           height: 1.15,
-          color: AppTheme.soilDark,
+          color: AppTheme.ink,
         ),
       ),
       const SizedBox(height: 2),
@@ -217,7 +217,7 @@ class _FarmerTripViewState extends State<FarmerTripView> {
                 l10n.quantityKg(birrText(order.quantity)),
                 buyer,
               ),
-        style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
+        style: const TextStyle(fontSize: 13, color: AppTheme.slate),
       ),
       const SizedBox(height: 12),
       if (onRoad)
@@ -241,8 +241,8 @@ class _FarmerTripViewState extends State<FarmerTripView> {
           alignment: AlignmentDirectional.centerStart,
           child: DotPill(
             label: l10n.liveTripSharingEnded,
-            background: AppTheme.dropoffBlueTint,
-            foreground: AppTheme.dropoffBlue,
+            background: AppTheme.dropoffSlateTint,
+            foreground: AppTheme.dropoffSlate,
             icon: Icons.check,
             height: 32,
             radius: 999,
@@ -253,7 +253,7 @@ class _FarmerTripViewState extends State<FarmerTripView> {
           color: AppTheme.statusNeutralContainer,
           child: Row(
             children: [
-              const Icon(Icons.map_outlined, color: AppTheme.textMuted),
+              const Icon(Icons.map_outlined, color: AppTheme.slate),
               const SizedBox(width: 12),
               Expanded(child: Text(l10n.liveTripMapStartsAtPickup)),
             ],
@@ -304,7 +304,7 @@ class _FarmerTripViewState extends State<FarmerTripView> {
           color: AppTheme.surfaceWhite,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: AppTheme.whisperBorder),
+            side: const BorderSide(color: AppTheme.line),
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
@@ -322,14 +322,14 @@ class _FarmerTripViewState extends State<FarmerTripView> {
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                   ),
                   const Icon(
                     Icons.chevron_right,
                     size: 20,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ],
               ),
@@ -391,10 +391,10 @@ class _MapCard extends StatelessWidget {
         label: text.subtitle == null
             ? text.title
             : '${text.title} · ${text.subtitle}',
-        border: AppTheme.whisperBorder,
+        border: AppTheme.line,
         dotColor: band == TrackFreshness.fresh
-            ? AppTheme.fieldGreen
-            : AppTheme.mutedSteel,
+            ? context.roleColors.primary
+            : AppTheme.slate,
       );
     } else {
       chip = CheckInChip(track: track, now: now, places: places, compact: true);
@@ -404,7 +404,7 @@ class _MapCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppTheme.surfaceWhite,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.whisperBorder),
+        border: Border.all(color: AppTheme.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -443,7 +443,7 @@ class _MapCard extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 12,
                 height: 1.4,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ),
           ),
@@ -547,7 +547,7 @@ class _PaymentSteps extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
               ),
@@ -557,7 +557,7 @@ class _PaymentSteps extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
             ],
@@ -573,9 +573,9 @@ class _PaymentSteps extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 4),
                     child: dot(
                       step.done
-                          ? AppTheme.fieldGreen
+                          ? context.roleColors.primary
                           : i == current
-                              ? AppTheme.accentSoft
+                              ? AppTheme.orange
                               : null,
                     ),
                   ),
@@ -589,8 +589,8 @@ class _PaymentSteps extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 13,
                         color: step.done || i == current
-                            ? AppTheme.soilDark
-                            : AppTheme.unselectedNav,
+                            ? AppTheme.ink
+                            : AppTheme.inkSoft,
                         fontWeight:
                             i == current ? FontWeight.w700 : FontWeight.w500,
                       ),
@@ -607,9 +607,7 @@ class _PaymentSteps extends StatelessWidget {
                           fontSize: i == current ? 13 : 12,
                           fontWeight:
                               i == current ? FontWeight.w700 : FontWeight.w500,
-                          color: i == current
-                              ? AppTheme.soilDark
-                              : AppTheme.mutedSteel,
+                          color: i == current ? AppTheme.ink : AppTheme.slate,
                         ),
                       ),
                     ),

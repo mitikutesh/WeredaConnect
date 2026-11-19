@@ -138,7 +138,7 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
     final shell = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(18),
       side: BorderSide(
-        color: widget.selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+        color: widget.selected ? context.roleColors.primary : AppTheme.line,
         width: widget.selected ? 2.0 : 1.0,
       ),
     );
@@ -200,7 +200,7 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
                                   fontSize: 15,
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: -0.2,
-                                  color: AppTheme.soilDark,
+                                  color: AppTheme.ink,
                                 )
                               : FwText.cardTitle,
                         ),
@@ -257,7 +257,7 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         ),
                       ),
                     ),
@@ -300,7 +300,7 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
                           textAlign: TextAlign.end,
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.w700,
-                            color: AppTheme.primaryDeep,
+                            color: context.roleColors.dark,
                           ),
                         ),
                       ),
@@ -309,7 +309,7 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
                     const Icon(
                       Icons.chevron_right,
                       size: 20,
-                      color: AppTheme.mutedSteel,
+                      color: AppTheme.slate,
                     ),
                   ],
                 ),
@@ -372,7 +372,7 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
-                      color: AppTheme.soilDark,
+                      color: AppTheme.ink,
                     ),
                   ),
                   Text(
@@ -439,7 +439,7 @@ class TripProgressBar extends StatelessWidget {
           value: share.clamp(0.0, 1.0),
           minHeight: 6,
           backgroundColor: AppTheme.segmentTrack,
-          valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.fieldGreen),
+          valueColor: AlwaysStoppedAnimation<Color>(context.roleColors.primary),
         ),
       ),
     );

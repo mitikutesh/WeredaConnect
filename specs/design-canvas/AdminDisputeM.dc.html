@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Admin dispute evidence</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&amp;family=Noto+Sans+Ethiopic:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1A1516}a:hover{color:#0C0A0A}
+</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; background: #FFFFFF; color: #1A1516; font-family: 'Bricolage Grotesque', system-ui, sans-serif; display: flex; flex-direction: column">
+  <header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 16px 32px; background: #1A1516; color: #FFFFFF">
+    <div style="display: flex; align-items: center; gap: 10px"><div style="width: 34px; height: 34px; border-radius: 10px; background: #1A1516; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="#FFFFFF" aria-hidden="true"><path d="M19.5,12c0.93,0,1.78,0.28,2.5,0.76V8c0-1.1-0.9-2-2-2h-6.29l-1.06-1.06l1.41-1.41l-0.71-0.71L9.82,6.35l0.71,0.71l1.41-1.41L13,6.71V9c0,1.1-0.9,2-2,2h-0.54c0.95,1.06,1.54,2.46,1.54,4c0,0.34-0.04,0.67-0.09,1h3.14C15.3,13.75,17.19,12,19.5,12z"></path><path d="M19.5,13c-1.93,0-3.5,1.57-3.5,3.5s1.57,3.5,3.5,3.5s3.5-1.57,3.5-3.5S21.43,13,19.5,13z M19.5,18c-0.83,0-1.5-0.67-1.5-1.5s0.67-1.5,1.5-1.5s1.5,0.67,1.5,1.5S20.33,18,19.5,18z"></path><path d="M4,9h5c0-1.1-0.9-2-2-2H4C3.45,7,3,7.45,3,8C3,8.55,3.45,9,4,9z"></path><path d="M9.83,13.82l-0.18-0.47L10.58,13c-0.46-1.06-1.28-1.91-2.31-2.43l-0.4,0.89l-0.46-0.21l0.4-0.9C7.26,10.13,6.64,10,6,10c-0.53,0-1.04,0.11-1.52,0.26l0.34,0.91l-0.47,0.18L4,10.42c-1.06,0.46-1.91,1.28-2.43,2.31l0.89,0.4l-0.21,0.46l-0.9-0.4C1.13,13.74,1,14.36,1,15c0,0.53,0.11,1.04,0.26,1.52l0.91-0.34l0.18,0.47L1.42,17c0.46,1.06,1.28,1.91,2.31,2.43l0.4-0.89l0.46,0.21l-0.4,0.9C4.74,19.87,5.36,20,6,20c0.53,0,1.04-0.11,1.52-0.26l-0.34-0.91l0.47-0.18L8,19.58c1.06-0.46,1.91-1.28,2.43-2.31l-0.89-0.4l0.21-0.46l0.9,0.4C10.87,16.26,11,15.64,11,15c0-0.53-0.11-1.04-0.26-1.52L9.83,13.82z M7.15,17.77c-1.53,0.63-3.29-0.09-3.92-1.62c-0.63-1.53,0.09-3.29,1.62-3.92c1.53-0.63,3.29,0.09,3.92,1.62C9.41,15.38,8.68,17.14,7.15,17.77z"></path></svg></div><span style="font-size: 16px; font-weight: 800">WeredaConnect Admin</span></div>
+    <nav aria-label="Admin" style="display: flex; flex-wrap: wrap; gap: 4px">
+      <a href="#" style="height: 44px; padding: 0 14px; border-radius: 10px; color: #CAC9C9; text-decoration: none; font-size: 14px; font-weight: 600; display: flex; align-items: center">Transactions</a>
+      <a href="#" aria-current="page" style="height: 44px; padding: 0 14px; border-radius: 10px; background: #2A2526; color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 700; display: flex; align-items: center">Disputes · 3</a>
+      <a href="#" style="height: 44px; padding: 0 14px; border-radius: 10px; color: #CAC9C9; text-decoration: none; font-size: 14px; font-weight: 600; display: flex; align-items: center">Fraud review</a>
+      <a href="#" style="height: 44px; padding: 0 14px; border-radius: 10px; color: #CAC9C9; text-decoration: none; font-size: 14px; font-weight: 600; display: flex; align-items: center">Audit</a>
+    </nav>
+  </header>
+
+  <main style="width: 100%; max-width: 1360px; margin: 0 auto; box-sizing: border-box; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <div style="font-size: 13px; color: #6C696A"><a href="#" style="text-decoration: none">Disputes</a> / Maize · 1,000 kg</div>
+        <h1 style="margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.03em">Buyer reports 150 kg short at drop-off</h1>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px">
+          <span style="height: 28px; padding: 0 10px; border-radius: 8px; background: #EBEAEA; color: #5C5450; font-size: 12px; font-weight: 700; display: flex; align-items: center">Buyer · Hawi Flour Mill · raised Tue 12:50</span>
+          <span style="height: 28px; padding: 0 10px; border-radius: 8px; background: #E6DDD6; color: #1A1516; font-size: 12px; font-weight: 700; display: flex; align-items: center">Farmer · Tolosa Gemechu</span>
+          <span style="height: 28px; padding: 0 10px; border-radius: 8px; background: #FBE6D6; color: #8A4510; font-size: 12px; font-weight: 700; display: flex; align-items: center">Trucker · Dawit Tesfaye</span>
+        </div>
+      </div>
+      <div style="padding: 14px 18px; border-radius: 16px; background: #FFFFFF; border: 1px solid #DCD5CF; display: flex; align-items: center; gap: 12px"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="#5C5450" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 11h12v9H6z"></path><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg><span><span style="display: block; font-size: 20px; font-weight: 800">30,900 ETB frozen</span><span style="display: block; font-size: 12px; color: #6C696A">crop 28,000 · transport 1,500 · commission 1,400</span></span></div>
+    </div>
+
+    <div role="tablist" aria-label="Evidence" style="display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 14px; background: #E5DDD8; align-self: flex-start">
+      <button type="button" role="tab" aria-selected="false" style="height: 44px; padding: 0 16px; border: none; border-radius: 11px; background: transparent; font: 600 13px 'Bricolage Grotesque', sans-serif; color: #484445">Timeline</button>
+      <button type="button" role="tab" aria-selected="true" style="height: 44px; padding: 0 16px; border: none; border-radius: 11px; background: #FFFFFF; font: 700 13px 'Bricolage Grotesque', sans-serif; color: #1A1516">Trip trail</button>
+      <button type="button" role="tab" aria-selected="false" style="height: 44px; padding: 0 16px; border: none; border-radius: 11px; background: transparent; font: 600 13px 'Bricolage Grotesque', sans-serif; color: #484445">Photos · 2</button>
+      <button type="button" role="tab" aria-selected="false" style="height: 44px; padding: 0 16px; border: none; border-radius: 11px; background: transparent; font: 600 13px 'Bricolage Grotesque', sans-serif; color: #484445">Messages · 7</button>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+      <div style="flex: 3 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+        <section aria-label="Trail map" style="position: relative; border-radius: 22px; overflow: hidden; border: 1px solid #DCD5CF">
+          <svg width="100%" height="320" sc-camel-view-box="0 0 760 320" sc-camel-preserve-aspect-ratio="xMidYMid meet" role="img" aria-label="Trail from Koka to Dukem with a pause at Mojo" style="display: block; overflow: visible">
+            <rect x="-800" y="-400" width="2360" height="1120" fill="#E2DBD5"></rect>
+            <ellipse cx="170" cy="260" rx="70" ry="28" fill="#DBD9D8" transform="rotate(-14 170 260)"></ellipse>
+            <circle cx="690" cy="40" r="80" fill="#D4CDC8"></circle>
+            <path d="M-800 420 C -300 360, -60 310, -10 300 C 40 290, 80 284, 120 270 C 180 244, 230 220, 290 196 C 360 168, 420 140, 480 118 C 540 96, 580 82, 620 72 C 660 62, 700 48, 780 20 C 1000 -60, 1200 -160, 1560 -320" stroke="#F5F1ED" stroke-width="16" fill="none" stroke-linecap="round"></path>
+            <path d="M290 196 C 360 210, 520 240, 1560 270" stroke="#F5F1ED" stroke-width="9" fill="none"></path>
+            <path d="M120 270 C 180 244, 230 220, 290 196 C 360 168, 420 140, 480 118 C 540 96, 580 82, 620 72" stroke="#1A1516" stroke-width="5" fill="none" stroke-linecap="round"></path>
+            <circle cx="290" cy="196" r="22" fill="#F0873A" fill-opacity="0.18" stroke="#F0873A" stroke-width="2"></circle>
+            <circle cx="120" cy="270" r="10" fill="#FFFFFF" stroke="#1A1516" stroke-width="4"></circle>
+            <circle cx="290" cy="196" r="6" fill="#FFFFFF" stroke="#1A1516" stroke-width="3"></circle>
+            <circle cx="480" cy="118" r="6" fill="#FFFFFF" stroke="#1A1516" stroke-width="3"></circle>
+            <circle cx="620" cy="72" r="12" fill="#5C5450"></circle>
+            <circle cx="620" cy="72" r="4.5" fill="#FFFFFF"></circle>
+            <g font-family="'Bricolage Grotesque', sans-serif" font-size="12" font-weight="600" fill="#484445" stroke="#E2DBD5" stroke-width="3" paint-order="stroke">
+              <text x="136" y="296">Koka · pickup 09:40</text>
+              <text x="250" y="236">Mojo 10:41 · paused 10:55-11:25</text>
+              <text x="494" y="140">Bishoftu 11:42</text>
+              <text x="560" y="104">Dukem · drop-off 12:15</text>
+            </g>
+          </svg>
+          <span style="position: absolute; left: 16px; top: 16px; display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border-radius: 10px; background: #FFFFFF; font-size: 13px; font-weight: 700; box-shadow: 0 4px 14px rgba(26,21,22,0.1)"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="#1A1516" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Trail follows the booked route</span>
+        </section>
+
+        <section aria-label="Check-ins and legs" style="padding: 8px 20px 16px; border-radius: 22px; background: #FFFFFF; border: 1px solid #DCD5CF">
+          <div style="overflow-x: auto">
+            <sc-raw-table style="width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px">
+              <sc-raw-thead>
+                <sc-raw-tr style="text-align: left; color: #6C696A; font-size: 12px">
+                  <sc-raw-th scope="col" style="padding: 12px 8px; font-weight: 700">Time</sc-raw-th>
+                  <sc-raw-th scope="col" style="padding: 12px 8px; font-weight: 700">Place</sc-raw-th>
+                  <sc-raw-th scope="col" style="padding: 12px 8px; font-weight: 700">Leg since the last check-in</sc-raw-th>
+                  <sc-raw-th scope="col" style="padding: 12px 8px; font-weight: 700">Notes</sc-raw-th>
+                </sc-raw-tr>
+              </sc-raw-thead>
+              <sc-raw-tbody>
+                <sc-raw-tr style="border-top: 1px solid #E5DDD8"><sc-raw-td style="padding: 12px 8px; font-weight: 700">09:40</sc-raw-td><sc-raw-td style="padding: 12px 8px">Koka</sc-raw-td><sc-raw-td style="padding: 12px 8px; color: #6C696A">pickup</sc-raw-td><sc-raw-td style="padding: 12px 8px">QR scanned · GPS 0.4 km from the listing</sc-raw-td></sc-raw-tr>
+                <sc-raw-tr style="border-top: 1px solid #E5DDD8"><sc-raw-td style="padding: 12px 8px; font-weight: 700">10:41</sc-raw-td><sc-raw-td style="padding: 12px 8px">Mojo</sc-raw-td><sc-raw-td style="padding: 12px 8px">25 km in 61 min · 25 km/h</sc-raw-td><sc-raw-td style="padding: 12px 8px"><span style="height: 22px; padding: 0 8px; border-radius: 6px; background: #FBE6D6; color: #8A4510; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center">Sent late 11:20</span></sc-raw-td></sc-raw-tr>
+                <sc-raw-tr style="border-top: 1px solid #E5DDD8; background: #FDF6F0"><sc-raw-td style="padding: 12px 8px; font-weight: 700">10:55</sc-raw-td><sc-raw-td style="padding: 12px 8px">Mojo</sc-raw-td><sc-raw-td style="padding: 12px 8px; color: #6C696A">paused by driver</sc-raw-td><sc-raw-td style="padding: 12px 8px">30 min rest stop, back on at 11:25</sc-raw-td></sc-raw-tr>
+                <sc-raw-tr style="border-top: 1px solid #E5DDD8"><sc-raw-td style="padding: 12px 8px; font-weight: 700">11:42</sc-raw-td><sc-raw-td style="padding: 12px 8px">Bishoftu</sc-raw-td><sc-raw-td style="padding: 12px 8px">28 km in 61 min · includes the pause</sc-raw-td><sc-raw-td style="padding: 12px 8px; color: #6C696A">none</sc-raw-td></sc-raw-tr>
+                <sc-raw-tr style="border-top: 1px solid #E5DDD8"><sc-raw-td style="padding: 12px 8px; font-weight: 700">12:15</sc-raw-td><sc-raw-td style="padding: 12px 8px">Dukem</sc-raw-td><sc-raw-td style="padding: 12px 8px">15 km in 33 min · 27 km/h</sc-raw-td><sc-raw-td style="padding: 12px 8px">Drop-off QR scanned · GPS 0.2 km from the buyer</sc-raw-td></sc-raw-tr>
+              </sc-raw-tbody>
+            </sc-raw-table>
+          </div>
+        </section>
+      </div>
+
+      <aside style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+        <section aria-label="Signals" style="padding: 20px; border-radius: 22px; background: #FFFFFF; border: 1px solid #DCD5CF; display: flex; flex-direction: column; gap: 12px">
+          <h2 style="margin: 0; font-size: 15px; font-weight: 800">What the trail says</h2>
+          <div style="display: flex; gap: 10px; font-size: 13px"><span style="width: 8px; height: 8px; margin-top: 6px; border-radius: 999px; background: #1A1516; flex-shrink: 0"></span><span>Shared the whole way: 2 check-ins and 2 scans, 1 sent late</span></div>
+          <div style="display: flex; gap: 10px; font-size: 13px"><span style="width: 8px; height: 8px; margin-top: 6px; border-radius: 999px; background: #1A1516; flex-shrink: 0"></span><span>No impossible jumps, legs at 25 to 27 km/h</span></div>
+          <div style="display: flex; gap: 10px; font-size: 13px"><span style="width: 8px; height: 8px; margin-top: 6px; border-radius: 999px; background: #F0873A; flex-shrink: 0; border: 1.5px solid #1A1516; box-sizing: border-box"></span><span>One stop off the stop list: Mojo, paused 30 min by the driver</span></div>
+          <p style="margin: 0; padding-top: 10px; border-top: 1px solid #E5DDD8; font-size: 12px; line-height: 1.5; color: #6C696A">The trail shows where the truck was, not what it carried. Weigh it with the photos, weights and messages.</p>
+        </section>
+
+        <section aria-label="Photos" style="padding: 20px; border-radius: 22px; background: #FFFFFF; border: 1px solid #DCD5CF; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+          <div style="display: flex; flex-direction: column; gap: 6px"><div role="img" aria-label="Pickup photo placeholder" style="height: 96px; border-radius: 12px; background: repeating-linear-gradient(135deg, #E5DDD8 0 8px, #FFFFFF 8px 16px)"></div><span style="font-size: 12px; color: #484445">Pickup 09:40</span></div>
+          <div style="display: flex; flex-direction: column; gap: 6px"><div role="img" aria-label="Drop-off photo placeholder" style="height: 96px; border-radius: 12px; background: repeating-linear-gradient(135deg, #E5DDD8 0 8px, #FFFFFF 8px 16px)"></div><span style="font-size: 12px; color: #484445">Drop-off 12:15</span></div>
+        </section>
+
+        <section aria-label="Verdict" style="padding: 20px; border-radius: 22px; background: #FFFFFF; border: 1px solid #DCD5CF; display: flex; flex-direction: column; gap: 10px">
+          <h2 style="margin: 0; font-size: 15px; font-weight: 800">Decide</h2>
+          <button type="button" style="height: 48px; border: none; border-radius: 14px; background: #1A1516; color: #FFFFFF; font: 700 14px 'Bricolage Grotesque', sans-serif">Farmer wins · release 29,500 ETB</button>
+          <button type="button" style="height: 48px; border: 1px solid #CFC8C3; border-radius: 14px; background: #FFFFFF; color: #1A1516; font: 700 14px 'Bricolage Grotesque', sans-serif">Buyer wins · refund 30,900 ETB</button>
+          <span style="font-size: 12px; color: #6C696A">Every verdict is written to the audit log with your name.</span>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1000}}">
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+
+
+</body></html>

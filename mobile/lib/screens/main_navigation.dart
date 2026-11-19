@@ -28,10 +28,12 @@ import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/app_update_banner.dart';
 
-/// Main navigation with a labeled FAB floating above a role-shaped 4-tab bar.
+/// Main navigation: a role-shaped bar of three tabs and the role's create
+/// button.
 ///
 /// Tab sets come from [tabsForRole] — each role's bar reflects its actual
-/// job (see role_navigation.dart). The FAB is the role's create verb.
+/// job (see role_navigation.dart). The bar's button is the role's create
+/// verb.
 /// No AppBar — each screen manages its own header.
 /// Profile accessible from header icon on each screen.
 class MainNavigation extends StatefulWidget {
@@ -100,6 +102,7 @@ class _MainNavigationState extends State<MainNavigation> {
           // Never a bar tab (sidebar-extra only); reachable from the home
           // header on mobile. Handled here to keep the switch exhaustive.
           RoleTab.messages => const MessagesInboxScreen(),
+          RoleTab.findTrips => const BrowseTripsScreen(),
         },
     ];
   }
@@ -211,23 +214,15 @@ class _MainNavigationState extends State<MainNavigation> {
               body: AppUpdateBanner(
                 child: CreateButtonScrollBody(child: screens[_currentIndex]),
               ),
-              // The role's one create verb, labeled: an icon-only "+"
-              // assumes app-convention literacy; a verb assumes nothing.
-              floatingActionButton: RoleCreateButton(
-                role: role,
-                onPressed: () => _onFabPressed(context, role),
-              ),
-              // Floats above the bar: docked, the label is far wider than a
-              // notch gap and covered the second and third tabs (LT-01).
-              // Scrollable tab bodies end with Breakpoints.fabClearance so
-              // it never hides their last item.
-              floatingActionButtonLocation:
-                  FloatingActionButtonLocation.centerFloat,
+              // The role's one create verb ends the bar, labeled: an
+              // icon-only "+" assumes app-convention literacy; a verb
+              // assumes nothing.
               bottomNavigationBar: RoleNavBar(
                 role: role,
                 tabs: tabs,
                 currentIndex: _currentIndex,
                 onSelected: (i) => setState(() => _currentIndex = i),
+                onCreate: () => _onFabPressed(context, role),
               ),
             ),
           ),

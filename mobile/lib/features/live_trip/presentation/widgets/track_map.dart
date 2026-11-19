@@ -4,6 +4,7 @@ import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
 import 'package:wereda_connect/features/live_trip/presentation/map/track_map_painter.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// The map of a delivery's track (LT-10): [TrackMapPainter] over the bundled
 /// place list, in the app language. It fills the space it is given, so give
@@ -20,7 +21,7 @@ class TrackMap extends StatefulWidget {
     required this.track,
     required this.now,
     this.places,
-    this.style = const TrackMapStyle(),
+    this.style,
     this.semanticLabel,
     super.key,
   });
@@ -28,7 +29,9 @@ class TrackMap extends StatefulWidget {
   final DeliveryTrack track;
   final DateTime now;
   final List<Place>? places;
-  final TrackMapStyle style;
+
+  /// The role's colours ([TrackMapStyle.forRole]) when null.
+  final TrackMapStyle? style;
 
   /// What a screen reader says for the map (the screen's summary of it).
   final String? semanticLabel;
@@ -76,7 +79,7 @@ class _TrackMapState extends State<TrackMap> {
       now: widget.now,
       places: widget.places ?? _bundled,
       languageCode: Localizations.maybeLocaleOf(context)?.languageCode ?? 'en',
-      style: widget.style,
+      style: widget.style ?? TrackMapStyle.forRole(context.roleColors),
       textDirection: Directionality.of(context),
       textScaler: MediaQuery.textScalerOf(context),
       labelCache: _labelCache,

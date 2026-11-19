@@ -8,9 +8,9 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 /// borrow from the boards that have one: the Market's pill chips, the My
 /// Crops load bar and info note, and the "person · place" header eyebrow.
 
-/// One of the Market board's filter pills: white with a whisper border,
-/// filled field green when selected. 40 tall in a 48 tall hit area; a long
-/// label or large text makes it taller rather than clipped.
+/// One of the Market board's filter pills: outlined, filled black with
+/// white ink when selected. 44 tall in a 48 tall hit area; a long label or
+/// large text makes it taller rather than clipped.
 class FwFilterPill extends StatelessWidget {
   final String label;
   final bool selected;
@@ -31,18 +31,17 @@ class FwFilterPill extends StatelessWidget {
       child: FwTapTarget(
         onTap: onTap,
         child: Material(
-          color: selected ? AppTheme.fieldGreen : AppTheme.surfaceWhite,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(999),
+          color: selected ? AppTheme.ink : Colors.transparent,
+          shape: StadiumBorder(
             side: BorderSide(
-              color: selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+              color: selected ? AppTheme.ink : AppTheme.fieldBorder,
             ),
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 40),
+              constraints: const BoxConstraints(minHeight: 44),
               child: Center(
                 widthFactor: 1,
                 heightFactor: 1,
@@ -57,8 +56,8 @@ class FwFilterPill extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                      color: selected ? Colors.white : AppTheme.soilDark,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected ? Colors.white : AppTheme.inkSoft,
                     ),
                   ),
                 ),
@@ -121,17 +120,20 @@ class FwFilterPillRow<T> extends StatelessWidget {
 class FwLoadBar extends StatelessWidget {
   final double fraction;
   final String caption;
-  final Color color;
+
+  /// The role's colour when null.
+  final Color? color;
 
   const FwLoadBar({
     required this.fraction,
     required this.caption,
-    this.color = AppTheme.fieldGreen,
+    this.color,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? context.roleColors.primary;
     final filled = fraction.isNaN ? 0.0 : fraction.clamp(0.0, 1.0);
     return Row(
       children: [
@@ -142,7 +144,7 @@ class FwLoadBar extends StatelessWidget {
               height: 6,
               child: Stack(
                 children: [
-                  Container(color: AppTheme.segmentTrack),
+                  Container(color: AppTheme.track),
                   if (filled > 0)
                     FractionallySizedBox(
                       widthFactor: filled,
@@ -170,7 +172,7 @@ class FwLoadBar extends StatelessWidget {
             style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
             ),
           ),
         ),
@@ -190,8 +192,8 @@ class FwInfoNote extends StatelessWidget {
   const FwInfoNote({
     required this.icon,
     required this.text,
-    this.background = AppTheme.dropoffBlueTint,
-    this.foreground = AppTheme.dropoffBlue,
+    this.background = AppTheme.dropoffSlateTint,
+    this.foreground = AppTheme.dropoffSlate,
     super.key,
   });
 

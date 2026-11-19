@@ -188,7 +188,7 @@ class _AppealDialogState extends State<AppealDialog> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final failure = _failure;
-    const muted = TextStyle(fontSize: 13, color: AppTheme.mutedSteel);
+    const muted = TextStyle(fontSize: 13, color: AppTheme.slate);
     // Not dismissible while sending (a tap outside, the back button): the
     // appeal would go through with nobody left to take its answer.
     return PopScope(
@@ -242,10 +242,10 @@ class _AppealDialogState extends State<AppealDialog> {
             else
               Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.check_circle_outline,
                     size: 20,
-                    color: AppTheme.fieldGreen,
+                    color: context.roleColors.primary,
                   ),
                   const SizedBox(width: 8),
                   Expanded(child: Text(l10n.reputationAppealPhotoAdded)),

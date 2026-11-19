@@ -195,7 +195,7 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                           style: const TextStyle(
                             fontSize: 15,
                             height: 1.4,
-                            color: AppTheme.mutedSteel,
+                            color: AppTheme.slate,
                           ),
                         ),
                         const SizedBox(height: 20),
@@ -392,12 +392,12 @@ class _CropTypeChips extends StatelessWidget {
           button: true,
           selected: isSelected,
           child: Material(
-            color: isSelected ? AppTheme.dropoffBlue : AppTheme.surfaceWhite,
+            color: isSelected ? AppTheme.dropoffSlate : AppTheme.surfaceWhite,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(999),
               side: isSelected
                   ? BorderSide.none
-                  : const BorderSide(color: AppTheme.whisperBorder),
+                  : const BorderSide(color: AppTheme.line),
             ),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
@@ -418,7 +418,7 @@ class _CropTypeChips extends StatelessWidget {
                         fontSize: 14,
                         fontWeight:
                             isSelected ? FontWeight.w800 : FontWeight.w600,
-                        color: isSelected ? Colors.white : AppTheme.soilDark,
+                        color: isSelected ? Colors.white : AppTheme.ink,
                       ),
                     ),
                   ],

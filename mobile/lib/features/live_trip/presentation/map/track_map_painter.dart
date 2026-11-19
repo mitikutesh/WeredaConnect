@@ -19,13 +19,13 @@ class TrackMapStyle {
   const TrackMapStyle({
     this.background = const Color(0xFFEEF2EF),
     this.town = const Color(0xFF8A97A6),
-    this.labelText = AppTheme.textMuted,
+    this.labelText = AppTheme.slate,
     this.labelOutline = AppTheme.surfaceWhite,
-    this.trail = AppTheme.primary,
-    this.ended = AppTheme.textMuted,
+    this.trail = AppTheme.ink,
+    this.ended = AppTheme.slate,
     this.late = AppTheme.statusWarning,
-    this.muted = AppTheme.textMuted,
-    this.pin = AppTheme.primaryDeep,
+    this.muted = AppTheme.slate,
+    this.pin = AppTheme.ink,
     this.otherStop = const Color(0xFF94A3B8),
     this.labelStyle = const TextStyle(
       fontFamily: AppTheme.fontFamily,
@@ -34,6 +34,11 @@ class TrackMapStyle {
       fontWeight: FontWeight.w600,
     ),
   });
+
+  /// The map in the signed-in role's colours: the person's own trail and
+  /// the pickup pin (the Foundations board: "Farm in the trail colour").
+  factory TrackMapStyle.forRole(RoleColors colors) =>
+      TrackMapStyle(trail: colors.primary, pin: colors.primary);
 
   final Color background;
 

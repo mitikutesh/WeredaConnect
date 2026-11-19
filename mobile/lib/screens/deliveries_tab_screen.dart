@@ -36,6 +36,21 @@ enum _Segment { active, delivered, all }
 /// buyer's map. From a desktop width the web board applies: a list column
 /// with the selected delivery's live trip beside it, a summary line and a
 /// search box; the trucker (no live trip pane) keeps the centred column.
+/// The deliveries list as a pushed page with a back bar, for a role whose
+/// bar has no Deliveries tab (the farmer: Home's tile and the account
+/// sheet open it).
+class DeliveriesPage extends StatelessWidget {
+  const DeliveriesPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(),
+      body: const DeliveriesTabScreen(),
+    );
+  }
+}
+
 class DeliveriesTabScreen extends StatefulWidget {
   const DeliveriesTabScreen({super.key});
 
@@ -352,11 +367,11 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
       decoration: BoxDecoration(
         color: AppTheme.surfaceWhite,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.whisperBorder),
+        border: Border.all(color: AppTheme.line),
       ),
       child: Row(
         children: [
-          const Icon(Icons.search, size: 18, color: AppTheme.mutedSteel),
+          const Icon(Icons.search, size: 18, color: AppTheme.slate),
           const SizedBox(width: 8),
           Expanded(
             child: TextField(
@@ -370,7 +385,7 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
               ),
               style: const TextStyle(
                 fontSize: 13,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             ),
           ),
@@ -564,7 +579,7 @@ class _EmptyState extends StatelessWidget {
             Icon(
               icon,
               size: 56,
-              color: iconColor ?? AppTheme.textMuted.withAlpha(150),
+              color: iconColor ?? AppTheme.slate.withAlpha(150),
             ),
             const SizedBox(height: 16),
             Text(
@@ -573,7 +588,7 @@ class _EmptyState extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.textDark,
+                color: AppTheme.ink,
               ),
             ),
             if (hint != null) ...[

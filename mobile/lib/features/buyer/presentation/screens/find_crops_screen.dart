@@ -111,7 +111,7 @@ class _FindCropsScreenState extends State<FindCropsScreen> {
                         tooltip: l10n.back,
                         icon: const Icon(
                           Icons.arrow_back,
-                          color: AppTheme.soilDark,
+                          color: AppTheme.ink,
                         ),
                       ),
                     ),
@@ -127,7 +127,7 @@ class _FindCropsScreenState extends State<FindCropsScreen> {
                           FwSquareButton(
                             semanticLabel: l10n.marketSearchToggle,
                             background: _filtersOpen
-                                ? AppTheme.fieldGreenTint
+                                ? context.roleColors.tint
                                 : AppTheme.surfaceWhite,
                             onTap: () =>
                                 setState(() => _filtersOpen = !_filtersOpen),
@@ -135,8 +135,8 @@ class _FindCropsScreenState extends State<FindCropsScreen> {
                               Icons.search,
                               size: 20,
                               color: _filtersOpen
-                                  ? AppTheme.fieldGreen
-                                  : AppTheme.soilDark,
+                                  ? context.roleColors.primary
+                                  : AppTheme.ink,
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -283,7 +283,7 @@ class _MyRequestsTab extends StatelessWidget {
                 Icon(
                   Icons.error_outline,
                   size: 56,
-                  color: AppTheme.textMuted.withAlpha(150),
+                  color: AppTheme.slate.withAlpha(150),
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -291,7 +291,7 @@ class _MyRequestsTab extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: AppTheme.textDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -299,7 +299,7 @@ class _MyRequestsTab extends StatelessWidget {
                   localizeErrorCode(state.code, l10n),
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.textMuted,
+                    color: AppTheme.slate,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -336,7 +336,7 @@ class _MyRequestsTab extends StatelessWidget {
                       const Icon(
                         Icons.cloud_off,
                         size: 16,
-                        color: AppTheme.textDark,
+                        color: AppTheme.ink,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -344,7 +344,7 @@ class _MyRequestsTab extends StatelessWidget {
                           l10n.showingCachedResults,
                           style: const TextStyle(
                             fontSize: 12,
-                            color: AppTheme.textDark,
+                            color: AppTheme.ink,
                           ),
                         ),
                       ),
@@ -435,7 +435,7 @@ class _EmptyRequestsState extends StatelessWidget {
             const Icon(
               Icons.search_off,
               size: 64,
-              color: AppTheme.textMuted,
+              color: AppTheme.slate,
             ),
             const SizedBox(height: 16),
             Text(
@@ -443,7 +443,7 @@ class _EmptyRequestsState extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w500,
-                color: AppTheme.textMuted,
+                color: AppTheme.slate,
               ),
             ),
             const SizedBox(height: 4),
@@ -451,7 +451,7 @@ class _EmptyRequestsState extends StatelessWidget {
               l10n.whatDoYouNeedSubtitle,
               style: const TextStyle(
                 fontSize: 13,
-                color: AppTheme.textMuted,
+                color: AppTheme.slate,
               ),
               textAlign: TextAlign.center,
             ),

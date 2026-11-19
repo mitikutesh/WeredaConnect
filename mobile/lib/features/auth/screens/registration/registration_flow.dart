@@ -511,7 +511,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
         }
       },
       child: Scaffold(
-        backgroundColor: AppTheme.chalkBackground,
+        backgroundColor: AppTheme.ground,
         body: SafeArea(
           child: FwContentWidth(
             maxWidth: 480,
@@ -604,7 +604,7 @@ class _RegistrationFlowState extends State<RegistrationFlow>
                           height: 56,
                           child: FilledButton(
                             style: FilledButton.styleFrom(
-                              backgroundColor: AppTheme.soilDark,
+                              backgroundColor: AppTheme.ink,
                               foregroundColor: Colors.white,
                             ),
                             onPressed:
@@ -672,7 +672,7 @@ class _StepHeader extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
               ),
@@ -690,7 +690,7 @@ class _StepHeader extends StatelessWidget {
                 child: const Icon(
                   Icons.language,
                   size: 20,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
             ],
@@ -705,7 +705,7 @@ class _StepHeader extends StatelessWidget {
                   margin: EdgeInsets.only(right: index < total - 1 ? 6 : 0),
                   decoration: BoxDecoration(
                     color:
-                        isActive ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+                        isActive ? context.roleColors.primary : AppTheme.line,
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),

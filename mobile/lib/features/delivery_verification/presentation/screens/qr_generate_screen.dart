@@ -266,7 +266,7 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                           height: 1.4,
-                          color: AppTheme.soilDark,
+                          color: AppTheme.ink,
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -298,7 +298,7 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
                             decoration: BoxDecoration(
                               color: AppTheme.surfaceWhite,
                               borderRadius: BorderRadius.circular(24),
-                              border: Border.all(color: AppTheme.whisperBorder),
+                              border: Border.all(color: AppTheme.line),
                             ),
                             child: _isGenerating || _token == null
                                 ? const SizedBox(
@@ -340,7 +340,7 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
                               style: const TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w800,
-                                color: AppTheme.soilDark,
+                                color: AppTheme.ink,
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -349,7 +349,7 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
                               style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
-                                color: AppTheme.unselectedNav,
+                                color: AppTheme.inkSoft,
                               ),
                             ),
                             const SizedBox(height: 2),
@@ -357,7 +357,7 @@ class _QrGenerateScreenState extends State<QrGenerateScreen> {
                               formatDate(dayInEthiopia(delivery.createdAt)),
                               style: const TextStyle(
                                 fontSize: 12,
-                                color: AppTheme.mutedSteel,
+                                color: AppTheme.slate,
                               ),
                             ),
                           ],
@@ -461,7 +461,7 @@ class _TypedCodeCard extends StatelessWidget {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
             ),
           ),
           const SizedBox(height: 6),
@@ -473,7 +473,7 @@ class _TypedCodeCard extends StatelessWidget {
                 fontSize: 32,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 2,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),

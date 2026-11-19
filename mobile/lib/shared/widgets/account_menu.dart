@@ -10,6 +10,8 @@ import 'package:wereda_connect/features/escrow_payment/presentation/screens/paym
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/messages_inbox_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
+import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
@@ -141,7 +143,7 @@ class _Avatar extends StatelessWidget {
                         width: 10,
                         height: 10,
                         decoration: BoxDecoration(
-                          color: AppTheme.accentGold,
+                          color: AppTheme.orange,
                           shape: BoxShape.circle,
                           border: Border.all(
                             color: dark
@@ -192,11 +194,12 @@ Widget Function()? _extraScreen(RoleTab tab) => switch (tab) {
       RoleTab.payments => () => const PaymentHistoryScreen(),
       RoleTab.orders => () =>
           const Scaffold(body: OrdersTabScreen(showBackButton: true)),
+      RoleTab.deliveries => () => const DeliveriesPage(),
+      RoleTab.findTrips => () => const BrowseTripsScreen(),
       RoleTab.home ||
       RoleTab.myCrops ||
       RoleTab.myTrips ||
-      RoleTab.market ||
-      RoleTab.deliveries =>
+      RoleTab.market =>
         null,
     };
 
@@ -302,7 +305,7 @@ class _AccountSheet extends StatelessWidget {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: AppTheme.textMuted.withAlpha(60),
+                  color: AppTheme.slate.withAlpha(60),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -320,7 +323,7 @@ class _AccountSheet extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
-                      color: AppTheme.soilDark,
+                      color: AppTheme.ink,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -331,7 +334,7 @@ class _AccountSheet extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
-                      color: AppTheme.mutedSteel,
+                      color: AppTheme.slate,
                     ),
                   ),
                 ],
@@ -353,18 +356,18 @@ class _AccountSheet extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          leading: Icon(item.icon, color: AppTheme.soilDark),
+          leading: Icon(item.icon, color: AppTheme.ink),
           title: Text(
             item.label,
             style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w600,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
           trailing: unread > 0
               ? Badge(label: Text('$unread'))
-              : const Icon(Icons.chevron_right, color: AppTheme.mutedSteel),
+              : const Icon(Icons.chevron_right, color: AppTheme.slate),
           onTap: () => Navigator.of(context).pop(item),
         );
     final inbox = this.inbox;

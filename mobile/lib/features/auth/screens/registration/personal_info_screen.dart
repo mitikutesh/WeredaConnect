@@ -119,23 +119,23 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: AppTheme.soilDark,
+                          color: AppTheme.ink,
                         ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    const Icon(
+                    Icon(
                       Icons.lock_outline,
                       size: 14,
-                      color: AppTheme.fieldGreen,
+                      color: context.roleColors.primary,
                     ),
                     const SizedBox(width: 5),
                     Text(
                       l10n.fromFayda,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.fieldGreen,
+                        color: context.roleColors.primary,
                       ),
                     ),
                   ],
@@ -244,7 +244,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
-                      color: AppTheme.mutedSteel,
+                      color: AppTheme.slate,
                     ),
                   ),
                 ],
@@ -332,7 +332,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
               l10n.passwordRequirements,
               style: const TextStyle(
                 fontSize: 12,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ),
           ],

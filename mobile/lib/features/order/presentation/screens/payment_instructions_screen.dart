@@ -438,7 +438,7 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
               FilledButton(
                 onPressed: isLoading || blocked ? null : _submitPayment,
                 style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.soilDark,
+                  backgroundColor: AppTheme.ink,
                   minimumSize: const Size.fromHeight(56),
                   textStyle: const TextStyle(
                     fontFamily: AppTheme.fontFamily,
@@ -465,7 +465,7 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
                 onPressed: isLoading ? null : () => Navigator.of(context).pop(),
                 style: TextButton.styleFrom(
                   minimumSize: const Size.fromHeight(44),
-                  foregroundColor: AppTheme.unselectedNav,
+                  foregroundColor: AppTheme.inkSoft,
                 ),
                 child: Text(l10n.payLater),
               ),
@@ -481,7 +481,7 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
 const TextStyle _cardTitle = TextStyle(
   fontSize: 15,
   fontWeight: FontWeight.w800,
-  color: AppTheme.soilDark,
+  color: AppTheme.ink,
 );
 
 /// A selectable payment-method row (radio-style, without the deprecated

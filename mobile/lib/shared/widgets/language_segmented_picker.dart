@@ -28,7 +28,7 @@ class LanguageSegmentedPicker extends StatelessWidget {
           style: const TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w700,
-            color: AppTheme.unselectedNav,
+            color: AppTheme.inkSoft,
           ),
         ),
         const SizedBox(height: 8),
@@ -119,9 +119,7 @@ class _Segment extends StatelessWidget {
                         fontSize: 13,
                         fontWeight:
                             selected ? FontWeight.w700 : FontWeight.w600,
-                        color: selected
-                            ? AppTheme.soilDark
-                            : AppTheme.unselectedNav,
+                        color: selected ? AppTheme.ink : AppTheme.inkSoft,
                         fontFamilyFallback: AppTheme.ethiopicFontFallback,
                       ),
                     ),

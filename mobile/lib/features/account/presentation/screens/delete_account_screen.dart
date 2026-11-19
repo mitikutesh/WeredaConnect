@@ -393,12 +393,12 @@ class _Bullet extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: AppTheme.textMuted),
+          Icon(icon, size: 20, color: AppTheme.slate),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(fontSize: 14, color: AppTheme.textDark),
+              style: const TextStyle(fontSize: 14, color: AppTheme.ink),
             ),
           ),
         ],

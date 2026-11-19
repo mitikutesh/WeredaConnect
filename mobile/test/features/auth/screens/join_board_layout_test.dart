@@ -157,7 +157,7 @@ void main() {
       final style = tester.widget<FilledButton>(button).style!;
       expect(
         style.backgroundColor!.resolve({}),
-        AppTheme.soilDark,
+        AppTheme.ink,
       );
       expect(
         tester.getRect(button).bottom,

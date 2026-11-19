@@ -255,7 +255,7 @@ class InitiatePaymentScreen extends StatelessWidget {
                   label: Text(l10n.escrowConfirmPayment),
                   style: FilledButton.styleFrom(
                     // The money button is soil dark, as on the board.
-                    backgroundColor: AppTheme.soilDark,
+                    backgroundColor: AppTheme.ink,
                     minimumSize: const Size.fromHeight(56),
                     textStyle: const TextStyle(
                       fontFamily: AppTheme.fontFamily,

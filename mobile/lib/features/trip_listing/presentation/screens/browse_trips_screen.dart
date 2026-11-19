@@ -180,7 +180,7 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
                   child: const Icon(
                     Icons.arrow_back,
                     size: 20,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -229,7 +229,7 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
             child: const Icon(
               Icons.search,
               size: 22,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
         ],
@@ -247,7 +247,7 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
             const Icon(
               Icons.local_shipping_outlined,
               size: 56,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
             ),
             const SizedBox(height: 16),
             Text(l10n.noTripsFound, style: FwText.cardTitle),

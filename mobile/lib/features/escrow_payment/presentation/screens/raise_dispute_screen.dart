@@ -246,7 +246,7 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
                                         style: const TextStyle(
                                           fontSize: 14,
                                           fontWeight: FontWeight.w600,
-                                          color: AppTheme.soilDark,
+                                          color: AppTheme.ink,
                                         ),
                                       ),
                                       contentPadding:

@@ -67,7 +67,7 @@ class TripLogScreen extends StatelessWidget {
     // The board: the back button beside the title, then one card per
     // section, 14 apart.
     return Scaffold(
-      backgroundColor: AppTheme.chalkBackground,
+      backgroundColor: AppTheme.ground,
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
@@ -88,7 +88,7 @@ class TripLogScreen extends StatelessWidget {
                             fontSize: 22,
                             fontWeight: FontWeight.w800,
                             letterSpacing: -0.4,
-                            color: AppTheme.soilDark,
+                            color: AppTheme.ink,
                           ),
                         ),
                       ),
@@ -98,7 +98,7 @@ class TripLogScreen extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 13,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         ),
                       ),
                     ],
@@ -166,7 +166,7 @@ class TripLogScreen extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 13,
                       height: 1.5,
-                      color: AppTheme.unselectedNav,
+                      color: AppTheme.inkSoft,
                     ),
                   ),
                   if (parties.isNotEmpty) ...[
@@ -196,7 +196,7 @@ class TripLogScreen extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                               ),
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: AppTheme.soilDark,
+                                foregroundColor: AppTheme.ink,
                                 side: const BorderSide(
                                   color: Color(0xFFD6D3C8),
                                 ),
@@ -235,7 +235,7 @@ class TripLogScreen extends StatelessWidget {
                     child: Icon(
                       Icons.visibility_outlined,
                       size: 16,
-                      color: AppTheme.mutedSteel,
+                      color: AppTheme.slate,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -245,7 +245,7 @@ class TripLogScreen extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 12,
                         height: 1.5,
-                        color: AppTheme.mutedSteel,
+                        color: AppTheme.slate,
                       ),
                     ),
                   ),
@@ -273,7 +273,7 @@ class _CardTitle extends StatelessWidget {
           style: const TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w800,
-            color: AppTheme.soilDark,
+            color: AppTheme.ink,
           ),
         ),
       );
@@ -294,7 +294,7 @@ class CheckInsTitle extends StatelessWidget {
         const SizedBox(width: 8),
         Text(
           l10n.liveTripAboutEveryHour,
-          style: const TextStyle(fontSize: 12, color: AppTheme.mutedSteel),
+          style: const TextStyle(fontSize: 12, color: AppTheme.slate),
         ),
       ],
     );
@@ -505,7 +505,7 @@ class _LogRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final titleColor = row.muted ? AppTheme.unselectedNav : AppTheme.soilDark;
+    final titleColor = row.muted ? AppTheme.inkSoft : AppTheme.ink;
     final title = row.place == null
         ? null
         : row.tag == null
@@ -528,7 +528,7 @@ class _LogRow extends StatelessWidget {
                       : row.done
                           ? FontWeight.w700
                           : FontWeight.w600,
-                  color: row.done ? AppTheme.soilDark : AppTheme.mutedSteel,
+                  color: row.done ? AppTheme.ink : AppTheme.slate,
                 ),
               ),
             ),
@@ -573,7 +573,7 @@ class _LogRow extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 12,
                       height: 1.4,
-                      color: AppTheme.mutedSteel,
+                      color: AppTheme.slate,
                     ),
                   ),
                   if (row.sentLate != null ||
@@ -587,8 +587,8 @@ class _LogRow extends StatelessWidget {
                           if (row.sentLate != null)
                             DotPill(
                               label: row.sentLate!,
-                              background: AppTheme.actionCream,
-                              foreground: AppTheme.money,
+                              background: AppTheme.orangeTint,
+                              foreground: context.roleColors.primary,
                               height: 22,
                               radius: 6,
                               fontSize: 11,
@@ -597,7 +597,7 @@ class _LogRow extends StatelessWidget {
                             DotPill(
                               label: row.tag!,
                               background: AppTheme.segmentTrack,
-                              foreground: AppTheme.unselectedNav,
+                              foreground: AppTheme.inkSoft,
                               height: 22,
                               radius: 6,
                               fontSize: 11,
@@ -642,7 +642,7 @@ class _CompactLogRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: row.latest ? FontWeight.w800 : FontWeight.w700,
-                color: row.done ? AppTheme.soilDark : AppTheme.mutedSteel,
+                color: row.done ? AppTheme.ink : AppTheme.slate,
               ),
             ),
           ),
@@ -655,7 +655,7 @@ class _CompactLogRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: row.latest ? FontWeight.w700 : FontWeight.w500,
-                color: row.muted ? AppTheme.unselectedNav : AppTheme.soilDark,
+                color: row.muted ? AppTheme.inkSoft : AppTheme.ink,
               ),
             ),
           ),
@@ -667,8 +667,8 @@ class _CompactLogRow extends StatelessWidget {
               flex: 2,
               child: DotPill(
                 label: row.sentLateShort ?? row.sentLate!,
-                background: AppTheme.actionCream,
-                foreground: AppTheme.money,
+                background: AppTheme.orangeTint,
+                foreground: context.roleColors.primary,
                 height: 22,
                 radius: 6,
                 fontSize: 11,
@@ -689,7 +689,8 @@ class _LineBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (line == _Line.solid) {
-      return Center(child: Container(width: 2, color: AppTheme.fieldGreen));
+      return Center(
+          child: Container(width: 2, color: context.roleColors.primary),);
     }
     return const Center(
       child: CustomPaint(
@@ -734,7 +735,7 @@ class _MarkerBox extends StatelessWidget {
           width: 16,
           height: 16,
           decoration: BoxDecoration(
-            color: AppTheme.fieldGreen,
+            color: context.roleColors.primary,
             borderRadius: BorderRadius.circular(4),
           ),
         ),
@@ -742,7 +743,7 @@ class _MarkerBox extends StatelessWidget {
           width: 18,
           height: 18,
           decoration: BoxDecoration(
-            color: AppTheme.accentSoft,
+            color: AppTheme.orange,
             borderRadius: BorderRadius.circular(6),
           ),
         ),
@@ -752,7 +753,7 @@ class _MarkerBox extends StatelessWidget {
           alignment: Alignment.center,
           decoration: const BoxDecoration(
             shape: BoxShape.circle,
-            color: AppTheme.dropoffBlue,
+            color: AppTheme.dropoffSlate,
           ),
           child: Container(
             width: 6,
@@ -773,7 +774,7 @@ class _MarkerBox extends StatelessWidget {
               color: Colors.white,
               border: Border.all(
                 color: marker == _Marker.ring
-                    ? AppTheme.fieldGreen
+                    ? context.roleColors.primary
                     : const Color(0xFF7A827D),
                 width: 3,
               ),
@@ -808,12 +809,12 @@ class _PickupProof extends StatelessWidget {
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              color: AppTheme.fieldGreenTint,
+              color: context.roleColors.tint,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.verified_outlined,
-              color: AppTheme.fieldGreen,
+              color: context.roleColors.primary,
               size: 26,
             ),
           ),
@@ -828,7 +829,7 @@ class _PickupProof extends StatelessWidget {
                   '${l10n.liveTripQrScannedAt(clock.time(pickedUpAt))} · $gps',
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.unselectedNav,
+                    color: AppTheme.inkSoft,
                   ),
                 ),
               ],
@@ -870,7 +871,7 @@ class _PriceBreakdown extends StatelessWidget {
                   label,
                   style: const TextStyle(
                     fontSize: 14,
-                    color: AppTheme.unselectedNav,
+                    color: AppTheme.inkSoft,
                   ),
                 ),
               ),
@@ -880,7 +881,7 @@ class _PriceBreakdown extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
             ],
@@ -909,7 +910,7 @@ class _PriceBreakdown extends StatelessWidget {
             margin: const EdgeInsets.only(top: 5),
             padding: const EdgeInsets.only(top: 10),
             decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: AppTheme.whisperBorder)),
+              border: Border(top: BorderSide(color: AppTheme.line)),
             ),
             child: Row(
               children: [
@@ -919,7 +920,7 @@ class _PriceBreakdown extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
-                      color: AppTheme.soilDark,
+                      color: AppTheme.ink,
                     ),
                   ),
                 ),
@@ -928,7 +929,7 @@ class _PriceBreakdown extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
               ],
@@ -947,7 +948,7 @@ class _PriceBreakdown extends StatelessWidget {
             style: const TextStyle(
               fontSize: 12,
               height: 1.5,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
             ),
           ),
         ],

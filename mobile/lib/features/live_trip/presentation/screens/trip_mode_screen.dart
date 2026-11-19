@@ -339,7 +339,7 @@ class _TripModeScreenState extends State<TripModeScreen> {
     // header the full width, the stops below on the light page whose top
     // corners round over the dark ground.
     return Scaffold(
-      backgroundColor: AppTheme.soilDark,
+      backgroundColor: AppTheme.ink,
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: _refresh,
@@ -347,7 +347,7 @@ class _TripModeScreenState extends State<TripModeScreen> {
             padding: EdgeInsets.zero,
             children: [
               Container(
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
                 child: FwContentWidth(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 20, 20, 50),
@@ -380,7 +380,7 @@ class _TripModeScreenState extends State<TripModeScreen> {
                 child: Container(
                   constraints: const BoxConstraints(minHeight: 400),
                   decoration: const BoxDecoration(
-                    color: AppTheme.chalkBackground,
+                    color: AppTheme.ground,
                     borderRadius: BorderRadius.vertical(
                       top: Radius.circular(28),
                     ),
@@ -476,9 +476,9 @@ class _TripHeader extends StatelessWidget {
     return Row(
       children: [
         const LiveTripBackButton(
-          background: AppTheme.soilCard,
+          background: AppTheme.inkCard,
           foreground: Colors.white,
-          border: AppTheme.soilCard,
+          border: AppTheme.inkCard,
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -492,7 +492,7 @@ class _TripHeader extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.soilMuted,
+                    color: AppTheme.inkMuted,
                   ),
                 ),
               Semantics(
@@ -542,7 +542,7 @@ class _SharingCard extends StatelessWidget {
   final VoidCallback onStop;
 
   static const _onDark = Colors.white;
-  static const _onDarkMuted = AppTheme.soilMuted;
+  static const _onDarkMuted = AppTheme.inkMuted;
 
   @override
   Widget build(BuildContext context) {
@@ -587,8 +587,8 @@ class _SharingCard extends StatelessWidget {
     );
 
     ButtonStyle gold() => FilledButton.styleFrom(
-          backgroundColor: AppTheme.accentSoft,
-          foregroundColor: AppTheme.soilDark,
+          backgroundColor: AppTheme.orange,
+          foregroundColor: AppTheme.ink,
           minimumSize: const Size.fromHeight(44),
           textStyle: const TextStyle(
             fontFamily: AppTheme.fontFamily,
@@ -665,13 +665,13 @@ class _SharingCard extends StatelessWidget {
     );
 
     // The live dot with its halo.
-    const liveDot = SizedBox(
+    final liveDot = SizedBox(
       width: 22,
       height: 22,
       child: Stack(
         alignment: Alignment.center,
         children: [
-          DecoratedBox(
+          const DecoratedBox(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: Color(0x408FC5A4),
@@ -681,9 +681,9 @@ class _SharingCard extends StatelessWidget {
           DecoratedBox(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: AppTheme.soilGreen,
+              color: context.roleColors.mid,
             ),
-            child: SizedBox(width: 12, height: 12),
+            child: const SizedBox(width: 12, height: 12),
           ),
         ],
       ),
@@ -774,7 +774,7 @@ class _SharingCard extends StatelessWidget {
       key: Key('trip_mode_sharing_${status.mode.name}'),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.soilCard,
+        color: AppTheme.inkCard,
         borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
@@ -875,7 +875,7 @@ class _NextStopCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppTheme.surfaceWhite,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.whisperBorder),
+        border: Border.all(color: AppTheme.line),
         boxShadow: const [
           BoxShadow(
             color: Color(0x0F15201A),
@@ -899,11 +899,11 @@ class _NextStopCard extends StatelessWidget {
                               ? l10n.tripModeNextPickup
                               : l10n.tripModeNextDropoff)
                           .toUpperCase(),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.9,
-                        color: AppTheme.money,
+                        color: context.roleColors.primary,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -912,7 +912,7 @@ class _NextStopCard extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                     // LT-12: the buyer's landmark, where the town says too
@@ -928,7 +928,7 @@ class _NextStopCard extends StatelessWidget {
                         cargo,
                         style: const TextStyle(
                           fontSize: 13,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         ),
                       ),
                   ],
@@ -941,8 +941,8 @@ class _NextStopCard extends StatelessWidget {
                   icon: Icons.phone_outlined,
                   semanticLabel: l10n.call,
                   background: AppTheme.surfaceWhite,
-                  foreground: AppTheme.soilDark,
-                  border: AppTheme.whisperBorder,
+                  foreground: AppTheme.ink,
+                  border: AppTheme.line,
                   onTap: () => showPartyContact(
                     context,
                     order: order,
@@ -963,7 +963,7 @@ class _NextStopCard extends StatelessWidget {
                     key: const Key('trip_mode_arrived'),
                     onPressed: busy ? null : onArrived,
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.soilDark,
+                      foregroundColor: AppTheme.ink,
                       side: const BorderSide(color: Color(0xFFD6D3C8)),
                       minimumSize: const Size.fromHeight(48),
                       textStyle: const TextStyle(
@@ -995,7 +995,7 @@ class _NextStopCard extends StatelessWidget {
                     pickup ? l10n.deliveryScanQr : l10n.deliveryShowDropoffQr,
                   ),
                   style: FilledButton.styleFrom(
-                    backgroundColor: AppTheme.soilDark,
+                    backgroundColor: AppTheme.ink,
                     foregroundColor: Colors.white,
                     minimumSize: const Size.fromHeight(48),
                     textStyle: const TextStyle(
@@ -1043,7 +1043,7 @@ class _StopList extends StatelessWidget {
             style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w800,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
         ),
@@ -1117,9 +1117,9 @@ class _StopRow extends StatelessWidget {
       marker = Container(
         width: 22,
         height: 22,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: AppTheme.fieldGreen,
+          color: context.roleColors.primary,
         ),
         child: const Icon(Icons.check, size: 14, color: Colors.white),
       );
@@ -1130,14 +1130,14 @@ class _StopRow extends StatelessWidget {
         alignment: Alignment.center,
         decoration: const BoxDecoration(
           shape: BoxShape.circle,
-          color: AppTheme.accentSoft,
+          color: AppTheme.orange,
         ),
         child: Container(
           width: 8,
           height: 8,
           decoration: const BoxDecoration(
             shape: BoxShape.circle,
-            color: AppTheme.soilDark,
+            color: AppTheme.ink,
           ),
         ),
       );
@@ -1174,8 +1174,8 @@ class _StopRow extends StatelessWidget {
                           : Container(
                               width: 2,
                               color: line == _StopLine.gold
-                                  ? AppTheme.accentSoft
-                                  : AppTheme.fieldGreen,
+                                  ? AppTheme.orange
+                                  : context.roleColors.primary,
                             ),
                     ),
                   ),
@@ -1195,7 +1195,7 @@ class _StopRow extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: isNext ? FontWeight.w800 : FontWeight.w700,
-                      color: AppTheme.soilDark,
+                      color: AppTheme.ink,
                     ),
                   ),
                   // LT-12: the buyer's landmark under a drop-off still to do.
@@ -1211,7 +1211,9 @@ class _StopRow extends StatelessWidget {
                       detail,
                       style: TextStyle(
                         fontSize: 12,
-                        color: isNext ? AppTheme.money : AppTheme.mutedSteel,
+                        color: isNext
+                            ? context.roleColors.primary
+                            : AppTheme.slate,
                         fontWeight: isNext ? FontWeight.w700 : FontWeight.w500,
                       ),
                     ),
@@ -1251,7 +1253,7 @@ class _DropoffNoteLine extends StatelessWidget {
             child: Icon(
               Icons.place_outlined,
               size: fontSize + 2,
-              color: AppTheme.dropoffBlue,
+              color: AppTheme.dropoffSlate,
             ),
           ),
           const SizedBox(width: 4),
@@ -1261,7 +1263,7 @@ class _DropoffNoteLine extends StatelessWidget {
               style: TextStyle(
                 fontSize: fontSize,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.dropoffBlue,
+                color: AppTheme.dropoffSlate,
               ),
             ),
           ),
@@ -1306,7 +1308,7 @@ class _PayRow extends StatelessWidget {
       key: const Key('trip_mode_pay'),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: AppTheme.actionCream,
+        color: AppTheme.orangeTint,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -1320,7 +1322,7 @@ class _PayRow extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -1329,7 +1331,7 @@ class _PayRow extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: AppTheme.actionInk,
+                    color: AppTheme.orangeInk,
                   ),
                 ),
               ],
@@ -1341,7 +1343,7 @@ class _PayRow extends StatelessWidget {
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w800,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
         ],
@@ -1364,7 +1366,7 @@ class _OfflineCheckIns extends StatelessWidget {
       key: const Key('trip_mode_offline'),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.actionCream,
+        color: AppTheme.orangeTint,
         borderRadius: BorderRadius.circular(18),
       ),
       child: Row(
@@ -1372,7 +1374,7 @@ class _OfflineCheckIns extends StatelessWidget {
         children: [
           const Padding(
             padding: EdgeInsets.only(top: 1),
-            child: Icon(Icons.cloud_off, size: 22, color: AppTheme.actionInk),
+            child: Icon(Icons.cloud_off, size: 22, color: AppTheme.orangeInk),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1384,7 +1386,7 @@ class _OfflineCheckIns extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -1393,7 +1395,7 @@ class _OfflineCheckIns extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 13,
                     height: 1.45,
-                    color: AppTheme.actionInk,
+                    color: AppTheme.orangeInk,
                   ),
                 ),
               ],

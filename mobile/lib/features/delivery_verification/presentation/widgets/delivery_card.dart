@@ -151,7 +151,7 @@ class DeliveryCard extends StatelessWidget {
     return FwCard(
       onTap: onTap,
       padding: const EdgeInsets.all(14),
-      borderColor: selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+      borderColor: selected ? context.roleColors.primary : AppTheme.line,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -213,7 +213,7 @@ class DeliveryCard extends StatelessWidget {
                   child: Icon(
                     Icons.schedule,
                     size: 16,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -299,7 +299,7 @@ class DeliveryCard extends StatelessWidget {
     return FwCard(
       onTap: onTap,
       padding: const EdgeInsets.all(14),
-      borderColor: selected ? AppTheme.fieldGreen : AppTheme.whisperBorder,
+      borderColor: selected ? context.roleColors.primary : AppTheme.line,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -375,7 +375,11 @@ class DeliveryCropTile extends StatelessWidget {
   ) {
     switch (status) {
       case DeliveryStatus.delivered:
-        return (Icons.check, AppTheme.fieldGreenTint, AppTheme.fieldGreen);
+        return (
+          Icons.check,
+          AppTheme.statusSuccessContainer,
+          AppTheme.statusSuccess,
+        );
       case DeliveryStatus.disputed:
         return (
           Icons.report_problem_outlined,
@@ -383,7 +387,7 @@ class DeliveryCropTile extends StatelessWidget {
           AppTheme.statusError,
         );
       case DeliveryStatus.cancelled:
-        return (Icons.close, AppTheme.segmentTrack, AppTheme.mutedSteel);
+        return (Icons.close, AppTheme.segmentTrack, AppTheme.slate);
       case DeliveryStatus.pending:
       case DeliveryStatus.pickedUp:
       case DeliveryStatus.inTransit:

@@ -49,7 +49,7 @@ class LabeledField extends StatelessWidget {
   static const labelStyle = TextStyle(
     fontSize: 13,
     fontWeight: FontWeight.w700,
-    color: AppTheme.unselectedNav,
+    color: AppTheme.inkSoft,
   );
 
   /// The small muted line the boards put under a field ("Buyers can book
@@ -57,7 +57,7 @@ class LabeledField extends StatelessWidget {
   static const helperStyle = TextStyle(
     fontSize: 12,
     fontWeight: FontWeight.w500,
-    color: AppTheme.mutedSteel,
+    color: AppTheme.slate,
   );
 
   LabeledField withLabelHeight(double height) => LabeledField(
@@ -117,7 +117,7 @@ class LabeledFieldPair extends StatelessWidget {
         }
         const gap = 10.0;
         final columnWidth = (constraints.maxWidth - gap) / 2;
-        // Measure with the page's font (Manrope), not the painter's default,
+        // Measure with the page's font (Bricolage Grotesque), not the painter's default,
         // or a label that wraps on the page measures as one line here.
         final labelStyle =
             DefaultTextStyle.of(context).style.merge(LabeledField.labelStyle);
@@ -187,8 +187,7 @@ class DateFieldButton extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
-                      color:
-                          placeholder ? AppTheme.mutedSteel : AppTheme.soilDark,
+                      color: placeholder ? AppTheme.slate : AppTheme.ink,
                     ),
                   ),
                 ),
@@ -203,7 +202,7 @@ class DateFieldButton extends StatelessWidget {
                 const Icon(
                   Icons.calendar_today_outlined,
                   size: 18,
-                  color: AppTheme.mutedSteel,
+                  color: AppTheme.slate,
                 ),
               ],
             ),

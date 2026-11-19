@@ -176,7 +176,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                       child: const Icon(
                         Icons.arrow_back,
                         size: 20,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -193,7 +193,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                       child: const Icon(
                         Icons.refresh,
                         size: 22,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                   ],
@@ -340,7 +340,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                   _DetailRow(
                     label: l10n.escrowFarmerReceives,
                     value: etb(payment.farmerPayout),
-                    valueColor: AppTheme.fieldGreen,
+                    valueColor: context.roleColors.primary,
                   ),
                   // Transport leg (SIM-15): total = commission + farmer +
                   // trucker. Hidden for orders without a trucker split.
@@ -349,7 +349,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                     _DetailRow(
                       label: l10n.escrowTruckerReceives,
                       value: etb(payment.truckerPayout),
-                      valueColor: AppTheme.fieldGreen,
+                      valueColor: context.roleColors.primary,
                     ),
                   ],
                 ],
@@ -457,7 +457,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                   const Icon(
                     Icons.info_outline,
                     size: 14,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                   const SizedBox(width: 4),
                   Text(l10n.escrowMayBeOutdated, style: FwText.body),
@@ -502,7 +502,7 @@ class _AwaitingPaymentBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.actionCream,
+        color: AppTheme.orangeTint,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -510,12 +510,12 @@ class _AwaitingPaymentBanner extends StatelessWidget {
         children: [
           Row(
             children: [
-              const SizedBox(
+              SizedBox(
                 height: 20,
                 width: 20,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: AppTheme.money,
+                  color: context.roleColors.primary,
                 ),
               ),
               const SizedBox(width: 16),
@@ -525,7 +525,7 @@ class _AwaitingPaymentBanner extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: AppTheme.actionInk,
+                    color: AppTheme.orangeInk,
                   ),
                 ),
               ),
@@ -539,7 +539,8 @@ class _AwaitingPaymentBanner extends StatelessWidget {
                 onPressed: () {
                   onOpenAgain!();
                 },
-                style: TextButton.styleFrom(foregroundColor: AppTheme.money),
+                style: TextButton.styleFrom(
+                    foregroundColor: context.roleColors.primary,),
                 icon: const Icon(Icons.open_in_new, size: 18),
                 label: Text(l10n.escrowOpenPaymentAgain),
               ),
@@ -643,7 +644,7 @@ class _DetailRow extends StatelessWidget {
             style: TextStyle(
               fontSize: emphasis ? 13 : 14,
               fontWeight: FontWeight.w500,
-              color: emphasis ? AppTheme.mutedSteel : AppTheme.inkSecondary,
+              color: emphasis ? AppTheme.slate : AppTheme.inkSoft,
             ),
           ),
         ),
@@ -654,7 +655,7 @@ class _DetailRow extends StatelessWidget {
             fontSize: emphasis ? 22 : 14,
             fontWeight: emphasis ? FontWeight.w800 : FontWeight.w700,
             letterSpacing: emphasis ? -0.4 : 0,
-            color: valueColor ?? AppTheme.soilDark,
+            color: valueColor ?? AppTheme.ink,
           ),
         ),
       ],
@@ -684,7 +685,7 @@ class _InfoRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: AppTheme.mutedSteel),
+          Icon(icon, size: 18, color: AppTheme.slate),
           const SizedBox(width: 12),
           SizedBox(
             width: 84,
@@ -696,7 +697,7 @@ class _InfoRow extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             ),
           ),

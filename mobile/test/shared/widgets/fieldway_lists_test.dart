@@ -56,8 +56,8 @@ void main() {
               matching: find.byType(Material),
             ),
           );
-      expect(materialOf('A').color, AppTheme.fieldGreen);
-      expect(materialOf('B').color, AppTheme.surfaceWhite);
+      expect(materialOf('A').color, AppTheme.ink);
+      expect(materialOf('B').color, Colors.transparent);
     });
   });
 

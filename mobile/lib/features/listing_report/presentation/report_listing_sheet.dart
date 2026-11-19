@@ -44,7 +44,7 @@ class ReportListingButton extends StatelessWidget {
         icon: const Icon(Icons.flag_outlined, size: 18),
         label: Text(l10n.reportListing),
         style: TextButton.styleFrom(
-          foregroundColor: AppTheme.mutedSteel,
+          foregroundColor: AppTheme.slate,
           minimumSize: const Size(48, 48),
           textStyle: const TextStyle(
             fontFamily: AppTheme.fontFamily,
@@ -185,7 +185,7 @@ class _ReportListingSheetState extends State<ReportListingSheet> {
                 fontSize: 22,
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.4,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             ),
             const SizedBox(height: 6),
@@ -194,7 +194,7 @@ class _ReportListingSheetState extends State<ReportListingSheet> {
               style: const TextStyle(
                 fontSize: 14,
                 height: 1.5,
-                color: AppTheme.unselectedNav,
+                color: AppTheme.inkSoft,
               ),
             ),
             const SizedBox(height: 16),
@@ -239,7 +239,7 @@ class _ReportListingSheetState extends State<ReportListingSheet> {
               key: const Key('report_listing_send'),
               onPressed: _reason == null || _sending ? null : _send,
               style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.soilDark,
+                backgroundColor: AppTheme.ink,
                 foregroundColor: Colors.white,
                 minimumSize: const Size.fromHeight(56),
                 textStyle: const TextStyle(
@@ -268,7 +268,7 @@ class _ReportListingSheetState extends State<ReportListingSheet> {
               key: const Key('report_listing_cancel'),
               onPressed: _sending ? null : () => Navigator.of(context).pop(),
               style: TextButton.styleFrom(
-                foregroundColor: AppTheme.unselectedNav,
+                foregroundColor: AppTheme.inkSoft,
                 minimumSize: const Size.fromHeight(44),
               ),
               child: Text(l10n.cancel),
@@ -303,7 +303,7 @@ class _ReasonRow extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(
-          color: selected ? AppTheme.soilDark : AppTheme.whisperBorder,
+          color: selected ? AppTheme.ink : AppTheme.line,
           width: selected ? 2 : 1,
         ),
       ),
@@ -320,7 +320,7 @@ class _ReasonRow extends StatelessWidget {
                 height: 20,
                 child: Radio<ListingReportReason>(
                   value: reason,
-                  activeColor: AppTheme.soilDark,
+                  activeColor: AppTheme.ink,
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   visualDensity: VisualDensity.compact,
                 ),
@@ -332,7 +332,7 @@ class _ReasonRow extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
               ),

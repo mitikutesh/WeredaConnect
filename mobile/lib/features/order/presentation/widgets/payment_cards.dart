@@ -25,7 +25,7 @@ class PaymentAmountCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppTheme.fieldGreen,
+        color: context.roleColors.primary,
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
@@ -78,7 +78,7 @@ class ConfirmItsYouCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.whisperBorder),
+        border: Border.all(color: AppTheme.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -89,13 +89,13 @@ class ConfirmItsYouCard extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: AppTheme.fieldGreenTint,
+                  color: context.roleColors.tint,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.verified_user_outlined,
                   size: 20,
-                  color: AppTheme.fieldGreen,
+                  color: context.roleColors.primary,
                 ),
               ),
               const SizedBox(width: 12),
@@ -108,16 +108,16 @@ class ConfirmItsYouCard extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w800,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                     if (method != null)
                       Text(
                         method!,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: AppTheme.fieldGreen,
+                          color: context.roleColors.primary,
                         ),
                       ),
                   ],
@@ -131,7 +131,7 @@ class ConfirmItsYouCard extends StatelessWidget {
             style: const TextStyle(
               fontSize: 13,
               height: 1.5,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
             ),
           ),
         ],
@@ -167,8 +167,8 @@ class PaymentStatusCard extends StatelessWidget {
         width: 22,
         child: CircularProgressIndicator(
           strokeWidth: 3,
-          color: AppTheme.accentSoft,
-          backgroundColor: AppTheme.whisperBorder,
+          color: AppTheme.orange,
+          backgroundColor: AppTheme.line,
         ),
       );
     } else if (done) {
@@ -181,7 +181,7 @@ class PaymentStatusCard extends StatelessWidget {
       leading = Icon(
         error ? Icons.error_outline : Icons.info_outline,
         size: 22,
-        color: error ? AppTheme.statusError : AppTheme.fieldGreen,
+        color: error ? AppTheme.statusError : context.roleColors.primary,
       );
     }
     return Semantics(
@@ -191,7 +191,7 @@ class PaymentStatusCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppTheme.whisperBorder),
+          border: Border.all(color: AppTheme.line),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -211,7 +211,7 @@ class PaymentStatusCard extends StatelessWidget {
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
                       height: 1.4,
-                      color: error ? AppTheme.statusError : AppTheme.soilDark,
+                      color: error ? AppTheme.statusError : AppTheme.ink,
                     ),
                   ),
                 ),

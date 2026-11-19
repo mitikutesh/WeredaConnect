@@ -390,7 +390,7 @@ class _EmptyState extends StatelessWidget {
                 ? Icons.filter_alt_off
                 : Icons.account_balance_wallet_outlined,
             size: 56,
-            color: AppTheme.mutedSteel,
+            color: AppTheme.slate,
           ),
           const SizedBox(height: 16),
           Text(

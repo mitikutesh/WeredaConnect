@@ -110,7 +110,7 @@ class _PauseSheetState extends State<PauseSheet> {
                 fontSize: 22,
                 fontWeight: FontWeight.w800,
                 letterSpacing: -0.4,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             ),
             const SizedBox(height: 6),
@@ -119,7 +119,7 @@ class _PauseSheetState extends State<PauseSheet> {
               style: const TextStyle(
                 fontSize: 14,
                 height: 1.5,
-                color: AppTheme.unselectedNav,
+                color: AppTheme.inkSoft,
               ),
             ),
             const SizedBox(height: 16),
@@ -156,14 +156,14 @@ class _PauseSheetState extends State<PauseSheet> {
             const SizedBox(height: 16),
             Text(
               l10n.pauseSheetNote,
-              style: const TextStyle(fontSize: 12, color: AppTheme.mutedSteel),
+              style: const TextStyle(fontSize: 12, color: AppTheme.slate),
             ),
             const SizedBox(height: 16),
             FilledButton(
               key: const Key('pause_confirm'),
               onPressed: () => Navigator.of(context).pop(_choice),
               style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.soilDark,
+                backgroundColor: AppTheme.ink,
                 foregroundColor: Colors.white,
                 minimumSize: const Size.fromHeight(56),
                 textStyle: const TextStyle(
@@ -183,7 +183,7 @@ class _PauseSheetState extends State<PauseSheet> {
               key: const Key('pause_keep'),
               onPressed: () => Navigator.of(context).pop(),
               style: TextButton.styleFrom(
-                foregroundColor: AppTheme.unselectedNav,
+                foregroundColor: AppTheme.inkSoft,
                 minimumSize: const Size.fromHeight(44),
                 textStyle: const TextStyle(
                   fontFamily: AppTheme.fontFamily,
@@ -226,7 +226,7 @@ class _ChoiceRow extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(
-          color: selected ? AppTheme.soilDark : AppTheme.whisperBorder,
+          color: selected ? AppTheme.ink : AppTheme.line,
           width: selected ? 2 : 1,
         ),
       ),
@@ -243,7 +243,7 @@ class _ChoiceRow extends StatelessWidget {
                 height: 20,
                 child: Radio<PauseChoice>(
                   value: choice,
-                  activeColor: AppTheme.soilDark,
+                  activeColor: AppTheme.ink,
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   visualDensity: VisualDensity.compact,
                 ),
@@ -255,7 +255,7 @@ class _ChoiceRow extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
               ),

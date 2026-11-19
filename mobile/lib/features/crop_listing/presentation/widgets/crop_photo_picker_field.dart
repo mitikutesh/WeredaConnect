@@ -111,11 +111,11 @@ class _CropPhotoPickerFieldState extends State<CropPhotoPickerField> {
                   CropPhotoRules.maxPhotos,
                 ),
                 background: CropPhotoRules.isValidCount(widget.photos.length)
-                    ? AppTheme.fieldGreenTint
+                    ? context.roleColors.tint
                     : AppTheme.segmentTrack,
                 foreground: CropPhotoRules.isValidCount(widget.photos.length)
-                    ? AppTheme.fieldGreen
-                    : AppTheme.unselectedNav,
+                    ? context.roleColors.primary
+                    : AppTheme.inkSoft,
               ),
             ],
           ),
@@ -268,7 +268,7 @@ class _PhotoTile extends StatelessWidget {
             bottom: 4,
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: AppTheme.fieldGreen,
+                color: context.roleColors.primary,
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Padding(
@@ -315,7 +315,7 @@ class _EmptyTile extends StatelessWidget {
       color: AppTheme.surfaceWhite,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: AppTheme.whisperBorder),
+        side: const BorderSide(color: AppTheme.line),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -325,7 +325,7 @@ class _EmptyTile extends StatelessWidget {
         child: const Center(
           child: Icon(
             Icons.add_a_photo_outlined,
-            color: AppTheme.mutedSteel,
+            color: AppTheme.slate,
           ),
         ),
       ),

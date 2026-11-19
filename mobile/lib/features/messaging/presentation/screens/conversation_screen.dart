@@ -224,7 +224,7 @@ class _ConversationViewState extends State<_ConversationView> {
               contextType: widget.contextType,
               contextId: widget.contextId,
               resolver: context.read<InboxBloc>().contextResolver,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
               onTap: _contextOpensDetail ? _openLinkedContext : null,
             ),
           ],
@@ -338,7 +338,7 @@ class _MessageBubble extends StatelessWidget {
         ),
         decoration: BoxDecoration(
           color: isMine
-              ? AppTheme.primary
+              ? context.roleColors.primary
               : theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(14),

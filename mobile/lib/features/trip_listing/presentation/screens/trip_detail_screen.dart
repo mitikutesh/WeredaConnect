@@ -159,12 +159,12 @@ class _VisitorBody extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: const BoxDecoration(
-                  color: AppTheme.actionCream,
+                  color: AppTheme.orangeTint,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.local_shipping_outlined,
-                  color: AppTheme.money,
+                  color: context.roleColors.primary,
                 ),
               ),
               const SizedBox(width: 12),
@@ -177,7 +177,7 @@ class _VisitorBody extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -185,7 +185,7 @@ class _VisitorBody extends StatelessWidget {
                       l10n.trucker,
                       style: const TextStyle(
                         fontSize: 12,
-                        color: AppTheme.mutedSteel,
+                        color: AppTheme.slate,
                       ),
                     ),
                   ],
@@ -410,7 +410,7 @@ class _RouteHeader extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(20, topInset + 12, 20, 22),
-      color: AppTheme.soilDark,
+      color: AppTheme.ink,
       child: FwContentWidth(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -427,7 +427,7 @@ class _RouteHeader extends StatelessWidget {
                         '$day · $price',
                         style: const TextStyle(
                           fontSize: 13,
-                          color: AppTheme.soilMuted,
+                          color: AppTheme.inkMuted,
                         ),
                       ),
                       Semantics(
@@ -490,7 +490,7 @@ class _BookedBox extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.soilCard,
+        color: AppTheme.inkCard,
         borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
@@ -503,7 +503,7 @@ class _BookedBox extends StatelessWidget {
                   l10n.detailBooked,
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.soilMuted,
+                    color: AppTheme.inkMuted,
                   ),
                 ),
               ),
@@ -523,9 +523,9 @@ class _BookedBox extends StatelessWidget {
             child: LinearProgressIndicator(
               value: booked / capacity,
               minHeight: 8,
-              backgroundColor: AppTheme.soilTrack,
+              backgroundColor: AppTheme.inkTrack,
               valueColor: const AlwaysStoppedAnimation<Color>(
-                AppTheme.accentSoft,
+                AppTheme.orange,
               ),
             ),
           ),
@@ -533,7 +533,7 @@ class _BookedBox extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               l10n.tripBookedTermsNote,
-              style: const TextStyle(fontSize: 12, color: AppTheme.soilMuted),
+              style: const TextStyle(fontSize: 12, color: AppTheme.inkMuted),
             ),
           ],
         ],

@@ -152,7 +152,7 @@ class ListingCard extends StatelessWidget {
                           const Icon(
                             Icons.star,
                             size: 13,
-                            color: AppTheme.accentSoft,
+                            color: AppTheme.orange,
                           ),
                           const SizedBox(width: 2),
                           Text(
@@ -178,8 +178,8 @@ class ListingCard extends StatelessWidget {
                         child: FwPill(
                           label: AppLocalizations.of(context)!.escrow,
                           icon: Icons.verified_user_outlined,
-                          background: AppTheme.fieldGreenTint,
-                          foreground: AppTheme.fieldGreen,
+                          background: context.roleColors.tint,
+                          foreground: context.roleColors.primary,
                         ),
                       ),
                     ],
@@ -190,11 +190,11 @@ class ListingCard extends StatelessWidget {
                         child: FwPill(
                           label: detail!,
                           background: detailHighlighted
-                              ? AppTheme.actionCream
+                              ? AppTheme.orangeTint
                               : AppTheme.segmentTrack,
                           foreground: detailHighlighted
-                              ? AppTheme.money
-                              : AppTheme.unselectedNav,
+                              ? context.roleColors.primary
+                              : AppTheme.inkSoft,
                         ),
                       ),
                     ],
@@ -206,7 +206,7 @@ class ListingCard extends StatelessWidget {
                         detail!,
                         style: FwText.body.copyWith(
                           fontWeight: FontWeight.w600,
-                          color: AppTheme.unselectedNav,
+                          color: AppTheme.inkSoft,
                         ),
                       ),
                     ],
@@ -229,7 +229,7 @@ class ListingCard extends StatelessWidget {
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
                           letterSpacing: -0.3,
-                          color: AppTheme.soilDark,
+                          color: AppTheme.ink,
                         ),
                       ),
                       if (priceUnit != null) ...[
@@ -239,7 +239,7 @@ class ListingCard extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
-                            color: AppTheme.mutedSteel,
+                            color: AppTheme.slate,
                           ),
                         ),
                       ],
@@ -266,7 +266,7 @@ class ListingCard extends StatelessWidget {
                             fontWeight: FontWeight.w700,
                             color: statusPending
                                 ? AppTheme.statusWarning
-                                : AppTheme.fieldGreen,
+                                : context.roleColors.primary,
                           ),
                         ),
                       ],
@@ -286,9 +286,9 @@ class ListingCard extends StatelessWidget {
                     child: LinearProgressIndicator(
                       value: progress!.clamp(0, 1).toDouble(),
                       minHeight: 6,
-                      backgroundColor: AppTheme.whisperBorder,
-                      valueColor: const AlwaysStoppedAnimation<Color>(
-                        AppTheme.fieldGreen,
+                      backgroundColor: AppTheme.line,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        context.roleColors.primary,
                       ),
                     ),
                   ),

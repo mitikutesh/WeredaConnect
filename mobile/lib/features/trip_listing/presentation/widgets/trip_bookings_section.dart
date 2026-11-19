@@ -191,7 +191,7 @@ class _TripBookingsSectionState extends State<TripBookingsSection> {
                       l10n.tripBookingsLoadFailed,
                       style: const TextStyle(
                         fontSize: 14,
-                        color: AppTheme.mutedSteel,
+                        color: AppTheme.slate,
                       ),
                     ),
                   ),
@@ -207,7 +207,7 @@ class _TripBookingsSectionState extends State<TripBookingsSection> {
                 l10n.tripNoBookings,
                 style: const TextStyle(
                   fontSize: 14,
-                  color: AppTheme.mutedSteel,
+                  color: AppTheme.slate,
                 ),
               )
             else
@@ -242,7 +242,7 @@ class _TripBookingsSectionState extends State<TripBookingsSection> {
 const TextStyle _sectionTitle = TextStyle(
   fontSize: 15,
   fontWeight: FontWeight.w800,
-  color: AppTheme.soilDark,
+  color: AppTheme.ink,
 );
 
 /// A stamped place, or null when it is missing or blank.
@@ -296,8 +296,8 @@ class _BookingCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         side: asked
-            ? const BorderSide(color: AppTheme.accentSoft, width: 2)
-            : const BorderSide(color: AppTheme.whisperBorder),
+            ? const BorderSide(color: AppTheme.orange, width: 2)
+            : const BorderSide(color: AppTheme.line),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -320,7 +320,7 @@ class _BookingCard extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w800,
-                            color: AppTheme.soilDark,
+                            color: AppTheme.ink,
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -330,7 +330,7 @@ class _BookingCard extends StatelessWidget {
                           '$farmer, $from → $buyer, $to',
                           style: const TextStyle(
                             fontSize: 12,
-                            color: AppTheme.mutedSteel,
+                            color: AppTheme.slate,
                           ),
                         ),
                       ],
@@ -345,14 +345,14 @@ class _BookingCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
-                          color: AppTheme.soilDark,
+                          color: AppTheme.ink,
                         ),
                       ),
                       Text(
                         l10n.detailYourPay,
                         style: const TextStyle(
                           fontSize: 11,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         ),
                       ),
                     ],
@@ -389,15 +389,13 @@ class _BookingCard extends StatelessWidget {
         label: '${l10n.detailBookingWaitingFarmer} · '
             '${l10n.detailBookingAskedNext}',
         background: AppTheme.segmentTrack,
-        foreground: AppTheme.unselectedNav,
+        foreground: AppTheme.inkSoft,
       );
     }
     if (order.status == OrderStatus.accepted) {
       return FwPill(
         label: '${l10n.commitmentAccepted} · '
             '${l10n.detailBookingAcceptedContactOpen}',
-        background: AppTheme.fieldGreenTint,
-        foreground: AppTheme.fieldGreen,
       );
     }
     return StatusChip(
@@ -442,19 +440,20 @@ class _TransportRequest extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 2),
-              child: Icon(Icons.schedule, size: 16, color: AppTheme.money),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(Icons.schedule,
+                  size: 16, color: context.roleColors.primary,),
             ),
             const SizedBox(width: 8),
             Expanded(
               child: ClockText(
                 line,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
                   height: 1.35,
-                  color: AppTheme.money,
+                  color: context.roleColors.primary,
                 ),
               ),
             ),
@@ -488,7 +487,7 @@ class _TransportRequest extends StatelessWidget {
                 key: Key('booking_accept_${order.orderId}'),
                 onPressed: locked ? null : onAccept,
                 style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.soilDark,
+                  backgroundColor: AppTheme.ink,
                   minimumSize: const Size.fromHeight(48),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),

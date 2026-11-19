@@ -289,10 +289,10 @@ class _PlaceSelectorState extends State<PlaceSelector>
                   suffixIcon: widget.pickerLook
                       ? const Icon(
                           Icons.keyboard_arrow_down,
-                          color: AppTheme.textMuted,
+                          color: AppTheme.slate,
                         )
                       : widget.showSearchIcon
-                          ? const Icon(Icons.search, color: AppTheme.textMuted)
+                          ? const Icon(Icons.search, color: AppTheme.slate)
                           : null,
                   isDense: widget.isDense,
                   // Long validator texts (FUP-49 phone refusal) wrap, not clip.
@@ -325,7 +325,7 @@ class _PlaceSelectorState extends State<PlaceSelector>
                   child: Text(
                     l10n.placeNoResults,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppTheme.textMuted,
+                          color: AppTheme.slate,
                         ),
                   ),
                 ),
@@ -350,7 +350,7 @@ class _PlaceSelectorState extends State<PlaceSelector>
                   shrinkWrap: true,
                   itemCount: options.length,
                   separatorBuilder: (_, __) =>
-                      const Divider(height: 1, color: AppTheme.borderLight),
+                      const Divider(height: 1, color: AppTheme.line),
                   itemBuilder: (context, index) {
                     final place = options.elementAt(index);
                     final highlighted =
@@ -419,7 +419,7 @@ class _PlaceOptionTile extends StatelessWidget {
       canRequestFocus: false,
       child: Container(
         color: highlighted
-            ? AppTheme.primaryGreen.withValues(alpha: 0.08)
+            ? context.roleColors.primary.withValues(alpha: 0.08)
             : Colors.transparent,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
@@ -428,7 +428,7 @@ class _PlaceOptionTile extends StatelessWidget {
             const Icon(
               Icons.location_on_outlined,
               size: 18,
-              color: AppTheme.textMuted,
+              color: AppTheme.slate,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -444,7 +444,7 @@ class _PlaceOptionTile extends StatelessWidget {
                     Text(
                       subtitle,
                       style: theme.textTheme.bodySmall
-                          ?.copyWith(color: AppTheme.textMuted),
+                          ?.copyWith(color: AppTheme.slate),
                     ),
                 ],
               ),
@@ -455,7 +455,7 @@ class _PlaceOptionTile extends StatelessWidget {
                 child: Text(
                   locality,
                   style: theme.textTheme.labelSmall
-                      ?.copyWith(color: AppTheme.textMuted),
+                      ?.copyWith(color: AppTheme.slate),
                 ),
               ),
           ],

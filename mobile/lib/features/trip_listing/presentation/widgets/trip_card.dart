@@ -108,7 +108,7 @@ class TripCard extends StatelessWidget {
                                 style: const TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
-                                  color: AppTheme.soilDark,
+                                  color: AppTheme.ink,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -119,7 +119,7 @@ class TripCard extends StatelessWidget {
                               const Icon(
                                 Icons.star,
                                 size: 13,
-                                color: AppTheme.accentSoft,
+                                color: AppTheme.orange,
                               ),
                               const SizedBox(width: 2),
                               Text(
@@ -143,7 +143,7 @@ class TripCard extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -180,7 +180,7 @@ class TripCard extends StatelessWidget {
                 child: OutlinedButton(
                   onPressed: onCancel,
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.soilDark,
+                    foregroundColor: AppTheme.ink,
                     side: const BorderSide(color: Color(0xFFD6D3C8)),
                     minimumSize: const Size(0, 40),
                     padding: const EdgeInsets.symmetric(horizontal: 16),

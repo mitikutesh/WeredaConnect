@@ -35,7 +35,7 @@ Future<void> _loadFonts() async {
     'Bold',
     'ExtraBold',
   ]) {
-    manrope.addFont(file('Manrope-$weight.ttf'));
+    manrope.addFont(file('BricolageGrotesque-$weight.ttf'));
   }
   final ethiopic = FontLoader(AppTheme.ethiopicFontFallback.first);
   for (final weight in ['Regular', 'SemiBold', 'Bold']) {

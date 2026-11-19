@@ -381,7 +381,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                 FilledButton(
                   onPressed: isLoading ? null : _handleSaveTapped,
                   style: FilledButton.styleFrom(
-                    backgroundColor: AppTheme.soilDark,
+                    backgroundColor: AppTheme.ink,
                     minimumSize: const Size.fromHeight(56),
                     textStyle: const TextStyle(
                       fontFamily: AppTheme.fontFamily,
@@ -523,7 +523,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                     fixedSize: const Size(44, 44),
                     padding: EdgeInsets.zero,
                     backgroundColor: Colors.white,
-                    foregroundColor: AppTheme.soilDark,
+                    foregroundColor: AppTheme.ink,
                     side: const BorderSide(color: Color(0xFFD6D3C8)),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
@@ -650,7 +650,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           const SizedBox(height: 20),
           Text(
             l10n.createTripDriverHint,
-            style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
+            style: const TextStyle(fontSize: 13, color: AppTheme.slate),
           ),
           const SizedBox(height: 12),
           LabeledField(
@@ -758,9 +758,9 @@ class _RouteEndDot extends StatelessWidget {
           height: 12,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: origin ? Colors.white : AppTheme.dropoffBlue,
+            color: origin ? Colors.white : AppTheme.dropoffSlate,
             border: origin
-                ? Border.all(color: AppTheme.fieldGreen, width: 3)
+                ? Border.all(color: context.roleColors.primary, width: 3)
                 : null,
           ),
         ),

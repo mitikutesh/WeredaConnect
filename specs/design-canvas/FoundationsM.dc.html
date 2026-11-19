@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Live trip foundations</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&amp;family=Noto+Sans+Ethiopic:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1A1516}a:hover{color:#0C0A0A}
+</style>
+</helmet>
+<div style="width: 1280px; height: 900px; box-sizing: border-box; padding: 48px 64px; background: #FFFFFF; color: #1A1516; font-family: 'Bricolage Grotesque', system-ui, sans-serif; display: flex; flex-direction: column; gap: 28px">
+  <header style="display: flex; justify-content: space-between; align-items: flex-end">
+    <div style="display: flex; align-items: center; gap: 14px">
+      <div style="width: 48px; height: 48px; border-radius: 14px; background: #1A1516; display: flex; align-items: center; justify-content: center">
+        <svg width="31" height="31" sc-camel-view-box="0 0 24 24" fill="#FFFFFF" aria-hidden="true"><path d="M19.5,12c0.93,0,1.78,0.28,2.5,0.76V8c0-1.1-0.9-2-2-2h-6.29l-1.06-1.06l1.41-1.41l-0.71-0.71L9.82,6.35l0.71,0.71l1.41-1.41L13,6.71V9c0,1.1-0.9,2-2,2h-0.54c0.95,1.06,1.54,2.46,1.54,4c0,0.34-0.04,0.67-0.09,1h3.14C15.3,13.75,17.19,12,19.5,12z"></path><path d="M19.5,13c-1.93,0-3.5,1.57-3.5,3.5s1.57,3.5,3.5,3.5s3.5-1.57,3.5-3.5S21.43,13,19.5,13z M19.5,18c-0.83,0-1.5-0.67-1.5-1.5s0.67-1.5,1.5-1.5s1.5,0.67,1.5,1.5S20.33,18,19.5,18z"></path><path d="M4,9h5c0-1.1-0.9-2-2-2H4C3.45,7,3,7.45,3,8C3,8.55,3.45,9,4,9z"></path><path d="M9.83,13.82l-0.18-0.47L10.58,13c-0.46-1.06-1.28-1.91-2.31-2.43l-0.4,0.89l-0.46-0.21l0.4-0.9C7.26,10.13,6.64,10,6,10c-0.53,0-1.04,0.11-1.52,0.26l0.34,0.91l-0.47,0.18L4,10.42c-1.06,0.46-1.91,1.28-2.43,2.31l0.89,0.4l-0.21,0.46l-0.9-0.4C1.13,13.74,1,14.36,1,15c0,0.53,0.11,1.04,0.26,1.52l0.91-0.34l0.18,0.47L1.42,17c0.46,1.06,1.28,1.91,2.31,2.43l0.4-0.89l0.46,0.21l-0.4,0.9C4.74,19.87,5.36,20,6,20c0.53,0,1.04-0.11,1.52-0.26l-0.34-0.91l0.47-0.18L8,19.58c1.06-0.46,1.91-1.28,2.43-2.31l-0.89-0.4l0.21-0.46l0.9,0.4C10.87,16.26,11,15.64,11,15c0-0.53-0.11-1.04-0.26-1.52L9.83,13.82z M7.15,17.77c-1.53,0.63-3.29-0.09-3.92-1.62c-0.63-1.53,0.09-3.29,1.62-3.92c1.53-0.63,3.29,0.09,3.92,1.62C9.41,15.38,8.68,17.14,7.15,17.77z"></path></svg>
+      </div>
+      <div>
+        <div style="font-size: 32px; font-weight: 800; letter-spacing: -0.03em">Live trip</div>
+        <div style="font-size: 15px; color: #6C696A">Where the truck is after pickup. Honest hourly check-ins that work without network.</div>
+      </div>
+    </div>
+    <div style="font-size: 13px; color: #6C696A; text-align: right; line-height: 1.6">WeredaConnect · foundations v0.1<br>Android + Web (one Flutter codebase)</div>
+  </header>
+
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; flex-grow: 1; min-height: 0">
+    <section style="background: #FFFFFF; border: 1px solid #DCD5CF; border-radius: 24px; padding: 26px; display: flex; flex-direction: column; gap: 18px">
+      <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #6C696A">Map language</div>
+      <svg width="518" height="292" sc-camel-view-box="0 0 518 292" role="img" aria-label="Sample map: a solid trail from the pickup to the truck, a dashed road ahead to the drop-off" style="border-radius: 18px; display: block">
+        <rect width="518" height="292" fill="#E2DBD5"></rect>
+        <ellipse cx="70" cy="200" rx="70" ry="38" fill="#DBD4CE"></ellipse>
+        <ellipse cx="236" cy="226" rx="54" ry="24" fill="#DBD9D8"></ellipse>
+        <circle cx="468" cy="58" r="56" fill="#D4CDC8"></circle>
+        <path d="M-10 262 C 20 258, 30 252, 40 248 C 90 228, 120 214, 150 204 C 180 192, 200 180, 222 170 C 250 158, 276 148, 300 140 C 340 126, 370 112, 392 104 C 420 92, 446 72, 468 58 C 490 44, 506 30, 530 14" stroke="#F5F1ED" stroke-width="14" fill="none" stroke-linecap="round"></path>
+        <path d="M150 204 C 140 240, 120 270, 110 300" stroke="#F5F1ED" stroke-width="8" fill="none"></path>
+        <path d="M300 140 C 330 170, 400 196, 530 210" stroke="#F5F1ED" stroke-width="8" fill="none"></path>
+        <path d="M468 58 C 420 50, 380 30, 340 -10" stroke="#F5F1ED" stroke-width="8" fill="none"></path>
+        <path d="M40 248 C 90 228, 120 214, 150 204" stroke="#1A1516" stroke-width="4" fill="none" stroke-linecap="round"></path>
+        <path d="M150 204 C 180 192, 200 180, 222 170" stroke="#1A1516" stroke-width="4" fill="none" stroke-linecap="round" stroke-dasharray="1 8"></path>
+        <path d="M222 170 C 250 158, 276 148, 300 140" stroke="#1A1516" stroke-width="4" fill="none" stroke-linecap="round"></path>
+        <path d="M300 140 C 340 126, 370 112, 392 104 C 420 92, 446 72, 468 58" stroke="#1A1516" stroke-opacity="0.45" stroke-width="2.5" fill="none" stroke-dasharray="6 6"></path>
+        <circle cx="300" cy="140" r="36" fill="#F0873A" fill-opacity="0.14" stroke="#A85518" stroke-width="2" stroke-dasharray="3 4"></circle>
+        <circle cx="150" cy="204" r="5" fill="#FFFFFF" stroke="#1A1516" stroke-width="3"></circle>
+        <circle cx="222" cy="170" r="5" fill="#FFFFFF" stroke="#1A1516" stroke-width="3"></circle>
+        <circle cx="40" cy="248" r="9" fill="#FFFFFF" stroke="#1A1516" stroke-width="4"></circle>
+        <circle cx="392" cy="104" r="6" fill="#FFFFFF" stroke="#838181" stroke-width="3"></circle>
+        <circle cx="468" cy="58" r="11" fill="#5C5450"></circle>
+        <circle cx="468" cy="58" r="4" fill="#FFFFFF"></circle>
+        <rect x="280" y="120" width="40" height="40" rx="12" fill="#F0873A"></rect>
+        <g transform="translate(289 129) scale(0.92)" fill="none" stroke="#1A1516" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h11v9H3z"></path><path d="M14 10h4l3 3v3h-7"></path><circle cx="7" cy="17.5" r="1.8"></circle><circle cx="17" cy="17.5" r="1.8"></circle></g>
+      </svg>
+      <div style="font-size: 12px; color: #6C696A; margin-top: -8px">Drawn on the phone from the app's 3,860 bundled places and a small roads file. No map tiles, no data cost. Places © GeoNames (CC BY 4.0).</div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px">
+        <div style="display: flex; gap: 12px; align-items: flex-start"><svg width="36" height="16" sc-camel-view-box="0 0 36 16" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M2 8h32" stroke="#1A1516" stroke-width="4" stroke-linecap="round"></path><circle cx="18" cy="8" r="4" fill="#FFFFFF" stroke="#1A1516" stroke-width="2.5"></circle></svg><div><div style="font-size: 14px; font-weight: 700">Trail and check-ins</div><div style="font-size: 12px; color: #6C696A">Where the truck reported, from your pickup on</div></div></div>
+        <div style="display: flex; gap: 12px; align-items: flex-start"><svg width="36" height="16" sc-camel-view-box="0 0 36 16" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M2 8h32" stroke="#1A1516" stroke-width="4" stroke-linecap="round" stroke-dasharray="1 7"></path></svg><div><div style="font-size: 14px; font-weight: 700">No check-in over 90 min</div><div style="font-size: 12px; color: #6C696A">Straight line, the real road is unknown</div></div></div>
+        <div style="display: flex; gap: 12px; align-items: flex-start"><svg width="36" height="16" sc-camel-view-box="0 0 36 16" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M2 8h32" stroke="#1A1516" stroke-opacity="0.45" stroke-width="2.5" stroke-dasharray="6 6"></path></svg><div><div style="font-size: 14px; font-weight: 700">Road ahead</div><div style="font-size: 12px; color: #6C696A">An estimate, never a promise</div></div></div>
+        <div style="display: flex; gap: 12px; align-items: flex-start"><svg width="36" height="16" sc-camel-view-box="0 0 36 16" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><circle cx="18" cy="8" r="7" fill="#F0873A" fill-opacity="0.14" stroke="#A85518" stroke-width="2" stroke-dasharray="2 3"></circle><rect x="13" y="3" width="10" height="10" rx="3" fill="#F0873A"></rect></svg><div><div style="font-size: 14px; font-weight: 700">Last check-in and halo</div><div style="font-size: 12px; color: #6C696A">The halo grows with its age: the truck is likely inside</div></div></div>
+        <div style="display: flex; gap: 12px; align-items: flex-start"><svg width="36" height="16" sc-camel-view-box="0 0 36 16" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><circle cx="10" cy="8" r="5" fill="#FFFFFF" stroke="#1A1516" stroke-width="3"></circle><circle cx="26" cy="8" r="6" fill="#5C5450"></circle><circle cx="26" cy="8" r="2.2" fill="#FFFFFF"></circle></svg><div><div style="font-size: 14px; font-weight: 700">Pickup and drop-off</div><div style="font-size: 12px; color: #6C696A">Farm in the trail colour, buyer in slate</div></div></div>
+        <div style="display: flex; gap: 12px; align-items: flex-start"><svg width="36" height="16" sc-camel-view-box="0 0 36 16" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><circle cx="18" cy="8" r="5" fill="#FFFFFF" stroke="#838181" stroke-width="3"></circle></svg><div><div style="font-size: 14px; font-weight: 700">Other stop</div><div style="font-size: 12px; color: #6C696A">Another order on the same truck, never named</div></div></div>
+      </div>
+    </section>
+
+    <section style="display: flex; flex-direction: column; gap: 16px; min-height: 0">
+      <div style="background: #FFFFFF; border: 1px solid #DCD5CF; border-radius: 24px; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px">
+        <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #6C696A">Freshness</div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px">
+          <div style="display: flex; flex-direction: column; gap: 5px; align-items: flex-start"><span style="display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: 8px; background: #E6DDD6; color: #1A1516; font-size: 12px; font-weight: 700"><span style="width: 8px; height: 8px; border-radius: 999px; background: #1A1516"></span>Checked in 6 min ago</span><span style="font-size: 12px; color: #6C696A">Fresh, under 20 min</span></div>
+          <div style="display: flex; flex-direction: column; gap: 5px; align-items: flex-start"><span style="display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: 8px; background: #FFFFFF; border: 1px solid #CFC8C3; color: #1A1516; font-size: 12px; font-weight: 700"><span style="width: 8px; height: 8px; border-radius: 999px; background: #6C696A"></span>Checked in 48 min ago</span><span style="font-size: 12px; color: #6C696A">The hourly rhythm, nothing to do</span></div>
+          <div style="display: flex; flex-direction: column; gap: 5px; align-items: flex-start"><span style="display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: 8px; background: #FBE6D6; color: #8A4510; font-size: 12px; font-weight: 700"><svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M8.5 16.5a5 5 0 0 1 7 0"></path><path d="M5 12.5a10 10 0 0 1 4-2.3"></path><path d="M15 10.2a10 10 0 0 1 4 2.3"></path></svg>No check-in for 2 h</span><span style="font-size: 12px; color: #6C696A">Likely no network. Money stays in escrow</span></div>
+          <div style="display: flex; flex-direction: column; gap: 5px; align-items: flex-start"><span style="display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: 8px; background: #E5DDD8; color: #484445; font-size: 12px; font-weight: 700"><svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M9 5v14M15 5v14"></path></svg>Paused · back at 12:40</span><span style="font-size: 12px; color: #6C696A">Driver's rest stop or overnight</span></div>
+          <div style="display: flex; flex-direction: column; gap: 5px; align-items: flex-start"><span style="display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: 8px; background: #E5DDD8; color: #484445; font-size: 12px; font-weight: 700"><svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h3l2-2h6l2 2h3v12H4z"></path><path d="M4 4l16 16"></path></svg>Scans only</span><span style="font-size: 12px; color: #6C696A">Driver did not share. Pickup and delivery scans still show</span></div>
+          <div style="display: flex; flex-direction: column; gap: 5px; align-items: flex-start"><span style="display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: 8px; background: #EBEAEA; color: #5C5450; font-size: 12px; font-weight: 700"><svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Sharing ended at delivery</span><span style="font-size: 12px; color: #6C696A">Stops by itself, nobody has to remember</span></div>
+        </div>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid #DCD5CF; border-radius: 24px; padding: 22px 24px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; justify-content: space-between; align-items: baseline"><div style="font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #6C696A">Check-in rhythm</div><div style="font-size: 12px; color: #6C696A">One trip, Meki to Merkato</div></div>
+        <svg width="100%" height="58" sc-camel-view-box="0 0 560 58" role="img" aria-label="Check-ins between 08:00 and 14:10: scans at pickup and drop-off, hourly in between, every 15 minutes near the drop-off" style="display: block">
+          <path d="M0 22h560" stroke="#DCD5CF" stroke-width="4" stroke-linecap="round"></path>
+          <rect x="3" y="17" width="10" height="10" rx="2" fill="#1A1516"></rect>
+          <circle cx="97" cy="22" r="5" fill="#1A1516"></circle>
+          <rect x="146" y="17" width="10" height="10" rx="2" fill="#838181"></rect>
+          <circle cx="244" cy="22" r="5" fill="#1A1516"></circle>
+          <circle cx="336" cy="22" r="5" fill="#1A1516"></circle>
+          <rect x="381" y="17" width="10" height="10" rx="2" fill="#838181"></rect>
+          <circle cx="477" cy="22" r="5" fill="#1A1516"></circle>
+          <circle cx="500" cy="22" r="4" fill="#F0873A"></circle>
+          <circle cx="512" cy="22" r="5" fill="#FFFFFF" stroke="#F0873A" stroke-width="2.5"></circle>
+          <rect x="543" y="17" width="10" height="10" rx="2" fill="#5C5450"></rect>
+          <text x="0" y="52" font-family="'Bricolage Grotesque', sans-serif" font-size="11" fill="#6C696A">08:00</text>
+          <text x="166" y="52" font-family="'Bricolage Grotesque', sans-serif" font-size="11" fill="#6C696A">10:00</text>
+          <text x="348" y="52" font-family="'Bricolage Grotesque', sans-serif" font-size="11" fill="#6C696A">12:00</text>
+          <text x="526" y="52" font-family="'Bricolage Grotesque', sans-serif" font-size="11" fill="#6C696A">14:00</text>
+        </svg>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12px; color: #484445">
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #1A1516"></span>QR scan</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 999px; background: #1A1516"></span>Every hour</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 999px; background: #F0873A; border: 1.5px solid #1A1516; box-sizing: border-box"></span>Every 15 min within 10 km of a drop-off</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 999px; border: 2.5px solid #F0873A"></span>Driver taps Check in or I've arrived</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; border-radius: 2px; background: #838181"></span>Other order's scan</span>
+        </div>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid #DCD5CF; border-radius: 24px; padding: 22px 24px; display: flex; flex-direction: column; gap: 16px; flex-grow: 1">
+        <div style="font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #6C696A">Components</div>
+        <div style="display: flex; gap: 20px; align-items: center">
+          <div style="flex-shrink: 0"><div style="font-size: 12px; color: #6C696A">Arriving at Merkato</div><div style="font-size: 28px; font-weight: 800; letter-spacing: -0.03em">13:20-14:00</div><div style="font-size: 11px; color: #6C696A">window, from the last check-in</div></div>
+          <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 6px">
+            <svg width="100%" height="34" sc-camel-view-box="0 0 300 34" sc-camel-preserve-aspect-ratio="none" role="img" aria-label="Route ribbon: two thirds of the way from Meki to Merkato" style="display: block">
+              <path d="M8 17H196" stroke="#1A1516" stroke-width="4" stroke-linecap="round"></path>
+              <path d="M210 17H290" stroke="#1A1516" stroke-opacity="0.4" stroke-width="2.5" stroke-dasharray="5 5"></path>
+              <circle cx="8" cy="17" r="6" fill="#FFFFFF" stroke="#1A1516" stroke-width="3"></circle>
+              <circle cx="74" cy="17" r="3.5" fill="#FFFFFF" stroke="#1A1516" stroke-width="2"></circle>
+              <circle cx="140" cy="17" r="3.5" fill="#FFFFFF" stroke="#1A1516" stroke-width="2"></circle>
+              <circle cx="246" cy="17" r="4" fill="#FFFFFF" stroke="#838181" stroke-width="2.5"></circle>
+              <circle cx="290" cy="17" r="7" fill="#5C5450"></circle>
+              <rect x="190" y="5" width="24" height="24" rx="7" fill="#F0873A"></rect>
+            </svg>
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #6C696A"><span>Meki 08:05</span><span>Bishoftu 11:42</span><span>Merkato</span></div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center">
+          <span style="display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; background: #FFFFFF; color: #484445; font-size: 12px; font-weight: 700"><svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>Only the buyer and farmer see this, until delivery</span>
+          <span style="display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: 6px; background: #FBE6D6; color: #8A4510; font-size: 11px; font-weight: 700">Sent late · no network</span>
+        </div>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap">
+          <button type="button" style="height: 48px; padding: 0 16px; border: none; border-radius: 14px; background: #1A1516; color: #FFFFFF; font: 700 14px 'Bricolage Grotesque', sans-serif; display: inline-flex; align-items: center; gap: 8px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M4 12h16"></path></svg>Scan driver's QR</button>
+          <button type="button" style="height: 48px; padding: 0 16px; border: none; border-radius: 14px; background: #1A1516; color: #FFFFFF; font: 700 14px 'Bricolage Grotesque', sans-serif; display: inline-flex; align-items: center; gap: 8px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"></path><circle cx="12" cy="9.5" r="2.5"></circle></svg>Check in now</button>
+          <button type="button" style="height: 48px; padding: 0 16px; border: 1px solid #CFC8C3; border-radius: 14px; background: #FFFFFF; color: #1A1516; font: 700 14px 'Bricolage Grotesque', sans-serif">Pause sharing</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+
+
+</body></html>

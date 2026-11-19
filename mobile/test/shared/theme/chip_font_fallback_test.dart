@@ -56,7 +56,7 @@ void main() {
 
   // A screen's own `styleFrom(textStyle: TextStyle(...))` replaces the
   // theme's button text style instead of merging with it, so without the
-  // family the label is drawn in the platform face, not Manrope, and loses
+  // family the label is drawn in the platform face, not Bricolage Grotesque, and loses
   // the Ethiopic fallback.
   test('every button textStyle override names the app font', () {
     final opener = RegExp(

@@ -64,7 +64,7 @@ class LiveTripScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.chalkBackground,
+      backgroundColor: AppTheme.ground,
       body: SafeArea(
         child: Column(
           children: [
@@ -324,7 +324,7 @@ class _LiveTripViewState extends State<LiveTripView> {
     final driver = Container(
       padding: EdgeInsets.all(twoColumns ? 10 : 14),
       decoration: BoxDecoration(
-        color: AppTheme.chalkBackground,
+        color: AppTheme.ground,
         borderRadius: BorderRadius.circular(18),
       ),
       child: PartyContactTile(
@@ -410,7 +410,7 @@ class _LiveTripViewState extends State<LiveTripView> {
         Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: AppTheme.whisperBorder),
+            border: Border.all(color: AppTheme.line),
           ),
           child: LiveTripMap(
             track: track,
@@ -494,7 +494,7 @@ class _LiveTripViewState extends State<LiveTripView> {
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: AppTheme.soilDark,
+                          color: AppTheme.ink,
                         ),
                       ),
                     ),
@@ -642,7 +642,7 @@ class _CheckInsCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.only(top: 10),
             decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: AppTheme.whisperBorder)),
+              border: Border(top: BorderSide(color: AppTheme.line)),
             ),
             child: Text(
               l10n.liveTripPrivacyNote(
@@ -651,7 +651,7 @@ class _CheckInsCard extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 12,
                 height: 1.5,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ),
           ),
@@ -727,7 +727,7 @@ class _WaitingCard extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           else
-            const Icon(Icons.map_outlined, size: 28, color: AppTheme.textMuted),
+            const Icon(Icons.map_outlined, size: 28, color: AppTheme.slate),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -738,7 +738,7 @@ class _WaitingCard extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -746,7 +746,7 @@ class _WaitingCard extends StatelessWidget {
                   l10n.liveTripMapStartsAtPickup,
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
               ],
@@ -783,13 +783,13 @@ class _Header extends StatelessWidget {
           style: const TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w800,
-            color: AppTheme.soilDark,
+            color: AppTheme.ink,
           ),
         ),
         if (o != null)
           Text(
             from,
-            style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
+            style: const TextStyle(fontSize: 13, color: AppTheme.slate),
           ),
       ],
     );
@@ -816,14 +816,14 @@ class _TripLogLink extends StatelessWidget {
           height: 48,
           padding: const EdgeInsets.symmetric(horizontal: 4),
           decoration: const BoxDecoration(
-            border: Border(top: BorderSide(color: AppTheme.whisperBorder)),
+            border: Border(top: BorderSide(color: AppTheme.line)),
           ),
           child: Row(
             children: [
               const Icon(
                 Icons.receipt_long_outlined,
                 size: 18,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -834,7 +834,7 @@ class _TripLogLink extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
               ),
@@ -842,14 +842,14 @@ class _TripLogLink extends StatelessWidget {
                 l10n.liveTripCheckIns(count),
                 style: const TextStyle(
                   fontSize: 13,
-                  color: AppTheme.mutedSteel,
+                  color: AppTheme.slate,
                 ),
               ),
               const SizedBox(width: 4),
               const Icon(
                 Icons.chevron_right,
                 size: 18,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ],
           ),
@@ -934,9 +934,9 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
           alignment: AlignmentDirectional.centerStart,
           child: DotPill(
             label: l10n.liveTripStatusArriving,
-            background: AppTheme.fieldGreenTint,
-            foreground: AppTheme.fieldGreen,
-            dotColor: AppTheme.fieldGreen,
+            background: context.roleColors.tint,
+            foreground: context.roleColors.primary,
+            dotColor: context.roleColors.primary,
           ),
         ),
         const SizedBox(height: 6),
@@ -947,7 +947,7 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
             fontWeight: FontWeight.w800,
             letterSpacing: -0.5,
             height: 1.2,
-            color: AppTheme.soilDark,
+            color: AppTheme.ink,
           ),
         ),
         const SizedBox(height: 4),
@@ -955,13 +955,13 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
           km == null
               ? checkedIn
               : '$checkedIn · ${l10n.liveTripKmFromDropoff(kmText(km))}',
-          style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
+          style: const TextStyle(fontSize: 13, color: AppTheme.slate),
         ),
         const SizedBox(height: 16),
         Container(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
           decoration: BoxDecoration(
-            color: AppTheme.chalkBackground,
+            color: AppTheme.ground,
             borderRadius: BorderRadius.circular(18),
           ),
           child: Column(
@@ -972,7 +972,7 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
               for (var i = 0; i < items.length; i++)
@@ -996,7 +996,7 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
                                   ? _checked.add(i)
                                   : _checked.remove(i),
                             ),
-                            activeColor: AppTheme.fieldGreen,
+                            activeColor: context.roleColors.primary,
                             materialTapTargetSize:
                                 MaterialTapTargetSize.shrinkWrap,
                             visualDensity: VisualDensity.compact,
@@ -1009,7 +1009,7 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w500,
-                              color: AppTheme.soilDark,
+                              color: AppTheme.ink,
                             ),
                           ),
                         ),
@@ -1037,7 +1037,7 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
                 icon: const Icon(Icons.qr_code_scanner, size: 20),
                 label: Text(l10n.liveTripScanDriversQr),
                 style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.fieldGreen,
+                  backgroundColor: context.roleColors.primary,
                   foregroundColor: Colors.white,
                   minimumSize: const Size.fromHeight(56),
                   textStyle: const TextStyle(
@@ -1060,7 +1060,7 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
                 semanticLabel: l10n.call,
                 size: 56,
                 background: AppTheme.surfaceWhite,
-                foreground: AppTheme.soilDark,
+                foreground: AppTheme.ink,
                 border: const Color(0xFFD6D3C8),
                 onTap: () => showPartyContact(
                   context,
@@ -1131,7 +1131,7 @@ class _DeliveredSummary extends StatelessWidget {
               ),
             ),
             style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.soilDark,
+              foregroundColor: AppTheme.ink,
               backgroundColor: AppTheme.surfaceWhite,
               side: const BorderSide(color: Color(0xFFD6D3C8)),
               minimumSize: const Size.fromHeight(44),
@@ -1177,8 +1177,8 @@ class _DeliveredSummary extends StatelessWidget {
           leading: leading,
           trailing: DotPill(
             label: l10n.liveTripSharingEnded,
-            background: AppTheme.dropoffBlueTint,
-            foreground: AppTheme.dropoffBlue,
+            background: AppTheme.dropoffSlateTint,
+            foreground: AppTheme.dropoffSlate,
             icon: Icons.check,
             height: 32,
             radius: 999,
@@ -1193,7 +1193,7 @@ class _DeliveredSummary extends StatelessWidget {
                 width: 56,
                 height: 56,
                 decoration: BoxDecoration(
-                  color: AppTheme.fieldGreen,
+                  color: context.roleColors.primary,
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: const Icon(Icons.check, color: Colors.white, size: 30),
@@ -1222,14 +1222,14 @@ class _DeliveredSummary extends StatelessWidget {
                       fontWeight: FontWeight.w800,
                       letterSpacing: -0.8,
                       height: 1.15,
-                      color: AppTheme.soilDark,
+                      color: AppTheme.ink,
                     ),
                   ),
                   Text(
                     subtitle,
                     style: const TextStyle(
                       fontSize: 13,
-                      color: AppTheme.mutedSteel,
+                      color: AppTheme.slate,
                     ),
                   ),
                 ],
@@ -1259,7 +1259,7 @@ class _DeliveredSummary extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 12),
                   decoration: const BoxDecoration(
                     border: Border(
-                      top: BorderSide(color: AppTheme.whisperBorder),
+                      top: BorderSide(color: AppTheme.line),
                     ),
                   ),
                   child: LiveTripStats(
@@ -1291,7 +1291,7 @@ class _DeliveredSummary extends StatelessWidget {
                   '${delivery.gpsDropoff != null ? l10n.liveTripGpsRecorded : '${l10n.deliveryGpsLabel}: ${l10n.deliveryGpsNotCaptured}'}',
                   style: const TextStyle(
                     fontSize: 12,
-                    color: AppTheme.unselectedNav,
+                    color: AppTheme.inkSoft,
                   ),
                 ),
               ],
@@ -1334,7 +1334,7 @@ class _DeliveredSummary extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -1397,7 +1397,7 @@ class _EscrowCard extends StatelessWidget {
       String label,
       ClockLabel? when, {
       bool bold = false,
-      Color labelColor = AppTheme.soilDark,
+      Color labelColor = AppTheme.ink,
     }) =>
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 5),
@@ -1431,7 +1431,7 @@ class _EscrowCard extends StatelessWidget {
                     textAlign: TextAlign.end,
                     style: TextStyle(
                       fontSize: 13,
-                      color: bold ? AppTheme.soilDark : AppTheme.mutedSteel,
+                      color: bold ? AppTheme.ink : AppTheme.slate,
                       fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
                     ),
                   ),
@@ -1473,13 +1473,13 @@ class _EscrowCard extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
               DotPill(
                 label: l10n.liveTripReleasePending,
-                background: AppTheme.actionCream,
-                foreground: AppTheme.money,
+                background: AppTheme.orangeTint,
+                foreground: context.roleColors.primary,
                 height: 24,
                 radius: 6,
                 fontSize: 11,
@@ -1488,12 +1488,12 @@ class _EscrowCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           step(
-            filled(AppTheme.fieldGreen),
+            filled(context.roleColors.primary),
             l10n.liveTripYouConfirmedDelivery,
             ClockLabel.text(clock.dateTime(confirmedAt, date: date)),
           ),
           step(
-            filled(AppTheme.accentSoft),
+            filled(AppTheme.orange),
             l10n.liveTripCheckWindowEnds,
             clock.deadline(windowEnd, date: date),
             bold: true,
@@ -1502,7 +1502,7 @@ class _EscrowCard extends StatelessWidget {
             hollow,
             payouts,
             ClockLabel.text(l10n.liveTripLogThen),
-            labelColor: AppTheme.unselectedNav,
+            labelColor: AppTheme.inkSoft,
           ),
           if (report != null) ...[
             const SizedBox(height: 10),

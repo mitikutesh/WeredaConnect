@@ -380,7 +380,7 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
               height: 18,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: AppTheme.soilMuted,
+                color: AppTheme.inkMuted,
               ),
             ),
           ),
@@ -409,7 +409,7 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
       slot = switch (_status.mode) {
         SharingMode.live => _SlotText(
             l10n.tripModeSharingLive,
-            color: AppTheme.soilGreen,
+            color: context.roleColors.mid,
             dot: true,
           ),
         SharingMode.paused => _SlotText(
@@ -422,7 +422,7 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
         TripStatus.open => _SlotText(_departureDay(l10n, trip)),
         TripStatus.delivered => _SlotText(
             tripStatusLabel(trip.status, l10n),
-            color: AppTheme.soilGreen,
+            color: context.roleColors.mid,
           ),
         _ => _SlotText(tripStatusLabel(trip.status, l10n)),
       };
@@ -497,7 +497,7 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.soilMuted,
+                    color: AppTheme.inkMuted,
                   ),
                 ),
               ),
@@ -542,7 +542,7 @@ class _LoadFailedCard extends StatelessWidget {
         builder: (context, constraints) => Row(
           key: const Key('trucker_hero_load_failed'),
           children: [
-            const Icon(Icons.cloud_off, size: 24, color: AppTheme.soilMuted),
+            const Icon(Icons.cloud_off, size: 24, color: AppTheme.inkMuted),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -556,8 +556,7 @@ class _LoadFailedCard extends StatelessWidget {
               child: TextButton(
                 key: const Key('trucker_hero_retry'),
                 onPressed: onRetry,
-                style:
-                    TextButton.styleFrom(foregroundColor: AppTheme.accentSoft),
+                style: TextButton.styleFrom(foregroundColor: AppTheme.orange),
                 child: Text(l10n.retry, textAlign: TextAlign.center),
               ),
             ),
@@ -578,7 +577,7 @@ class _DarkCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppTheme.soilCard,
+      color: AppTheme.inkCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -599,7 +598,7 @@ class _SlotText extends StatelessWidget {
 
   const _SlotText(
     this.text, {
-    this.color = AppTheme.soilMuted,
+    this.color = AppTheme.inkMuted,
     this.dot = false,
   });
 
@@ -666,7 +665,7 @@ class _TripLoadBar extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.soilMuted,
+                    color: AppTheme.inkMuted,
                   ),
                 ),
               ),
@@ -687,9 +686,8 @@ class _TripLoadBar extends StatelessWidget {
             child: LinearProgressIndicator(
               value: loaded / capacity,
               minHeight: 8,
-              backgroundColor: AppTheme.soilTrack,
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(AppTheme.accentGold),
+              backgroundColor: AppTheme.inkTrack,
+              valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.orange),
             ),
           ),
         ],
@@ -721,7 +719,7 @@ class _NoTripCard extends StatelessWidget {
               const Icon(
                 Icons.local_shipping_outlined,
                 size: 28,
-                color: AppTheme.soilMuted,
+                color: AppTheme.inkMuted,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -742,7 +740,7 @@ class _NoTripCard extends StatelessWidget {
                       l10n.homeTripNoneHint,
                       style: const TextStyle(
                         fontSize: 13,
-                        color: AppTheme.soilMuted,
+                        color: AppTheme.inkMuted,
                       ),
                     ),
                   ],
@@ -757,7 +755,7 @@ class _NoTripCard extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.soilMuted,
+                color: AppTheme.inkMuted,
               ),
             ),
             const SizedBox(height: 8),
@@ -767,7 +765,7 @@ class _NoTripCard extends StatelessWidget {
               children: [
                 for (final route in recentRoutes)
                   Material(
-                    color: AppTheme.soilTrack,
+                    color: AppTheme.inkTrack,
                     borderRadius: BorderRadius.circular(10),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(10),

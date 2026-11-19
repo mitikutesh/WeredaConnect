@@ -27,13 +27,13 @@ class DeliverToLine extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: AppTheme.dropoffBlueTint,
+              color: AppTheme.dropoffSlateTint,
               borderRadius: BorderRadius.circular(14),
             ),
             child: const Icon(
               Icons.place_outlined,
               size: 20,
-              color: AppTheme.dropoffBlue,
+              color: AppTheme.dropoffSlate,
             ),
           ),
           const SizedBox(width: 10),
@@ -46,7 +46,7 @@ class DeliverToLine extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
                 Text(
@@ -55,7 +55,7 @@ class DeliverToLine extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
               ],

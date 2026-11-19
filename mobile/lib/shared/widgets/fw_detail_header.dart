@@ -30,7 +30,7 @@ class FwBackButton extends StatelessWidget {
     final child = Icon(
       icon,
       size: 20,
-      color: dark ? Colors.white : AppTheme.soilDark,
+      color: dark ? Colors.white : AppTheme.ink,
     );
     if (!dark) {
       return FwSquareButton(
@@ -45,7 +45,7 @@ class FwBackButton extends StatelessWidget {
       child: FwTapTarget(
         onTap: onTap,
         child: Material(
-          color: AppTheme.soilCard,
+          color: AppTheme.inkCard,
           borderRadius: BorderRadius.circular(14),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
@@ -83,7 +83,7 @@ class FwDetailHeader extends StatelessWidget {
     fontWeight: FontWeight.w800,
     letterSpacing: -0.4,
     height: 1.2,
-    color: AppTheme.soilDark,
+    color: AppTheme.ink,
   );
 
   @override
@@ -110,7 +110,7 @@ class FwDetailHeader extends StatelessWidget {
                       subtitle,
                       style: const TextStyle(
                         fontSize: 13,
-                        color: AppTheme.mutedSteel,
+                        color: AppTheme.slate,
                       ),
                     ),
                 ],
@@ -168,7 +168,7 @@ class FwActionNote extends StatelessWidget {
       child: Text(
         text,
         textAlign: TextAlign.center,
-        style: const TextStyle(fontSize: 12, color: AppTheme.mutedSteel),
+        style: const TextStyle(fontSize: 12, color: AppTheme.slate),
       ),
     );
   }
@@ -180,14 +180,14 @@ class FwActionNote extends StatelessWidget {
 class FwNoteBox extends StatelessWidget {
   final IconData icon;
   final Widget child;
-  final Color background;
-  final Color foreground;
+  final Color? background;
+  final Color? foreground;
 
   const FwNoteBox({
     required this.icon,
     required this.child,
-    this.background = AppTheme.fieldGreenTint,
-    this.foreground = AppTheme.fieldGreen,
+    this.background,
+    this.foreground,
     super.key,
   });
 
@@ -195,16 +195,19 @@ class FwNoteBox extends StatelessWidget {
     required this.icon,
     required this.child,
     super.key,
-  })  : background = AppTheme.actionCream,
-        foreground = AppTheme.actionInk;
+  })  : background = AppTheme.orangeTint,
+        foreground = AppTheme.orangeInk;
 
   @override
   Widget build(BuildContext context) {
+    // The role's tint unless the caller names a pair.
+    final background = this.background ?? context.roleColors.tint;
+    final foreground = this.foreground ?? context.roleColors.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: background,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Row(
         children: [
@@ -252,7 +255,7 @@ class FwMoneyRow extends StatelessWidget {
             style: TextStyle(
               fontSize: size,
               fontWeight: total ? FontWeight.w800 : FontWeight.w500,
-              color: total ? AppTheme.soilDark : AppTheme.unselectedNav,
+              color: total ? AppTheme.ink : AppTheme.inkSoft,
             ),
           ),
         ),
@@ -262,7 +265,7 @@ class FwMoneyRow extends StatelessWidget {
           style: TextStyle(
             fontSize: size,
             fontWeight: total ? FontWeight.w800 : FontWeight.w700,
-            color: AppTheme.soilDark,
+            color: AppTheme.ink,
           ),
         ),
       ],
@@ -272,7 +275,7 @@ class FwMoneyRow extends StatelessWidget {
       margin: const EdgeInsets.only(top: 2),
       padding: const EdgeInsets.only(top: 9),
       decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: AppTheme.whisperBorder)),
+        border: Border(top: BorderSide(color: AppTheme.line)),
       ),
       child: row,
     );
