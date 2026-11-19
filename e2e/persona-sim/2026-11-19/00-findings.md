@@ -133,14 +133,15 @@ Accounts (7): `+251900198331` Abebe, `+251900192210` Dawit, `+251900195076` Tolo
 Left open on dev: 2 escrows in dispute (`escrow-order-4b42c185...`, `escrow-order-20f8171e...`) in the admin dispute queue; funded or accepted orders `d49a52f9`, `1fd6a372`, `d0d2ad9e`, `3fafa226`, `64ad1f63`; delivered orders `81c5e034`, `4ccb6d42` that will auto-release; several `created` orders that auto-cancel in 24 hours; 9 listings and 6 trips.
 
 ## Fix status (added 2026-11-19, after the run)
-The findings were fixed in five pull requests, grouped by area. None is merged yet.
+The findings were fixed in six pull requests, grouped by area. #444, #445 and #446 are merged; #447, #448 and #450 are open.
 
 | PR | Group | Findings |
 |---|---|---|
 | #445 | Mobile offline sync | BUG-31, 32, 33, 34, 35, 36, 37 |
-| #447 | Buyer payment flow and forms | BUG-17, 18, 19, 20, 21, 22, 23, 24, 26, 28, 30, 38, 39, 40 (BUG-27 not reproducible in code) |
+| #447 | Buyer payment flow and forms | BUG-17, 18, 19, 20, 21, 22, 23, 24, 26, 28, 29, 30, 38, 39, 40 (BUG-27 not reproducible in code) |
 | #444 | Localization and low-literacy aids | BUG-L1, L2, L4 (picker), L5, L8, L9, L10, L11, L12, L14, L16, BUG-25 |
 | #448 | Server order, delivery, dispute, rating | BUG-1, 9, 10, 11, 12, 13, 16 |
-| #446 | Server duplicate lot and trip rules | BUG-2, 4 (BUG-3 already detected by the hourly scan; BUG-15 matches the design) |
+| #446 | Server duplicate lot and trip rules | BUG-2, 4 (BUG-15 matches the design) |
+| #450 | Server abuse flags and dispute evidence (stacked on #446 and #448) | BUG-3, 5, 6, 7, 8, 14 |
 
-Left for a decision or a later build (TASK.md FUP-535 to FUP-547): BUG-5, BUG-6, BUG-7, BUG-8, BUG-14, BUG-29, the rating of a same-device pair (BUG-3), the Ethiopian calendar, read-aloud and iOS (BUG-L4 rest, BUG-L17), a real device and SIM check, native review of the am and om strings, and the cleanup of the simulation data on dev.
+Left for a decision or a later build (TASK.md FUP-535 to FUP-547): the repeat and confirm-then-dispute rule, whether a GPS fix becomes required at a paid pickup, a route refusal with place ids, weights for the review-only flags, the Ethiopian calendar, read-aloud and iOS (BUG-L4 rest, BUG-L17), a real device and SIM check, native review of the am and om strings, and the cleanup of the simulation data on dev.
