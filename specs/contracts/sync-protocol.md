@@ -395,7 +395,7 @@ farmer or trucker. Anyone else gets the conflict status with `serverData: null`
 yours" and drops the operation.
 
 Since 1.68.0 a `crop_listing` create looks the id up before the listing fraud rules
-(velocity, duplicate, price). A create for an id that already exists is answered by this
+(velocity, duplicate, price), with a strongly consistent read. A create for an id that already exists is answered by this
 conflict and the rules are not asked: before, the farmer's own re-queued create, sent with a
 new idempotency key, was called a duplicate of the listing it had already made
 (`FRAUD_DUPLICATE_LISTING`, with a fraud signal on an honest farmer).
@@ -405,7 +405,10 @@ new idempotency key, was called a duplicate of the listing it had already made
 An `order` or `delivery` update whose payload holds nothing the server stores, once the fields
 it owns, the echo keys and unchanged echoes are dropped, writes nothing and is answered
 `success` with the stored `serverVersion` and the stored row (scrubbed as in every answer). The
-version does not move. Examples: an order update that holds only `orderTotal`; a trucker's
+version does not move. That holds only when the client sent the stored version: with any other
+version the answer is the usual `conflict` with `serverVersion` and the row, as the write's
+version check gave before, because a phone that is behind applies the row of a `conflict` and
+ignores the row of a `success`. Examples: an order update that holds only `orderTotal`; a trucker's
 delivery update that holds only `qrNonce` (only the farmer sets it, so it is dropped). The
 caller must still pass the entity's party and role rules, and an order update still needs its
 `version`. Before 1.68.0 such an update was written empty and the version moved, which made the

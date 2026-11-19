@@ -316,6 +316,39 @@ public class SyncFunctionRatingTests
         await _ratings.Received(1).CreateAsync("order-1:farmer-1", Arg.Any<Dictionary<string, object>>());
     }
 
+    [Theory]
+    [InlineData("dispute_resolved", false)]
+    [InlineData("escrowed", true)]
+    public async Task RatingOfADeliveredOrder_WhoseEscrowIsHeld_CountsByTheStatusItWasHeldFrom(string heldFrom, bool rated)
+    {
+        OrderReturns(status: "delivered");
+        var escrows = EscrowIn("held");
+        (await escrows.GetByIdAsync("escrow-order-order-1", true))!["heldFromStatus"] = heldFrom;
+
+        var response = await WithOrderEscrow(escrows).FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Equal(!rated, response.Body.Contains("RATING_FORBIDDEN: This order is in dispute"));
+        await _ratings.Received(rated ? 1 : 0).CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task RatingOfADeliveredOrder_WhoseMoneyIsADisputedDeliveryEscrow_IsRefused()
+    {
+        // No order escrow: the money was paid through POST /escrow/initiate and is found by the delivery.
+        OrderReturns(status: "delivered");
+        (await _orders.GetByIdAsync("order-1"))!["activeDeliveryId"] = "del-1";
+        var escrows = Substitute.For<IEscrowRepository>();
+        escrows.GetByDeliveryIdAsync("del-1").Returns(new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-abc" }, { "deliveryId", "del-1" }, { "status", "disputed" },
+        });
+
+        var response = await WithOrderEscrow(escrows).FunctionHandler(Req(RatingOp(), "buyer-1", "buyer"), _ctx);
+
+        Assert.Contains("RATING_FORBIDDEN: This order is in dispute and cannot be rated.", response.Body);
+        await _ratings.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
     [Fact]
     public async Task RatingOfADeliveredOrder_WithoutAnEscrowRecord_Succeeds()
     {

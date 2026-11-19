@@ -6753,6 +6753,27 @@ public partial class SyncFunctionTests
         await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
     }
 
+    [Theory]
+    [InlineData(5)]
+    [InlineData(9)]
+    public async Task OrderUpdate_WithNothingToWrite_AtAnotherVersion_IsAConflictWithTheRow(int sent)
+    {
+        // The phone is behind (or ahead): it gets the stored row as a conflict, which it applies; a
+        // success would leave it on its old copy.
+        SetupExistingOrder(status: "funded", version: 7);
+
+        var body = await UpdateOrderAs("farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { "quantity", 50.0 }, { "version", sent }
+        });
+
+        var result = JsonDocument.Parse(body).RootElement.GetProperty("results")[0];
+        Assert.Equal("conflict", result.GetProperty("status").GetString());
+        Assert.Equal(7, result.GetProperty("serverVersion").GetInt32());
+        Assert.Equal("funded", result.GetProperty("serverData").GetProperty("status").GetString());
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
     [Fact]
     public async Task OrderUpdate_HoldingOnlyAStrippedField_FromANonParty_IsStillUnauthorized()
     {

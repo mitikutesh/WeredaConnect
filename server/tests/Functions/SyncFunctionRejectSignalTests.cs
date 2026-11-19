@@ -248,6 +248,8 @@ public class SyncFunctionRejectSignalTests
         _crops.CreateAsync("crop-own", Arg.Any<Dictionary<string, object>>())
             .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "CONFLICT", "exists"));
 
+        _crops.GetByIdConsistentAsync("crop-own").Returns(_ => Crop("crop-own", FarmerId));
+
         var body = await SyncAsync(Request(FarmerId, "farmer", CropCreate("crop-own", FarmerId, opId: "requeued")));
 
         Result(body).GetProperty("status").GetString().Should().Be("conflict");
@@ -256,6 +258,8 @@ public class SyncFunctionRejectSignalTests
         _fraud.ReceivedCalls().Select(call => call.GetMethodInfo().Name)
             .Should().NotContain("CheckListingCreationAsync").And.NotContain("RecordListingCreatedAsync");
         await NoSignalAsync();
+        // The lookup is the strongly consistent one: the retry may follow the first create at once.
+        await _crops.Received(1).GetByIdConsistentAsync("crop-own");
     }
 
     // ── Identity and money field changes (SIM-02, SIM-06) ────────────────

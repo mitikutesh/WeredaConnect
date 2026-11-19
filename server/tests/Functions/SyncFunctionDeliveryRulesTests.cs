@@ -499,6 +499,26 @@ public class SyncFunctionDeliveryRulesTests
         await NothingChanged();
     }
 
+    // Nothing to write, but the phone is behind: it gets the row as a conflict (it applies a
+    // conflict's row and ignores a success's), as the write's version check answered before.
+    [Theory]
+    [InlineData(2)]
+    [InlineData(4)]
+    public async Task Update_WithNothingToStore_AtAnotherVersion_IsAConflictWithTheRow(int sent)
+    {
+        SetupDelivery(Delivery("pending", version: 3));
+
+        var result = await SendAsync(Op("update", new Dictionary<string, object>
+        {
+            { "qrNonce", "trucker-made-nonce" }, { "version", sent }
+        }), TruckerId);
+
+        result.GetProperty("status").GetString().Should().Be("conflict");
+        result.GetProperty("serverVersion").GetInt32().Should().Be(3);
+        result.GetProperty("serverData").GetProperty("status").GetString().Should().Be("pending");
+        await NothingChanged();
+    }
+
     // Not behind (the current version, a newer one or none): the request is wrong, not late.
     [Theory]
     [InlineData(3)]

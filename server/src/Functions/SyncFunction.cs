@@ -1807,7 +1807,7 @@ public partial class SyncFunction
         // A dispute raised while the goods were moving freezes the escrow but may leave the order
         // reading delivered (rows from before the confirm mirrored it, or a mirror hop that failed).
         // The money says whether the trade is in dispute: no rating while it is, or after a verdict.
-        if (orderStatus == "delivered" && await RefuseRatingOfDisputedEscrowAsync(operation, orderId, context) is { } disputedEscrow)
+        if (orderStatus == "delivered" && await RefuseRatingOfDisputedEscrowAsync(operation, order, orderId, context) is { } disputedEscrow)
         {
             return disputedEscrow;
         }
@@ -1876,14 +1876,18 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// The refusal for a rating of a <c>delivered</c> order whose own escrow
-    /// (<c>escrow-order-{orderId}</c>, read strongly consistent) is <c>disputed</c> or
-    /// <c>dispute_resolved</c>: <c>RATING_FORBIDDEN</c>. An escrow that cannot be read refuses for
-    /// now with an unprefixed, retryable message. Null when the rating may go ahead (no escrow
-    /// repository, no escrow for the order, or one in any other status).
+    /// The refusal for a rating of a <c>delivered</c> order whose escrow is <c>disputed</c> or
+    /// <c>dispute_resolved</c>: <c>RATING_FORBIDDEN</c>. The escrow is found as the delivery confirm
+    /// and the QR gate find it: the order's own (<c>escrow-order-{orderId}</c>, strongly consistent),
+    /// else, when the order has none, the one the <c>DeliveryIndex</c> names for the order's active
+    /// delivery (paid through <c>POST /escrow/initiate</c>, which is refused once an order escrow
+    /// exists, so there is never one of each). An escrow <c>held</c> for review counts by the status
+    /// it was held from: a hold on a recorded verdict is still a dispute. An escrow that cannot be
+    /// read refuses for now with an unprefixed, retryable message. Null when the rating may go ahead
+    /// (no escrow repository, no escrow, or one in any other status).
     /// </summary>
     private async Task<SyncOperationResult?> RefuseRatingOfDisputedEscrowAsync(
-        SyncOperationRequest operation, string orderId, ILambdaContext context)
+        SyncOperationRequest operation, Dictionary<string, object> order, string orderId, ILambdaContext context)
     {
         if (_escrowRepo == null)
         {
@@ -1894,7 +1898,18 @@ public partial class SyncFunction
         try
         {
             var escrow = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true);
+            if (escrow == null
+                && order.TryGetValue("activeDeliveryId", out var activeDelivery)
+                && activeDelivery?.ToString() is { Length: > 0 } activeDeliveryId)
+            {
+                escrow = await _escrowRepo.GetByDeliveryIdAsync(activeDeliveryId);
+            }
+
             escrowStatus = escrow != null && escrow.TryGetValue("status", out var es) ? es?.ToString() : null;
+            if (escrowStatus == EscrowHoldFields.Status)
+            {
+                escrowStatus = escrow!.TryGetValue(EscrowHoldFields.HeldFromStatus, out var heldFrom) ? heldFrom?.ToString() : null;
+            }
         }
         catch (Exception ex)
         {
@@ -2941,7 +2956,8 @@ public partial class SyncFunction
                     // A create for an id that already exists (an honest re-queued create under a new
                     // idempotency key) is answered by the create-conflict echo below: the listing rules
                     // would call it a duplicate of itself and record a fraud signal.
-                    var createIdExists = await _cropRepo.GetByIdAsync(operation.EntityId) != null;
+                    // Strongly consistent: the re-queued create may come right after the first one.
+                    var createIdExists = await _cropRepo.GetByIdConsistentAsync(operation.EntityId) != null;
 
                     // ── Fraud detection (F-14) ──
                     if (_fraudService != null && !createIdExists)
@@ -6016,8 +6032,17 @@ public partial class SyncFunction
                     // An update without a status that holds nothing the write below would store (only
                     // dropped or echoed fields, such as a trucker's qrNonce) writes nothing and keeps
                     // the version; the caller passed the role checks above and gets the stored row.
+                    // Only at the stored version: any other gets the conflict the write's version
+                    // condition gave, so a phone that is behind still takes the row.
                     if (resolvedNewStatus == null && !HasStorableDeliveryField(operation.Data))
                     {
+                        TryGetClientVersion(operation, out var noWriteVersion);
+                        if (noWriteVersion != ItemVersion(existing))
+                        {
+                            return StaleVersionConflict(operation, ItemVersion(existing), noWriteVersion,
+                                ScrubDeliveryForClient(CropRepository.FromItem(existing)));
+                        }
+
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -7659,8 +7684,15 @@ public partial class SyncFunction
 
         // Nothing is left to write: the payload held only fields the server owns (stripped above)
         // or unchanged echoes. No write and no version move; the caller, a party, gets the stored row.
+        // Only at the stored version: any other version gets the conflict the write's own version
+        // check gave, so a phone that is behind still takes the row (it ignores it on a success).
         if (operation.Data.Count == 0)
         {
+            if (version != OrderVersionOf(existingOrder))
+            {
+                return OrderConflict(operation, existingOrder, version);
+            }
+
             return new SyncOperationResult
             {
                 OperationId = operation.OperationId,
@@ -9645,11 +9677,6 @@ public partial class SyncFunction
         };
 
     /// <summary>
-    /// SIM-28: whether <paramref name="userId"/> may ask for <paramref name="status"/> on this delivery
-    /// (the role rules of the delivery update): the trucker picks up and drives, the buyer confirms,
-    /// any party disputes.
-    /// </summary>
-    /// <summary>
     /// True when a delivery update's payload holds a field the update write stores: an allowed,
     /// mutable field that is not an echo (the write loop's own skip rules).
     /// </summary>
@@ -9672,6 +9699,11 @@ public partial class SyncFunction
         _ => "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
     };
 
+    /// <summary>
+    /// SIM-28: whether <paramref name="userId"/> may ask for <paramref name="status"/> on this delivery
+    /// (the role rules of the delivery update): the trucker picks up and drives, the buyer confirms,
+    /// any party disputes.
+    /// </summary>
     private static bool MayRequestDeliveryStatus(Dictionary<string, AttributeValue> delivery, string? userId, string? status)
         => status switch
         {

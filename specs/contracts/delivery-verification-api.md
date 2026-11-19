@@ -1393,8 +1393,9 @@ as a delivery with `deliveryType: "self_pickup"`:
   1.68.0, conflict rule 10). What a party gets is unchanged.
 - **Nothing to write (2.17.0)**: an update without a `status` whose payload holds nothing the
   server stores, once dropped and echoed fields are removed (for example a trucker's `qrNonce`),
-  writes nothing and answers `success` with the delivery's current `serverVersion`, as the
-  farmer's nonce-only update has since 1.6.0. Before, it was written empty and the version moved.
+  writes nothing and answers `success` with the delivery's current `serverVersion` when it
+  carries that version (the usual version `conflict` with the row otherwise), as the
+  farmer's nonce-only update has since 1.6.0 at any version. Before, it was written empty and the version moved.
 - **Confirm under a disputed escrow (2.17.0)**: a `delivered` update for a delivery whose escrow
   is already `disputed` (a dispute raised between pickup and delivery) is written, then the
   dispute mirror moves the delivery `delivered → disputed` and its order to `disputed`; the answer
