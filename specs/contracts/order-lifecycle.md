@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.23.1
+2.23.2
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -378,7 +378,11 @@ Since 1.19.0 (FUP-20) the server refuses a live `payment_submitted` whose `payme
 not `telebirr` (`ORDER_PAYMENT_METHOD_UNAVAILABLE`, see Payment gates), so a demo build
 pointed at a live server cannot record a bank transfer that nothing would fund. Its message
 (`paymentMethodUnavailable`, en, am and om) says to pay with Telebirr; the local order is
-reverted like any `ORDER_*` refusal.
+reverted like any `ORDER_*` refusal. Since 2.23.2 the demo payment screen (mobile and web)
+starts on Telebirr and offers the bank transfer only when a real CBE account is configured
+(the `cbeAccountValue` string; the shipped placeholder `1000XXXXXXXXXX` hides it), so a demo
+build sends `cbe_transfer` only after the buyer picks it. The transfer reference shown stays
+the full order id (1.7.1, SIM-54).
 
 Once a delivery exists for an accepted order (a trucker's, or the buyer's self-pickup), the
 order detail screen offers every party "Open delivery" instead of a second create, and the
@@ -1117,6 +1121,7 @@ only with `COMMITMENTS_ENABLED`; before it goes on, the client FUP-336 and the b
 
 ## Changelog
 
+- **2.23.2 (2026-11-19)**: Client only, no server change (persona simulation BUG-29): the demo payment screen defaults to Telebirr instead of the bank transfer, and offers the CBE transfer only when a real account number is configured; the placeholder `1000XXXXXXXXXX` is never shown. The reference stays the full order id (SIM-54). `ORDER_PAYMENT_METHOD_UNAVAILABLE` and the stored `cbe_transfer` default of the mobile order create are unchanged.
 - **2.23.1 (2026-11-19)**: Client only, no server change (persona simulation BUG-20): the place-order form no longer starts at the listing's whole stock. The quantity starts empty, the form names the kg that can be ordered and offers "All"; an order from a buying request still starts at the request's quantity (Units). A typed drop-off place that was not picked from the list now blocks Place Order instead of silently falling back to the trip's destination (BUG-18); an empty field still means the trip's destination.
 - **2.23.0 (2026-11-13)**: Check-in reminders and pushes (FUP-286 and FUP-338, `notifications-api.md` 1.6.0), behind `pickupClassification` and `dropoffClassification`: the order cron stamps the new stored-only markers `pickupReminderAt` (once, `reminder-lead-hours` before `pickupDeadlineAt`, never before the window opens, while the pickup judgement is pending and a party has not checked in) and `dropoffReminderAt` (once, `reminder-lead-hours` before T9, while the drop-off judgement is pending with a counted check-in), each a marker write with no version bump conditioned on the status and the pending judgement; the order notifier tells the parties from them. New deadline kinds `pickup_reminder` and `silent_buyer_reminder` (swept, before their judgement). With a flag off, a reminder that falls due is never stamped: the cron clears the judgement's stamp then. An admin's `pending` re-open removes `pickupReminderAt`, so the new window has its own reminder. The admin's Stuck Orders takes both reminders as sent, as the others, and lists the judgement they come before. Both markers are server-only (dropped from client payloads, not in `GET /orders`). No status, money or client-model change. 2.22.0 is FUP-370.
 - **2.22.0 (2026-11-13)**: T9 on the order (FUP-370, behind `dropoffClassification`): `GET /orders`, `GET /orders/{id}` and the order rows of `/sync` results gain `dropoffConfirmAt`, the silent-buyer deadline (the counted drop-off check-in's receipt plus SSM `silent-buyer-hours`, the cron's T9 without its margin), computed on every read for the order's three parties while the drop-off waits for T9; omitted otherwise. The orders Lambda gains `DROPOFF_CLASSIFICATION_ENABLED` and `COMMITMENTS_ENABLED`. The clients (Isar schema and web mirror) store it and show it on the drop-off card instead of the 48 hour estimate. No money moves; no rule changes.
