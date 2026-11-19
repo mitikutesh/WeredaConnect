@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -31,7 +31,6 @@ class CropListingCard extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final cropType = CropType.fromKey(listing.cropType);
-    final dateFormat = DateFormat.yMMMd();
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -80,7 +79,7 @@ class CropListingCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          dateFormat.format(dayInEthiopia(listing.createdAt)),
+                          formatDate(dayInEthiopia(listing.createdAt)),
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurface
                                 .withValues(alpha: 0.6),

@@ -136,6 +136,8 @@ class TripCard extends StatelessWidget {
                         const LowReputationPill(),
                       ],
                       const SizedBox(height: 3),
+                      // Two lines: the Ethiopian date in Amharic and Afaan
+                      // Oromoo (FUP-545) must not push the price out.
                       Text(
                         '$day · $price',
                         style: const TextStyle(
@@ -143,7 +145,7 @@ class TripCard extends StatelessWidget {
                           fontWeight: FontWeight.w500,
                           color: AppTheme.mutedSteel,
                         ),
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],

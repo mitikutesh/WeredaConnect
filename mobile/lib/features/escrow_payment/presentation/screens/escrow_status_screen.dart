@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/payout_expectation.dart';
@@ -384,7 +384,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                       label: l10n.escrowExpiresLabel,
                       clock: clock.deadline(
                         payment.expiresAt!,
-                        date: DateFormat.yMMMd(),
+                        date: formatDate,
                       ),
                     ),
                   if (payment.telebirrRef != null)

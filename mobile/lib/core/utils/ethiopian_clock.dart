@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
-import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -114,7 +114,9 @@ abstract final class EthiopianClock {
 /// How times are shown to one viewer: the app language and the clock they
 /// read. Every user-visible clock time goes through this, so no screen
 /// formats an hour itself. Times are always Ethiopia time (UTC+3, see
-/// [instantInEthiopia]) whatever the device timezone; dates stay Gregorian.
+/// [instantInEthiopia]) whatever the device timezone, and so is the day of a
+/// date, written by the app language ([formatDate]: the Ethiopian date first
+/// in Amharic and Afaan Oromoo, whichever clock is picked).
 @immutable
 class ClockFormat {
   const ClockFormat._(this._l10n, {required this.ethiopian});
@@ -171,11 +173,11 @@ class ClockFormat {
     return ClockLabel(time: range(from, to), time24: ethiopian ? small : null);
   }
 
-  /// [date]'s day (Gregorian, `yMMMd` by default) and the time of [instant]
-  /// in Ethiopia: "Oct 23, 2026 ከሌሊቱ 8:30", "Oct 23, 2026 02:30".
-  String dateTime(DateTime instant, {DateFormat? date}) =>
-      '${(date ?? DateFormat.yMMMd()).format(instantInEthiopia(instant))} '
-      '${time(instant)}';
+  /// The day of [instant] in Ethiopia written by [date] ([formatDate] by
+  /// default, [formatMonthDay] without the year), then its time in Ethiopia:
+  /// "Oct 23, 2026 02:30", "ጥቅምት 13፣ 2019 (ኦክቶ 23) ከሌሊቱ 8:30".
+  String dateTime(DateTime instant, {String Function(DateTime day)? date}) =>
+      '${(date ?? formatDate)(instantInEthiopia(instant))} ${time(instant)}';
 
   /// The 24-hour time shown small beside a deadline on the Ethiopian clock,
   /// so both readings agree; null on the 24-hour clock.
@@ -191,7 +193,7 @@ class ClockFormat {
   /// carries [time24] for the small 24-hour text.
   ClockLabel deadline(
     DateTime instant, {
-    DateFormat? date,
+    String Function(DateTime day)? date,
     String Function(String time)? sentence,
   }) {
     final when = date == null ? time(instant) : dateTime(instant, date: date);

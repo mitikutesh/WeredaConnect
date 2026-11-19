@@ -16,6 +16,7 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart'
     if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -375,7 +376,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
         ? l10n.cropsListedToday
         : daysAgo > 0 && daysAgo < 7
             ? l10n.myCropsListedOn(DateFormat.E().format(day))
-            : l10n.myCropsListedOn(DateFormat.MMMd().format(day));
+            : l10n.myCropsListedOn(formatMonthDay(day));
     final place = placeDisplayName(listing.locationName);
     return place.isEmpty ? listed : '$place · $listed';
   }
