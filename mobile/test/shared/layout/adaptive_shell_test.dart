@@ -383,7 +383,12 @@ void main() {
       await tester.pumpAndSettle();
       GoRouter.of(tester.element(find.text('open detail'))).go('/orders');
       await tester.pumpAndSettle();
-      final button = find.widgetWithText(FilledButton, 'New Buying Intent');
+      // `FilledButton.icon` builds a private subclass on older Flutter (CI runs
+      // 3.38), which an exact-type finder misses: match on `is` instead.
+      final button = find.ancestor(
+        of: find.text('New Buying Intent'),
+        matching: find.byWidgetPredicate((w) => w is FilledButton),
+      );
       final width = tester.getSize(button).width;
 
       await scroll(tester, find.byKey(const ValueKey('orders')), -300);
