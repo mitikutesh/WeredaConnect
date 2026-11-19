@@ -77,6 +77,38 @@ void main() {
   });
 
   group('syncRejectionErrorCode', () {
+    test(
+        'a duplicate trip has its own text; the same code on a crop '
+        'listing does not take it', () {
+      const message =
+          'FRAUD_DUPLICATE_LISTING: You already have a trip on this route on '
+          'that day. Please update your existing trip instead.';
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'trip',
+          action: 'create',
+          message: message,
+        ),
+        AppErrorCode.duplicateTrip,
+      );
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'crop_listing',
+          action: 'create',
+          message: 'FRAUD_DUPLICATE_LISTING: A similar listing already exists.',
+        ),
+        AppErrorCode.changeNotSaved,
+      );
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = lookupAppLocalizations(Locale(locale));
+        expect(
+          localizeErrorCode(AppErrorCode.duplicateTrip, l10n),
+          l10n.errorDuplicateTrip,
+        );
+        expect(l10n.errorDuplicateTrip, isNot(l10n.fraudDuplicateListing));
+      }
+    });
+
     test('a refused order create removed the order', () {
       expect(
         syncRejectionErrorCode(
@@ -440,6 +472,129 @@ void main() {
         limitText = localizeErrorCode(AppErrorCode.reportLimitReached, l10n);
         expect(limitText, contains('10'), reason: locale);
         expect(limitText, isNot(l10n.errorOccurred), reason: locale);
+      }
+    });
+  });
+
+  // BUG-L9: "This change could not be saved on the server." told a farmer
+  // nothing about a listing the server would not take.
+  group('a listing or trip refused for its details', () {
+    test('says which details to check', () {
+      for (final (entityType, action, message, code) in [
+        (
+          'crop_listing',
+          'create',
+          'CROP_VALIDATION: pricePerKg must be between 0.01 and 1000.',
+          AppErrorCode.listingDetailsNotAccepted,
+        ),
+        (
+          'crop_listing',
+          'update',
+          'CROP_VALIDATION: Invalid cropType.',
+          AppErrorCode.listingDetailsNotAccepted,
+        ),
+        (
+          'trip',
+          'create',
+          'TRIP_VALIDATION: capacity must be between 0.1 and 1000.',
+          AppErrorCode.tripDetailsNotAccepted,
+        ),
+        (
+          'trip',
+          'update',
+          'TRIP_VALIDATION: departureDate must be in the future.',
+          AppErrorCode.tripDetailsNotAccepted,
+        ),
+      ]) {
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: action,
+            message: message,
+          ),
+          code,
+          reason: message,
+        );
+      }
+    });
+
+    test('not a refusal no correction on the form can pass', () {
+      for (final (entityType, message) in [
+        // A field the app never lets the user change.
+        (
+          'crop_listing',
+          'CROP_VALIDATION: farmerId is immutable and cannot be changed on '
+              'update.',
+        ),
+        (
+          'trip',
+          'TRIP_VALIDATION: truckerPhone is immutable and cannot be changed '
+              'on update.',
+        ),
+        // The server could not read the profile.
+        (
+          'crop_listing',
+          'CROP_VALIDATION: The farmer profile could not be read. Please try '
+              'again later.',
+        ),
+        (
+          'trip',
+          'TRIP_VALIDATION: Your profile could not be read. Please try again '
+              'later.',
+        ),
+        // Another entity's validation keeps the generic text.
+        ('delivery', 'DELIVERY_VALIDATION: Invalid gpsPickup.'),
+      ]) {
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: 'update',
+            message: message,
+          ),
+          AppErrorCode.changeNotSaved,
+          reason: message,
+        );
+      }
+    });
+
+    test('a phone number in the text keeps its own reason', () {
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'crop_listing',
+          action: 'create',
+          message: 'CROP_CONTACT_IN_TEXT: x',
+        ),
+        AppErrorCode.contactInText,
+      );
+    });
+
+    test('reads in en, am and om, without the word server', () async {
+      const serverWords = ['server', 'sarvar', 'አገልጋ', 'ሰርቨ'];
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final listing = localizeErrorCode(
+          AppErrorCode.listingDetailsNotAccepted,
+          l10n,
+        );
+        final trip = localizeErrorCode(
+          AppErrorCode.tripDetailsNotAccepted,
+          l10n,
+        );
+        final generic = localizeErrorCode(AppErrorCode.changeNotSaved, l10n);
+        expect(listing, l10n.errorListingDetailsNotAccepted);
+        expect(trip, l10n.errorTripDetailsNotAccepted);
+        expect(listing, isNot(trip), reason: locale);
+        expect(listing, isNot(generic), reason: locale);
+        expect(listing, isNot(l10n.errorOccurred), reason: locale);
+        for (final text in [listing, trip, generic]) {
+          for (final word in serverWords) {
+            expect(
+              text.toLowerCase(),
+              isNot(contains(word)),
+              reason: '$locale: $text',
+            );
+          }
+        }
       }
     });
   });
@@ -853,9 +1008,16 @@ void main() {
         // FUP-51
         'TRIP_CONTACT_IN_TEXT: x',
         'FRAUD_ACCOUNT_HELD: x',
+        // trip-listing-api 2.10.0: a duplicate of a trip the trucker has.
+        'FRAUD_DUPLICATE_LISTING: You already have a trip on this route.',
       ]) {
         expect(isRevertableTripRejectionMessage(message), isTrue);
       }
+      // The same code on a crop listing keeps the local listing, as before.
+      expect(
+        isRevertableListingRejectionMessage('FRAUD_DUPLICATE_LISTING: dup'),
+        isFalse,
+      );
       // CROP_VALIDATION and TRIP_VALIDATION also wrap a failed profile read
       // on the server, so a prefix alone is not deterministic, and the same
       // payload goes through once the app is updated.
@@ -867,7 +1029,6 @@ void main() {
         'CROP_UNAUTHORIZED: not yours',
         'TRIP_VALIDATION: bad',
         'TRIP_UNAUTHORIZED: not yours',
-        'FRAUD_DUPLICATE_LISTING: dup',
         'FRAUD_VELOCITY_EXCEEDED: x',
         'TRIP_CAPACITY_EXCEEDED: x',
         'ORDER_CONTACT_IN_TEXT: x',

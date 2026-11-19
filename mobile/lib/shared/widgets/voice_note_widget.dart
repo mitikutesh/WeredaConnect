@@ -412,6 +412,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
           // Play button
           IconButton(
             onPressed: _playAudio,
+            tooltip: l10n.playAudio,
             icon: const Icon(Icons.play_arrow),
             iconSize: 32,
             style: IconButton.styleFrom(
@@ -482,6 +483,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
           // Pause button
           IconButton(
             onPressed: _pauseAudio,
+            tooltip: l10n.pauseAudio,
             icon: const Icon(Icons.pause),
             iconSize: 32,
             style: IconButton.styleFrom(

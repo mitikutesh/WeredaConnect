@@ -1,7 +1,8 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show SynchronousFuture, kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -22,6 +23,7 @@ import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart'
     if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart'
@@ -1089,6 +1091,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
   void initState() {
     super.initState();
     _statsFuture = _loadStats(widget.userId, widget.role);
+    _pullThenReload();
   }
 
   @override
@@ -1098,7 +1101,53 @@ class _OverviewStatsState extends State<_OverviewStats> {
       setState(() {
         _statsFuture = _loadStats(widget.userId, widget.role);
       });
+      _pullThenReload();
     }
+  }
+
+  /// BUG-37: the tiles count what the phone holds, and they used to be read
+  /// once, while the Action needed card's order pull was still on its way.
+  /// After a login the phone holds nothing yet, so the tiles stayed at 0
+  /// next to a card (and an Orders tab) that already showed the orders. Now
+  /// the stored numbers paint first, the user's orders are pulled (the same
+  /// request the card makes: the sync joins the two) and, for a farmer, the
+  /// own listings (BUG-31), and the tiles are read again. Best effort:
+  /// offline the stored numbers stand. Mobile only: web reads the server.
+  Future<void> _pullThenReload() async {
+    final userId = widget.userId;
+    final role = widget.role;
+    if (kIsWeb || userId.isEmpty) return;
+    final MarketplaceSync? sync;
+    try {
+      sync = context.read<MarketplaceSync?>();
+    } on Object {
+      // No sync above this widget (widget tests): the stored numbers stand.
+      return;
+    }
+    if (sync == null) return;
+    try {
+      await sync.pullOrders(userId: userId, role: role.name);
+    } on Object {
+      // Offline or a failed read: the stored orders are counted.
+    }
+    if (role == UserRole.farmer) {
+      try {
+        await sync.pullOwnCrops(farmerId: userId);
+      } on Object {
+        // Offline or a failed read: the stored listings are counted.
+      }
+    }
+    if (!mounted || widget.userId != userId || widget.role != role) return;
+    final _HomeStats stats;
+    try {
+      stats = await _loadIsarStats(userId, role);
+    } on Object {
+      // The first read's error chip (with Retry) already says so.
+      return;
+    }
+    if (!mounted || widget.userId != userId || widget.role != role) return;
+    // Already complete, so the tiles change without a loading placeholder.
+    setState(() => _statsFuture = SynchronousFuture(stats));
   }
 
   void _retry() {

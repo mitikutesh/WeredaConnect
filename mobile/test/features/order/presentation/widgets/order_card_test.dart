@@ -106,6 +106,34 @@ void main() {
       expect(find.text(l10n.rejectOrder), findsNothing);
     });
 
+    // BUG-L5: both are neutral chips and showed the same empty circle.
+    testWidgets('a new order and a cancelled one have icons of their own',
+        (tester) async {
+      await _pumpCard(tester, status: OrderStatus.created, isFarmerView: false);
+      expect(find.byIcon(Icons.receipt_long_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.block), findsNothing);
+
+      await _pumpCard(
+        tester,
+        status: OrderStatus.cancelled,
+        isFarmerView: false,
+      );
+      expect(find.byIcon(Icons.block), findsOneWidget);
+      expect(find.byIcon(Icons.receipt_long_outlined), findsNothing);
+
+      expect(
+        orderStatusIcon(OrderStatus.created),
+        isNot(orderStatusIcon(OrderStatus.cancelled)),
+      );
+      // Every other status keeps the icon of its kind.
+      for (final status in OrderStatus.values) {
+        if (status == OrderStatus.created || status == OrderStatus.cancelled) {
+          continue;
+        }
+        expect(orderStatusIcon(status), isNull, reason: status.name);
+      }
+    });
+
     testWidgets('labels awaiting transport and an unknown status',
         (tester) async {
       await _pumpCard(

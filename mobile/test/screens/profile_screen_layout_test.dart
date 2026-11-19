@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,6 +17,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -78,7 +81,8 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  Widget app(Widget home) => MultiProvider(
+  Widget app(Widget home, {Locale locale = const Locale('en')}) =>
+      MultiProvider(
         providers: [
           ChangeNotifierProvider(create: (_) => LanguageProvider()),
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
@@ -87,9 +91,15 @@ void main() {
           value: bloc,
           child: MaterialApp(
             theme: AppTheme.light(),
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            // The app's delegates: Material has no Afaan Oromoo of its own.
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              FallbackMaterialLocalizationsDelegate(),
+              GlobalWidgetsLocalizations.delegate,
+              FallbackCupertinoLocalizationsDelegate(),
+            ],
             supportedLocales: AppLocalizations.supportedLocales,
-            locale: const Locale('en'),
+            locale: locale,
             home: home,
           ),
         ),
@@ -100,6 +110,7 @@ void main() {
     UserRole role, {
     bool verified = false,
     Size size = const Size(390, 1400),
+    Locale locale = const Locale('en'),
   }) async {
     useWindow(tester, size);
     when(() => bloc.state).thenReturn(_signedIn(role));
@@ -109,12 +120,26 @@ void main() {
           loadUser: (_) async => _user(role, verified: verified),
           appLockService: lock,
         ),
+        locale: locale,
       ),
     );
     await tester.pumpAndSettle();
   }
 
   group('Profile', () {
+    // BUG-25: the escrow row said "0 ETB" in every language.
+    for (final code in ['am', 'om']) {
+      testWidgets('the escrow row names the birr in $code', (tester) async {
+        addTearDown(() => Intl.defaultLocale = null);
+        final locale = Locale(code);
+        await pumpProfile(tester, UserRole.farmer, locale: locale);
+        final l10n = lookupAppLocalizations(locale);
+
+        expect(find.text(l10n.etbCurrency('0')), findsOneWidget);
+        expect(find.textContaining('ETB'), findsNothing);
+      });
+    }
+
     for (final (role, label) in [
       (UserRole.farmer, 'Farmer'),
       (UserRole.trucker, 'Trucker'),

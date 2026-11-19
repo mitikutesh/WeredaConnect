@@ -557,6 +557,7 @@ class _DetailRow extends StatelessWidget {
         ),
         if (showCopy)
           IconButton(
+            tooltip: AppLocalizations.of(context)!.copy,
             icon: const Icon(Icons.copy, size: 18),
             onPressed: () {
               Clipboard.setData(ClipboardData(text: value));

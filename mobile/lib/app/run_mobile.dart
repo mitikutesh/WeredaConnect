@@ -243,6 +243,8 @@ Future<void> runMobile({
   final syncWorker = SyncWorker(
     executor: syncExecutor,
     syncQueue: syncQueue,
+    // BUG-32: early retries after a sync that could not reach the server.
+    connectivityMonitor: connectivityMonitor,
   );
   syncWorker.start();
 

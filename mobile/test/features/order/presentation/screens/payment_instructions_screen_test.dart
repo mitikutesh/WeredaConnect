@@ -403,6 +403,14 @@ void main() {
 
       await open(tester);
       await tester.ensureVisible(copyButtonFor(defaultOrderId));
+      // BUG-L16: the icon-only button has a name.
+      expect(
+        find.ancestor(
+          of: copyButtonFor(defaultOrderId),
+          matching: find.byTooltip('Copy'),
+        ),
+        findsOneWidget,
+      );
       await tester.tap(copyButtonFor(defaultOrderId));
       await tester.pump();
 

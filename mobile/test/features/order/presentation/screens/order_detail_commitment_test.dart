@@ -21,6 +21,7 @@ import 'package:wereda_connect/features/rating/domain/repositories/base_rating_r
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
 
@@ -410,6 +411,76 @@ void main() {
     });
   });
 
+  // BUG-L5: the timeline said a step's state with a 4 px colour bar only.
+  group('timeline step icons', () {
+    Finder inTimeline(Finder matching) => find.descendant(
+          of: find.ancestor(
+            of: find.text(en.orderTimeline),
+            matching: find.byType(FwCard),
+          ),
+          matching: matching,
+        );
+
+    Finder stepSaying(String state) => inTimeline(
+          find.byWidgetPredicate(
+            (w) => w is Semantics && w.properties.value == state,
+          ),
+        );
+
+    for (final (role, userId) in [
+      (UserRole.buyer, 'buyer-001'),
+      (UserRole.farmer, 'farmer-001'),
+      (UserRole.trucker, 'trucker-001'),
+    ]) {
+      testWidgets('${role.name}: done, current and upcoming steps differ',
+          (tester) async {
+        await show(tester, _order(OrderStatus.funded), role, userId);
+
+        final done = inTimeline(find.byIcon(Icons.check_circle));
+        final current = inTimeline(find.byIcon(Icons.radio_button_checked));
+        final ahead = inTimeline(find.byIcon(Icons.radio_button_unchecked));
+        expect(current, findsOneWidget);
+        expect(done, findsWidgets);
+        expect(ahead, findsWidgets);
+        // One icon per step shown, and a screen reader hears each state.
+        final steps = tester.widgetList(done).length +
+            tester.widgetList(ahead).length +
+            1;
+        expect(stepSaying(en.orderTimelineStepNow), findsOneWidget);
+        expect(
+          stepSaying(en.orderTimelineStepDone),
+          findsNWidgets(tester.widgetList(done).length),
+        );
+        expect(
+          stepSaying(en.orderTimelineStepLater),
+          findsNWidgets(tester.widgetList(ahead).length),
+        );
+        expect(steps, greaterThanOrEqualTo(3));
+      });
+    }
+
+    testWidgets('a cancelled order: created is done, cancelled is where it is',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.cancelled),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      expect(inTimeline(find.byIcon(Icons.check_circle)), findsOneWidget);
+      expect(
+        inTimeline(find.byIcon(Icons.radio_button_checked)),
+        findsOneWidget,
+      );
+      // Nothing is still ahead of a cancelled order.
+      expect(
+        inTimeline(find.byIcon(Icons.radio_button_unchecked)),
+        findsNothing,
+      );
+    });
+  });
+
   testWidgets('a status this build does not know shows Updating, no actions',
       (tester) async {
     await show(
@@ -494,7 +565,8 @@ void main() {
         'buyer-001',
         locale: const Locale('om'),
       );
-      const time = 'Oct 27 5:00 ganama';
+      // BUG-L2: the month is Onkoloolessa, not "Oct".
+      const time = 'Onk 27 5:00 ganama';
       expect(
         find.text(withSmall24h(om.commitmentWaitingUntil(time), time, '11:00')),
         findsOneWidget,

@@ -1368,6 +1368,7 @@ class _OrderHeader extends StatelessWidget {
           : StatusChip(
               label: orderStatusLabel(order.status, l10n),
               kind: orderStatusKind(order.status),
+              icon: orderStatusIcon(order.status),
             ),
     );
   }
@@ -2169,8 +2170,11 @@ const TextStyle _cardTitle = TextStyle(
   color: AppTheme.soilDark,
 );
 
-/// One step of the timeline: a 4 px bar over its name. What the step means
-/// shows on hover (web, desktop) or tap (touch).
+/// One step of the timeline: its state icon and a 4 px bar over its name.
+/// The icon says the state without colour or reading (BUG-L5): a check for a
+/// finished step, a filled dot for the step the order is at, an empty circle
+/// for one still ahead; a screen reader hears the state as the value. What
+/// the step means shows on hover (web, desktop) or tap (touch).
 class _TimelineStepTile extends StatelessWidget {
   final _TimelineStep step;
   final bool done;
@@ -2194,6 +2198,14 @@ class _TimelineStepTile extends StatelessWidget {
         : done
             ? AppTheme.soilDark
             : AppTheme.mutedSteel;
+    final l10n = AppLocalizations.of(context)!;
+    // The status chips' glyphs: done is their success check, a step ahead
+    // their neutral empty circle, and the current step that circle filled.
+    final (icon, state) = done
+        ? (StatusKind.success.defaultIcon, l10n.orderTimelineStepDone)
+        : current
+            ? (Icons.radio_button_checked, l10n.orderTimelineStepNow)
+            : (StatusKind.neutral.defaultIcon, l10n.orderTimelineStepLater);
     return Tooltip(
       message: step.info,
       triggerMode: TooltipTriggerMode.tap,
@@ -2202,15 +2214,28 @@ class _TimelineStepTile extends StatelessWidget {
       child: Semantics(
         button: true,
         selected: current,
+        value: state,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              height: 4,
-              decoration: BoxDecoration(
-                color: bar,
-                borderRadius: BorderRadius.circular(999),
-              ),
+            Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: done ? AppTheme.fieldGreen : ink,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Container(
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: bar,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 6),
             Text(

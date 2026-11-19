@@ -138,6 +138,68 @@ void main() {
     ).thenAnswer((_) async => {'orders': orders});
   }
 
+  // BUG-37: the Home tiles and the Action needed card both ask for the
+  // orders when Home opens.
+  group('pullOrders while one is on its way (BUG-37)', () {
+    test(
+        'a second call for the same user and role waits for the first: one '
+        'request, and both see the orders stored', () async {
+      var requests = 0;
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/orders',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((_) async {
+        requests++;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        return {
+          'orders': [_serverOrder()],
+        };
+      });
+
+      final first = sync.pullOrders(userId: 'farmer-1', role: 'farmer');
+      var secondDone = false;
+      final second = sync
+          .pullOrders(userId: 'farmer-1', role: 'farmer')
+          .then((_) => secondDone = true);
+      await Future<void>.delayed(Duration.zero);
+      expect(secondDone, isFalse, reason: 'it waits for the pull on its way');
+
+      await Future.wait([first, second]);
+
+      expect(requests, 1);
+      expect((await load())!.status, OrderStatus.funded);
+    });
+
+    test('a failed pull fails both callers and the next one asks again',
+        () async {
+      var requests = 0;
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/orders',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((_) async {
+        requests++;
+        if (requests == 1) throw const NetworkException();
+        return {
+          'orders': [_serverOrder()],
+        };
+      });
+
+      final first = sync.pullOrders(userId: 'farmer-1', role: 'farmer');
+      final second = sync.pullOrders(userId: 'farmer-1', role: 'farmer');
+      await expectLater(first, throwsA(isA<NetworkException>()));
+      await expectLater(second, throwsA(isA<NetworkException>()));
+
+      await sync.pullOrders(userId: 'farmer-1', role: 'farmer');
+
+      expect(requests, 2);
+      expect(await load(), isNotNull);
+    });
+  });
+
   group('revertRejected', () {
     test('an update goes back to the server order and version', () async {
       final op = await acceptThenReject();
@@ -1068,6 +1130,8 @@ void main() {
       // FUP-51
       'TRIP_CONTACT_IN_TEXT: Remove the phone number from vehiclePlate.',
       'FRAUD_ACCOUNT_HELD: Your account is under review.',
+      // trip-listing-api 2.10.0: the duplicate never reached the server.
+      'FRAUD_DUPLICATE_LISTING: You already have a trip on this route.',
     ]) {
       test(
           'a refused create removes the local trip without a read '

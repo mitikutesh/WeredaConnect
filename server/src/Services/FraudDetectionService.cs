@@ -22,6 +22,35 @@ public sealed class FraudDetectionService : IFraudDetectionService
     internal const int PaymentVelocityTtlSeconds = 3600;       // 1 hour
     internal const double DuplicateListingWindowHours = 1.0;
     internal const double PriceTolerancePercent = 0.05;        // ±5%
+
+    // Rule 1, the duplicate lot: an active listing of the same farmer, crop type, quantity and place is
+    // the same stock listed again, whatever its price and age.
+
+    /// <summary>Two listing points of one woreda at most this far apart are one place.</summary>
+    internal const double DuplicateLotRadiusKm = 1.0;
+
+    /// <summary>The newest listings of the farmer and crop type the duplicate lot check reads (one BatchGetItem).</summary>
+    internal const int DuplicateLotMaxListings = 100;
+
+    /// <summary>Pages of the farmer index, and of the trucker index (Rule 6), one check follows.</summary>
+    internal const int OwnerIndexMaxPages = 3;
+
+    /// <summary>Rule 6: a trip of the same trucker on the same departure day, on another route or with another vehicle.</summary>
+    internal const string TripSameDaySignal = "TRIP_SAME_DAY";
+
+    /// <summary>
+    /// Rule 1, the duplicate lot: a listing create refused because the farmer already lists that lot. The
+    /// refusal keeps the wire code <c>FRAUD_DUPLICATE_LISTING</c>; its signal is this type, which never
+    /// scores, because honest farmers meet the rule too (the same harvest size listed again while an old
+    /// listing is still active). The price band keeps writing <c>FRAUD_DUPLICATE_LISTING</c> (20).
+    /// </summary>
+    internal const string DuplicateLotSignal = "DUPLICATE_LOT";
+
+    /// <summary>
+    /// Rule 6: a trip create refused as a duplicate (same route, day and vehicle). Never scores, for the
+    /// same reason: a second Save after a lost response on web, or a second run of a short route, meets it.
+    /// </summary>
+    internal const string DuplicateTripSignal = "DUPLICATE_TRIP";
     internal const int PriceAnomalyMinSamples = 5;
     internal const int PriceAnomalySampleSize = 50;
 
@@ -104,11 +133,17 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// </summary>
     public Action<string> AlarmLog { get; init; } = Console.WriteLine;
 
+    /// <summary>
+    /// The trips table, for Rule 6 (<see cref="CheckTripCreationAsync"/>). Only the sync Lambda sets it;
+    /// empty, the check allows every trip.
+    /// </summary>
+    public string TripsTable { get; init; } = "";
+
     // ── CheckListingCreationAsync ──────────────────────────
-    // Runs checks in order: velocity → duplicate → price anomaly
+    // Runs checks in order: velocity → duplicate (price band, then lot) → price anomaly
     // Returns on first rejection; flags accumulate.
     public async Task<FraudCheckResult> CheckListingCreationAsync(
-        string farmerId, string cropType, decimal pricePerKg)
+        string farmerId, string cropType, decimal pricePerKg, ListingLot? lot = null)
     {
         // 1. Velocity check (cheapest — single DynamoDB GetItem)
         var hourBucket = DateTime.UtcNow.ToString("yyyy-MM-ddTHH");
@@ -150,6 +185,14 @@ public sealed class FraudDetectionService : IFraudDetectionService
                     "FRAUD_DUPLICATE_LISTING",
                     "A similar listing already exists. Please update your existing listing instead.");
             }
+        }
+
+        // 2b. Duplicate lot: the price band above lets the same stock through at a price more than 5%
+        // away, or an hour later. The same quantity of the same crop at the same place is one lot.
+        if (lot != null && await HasActiveListingOfLotAsync(farmerId, cropType, lot))
+        {
+            return DuplicateRefusal(
+                "A similar listing already exists. Please update your existing listing instead.", DuplicateLotSignal);
         }
 
         // 3. Price anomaly (GSI query + computation — most expensive)
@@ -197,6 +240,233 @@ public sealed class FraudDetectionService : IFraudDetectionService
             var middle = sorted.Count / 2;
             return sorted.Count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
         }
+    }
+
+    /// <summary>
+    /// Rule 1, the duplicate lot: whether the farmer has an active listing (<c>available</c> or
+    /// <c>reserved</c>, not deleted) of this crop type with the same quantity at the same place, other than
+    /// the listing being created. The farmer index projects neither quantity, place nor status, so its keys
+    /// (the newest <see cref="DuplicateLotMaxListings"/> of the crop type) are read from the table in one
+    /// strongly consistent BatchGetItem.
+    /// </summary>
+    private async Task<bool> HasActiveListingOfLotAsync(string farmerId, string cropType, ListingLot lot)
+    {
+        var keys = await QueryFarmerListingKeysAsync(farmerId, cropType, lot.CropId);
+        if (keys.Count == 0)
+        {
+            return false;
+        }
+
+        var pending = new KeysAndAttributes
+        {
+            Keys = keys,
+            ConsistentRead = true,
+            ProjectionExpression = "cropId, quantity, woreda, latitude, longitude, #s, deletedAt",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#s", "status" } }
+        };
+
+        // Unprocessed keys (throttling) are asked again a few times, then left: the check is best effort.
+        for (var attempt = 0; attempt < OwnerIndexMaxPages && pending is { Keys.Count: > 0 }; attempt++)
+        {
+            var response = await _dynamoDb.BatchGetItemAsync(new BatchGetItemRequest
+            {
+                RequestItems = new Dictionary<string, KeysAndAttributes> { { _cropsTable, pending } }
+            });
+
+            if (response.Responses != null
+                && response.Responses.TryGetValue(_cropsTable, out var rows)
+                && rows.Any(row => IsSameLot(row, lot)))
+            {
+                return true;
+            }
+
+            pending = response.UnprocessedKeys != null && response.UnprocessedKeys.TryGetValue(_cropsTable, out var left)
+                ? left
+                : null;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether a stored listing is the lot being created: active, the same quantity, the same woreda, and,
+    /// when both carry a point, the points at most <see cref="DuplicateLotRadiusKm"/> apart. A listing
+    /// without a point is placed by its woreda alone. The price is not compared.
+    /// </summary>
+    internal static bool IsSameLot(Dictionary<string, AttributeValue> row, ListingLot lot)
+    {
+        if (row.TryGetValue("cropId", out var id) && id.S == lot.CropId)
+        {
+            return false;
+        }
+
+        if (row.TryGetValue("deletedAt", out var deleted) && !string.IsNullOrEmpty(deleted.S))
+        {
+            return false;
+        }
+
+        // A row without a status is as old as the field and still on the market.
+        if (row.TryGetValue("status", out var status) && status.S is { Length: > 0 } and not ("available" or "reserved"))
+        {
+            return false;
+        }
+
+        if (ReadNumber(row, "quantity") is not { } quantity || quantity != lot.Quantity)
+        {
+            return false;
+        }
+
+        if (!row.TryGetValue("woreda", out var woreda) || !SameName(woreda.S, lot.Woreda))
+        {
+            return false;
+        }
+
+        return lot.Latitude is not { } lat || lot.Longitude is not { } lng
+            || ReadNumber(row, "latitude") is not { } rowLat || ReadNumber(row, "longitude") is not { } rowLng
+            || HaversineDistanceKm(lat, lng, (double)rowLat, (double)rowLng) <= DuplicateLotRadiusKm;
+    }
+
+    /// <summary>A number attribute, also in the string form old rows hold; null when missing or not a number.</summary>
+    private static decimal? ReadNumber(Dictionary<string, AttributeValue> row, string name) =>
+        row.TryGetValue(name, out var value)
+        && decimal.TryParse(value.N ?? value.S, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+            ? number
+            : null;
+
+    /// <summary>Two place or route names compared as people type them: outer spaces and case ignored.</summary>
+    private static bool SameName(string? a, string? b) =>
+        !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b)
+        && string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    // ── CheckTripCreationAsync ─────────────────────────────
+    // Rule 6: one truck makes one trip on a route per day. Reads the trucker's open and matched trips.
+    public async Task<FraudCheckResult> CheckTripCreationAsync(TripPlan plan)
+    {
+        if (string.IsNullOrEmpty(TripsTable) || string.IsNullOrEmpty(plan.TruckerId))
+        {
+            return FraudCheckResult.Allowed();
+        }
+
+        Dictionary<string, AttributeValue>? otherSameDay = null;
+        foreach (var indexed in await QueryTruckerActiveTripsAsync(plan.TruckerId))
+        {
+            var trip = indexed;
+            var overlap = TripOverlapOf(trip, plan);
+            if (overlap == TripOverlap.Duplicate)
+            {
+                // The index is eventually consistent, and a refusal is final for the client: a phone that
+                // syncs "create A, cancel A, create B" in one batch must not lose B to the index's copy
+                // of A. So the trip row itself is read, strongly consistent, and judged again.
+                trip = await ReadTripConsistentAsync(trip);
+                overlap = trip == null ? TripOverlap.None : TripOverlapOf(trip, plan);
+                if (overlap == TripOverlap.Duplicate)
+                {
+                    return DuplicateRefusal(
+                        "You already have a trip on this route on that day. Please update your existing trip instead.",
+                        DuplicateTripSignal);
+                }
+            }
+
+            if (overlap == TripOverlap.SameDay)
+            {
+                otherSameDay ??= trip;
+            }
+        }
+
+        if (otherSameDay == null)
+        {
+            return FraudCheckResult.Allowed();
+        }
+
+        var otherFrom = otherSameDay.TryGetValue("fromWoreda", out var f) ? f.S : null;
+        var otherTo = otherSameDay.TryGetValue("toWoreda", out var t) ? t.S : null;
+        return FraudCheckResult.Flagged(
+            TripSameDaySignal,
+            $"Trip {plan.FromWoreda} to {plan.ToWoreda} departs the same day as another open trip of this trucker ({otherFrom} to {otherTo}).");
+    }
+
+    /// <summary>
+    /// A refusal of the two rules honest users also meet (the duplicate lot, the duplicate trip): the wire
+    /// code clients know, and in <see cref="FraudCheckResult.FlagReason"/> the signal type to record in
+    /// its place, one that never scores.
+    /// </summary>
+    private static FraudCheckResult DuplicateRefusal(string message, string signalType) =>
+        FraudCheckResult.Rejected("FRAUD_DUPLICATE_LISTING", message) with { FlagReason = signalType };
+
+    /// <summary>How a stored trip of the trucker stands to a trip being created (Rule 6).</summary>
+    internal enum TripOverlap
+    {
+        /// <summary>Not in the way: the trip itself, not open or matched, deleted, or another departure day.</summary>
+        None,
+
+        /// <summary>An open or matched trip of the same Ethiopia day, on another route or with another vehicle.</summary>
+        SameDay,
+
+        /// <summary>An open or matched trip of the same Ethiopia day, route and vehicle.</summary>
+        Duplicate
+    }
+
+    /// <summary>
+    /// Rule 6 for one stored trip. The status and <c>deletedAt</c> are judged here as well as in the index
+    /// filter, so a row read again from the table is judged by the same rule.
+    /// </summary>
+    internal static TripOverlap TripOverlapOf(Dictionary<string, AttributeValue> trip, TripPlan plan)
+    {
+        if ((trip.TryGetValue("tripId", out var id) && id.S == plan.TripId)
+            || (trip.TryGetValue("status", out var status) && status.S is not ("open" or "matched"))
+            || (trip.TryGetValue("deletedAt", out var deleted) && !string.IsNullOrEmpty(deleted.S))
+            || !trip.TryGetValue("departureDate", out var departure)
+            || !DateTime.TryParse(departure.S, CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var departureUtc)
+            || TripDeparture.StartOfEthiopiaDayUtc(departureUtc) != TripDeparture.StartOfEthiopiaDayUtc(plan.DepartureUtc))
+        {
+            return TripOverlap.None;
+        }
+
+        var sameRoute = trip.TryGetValue("fromWoreda", out var from) && SameName(from.S, plan.FromWoreda)
+            && trip.TryGetValue("toWoreda", out var to) && SameName(to.S, plan.ToWoreda);
+        return sameRoute && SameVehicle(trip.TryGetValue("vehiclePlate", out var plate) ? plate.S : null, plan.VehiclePlate)
+            ? TripOverlap.Duplicate
+            : TripOverlap.SameDay;
+    }
+
+    /// <summary>
+    /// The trip row of an index row, read from the table strongly consistent (the table's key is the trip id
+    /// and <c>createdAt</c>, so it is a Query of the id's partition). Null when the row is gone or the index
+    /// row carries no id.
+    /// </summary>
+    private async Task<Dictionary<string, AttributeValue>?> ReadTripConsistentAsync(Dictionary<string, AttributeValue> indexed)
+    {
+        if (!indexed.TryGetValue("tripId", out var id) || string.IsNullOrEmpty(id.S))
+        {
+            return null;
+        }
+
+        var response = await _dynamoDb.QueryAsync(new QueryRequest
+        {
+            TableName = TripsTable,
+            KeyConditionExpression = "tripId = :id",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", new AttributeValue { S = id.S } } },
+            ProjectionExpression = "tripId, fromWoreda, toWoreda, departureDate, vehiclePlate, #s, deletedAt",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#s", "status" } },
+            ConsistentRead = true,
+            Limit = 1
+        });
+        return response.Items is { Count: > 0 } rows ? rows[0] : null;
+    }
+
+    /// <summary>
+    /// Whether two trips are driven by one vehicle as far as the plates tell: the same plate (spaces, dashes
+    /// and case ignored), or a plate missing on either side. Two different plates are two trucks.
+    /// </summary>
+    internal static bool SameVehicle(string? plateA, string? plateB)
+    {
+        var a = PlateKey(plateA);
+        var b = PlateKey(plateB);
+        return a.Length == 0 || b.Length == 0 || a == b;
+
+        static string PlateKey(string? plate) =>
+            new string((plate ?? "").Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
     }
 
     // ── CheckPaymentVelocityAsync ──────────────────────────
@@ -768,6 +1038,9 @@ public sealed class FraudDetectionService : IFraudDetectionService
         NoShowSignal => 15,
         DeliveryOverdueSignal => 25,
         BuyerDeclinePatternSignal => 10,
+        TripSameDaySignal => 0,
+        DuplicateLotSignal => 0,
+        DuplicateTripSignal => 0,
         _ => 10
     };
 
@@ -787,7 +1060,8 @@ public sealed class FraudDetectionService : IFraudDetectionService
             or AmountAnomalySignal or NewAccountLargeAmountSignal or CancelAfterFundRateSignal
             or DisputeRateSignal or ImpossibleDeliveryTimeSignal
             or SharedDeviceTradeSignal or RepeatedPairSignal
-            or BuyerDeclinePatternSignal;
+            or BuyerDeclinePatternSignal
+            or TripSameDaySignal or DuplicateLotSignal or DuplicateTripSignal;
 
     /// <summary>
     /// FRD-09: the transaction pattern types. Each is written with the order, escrow, delivery or trip
@@ -1111,6 +1385,100 @@ public sealed class FraudDetectionService : IFraudDetectionService
 
         var response = await _dynamoDb.QueryAsync(request);
         return response.Items;
+    }
+
+    /// <summary>
+    /// Table keys of the farmer's listings of one crop type that are not deleted, newest first, without the
+    /// listing being created: at most <see cref="DuplicateLotMaxListings"/>, from at most
+    /// <see cref="OwnerIndexMaxPages"/> pages of the farmer index.
+    /// </summary>
+    private async Task<List<Dictionary<string, AttributeValue>>> QueryFarmerListingKeysAsync(
+        string farmerId, string cropType, string exceptCropId)
+    {
+        var request = new QueryRequest
+        {
+            TableName = _cropsTable,
+            IndexName = "FarmerIdCreatedAtIndex",
+            KeyConditionExpression = "farmerId = :fid",
+            FilterExpression = "cropType = :ct AND attribute_not_exists(deletedAt)",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":fid", new AttributeValue { S = farmerId } },
+                { ":ct", new AttributeValue { S = cropType } }
+            },
+            ProjectionExpression = "cropId, createdAt",
+            ScanIndexForward = false // newest first
+        };
+
+        var keys = new List<Dictionary<string, AttributeValue>>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var page = 0; page < OwnerIndexMaxPages && keys.Count < DuplicateLotMaxListings; page++)
+        {
+            var response = await _dynamoDb.QueryAsync(request);
+            foreach (var item in response.Items ?? new List<Dictionary<string, AttributeValue>>())
+            {
+                if (keys.Count < DuplicateLotMaxListings
+                    && item.TryGetValue("cropId", out var cropId) && !string.IsNullOrEmpty(cropId.S)
+                    && item.TryGetValue("createdAt", out var createdAt) && !string.IsNullOrEmpty(createdAt.S)
+                    && cropId.S != exceptCropId
+                    && seen.Add(cropId.S))
+                {
+                    keys.Add(new Dictionary<string, AttributeValue>
+                    {
+                        { "cropId", new AttributeValue { S = cropId.S } },
+                        { "createdAt", new AttributeValue { S = createdAt.S } }
+                    });
+                }
+            }
+
+            if (response.LastEvaluatedKey is not { Count: > 0 } next)
+            {
+                break;
+            }
+
+            request.ExclusiveStartKey = next;
+        }
+
+        return keys;
+    }
+
+    /// <summary>
+    /// Rule 6: the trucker's trips that are <c>open</c> or <c>matched</c> and not deleted, newest first, from
+    /// at most <see cref="OwnerIndexMaxPages"/> pages of the trucker index (which projects every attribute).
+    /// </summary>
+    private async Task<List<Dictionary<string, AttributeValue>>> QueryTruckerActiveTripsAsync(string truckerId)
+    {
+        var request = new QueryRequest
+        {
+            TableName = TripsTable,
+            IndexName = "TruckerIdCreatedAtIndex",
+            KeyConditionExpression = "truckerId = :tid",
+            FilterExpression = "#s IN (:open, :matched) AND attribute_not_exists(deletedAt)",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#s", "status" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":tid", new AttributeValue { S = truckerId } },
+                { ":open", new AttributeValue { S = "open" } },
+                { ":matched", new AttributeValue { S = "matched" } }
+            },
+            ProjectionExpression = "tripId, fromWoreda, toWoreda, departureDate, vehiclePlate, #s",
+            ScanIndexForward = false // newest first
+        };
+
+        var trips = new List<Dictionary<string, AttributeValue>>();
+        for (var page = 0; page < OwnerIndexMaxPages; page++)
+        {
+            var response = await _dynamoDb.QueryAsync(request);
+            trips.AddRange(response.Items ?? new List<Dictionary<string, AttributeValue>>());
+            if (response.LastEvaluatedKey is not { Count: > 0 } next)
+            {
+                break;
+            }
+
+            request.ExclusiveStartKey = next;
+        }
+
+        return trips;
     }
 
     private async Task<List<decimal>> QueryRecentPricesByCropTypeAsync(

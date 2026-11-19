@@ -97,15 +97,123 @@ void main() {
       expect(am.tapToListCrops, contains('ሰብልዎን'));
     });
 
+    // BUG-L8 reworded both from "synced" to "updated".
     test('om syncedAgo is spelled in Latin letters', () {
       final om = lookupAppLocalizations(const Locale('om'));
-      expect(om.syncedAgo('5 min'), '5 min dura walsimame');
+      expect(om.syncedAgo('5 min'), '5 min dura haaromfame');
     });
 
-    test('am syncedAgo matches the synced badge wording', () {
+    test('am syncedAgo is spelled in Ethiopic letters', () {
       final am = lookupAppLocalizations(const Locale('am'));
-      expect(am.syncedAgo('5 min'), 'ከ5 min በፊት ተመሳስሏል');
-      expect(am.syncedAgo('5 min'), endsWith(am.synced));
+      expect(am.syncedAgo('5 min'), 'ከ5 min በፊት ታድሷል');
+    });
+  });
+
+  // The persona simulation of 2026-11-19: one word, one spelling.
+  group('one wording per term', () {
+    final am = _arbValues('am');
+    final om = _arbValues('om');
+    final en = _arbValues('en');
+
+    List<String> keysWith(Map<String, String> values, RegExp pattern) => [
+          for (final entry in values.entries)
+            if (pattern.hasMatch(entry.value)) entry.key,
+        ];
+
+    test('BUG-L1: Amharic Cancel is not the word for Delete', () {
+      expect(am['cancel'], isNot(am['delete']));
+      expect(am['cancel'], 'ይቅር');
+      // A destructive button never reads like the button that backs out.
+      for (final key in ['delete', 'deleteAccountButton', 'cancelOrder']) {
+        expect(am[key], isNot(contains(am['cancel']!)), reason: key);
+      }
+    });
+
+    test('BUG-L10: escrow has one spelling per language', () {
+      expect(keysWith(am, RegExp('ኤስክሮ|እስክሮ')), isEmpty);
+      expect(am['escrow'], 'ኢስክሮ');
+      expect(
+        keysWith(
+          om,
+          RegExp(r'escrow|eesciroo|\beskiroo', caseSensitive: false),
+        ),
+        isEmpty,
+      );
+      expect(om['escrow'], 'Eeskiroo');
+    });
+
+    test('BUG-L11: one quintal spelling and Birrii in Afaan Oromoo', () {
+      expect(
+        keysWith(
+          om,
+          RegExp('kuintaal|kuuntaal|kuntaalli', caseSensitive: false),
+        ),
+        isEmpty,
+      );
+      expect(
+        keysWith(om, RegExp(r'\bETB\b|qarshii', caseSensitive: false)),
+        isEmpty,
+      );
+      // The unit comes before the number, as in "Birrii 500".
+      expect(keysWith(om, RegExp(r'[}0-9] (Birrii|kuntaala)\b')), isEmpty);
+    });
+
+    test('BUG-L11: birr in Ethiopic after the amount in Amharic', () {
+      expect(keysWith(am, RegExp(r'\bETB\b')), isEmpty);
+      expect(keysWith(am, RegExp(r'ብር (\{|[0-9])')), isEmpty);
+    });
+
+    test('BUG-L12: the short price unit names the quintal', () {
+      expect(om['detailEtbPerQuintalShort'], 'Birrii/kuntaala');
+      expect(om['detailEtbPerQuintalShort'], isNot(endsWith('/k')));
+    });
+
+    test('BUG-L9, BUG-25: no server, offline or online jargon left', () {
+      expect(keysWith(am, RegExp('አገልጋ|ሰርቨ')), isEmpty);
+      expect(
+        keysWith(
+          om,
+          RegExp('sarvar|server|offline|oflaayin', caseSensitive: false),
+        ),
+        isEmpty,
+      );
+    });
+
+    test('BUG-L14: the payout line speaks of money that arrives', () {
+      expect(am['escrowPayoutExpectedOn'], contains('ገንዘብዎ'));
+      expect(om['escrowPayoutExpectedOn'], contains('Maallaqni keessan'));
+      for (final values in [am, om]) {
+        expect(values['escrowPayoutExpectedOn'], contains('{date}'));
+      }
+    });
+
+    test('BUG-L8: sync status says sent or waiting, never sync', () {
+      const keys = [
+        'syncPending',
+        'syncInProgress',
+        'syncComplete',
+        'syncFailed',
+        'syncNow',
+        'synced',
+        'syncFailureCount',
+        'syncPendingCount',
+        'offline',
+        'offlineModeIndicator',
+      ];
+      for (final key in keys) {
+        expect(
+          en[key]!.toLowerCase(),
+          isNot(anyOf(contains('sync'), contains('offline'))),
+          reason: 'en $key',
+        );
+        expect(am[key], isNot(contains('ማመሳሰል')), reason: 'am $key');
+        expect(am[key], isNot(contains('ከመስመር ውጭ')), reason: 'am $key');
+        expect(
+          om[key]!.toLowerCase(),
+          isNot(contains('walsims')),
+          reason: 'om $key',
+        );
+      }
     });
   });
 
