@@ -186,6 +186,7 @@ class OrderCard extends StatelessWidget {
               StatusChip(
                 label: orderStatusLabel(order.status, l10n),
                 kind: orderStatusKind(order.status),
+                icon: orderStatusIcon(order.status),
               ),
               if (underReview)
                 const EscrowStatusBadge(status: PaymentStatus.held),
@@ -269,6 +270,17 @@ StatusKind orderStatusKind(OrderStatus status) {
     OrderStatus.disputeResolved => StatusKind.neutral,
     OrderStatus.awaitingTransport => StatusKind.warning,
     OrderStatus.unknown => StatusKind.neutral,
+  };
+}
+
+/// The chip icon of an order status whose kind's default glyph would not
+/// tell it apart (BUG-L5): a new order and a cancelled one are both neutral
+/// and shared the empty circle. Null keeps the kind's default.
+IconData? orderStatusIcon(OrderStatus status) {
+  return switch (status) {
+    OrderStatus.created => Icons.receipt_long_outlined,
+    OrderStatus.cancelled => Icons.block,
+    _ => null,
   };
 }
 

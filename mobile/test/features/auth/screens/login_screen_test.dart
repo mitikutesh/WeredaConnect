@@ -136,7 +136,7 @@ void main() {
       expect(find.text('Afaan Oromoo'), findsOneWidget);
 
       // Branding copy comes from l10n, not hardcoded English
-      expect(find.text('Offline Ready'), findsOneWidget);
+      expect(find.text('Works without network'), findsOneWidget);
       expect(
         find.text('Connecting Ethiopian farmers, truckers, and buyers'),
         findsOneWidget,
@@ -361,6 +361,8 @@ void main() {
       // Initially password is obscured (visibility_off icon shown)
       expect(find.byIcon(Icons.visibility_off), findsOneWidget);
       expect(find.byIcon(Icons.visibility), findsNothing);
+      // BUG-L16: the eye says what a tap does.
+      expect(find.byTooltip('Show password'), findsOneWidget);
 
       // Tap the visibility toggle
       await tester.tap(find.byIcon(Icons.visibility_off));
@@ -369,6 +371,8 @@ void main() {
       // Now should show visibility icon (password visible)
       expect(find.byIcon(Icons.visibility), findsOneWidget);
       expect(find.byIcon(Icons.visibility_off), findsNothing);
+      expect(find.byTooltip('Hide password'), findsOneWidget);
+      expect(find.byTooltip('Show password'), findsNothing);
 
       // Tap again to hide
       await tester.tap(find.byIcon(Icons.visibility));
