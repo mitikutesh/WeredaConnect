@@ -3168,6 +3168,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'This trip has booked orders, so this change can\'t be made.';
 
   @override
+  String get errorDuplicateTrip =>
+      'You already have a trip on this route on that day, so this one was not posted. Edit that trip instead. If this is a second truck, add its plate number.';
+
+  @override
   String get errorCropHasActiveOrders =>
       'This listing has open orders. Handle them first.';
 

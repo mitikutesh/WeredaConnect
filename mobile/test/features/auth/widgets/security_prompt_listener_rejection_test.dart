@@ -186,6 +186,27 @@ void main() {
     expect(find.text(en.fraudDuplicateListing), findsOneWidget);
   });
 
+  testWidgets(
+      'a refused duplicate trip says a trip on that route and day exists, '
+      'not the listing wording', (tester) async {
+    await tester.pumpWidget(host());
+
+    events.emit(
+      const SyncOperationRejected(
+        entityType: 'trip',
+        entityId: 'trip-1',
+        action: 'create',
+        message: 'FRAUD_DUPLICATE_LISTING: You already have a trip on this '
+            'route on that day. Please update your existing trip instead.',
+        userId: 'farmer-1',
+      ),
+    );
+    await settle(tester);
+
+    expect(find.text(en.errorDuplicateTrip), findsOneWidget);
+    expect(find.text(en.fraudDuplicateListing), findsNothing);
+  });
+
   testWidgets('any other refused change says it was not saved', (tester) async {
     await tester.pumpWidget(host());
 

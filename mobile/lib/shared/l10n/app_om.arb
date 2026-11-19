@@ -2676,6 +2676,7 @@
   "errorReputationRestricted": "Herregni keessan yeroo ammaaf kana gochuu hin danda'u, kanaaf jijjiiramni kun hin olkaa'amne. Ajajni keessan kan amma jiran itti fufu.",
   "errorCounterpartyRestricted": "Qonnaan bultaan yookiin konkolaataan fe'aa kun amma ajaja haaraa fudhachuu hin danda'u, kanaaf ajajni hin galmoofne. Maaloo kan biraa filadhaa.",
   "errorTripHasBookings": "Imalli kun ajajoota qabame waan qabuuf, jijjiiramni kun hin danda'amu.",
+  "errorDuplicateTrip": "Karaa kana irratti guyyaa sana imala duraan qabdu, kanaaf imalli kun hin maxxanfamne. Imala sana sirreessaa. Kun konkolaataa lammaffaa yoo ta'e, lakkoofsa gabatee isaa itti dabalaa.",
   "errorCropHasActiveOrders": "Tarreen kun ajajoota banaa qaba. Dura isaan xumuraa.",
   "errorAppUpdateRequired": "Itti fufuuf maaloo appii haaromsaa. Jijjiiramni kun hin olkaa'amne.",
   "errorAppUpdateRequiredKept": "Maaloo appii haaromsaa. Jijjiiramni kun bilbila keessan irratti kuufameera, haaromsa booda ni ergama.",

@@ -153,7 +153,9 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
   /// else goes through [syncRejectionErrorCode].
   String _rejectionText(SyncOperationRejected event, AppLocalizations l10n) {
     final message = event.message;
-    if (message.startsWith('FRAUD_DUPLICATE_LISTING')) {
+    // A refused trip create has the same code and its own sentence (below).
+    if (message.startsWith('FRAUD_DUPLICATE_LISTING') &&
+        event.entityType != 'trip') {
       return l10n.fraudDuplicateListing;
     }
     if (message.startsWith('FRAUD_VELOCITY_EXCEEDED')) {

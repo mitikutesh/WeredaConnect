@@ -1068,6 +1068,8 @@ void main() {
       // FUP-51
       'TRIP_CONTACT_IN_TEXT: Remove the phone number from vehiclePlate.',
       'FRAUD_ACCOUNT_HELD: Your account is under review.',
+      // trip-listing-api 2.10.0: the duplicate never reached the server.
+      'FRAUD_DUPLICATE_LISTING: You already have a trip on this route.',
     ]) {
       test(
           'a refused create removes the local trip without a read '

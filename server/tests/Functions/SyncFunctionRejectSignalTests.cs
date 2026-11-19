@@ -51,7 +51,7 @@ public class SyncFunctionRejectSignalTests
         }
 
         _fraud.GetUserRiskScoreAsync(Arg.Any<string>()).Returns(new RiskScoreResult { Score = 0, EnforcementScore = 0, Tier = RiskTier.Low });
-        _fraud.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>())
+        _fraud.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<ListingLot?>())
             .Returns(FraudCheckResult.Allowed());
 
         // A crop listing of the caller and one of another farmer.
@@ -508,7 +508,7 @@ public class SyncFunctionRejectSignalTests
 
         var failing = Substitute.For<IFraudDetectionService>();
         failing.GetUserRiskScoreAsync(Arg.Any<string>()).Returns(new RiskScoreResult { Score = 0, EnforcementScore = 0, Tier = RiskTier.Low });
-        failing.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>())
+        failing.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<ListingLot?>())
             .Returns(FraudCheckResult.Allowed());
         failing.RecordFraudSignalAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>())
