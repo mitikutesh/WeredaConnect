@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.9.0
+2.10.0
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -352,6 +352,13 @@ Invalid transitions return `422 Unprocessable Entity`:
    - Rules 12 and 13: `TRIP_HAS_BOOKINGS` goes only to an app that sends `X-App-Build` (2.6.1, FUP-241). An app that sends none (build 1 or older, which may predate the 1.17.0 client) gets the same sentence as `SYNC_VALIDATION:` (for example `SYNC_VALIDATION: capacity cannot drop below the 20 quintals already booked.`), permanent on every client (`sync-protocol.md` 1.52.0). The fraud signal of rule 12 still records the `TRIP_HAS_BOOKINGS` text.
    - Otherwise the cancel goes through and cascades: every `funded` or `accepted` order on the trip moves to `awaiting_transport` (`transportFailure: trip_cancelled`, `truckerResponse: cancelled`, `faultParty: trucker`, `order-lifecycle.md` 2.0.0), its pending delivery is cancelled and its booking released; unpaid orders are left alone (the payment gate refuses them later). The order cron repeats the cascade for orders it missed when each is next due (`order-lifecycle.md` 2.8.0).
 
+14. **One trip per route, day and truck** (2.10.0; `specs/architecture/fraud-detection-architecture.md` 3.43.0, Rule 6):
+   - A `create` is refused with `FRAUD_DUPLICATE_LISTING: You already have a trip on this route on that day. Please update your existing trip instead.` and nothing is written when the trucker already has an `open` or `matched` trip with the same `fromWoreda` and `toWoreda` (outer spaces and case ignored) departing on the same day in Ethiopia (the departure day of Browse Trips, 2.2.0: Africa/Addis_Ababa), driven by the same vehicle: the same `vehiclePlate` (spaces, dashes and case ignored), or no plate on either trip. `pricePerQuintal` and `capacity` are not compared. Before 2.10.0 a trucker could post one route and morning several times at different prices.
+   - To carry more on that route that day, or to change the price, the trucker edits the trip (rule 12 applies once it is booked). Two different plates are two trucks: the second trip is accepted. A trip that left or was cancelled frees its route and day.
+   - A trip on another route the same day (the next leg, the way back) is accepted. The server records it for fraud review (`TRIP_SAME_DAY`, weight 0, never scored); nothing reaches the client.
+   - The check runs after the field rules, rule 10 and rule 11, before the write. A retried create of the same `tripId` is not its own duplicate and gets the usual `conflict`. Updates are not checked. When the trucker's trips cannot be read the create goes on.
+   - Clients need no change: the code is `FRAUD_DUPLICATE_LISTING`, not a new one, because every shipped app treats it as permanent for any entity and explains it ("A similar listing already exists. Please update your existing listing instead.", en, am and om; `sync-protocol.md` 1.9.0 and 1.10.0). The refused create keeps its local row and counts as failed, like a refused crop listing. The web create form shows its general failure text.
+
 ### Client-Side Validation
 
 - Same as server-side, plus:
@@ -631,9 +638,10 @@ Common route patterns:
 | 2.7.0 | 2026-11-13 | A closed trip opened again by a trucker no-show re-open (FUP-363, Trip lifecycle, `delivery-verification-api.md` 2.12.0): the order cron closes a trip that carried only a no-show order within 15 minutes of the judgement (`expired`), so the admin re-open refused it with `PICKUP_REOPEN_TRIP_UNAVAILABLE`. The re-open now opens such a trip again in the re-open's transaction (new admin-only transition `cancelled → open | matched`, `cancelReason` and `cancelledAt` removed, `version` + 1, the booking taken back), conditioned on the version read, `expired`, no booking and the room; a trip its trucker cancelled stays cancelled. Decision: the cron's close is unchanged for every other order in `awaiting_transport`. No push, no browse change; the trucker's own list returns the trip again. Server only, no client change |
 | 2.8.0 | 2026-11-13 | The trucker's phone pulls the trucker's own trips (FUP-374, Browse Trips). The server moves a trucker's trip without an upload from the phone (`matched` at a funding, `delivered`, and since 2.7.0 `open` or `matched` again after an admin's trucker no-show re-open), but mobile never read the trucker's own trips back, so a phone that stored the order cron's close from a conflict answer kept the trip `cancelled` and could not start it. The trucker's home card and My trips list now read `GET /trips?truckerId=` with no `status` first (best effort, 30 seconds throttle per trucker) and replace each stored row, except one with a trip upload on its way or a higher stored `version`; the phone's place ids are kept, another trucker's trip is never stored, nothing is deleted. The 2.7.0 Trip lifecycle text said the phone takes a reopened trip up through a pull of own open trips, which mobile did not have; it now names this pull. The `status` row of the query table now says that a trucker's own list without `status` returns every status but `cancelled` (unchanged server behaviour). Role visibility unchanged. Mobile only; no server or wire change |
 | 2.9.0 | 2026-11-13 | The cost of the trucker's own-trip pull (FUP-385, Browse Trips). The 2.8.0 pull read the trucker's whole history on every pull and the home card waited for it, while the home header mounts the card again on every sync result (about every 30 seconds while syncing). Mobile now shows the stored trips first (a spinner, not "No active trip", while the phone holds none and the pull runs) and reads them again only when the pull changed one, stamps the 30 second throttle when the pull starts and lets a load that comes meanwhile wait for the pull on its way, reads every page once per run of the app and afterwards stops after the page that ends on a trip the phone holds as `delivered` with a departure more than 14 days ago (unless a trip the phone holds that the server may still move sits on a later page), and keeps the stored `truckerName` and `truckerPhone` when a listed row has none. Documents that a trucker's own list comes newest created first (unchanged server behaviour, now pinned by a repository test). Mobile only; no wire change |
+| 2.10.0 | 2026-11-19 | One trip per route, day and truck (new rule 14, persona simulation 2026-11-19 BUG-4, fraud spec 3.43.0 Rule 6): a `create` on the route, Ethiopia departure day and vehicle (the same `vehiclePlate`, or none on either) of one of the trucker's `open` or `matched` trips is refused with `FRAUD_DUPLICATE_LISTING` whatever the price; another plate, another route or another day is accepted, and another trip of the same day is recorded for review only (`TRIP_SAME_DAY`). A failed read never blocks the create. Server only; clients already treat the code as permanent and explain it |
 
 ---
 
-**Last Updated**: 2026-11-13
-**Version**: 2.9.0
+**Last Updated**: 2026-11-19
+**Version**: 2.10.0
 **Status**: Draft (Phase R4.1)

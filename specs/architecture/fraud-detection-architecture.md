@@ -1,7 +1,7 @@
 # Fraud Detection System Architecture (F-14)
 
 ## Version
-3.42.0 | 2026-11-17
+3.43.0 | 2026-11-19
 
 ## Status
 Rules 1 to 4, signal persistence and the risk score (sections 14 and 16, FRD-02) implemented. The enforcement of section 17 is built (FRD-04): the user-action gates are live, and the settlement gate holds or skips a party at risk tier CRITICAL. The escrow `held` status of section 18 is built for a party rejected in Fraud Review (FRD-05), a suspended party (FRD-03) and a CRITICAL party (FRD-04), behind `FRAUD_HOLD_ENABLED`: on in dev, off in staging and prod, with apps older than FRD-06 answered `escrowed` (FUP-61, section 18.7). The admin actions of section 19 and the whitelist row of section 20 are built (FRD-05). Signals from existing rejects and the per-user, per-type write limit are built (FRD-08, section 15). The payout delay of section 17.5 is built (FRD-13). The transaction pattern rules of section 15.1 are built (FRD-09). The adversarial personas run against dev of section 11.6 is built (FRD-17). The signal metrics, the signal volume anomaly alarm and the risk alarms of section 23.1 are built (FRD-16). The clean-delivery credits of section 20 (the score decay) are built (FRD-10). The pickup proof is built (FRD-11). Fraud Review on the sparse status index, grouped by user with the risk score, and the held queue (sections 18 and 19) are built (FRD-07). The relationship patterns of section 15.2 are built (FRD-15). The outcome labels of section 20.1 and their export are built (FRD-18). The dispute evidence package is built (FRD-14). The AI advisory reviewer of section 21 is built and off in every environment (FRD-19, `aiReviewEnabled`); ML risk scoring (FRD-20) is deferred until the dataset trigger of its decision record (section 21); its prerequisite P1, the feature snapshot on every fraud label, is built (FUP-144, section 20.1). The reputation hooks of section 15.3 are built (ESC-33), all behind `reputationPenalties` (off everywhere, so nothing of it is live): the `NO_SHOW`, `DELIVERY_OVERDUE` and `BUYER_DECLINE_PATTERN` signals, the reputation tier in the payout delay (section 17.5), and a guarded `GPS_ANOMALY` row on the delivery's trucker (section 14.3) beside the confirming buyer's own, judged since FUP-203 from the trucker's own live-trip check-ins, never from the buyer's coordinates, and since FUP-245, with `dropoffClassification` on as well, from the trucker's ESC-36 drop-off check-in first.
@@ -58,6 +58,29 @@ F-14 adds fraud detection to WeredaConnect, targeting five categories of abuse t
 - Deleted listings (`deletedAt` set) excluded via FilterExpression
 - Price tolerance uses percentage (not absolute) to handle different crop price ranges (teff ~45 ETB/kg vs wheat ~20 ETB/kg)
 - If `pricePerKg` is 0, skip price comparison and match only on `cropType`
+
+**The duplicate lot (3.43.0, persona simulation 2026-11-19 BUG-2)**. The price band keys on the price and on one hour, so the same stock passed at a price more than 5% away: a farmer listed the same 50 quintals of wheat at 60, 75, 90 and 110 ETB/kg (61, 62 and 63 were refused), and two buyers funded orders on two of the four. A second check runs after the price band, with the same error and message:
+
+```
+1. Query CropsTable via FarmerIdCreatedAtIndex GSI, newest first:
+     PK = farmerId                                   (no time bound)
+     FilterExpression: cropType = incoming.cropType AND attribute_not_exists(deletedAt)
+     keys only (cropId, createdAt), at most 3 pages and 100 listings, without the listing being created
+2. BatchGetItem those keys from the table, strongly consistent
+     (the index projects neither quantity, place nor status)
+3. If any row is active (status available or reserved, not deleted)
+     AND row.quantity == incoming.quantity
+     AND row.woreda == incoming.woreda               (outer spaces and case ignored)
+     AND (either has no point OR the two points are at most 1 km apart)
+   → REJECT
+```
+
+- The price and the age are not compared: an active listing holds its lot for as long as it is active. A `sold` or deleted listing frees it, so next season's harvest of the same size lists again.
+- Two real lots stay possible: another quantity, another woreda, or another field of the woreda more than 1 km away (`DuplicateLotRadiusKm`) when both listings carry a point. A listing without a point is placed by its woreda alone. `locationName` is free text and is not compared.
+- The listing's own id is skipped, so a replayed create (a lost response) reaches the id conflict and is not refused as its own duplicate.
+- `SyncFunction` passes the lot (`ListingLot`: id, quantity, woreda, point) to `CheckListingCreationAsync`; a call without one keeps the price band only.
+- Cost: one more index Query per listing create, and one BatchGetItem when the farmer has other listings of the crop type. Unprocessed keys are asked again up to 3 times, then left.
+- Known limits, kept: the match is exact, so a quantity changed by 0.01 passes, and so does a lot listed again after a funded order took part of the first listing's stock (`quantity` is the free stock, `crop-listing-api.md` rule 10), or an edit of a second listing to the first one's quantity (updates are not checked). The index read is eventually consistent, so two creates of one lot within a moment of each other can both pass, as with the price band. Stopping oversell across listings for good needs the farmer's stock declared once and shared by their listings, which is a product change.
 
 ### Rule 2: Price Anomaly Flagging
 
@@ -159,6 +182,39 @@ specified in section 14 (formula, bounded read, failure modes), section 16 (tier
 back. No request path calls it until FRD-04. It is computed on read from the fraud-signals table and never stored on the user row. The signal
 weights are unchanged (`FraudDetectionService.SignalWeight`: `GPS_ANOMALY` 25,
 `FRAUD_DUPLICATE_LISTING` 20, `FRAUD_VELOCITY_EXCEEDED` 15, `PRICE_ANOMALY` 10, any other type 10).
+
+### Rule 6: Duplicate and Same-Day Trips (3.43.0)
+
+Persona simulation 2026-11-19, BUG-4: a trucker posted three trips on one route for one morning at 100, 150 and 200 ETB per quintal, and a fourth in another region the same morning; all four were accepted. No rule looked at a trucker's other trips.
+
+**Trigger**: a trip `create` in `SyncFunction.ProcessTripAsync`, after the field rules and the CRITICAL gate (section 17.1), before the write (`SyncFunction.CheckTripCreationFraudAsync`, `FraudDetectionService.CheckTripCreationAsync`).
+
+**Logic**:
+```
+1. Query TripsTable via TruckerIdCreatedAtIndex GSI, newest first, at most 3 pages:
+     PK = truckerId
+     FilterExpression: status IN (open, matched) AND attribute_not_exists(deletedAt)
+2. Keep the trips other than the one being created whose departureDate falls on the same
+   Ethiopia day (Africa/Addis_Ababa, TripDeparture.StartOfEthiopiaDayUtc, trip-listing-api.md 2.2.0)
+3. If one of them has the same fromWoreda and toWoreda (outer spaces and case ignored)
+   AND the same vehicle (the same vehiclePlate, spaces, dashes and case ignored,
+   or no plate on either side)
+   → REJECT
+4. Else, if any trip is left → FLAG
+```
+
+**Error (3)**: `FRAUD_DUPLICATE_LISTING` with the message "You already have a trip on this route on that day. Please update your existing trip instead.", nothing written, and the `FRAUD_DUPLICATE_LISTING` signal (20, hard) on the trucker with the trip as the entity. The code is reused because every shipped client already handles it for any entity: permanent, never retried, shown as "A similar listing already exists. Please update your existing listing instead." in en, am and om (`sync-protocol.md` 1.9.0 and 1.10.0; a trip is a trip listing). A new code would have been retried by the apps in use until they were updated.
+
+**Action (4)**: does NOT reject. A trucker can chain legs in one day (out and back, or on to the next town) and an owner can post two trucks, so the trip is written, and then one `TRIP_SAME_DAY` signal is recorded on the trucker with the new trip as the entity. Its weight is 0 (section 15): the row is in Fraud Review for an admin, and it never moves the score, the tier or the payout delay.
+
+**Choices**:
+- The price is not part of the rule. `departureDate` is the instant the trucker picked; only its Ethiopia day counts, so two posts for the same morning or for the morning and the evening of one day are the same day.
+- Only `open` and `matched` trips hold a route and day. A trip that left (`inTransit`, `delivered`) or was cancelled frees it.
+- One truck, one trip on a route per day: a trucker who makes two runs of a short route in a day raises the capacity of the first trip instead (the refusal's message says so). Two different plates are two trucks and are only flagged. A plate missing on either side counts as the same truck, since the apps do not require one; otherwise leaving it out would pass the rule.
+- The trip's own id is skipped, so a replayed create reaches the id conflict.
+- A check that cannot run (a failed index read, no trips table configured on the service) lets the create go on and logs a warning: the rule never blocks a trucker because a read failed.
+- Updates are not checked (a trip moved onto another trip's route and day passes), and the index read is eventually consistent, so two creates within a moment of each other can both pass. Kept.
+- Infra: none. The sync Lambda already reads the trips table and its indexes; only it sets `FraudDetectionService.TripsTable`.
 
 ---
 
@@ -863,7 +919,7 @@ The sync response `SyncOperationResult.Message` field can now contain:
 
 | Error Code | Meaning | Client Action |
 |------------|---------|---------------|
-| `FRAUD_DUPLICATE_LISTING` | Same farmer+crop+similar price within 1h | Show message, suggest editing |
+| `FRAUD_DUPLICATE_LISTING` | Same farmer+crop+similar price within 1h; since 3.43.0 also the same lot (crop type, quantity, place) at any price while the first listing is active (Rule 1), and a trip of the same trucker, route, departure day and vehicle (Rule 6) | Show message, suggest editing |
 | `FRAUD_VELOCITY_EXCEEDED` | Too many listings per hour | Show message, suggest waiting |
 | `FRAUD_ACCOUNT_HELD` | Account under fraud review (risk tier CRITICAL); FRD-04, sync-protocol 1.9.0 (built in 1.25.0) | Permanent; show the message; on a payment revert the local order status (section 17.3) |
 
@@ -935,6 +991,12 @@ server/tests/Services/FraudDetectionServiceTests.cs ← NEW
 | Duplicate beyond 5% price | `CheckListingCreationAsync` | Returns `Allowed()` |
 | Duplicate different cropType | `CheckListingCreationAsync` | Returns `Allowed()` |
 | Duplicate deleted listing | `CheckListingCreationAsync` | Returns `Allowed()` (excluded) |
+| Duplicate lot at another price (75, 90, 110 after 60), or listed days ago | `CheckListingCreationAsync` with a `ListingLot` | Returns `Rejected("FRAUD_DUPLICATE_LISTING")` |
+| A second lot: another quantity, another woreda, another field more than 1 km away, another crop type | `CheckListingCreationAsync` with a `ListingLot` | Returns `Allowed()` |
+| A sold or deleted listing of the same lot; a replay of the listing's own create | `CheckListingCreationAsync` with a `ListingLot` | Returns `Allowed()` |
+| Trip on the same route, Ethiopia day and vehicle as an open or matched one | `CheckTripCreationAsync` | Returns `Rejected("FRAUD_DUPLICATE_LISTING")` |
+| Trip on another route, or with another plate, the same day | `CheckTripCreationAsync` | Returns `Flagged("TRIP_SAME_DAY")` |
+| Trip on another day, after the earlier one left or was cancelled, or a replay of its own create | `CheckTripCreationAsync` | Returns `Allowed()` |
 | Price anomaly far outside the band | `CheckListingCreationAsync` | Returns `Flagged("PRICE_ANOMALY")` |
 | Price anomaly within the band | `CheckListingCreationAsync` | Returns `Allowed()` |
 | Price anomaly < 5 samples | `CheckListingCreationAsync` | Returns `Allowed()` (skipped) |
@@ -1000,7 +1062,7 @@ mobile/test/features/crop_listing/presentation/widgets/fraud_error_test.dart ←
 
 | Persona | Accounts | Expected signals | Tier | Gate or hold checked |
 |---------|----------|------------------|------|----------------------|
-| Listing spammer | farmer | `FRAUD_DUPLICATE_LISTING`, `FRAUD_VELOCITY_EXCEEDED`, `PRICE_ANOMALY` when the type's sample allows | MEDIUM | the duplicate and velocity refusals; the 8th create attempt meets the velocity refusal, not `FRAUD_ACCOUNT_HELD` |
+| Listing spammer | farmer | `FRAUD_DUPLICATE_LISTING`, `FRAUD_VELOCITY_EXCEEDED`, `PRICE_ANOMALY` when the type's sample allows | MEDIUM | the two duplicate refusals (a price 2 percent away, and since 3.43.0 the same lot at double the price) and the velocity refusals; the 9th create attempt meets the velocity refusal, not `FRAUD_ACCOUNT_HELD`. The 999 ETB/kg teff is a second lot (another quantity) since 3.43.0, so Rule 2 still sees it |
 | Self-trader | a farmer and a buyer on one device | none at once; since FRD-15 the hourly scan writes `SHARED_DEVICE_TRADE` on both accounts within the hour (section 15.2), so a `--recheck` sees it | LOW (25 once the scan ran) | the payment with a fresh password passes; a 5-minute-old sign-in meets `AUTH_040` |
 | IDOR prober | a buyer and a farmer | buyer: `IDOR_CREATE_CONFLICT`, `ROLE_FORBIDDEN`, `IMMUTABLE_FIELD_CHANGE`; farmer: the same plus `FRAUD_DUPLICATE_LISTING` | HIGH; CRITICAL | `AUTH_041` on the buyer's payment, then `AUTH_040` after a mock Fayda step-up with a 5-minute-old sign-in; a 403 or 404 on another buyer's order over REST (a 200 fails the persona); `FRAUD_ACCOUNT_HELD` on the farmer's next listing; a clean buyer's paid order on the CRITICAL farmer is the hold target |
 | Payer mismatch | none | none reachable: dev has the mock gateway and no `/webhooks/telebirr` route | n/a | the route answers 404 |
@@ -1162,7 +1224,8 @@ How the bounds are held. First one consistent Query of the target's partition ov
 So one buyer adds at most 25 to one trucker (LOW) and all buyers together at most 50 (MEDIUM; never HIGH or CRITICAL on other users' requests alone), and the type adds at most 2 signal rows and a handful of slot rows per target, nowhere near the page cap. Both ids come from the stored delivery row (its `truckerId`, and the caller checked against its `buyerId`), never from the request, and the write runs only after the delivery's own write succeeded. A skipped write logs `FRAUD_ATTRIBUTED_SIGNAL_SKIPPED signalType=<type> reason=<outcome>` (no ids, not alarmed; since FUP-201 counted per reason on the dashboard, section 23.1). A failed guard read or slot write throws to the caller, which logs it and writes nothing (best effort, like every signal). Known limits, kept: rows and slots count toward the caps whatever the row's review status, so an approved false positive still uses its slot until it runs out; a second anomaly of another delivery in the same hour is not recorded but uses a slot.
 
 | `GPS_ANOMALY` | 25 | soft | `SyncFunction.TryRecordGpsAnomalySignalAsync` after a delivery `delivered` write (`CheckGpsConsistency`), on the confirming buyer (the caller), from the coordinates the buyer's phone sends. ESC-33 and FUP-203, only with `reputationPenalties` on: `SyncFunction.TryRecordTruckerGpsAnomalyAsync`, a row on the delivery's trucker judged from the trucker's own check-ins only (Rule 4, "The trucker's row"), through the attribution guard (section 14.3: one per delivery, one per buyer and trucker, two per trucker in 30 days); never for a self-pickup (section 15.3) | live on the buyer; the trucker row built, off |
-| `FRAUD_DUPLICATE_LISTING` | 20 | hard | `SyncFunction.TryRecordFraudSignalAsync` on listing create | live |
+| `FRAUD_DUPLICATE_LISTING` | 20 | hard | `SyncFunction.TryRecordFraudSignalAsync` on listing create (Rule 1: the price band, and since 3.43.0 the duplicate lot), and on a trip create refused as a duplicate (Rule 6), on the trucker with the trip as the entity | live |
+| `TRIP_SAME_DAY` | 0 | soft | `SyncFunction`, after a trip create was written: the trucker has another open or matched trip departing the same Ethiopia day, on another route or with another vehicle plate (Rule 6). On the trucker, the new trip as the entity. A trucker who chains legs, or an owner of two trucks, does it too: logged for review, never scored (like `TELEBIRR_PAYER_MISMATCH`). Soft in the admin app's list too (`FraudReviewPage`) | live (3.43.0) |
 | `FRAUD_VELOCITY_EXCEEDED` | 15 | hard | Listing create (`SyncFunction`) and `POST /escrow/initiate` (`EscrowFunction.HandleInitiateAsync`, returned as `429 ESCROW_011`). `POST /escrow/order-checkout` applies the same hourly limit but writes no signal | live |
 | `PRICE_ANOMALY` | 10 | soft | Listing create | live |
 | any other type | 10 | hard | `SignalWeight` default branch | live |
@@ -1892,6 +1955,7 @@ The check reads every deployed filter and tests it with `aws logs test-metric-fi
 
 | Version | Date | Change |
 |---------|------|--------|
+| 3.43.0 | 2026-11-19 | Persona simulation 2026-11-19, BUG-2 and BUG-4 (Rule 1 "The duplicate lot", new Rule 6, the catalogue rows of section 15, the code table of 9.1, the tests of 11.1, the spammer persona of 11.6; `crop-listing-api.md` 1.16.0, `trip-listing-api.md` 2.10.0). Rule 1 also refuses a lot the farmer already lists: an active listing (`available` or `reserved`) of the same crop type, quantity and place (the woreda, and within 1 km when both carry a point), at any price and age, read by the farmer index's keys and one strongly consistent BatchGetItem; another quantity, woreda or field, a sold or deleted listing and the listing's own replay pass. New Rule 6: a trip create on the route, Ethiopia departure day and vehicle of one of the trucker's `open` or `matched` trips is refused with `FRAUD_DUPLICATE_LISTING` (a code every shipped client treats as permanent and explains) and writes that signal; any other trip of the same day is written and recorded as `TRIP_SAME_DAY` (weight 0, for review only); a failed read never blocks the trip. Investigated in the same run, no rule change: a second account on the farmer's install that buys from the farmer gets `SHARED_DEVICE_TRADE` from the hourly scan of section 15.2 once the order is funded (the simulation ended before the next run); and about 20 refused probes inside one UTC hour write one row per type (section 14.3), which is HIGH at most, so creates stay allowed (section 17) |
 | 3.42.0 | 2026-11-17 | FUP-499 (section 20 "Crash recovery"): with more than 50 journal entries the recovery window turns each hour (it starts at hours since the epoch times 50, modulo the count, and wraps), so every entry is read within ceil(count / 50) runs. Before, it always read the first 50 in id order, and escrows the gateway refused every hour (their entry comes back each run) could keep a crashed credit that sorts after them out of it for a whole outage. With 50 or fewer nothing changes |
 | 3.41.0 | 2026-11-13 | FUP-155 (section 20 "Failure", "Crash recovery", "Live mode" and "Cost"; the section 22 row; the metrics table of 23.1): the auto-release clears its journal entry at once when the payout gate blocked the release (`ESCROW_029`) and when a 1.x escrow waits in the manual payout queue (`202 ESCROW_034`, the close credits it), so a blocked escrow no longer costs a journal add, read and remove every hour, and more than 50 of them can no longer keep a crashed entry out of the recovery's 50 id window. A ledger escrow answered `ESCROW_034` keeps its entry (a row the ledger sweep finishes is credited only by the recovery). `CLEAN_DELIVERY_CREDIT_FAILED` in the admin log group joins the dashboard metric `CleanDeliveryCreditFailed` (a second filter, no new metric or alarm; still not alarmed by design). The admin's credit after a manual payout close stays without a journal, a written decision: a lost credit only leaves a score higher, a journal would need `UpdateItem` on the escrow idempotency table for the admin role, and the replay of the same leg and reference heals it. No API or contract change |
 | 3.40.0 | 2026-11-13 | FUP-148 (section 19, `escrow-protocol.md` 2.26.0): the fraud signal action and the user action no longer mark `action` required. A missing, `null` or blank one is `400 ADMIN_009` `"action is required."` with `field: action`, before any read or write; before, an absent one failed deserialization as `400 ADMIN_005` "Invalid JSON in request body.". The admin app always sends `action` and already maps `ADMIN_009`; no admin change |
