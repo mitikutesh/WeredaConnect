@@ -308,9 +308,9 @@ public class SyncFunctionDropoffNoteTests
         _order["truckerResponse"] = "pending";
         var farmer = await UpdateAsync(FarmerId, StoredNote, role: "farmer");
 
-        // The farmer reads the note: an echo is dropped, the rest of the update goes on.
+        // The farmer reads the note: an echo is dropped. Nothing else was sent, so nothing is written.
         farmer.GetProperty("status").GetString().Should().Be("success", farmer.ToString());
-        _written.Should().NotContainKey("dropoffNote");
+        _written.Should().BeNull();
     }
 
     [Theory]
@@ -357,7 +357,7 @@ public class SyncFunctionDropoffNoteTests
 
         var echo = await UpdateAsync(BuyerId, StoredNote);
         echo.GetProperty("status").GetString().Should().Be("success", echo.ToString());
-        _written.Should().NotContainKey("dropoffNote");
+        await NothingWritten();
 
         _written = null;
         var change = await UpdateAsync(BuyerId, "Kality");
@@ -372,8 +372,9 @@ public class SyncFunctionDropoffNoteTests
 
         var result = await UpdateAsync(BuyerId, StoredNote + "  ");
 
+        // The echo is dropped and nothing is left: a success at the stored version, no write.
         result.GetProperty("status").GetString().Should().Be("success", result.ToString());
-        _written.Should().NotContainKey("dropoffNote");
+        await NothingWritten();
     }
 
     // ===== Update: the text =====
