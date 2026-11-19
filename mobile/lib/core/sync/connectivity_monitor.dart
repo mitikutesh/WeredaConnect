@@ -64,9 +64,19 @@ class ConnectivityMonitor {
   /// 2 seconds balances responsiveness with stability on 3G networks.
   static const Duration debounceDuration = Duration(seconds: 2);
 
-  /// Timeout for the health check ping.
+  /// Send and receive timeout of the health check ping once the connection
+  /// is open.
   /// 3 seconds gives slow 3G time to respond without excessive user wait.
   static const Duration healthCheckTimeout = Duration(seconds: 3);
+
+  /// BUG-35: the whole health check, connecting included, ends after this
+  /// long. The per-request timeouts above cannot shorten the connect phase
+  /// (Dio takes the connect timeout from the client's base options, 30
+  /// seconds in dev), so a check on a network that never connects used to
+  /// hold the sync for half a minute. 10 seconds leaves room for the DNS
+  /// lookup and the TLS handshake on 2G; a check that runs out reads as "no
+  /// internet" and the sync worker tries again (BUG-32).
+  static const Duration healthCheckDeadline = Duration(seconds: 10);
 
   /// API health check endpoint path.
   static const String healthCheckPath = '/health';
@@ -80,11 +90,16 @@ class ConnectivityMonitor {
   /// Parameters:
   /// - [source]: Connectivity data source (defaults to [PlatformConnectivitySource])
   /// - [dio]: Dio HTTP client for health check requests
+  /// - [healthCheckDeadline]: the longest a health check may take (tests)
   ConnectivityMonitor({
     required Dio dio,
     ConnectivitySource? source,
+    Duration healthCheckDeadline = ConnectivityMonitor.healthCheckDeadline,
   })  : _source = source ?? PlatformConnectivitySource(),
-        _dio = dio;
+        _dio = dio,
+        _healthCheckDeadline = healthCheckDeadline;
+
+  final Duration _healthCheckDeadline;
 
   /// Stream of debounced connectivity state changes.
   ///
@@ -123,7 +138,8 @@ class ConnectivityMonitor {
   /// Verify actual internet access by pinging the API health endpoint.
   ///
   /// Returns `true` if the `/health` endpoint responds with HTTP 200
-  /// within [healthCheckTimeout]. Returns `false` on any error (timeout,
+  /// within [healthCheckTimeout] of the connection opening and within
+  /// [healthCheckDeadline] overall. Returns `false` on any error (timeout,
   /// network failure, non-200 status, etc.).
   ///
   /// This catches scenarios where:
@@ -133,9 +149,17 @@ class ConnectivityMonitor {
   ///
   /// Cost: ~200 bytes per request — negligible even on expensive Ethiopian data plans.
   Future<bool> hasInternetAccess() async {
+    // Cancelling aborts the request, the connect phase included, so no
+    // socket stays open behind a check that gave up.
+    final cancelToken = CancelToken();
+    final deadline = Timer(
+      _healthCheckDeadline,
+      () => cancelToken.cancel('health check deadline'),
+    );
     try {
       final response = await _dio.get<dynamic>(
         healthCheckPath,
+        cancelToken: cancelToken,
         options: Options(
           sendTimeout: healthCheckTimeout,
           receiveTimeout: healthCheckTimeout,
@@ -144,6 +168,8 @@ class ConnectivityMonitor {
       return response.statusCode == 200;
     } on Object catch (_) {
       return false;
+    } finally {
+      deadline.cancel();
     }
   }
 

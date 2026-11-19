@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -56,6 +57,8 @@ class FakeAuthState extends Fake implements AuthState {}
 class FakeBuyerIntentEvent extends Fake implements BuyerIntentEvent {}
 
 class FakeBuyerIntentState extends Fake implements BuyerIntentState {}
+
+class _MockMarketplaceSync extends Mock implements MarketplaceSync {}
 
 class FakeCropListingEvent extends Fake implements CropListingEvent {}
 
@@ -462,6 +465,86 @@ void main() {
       final chip = tester.getRect(find.byKey(const Key('home_sync_chip')));
       final account = tester.getRect(find.byType(AccountButton));
       expect(chip.right, closeTo(account.left - 10, 1));
+    });
+  });
+
+  // BUG-37: the tiles were read once, before the user's orders had been
+  // pulled, and stayed at 0 next to an Orders tab that listed them. (No Isar
+  // in this test, so it covers what the tiles ask the server for; the read
+  // that follows is the same stats read the other tests cover.)
+  group('BUG-37: the tiles pull the user\'s own data, then read again', () {
+    late _MockMarketplaceSync sync;
+
+    setUp(() {
+      sync = _MockMarketplaceSync();
+      when(
+        () => sync.pullOrders(
+          userId: any(named: 'userId'),
+          role: any(named: 'role'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => sync.pullOwnCrops(farmerId: any(named: 'farmerId')))
+          .thenAnswer((_) async => false);
+      when(() => sync.pullOwnTrips(truckerId: any(named: 'truckerId')))
+          .thenAnswer((_) async => false);
+    });
+
+    Widget withSync(UserRole role) => Provider<MarketplaceSync?>.value(
+          value: sync,
+          child: buildHomeScreen(role),
+        );
+
+    for (final role in UserRole.values) {
+      testWidgets('${role.name}: the own orders, scoped by role',
+          (tester) async {
+        useTallSurface(tester);
+        await tester.pumpWidget(withSync(role));
+        await tester.pumpAndSettle();
+
+        verify(
+          () => sync.pullOrders(userId: '${role.name}-001', role: role.name),
+        ).called(greaterThanOrEqualTo(1));
+      });
+    }
+
+    testWidgets('a farmer also gets the own listings, nobody else\'s',
+        (tester) async {
+      useTallSurface(tester);
+      await tester.pumpWidget(withSync(UserRole.farmer));
+      await tester.pumpAndSettle();
+
+      verify(() => sync.pullOwnCrops(farmerId: 'farmer-001')).called(1);
+      verifyNever(() => sync.pullCrops());
+      verifyNever(() => sync.pullTrips());
+    });
+
+    for (final role in [UserRole.buyer, UserRole.trucker]) {
+      testWidgets('${role.name}: no own-listing pull', (tester) async {
+        useTallSurface(tester);
+        await tester.pumpWidget(withSync(role));
+        await tester.pumpAndSettle();
+
+        verifyNever(() => sync.pullOwnCrops(farmerId: any(named: 'farmerId')));
+      });
+    }
+
+    testWidgets('a pull that fails (offline) leaves the tiles as they were',
+        (tester) async {
+      when(
+        () => sync.pullOrders(
+          userId: any(named: 'userId'),
+          role: any(named: 'role'),
+        ),
+      ).thenAnswer((_) async => throw Exception('offline'));
+      when(() => sync.pullOwnCrops(farmerId: any(named: 'farmerId')))
+          .thenAnswer((_) async => throw Exception('offline'));
+      useTallSurface(tester);
+
+      await tester.pumpWidget(withSync(UserRole.farmer));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('My Crops'), findsOneWidget);
     });
   });
 
