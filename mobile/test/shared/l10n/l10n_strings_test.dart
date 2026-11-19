@@ -28,6 +28,40 @@ Map<String, String> _arbValues(String locale) {
   };
 }
 
+/// The top-level keys of the JSON object [json] in file order, repeats
+/// included: a JSON decoder keeps only the last copy of a repeated key, so
+/// the raw text is scanned instead.
+List<String> _topLevelKeys(String json) {
+  final keys = <String>[];
+  var depth = 0;
+  var i = 0;
+  while (i < json.length) {
+    final c = json[i];
+    if (c == '"') {
+      final start = ++i;
+      while (json[i] != '"') {
+        // Skip the escaped character too.
+        if (json[i] == r'\') i++;
+        i++;
+      }
+      final text = json.substring(start, i++);
+      var next = i;
+      while (next < json.length && ' \t\r\n'.contains(json[next])) {
+        next++;
+      }
+      // A key is a string followed by a colon.
+      if (depth == 1 && next < json.length && json[next] == ':') {
+        keys.add(text);
+      }
+      continue;
+    }
+    if (c == '{' || c == '[') depth++;
+    if (c == '}' || c == ']') depth--;
+    i++;
+  }
+  return keys;
+}
+
 /// Lists every `key: U+XXXX` whose code point [allowed] rejects.
 List<String> _offenders(
   Map<String, String> values,
@@ -90,6 +124,28 @@ void main() {
       expect(en.difference(am), isEmpty, reason: 'en keys missing from am');
       expect(om.difference(en), isEmpty, reason: 'om keys missing from en');
       expect(en.difference(om), isEmpty, reason: 'en keys missing from om');
+    });
+
+    // Five keys were in app_en.arb and app_om.arb twice; the later copy won
+    // silently, and in app_om.arb the two copies disagreed.
+    test('no arb file has a key twice', () {
+      expect(
+        _topLevelKeys('{"a": "x", "b": {"a": "{\\"y"}, "c": [{"a": 1}], '
+            '"a": "z"}'),
+        ['a', 'b', 'c', 'a'],
+      );
+      for (final locale in ['en', 'am', 'om']) {
+        final raw = File('lib/shared/l10n/app_$locale.arb').readAsStringSync();
+        final keys = _topLevelKeys(raw);
+        final seen = <String>{};
+        final repeated = [
+          for (final key in keys)
+            if (!seen.add(key)) key,
+        ];
+        expect(repeated, isEmpty, reason: 'twice in app_$locale.arb');
+        // The scan found every key the decoder sees.
+        expect(seen, (jsonDecode(raw) as Map<String, dynamic>).keys.toSet());
+      }
     });
 
     test('am tapToListCrops uses the Ethiopic le, not a Thai character', () {
