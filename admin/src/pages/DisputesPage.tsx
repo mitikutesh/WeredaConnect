@@ -69,7 +69,17 @@ export function DisputesPage() {
     {
       key: "reason",
       header: t("disputes.reason"),
-      render: (row: Row) => String((row.dispute as Row | undefined)?.reason ?? ""),
+      render: (row: Row) => {
+        const dispute = row.dispute as Row | undefined;
+        // BUG-6: the disputer is the one who confirmed receipt (stamped when the dispute was opened).
+        const confirmedByDisputer = (dispute?.handoffEvidence as Row | undefined)?.confirmedByDisputer === true;
+        return (
+          <span className="inline-flex flex-wrap items-center gap-2">
+            {String(dispute?.reason ?? "")}
+            {confirmedByDisputer && <Badge variant="warning">{t("evidence.confirmedByDisputerShort")}</Badge>}
+          </span>
+        );
+      },
     },
     {
       key: "createdAt",

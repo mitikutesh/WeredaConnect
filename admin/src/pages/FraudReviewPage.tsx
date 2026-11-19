@@ -58,6 +58,10 @@ const SOFT_SIGNAL_TYPES = new Set([
   "TRIP_SAME_DAY",
   "DUPLICATE_LOT",
   "DUPLICATE_TRIP",
+  // Fraud spec Rule 7 (3.44.0): weight 0, review only
+  "PICKUP_NO_FIX",
+  "ORDER_ROUTE_MISMATCH",
+  "CHAT_CONTACT_BEFORE_DELIVERY",
 ]);
 
 /* FRD-19: the AI reviewer's row (fraud-detection-architecture.md section 21). Its description is the model's

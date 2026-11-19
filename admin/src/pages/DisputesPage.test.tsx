@@ -101,6 +101,30 @@ describe("DisputesPage", () => {
     mocks.awaiting.data = { pages: [{ escrows: [recordedVerdict()] }] };
   });
 
+  it("marks an open dispute whose disputer is the one who confirmed receipt (persona simulation BUG-6)", () => {
+    mocks.disputes.data = {
+      pages: [
+        {
+          disputes: [
+            { ...openDispute(), dispute: { reason: "not_delivered", handoffEvidence: { confirmedByDisputer: true } } },
+            { ...openDispute(), escrowId: "escrow-3", dispute: { reason: "wrong_crop", handoffEvidence: { confirmedByDisputer: false } } },
+          ],
+        },
+      ],
+    };
+    render(
+      <MemoryRouter>
+        <DisputesPage />
+      </MemoryRouter>,
+    );
+
+    const rows = within(table()).getAllByRole("row");
+    const flagged = rows.find((row) => row.textContent?.includes("not_delivered"))!;
+    const plain = rows.find((row) => row.textContent?.includes("wrong_crop"))!;
+    expect(within(flagged).getByText("Disputer confirmed receipt")).toBeTruthy();
+    expect(within(plain).queryByText("Disputer confirmed receipt")).toBeNull();
+  });
+
   it("sends a plain verdict, and on ADMIN_015 offers the goods choices for buyer_wins", async () => {
     const user = userEvent.setup();
     render(<DisputesPage />, { wrapper: MemoryRouter });

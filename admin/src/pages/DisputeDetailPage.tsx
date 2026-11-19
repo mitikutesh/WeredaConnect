@@ -6,7 +6,13 @@ import { Badge } from "@/components/ui/Badge";
 import { DispositionChoiceCard, VerdictMessages } from "@/components/disputes/DisputeVerdict";
 import { SplitVerdictCard } from "@/components/disputes/SplitVerdict";
 import { RecordedSplitRow } from "@/components/escrows/MoneyLegs";
-import { EvidenceError, MessagesTab, PhotosTab, TimelineTab } from "@/components/disputes/EvidenceTabs";
+import {
+  EvidenceError,
+  MessagesTab,
+  PhotosTab,
+  StampedHandoffEvidence,
+  TimelineTab,
+} from "@/components/disputes/EvidenceTabs";
 import { useDisputeVerdict } from "@/components/disputes/verdictFlow";
 import { TripTrailTab } from "@/components/trail/TripTrailTab";
 import { useLocale } from "@/hooks/useLocale";
@@ -223,6 +229,9 @@ export function DisputeDetailPage() {
           <RecordedSplitRow escrow={escrow} />
         </dl>
       </Card>
+
+      {/* BUG-6: what the server held about the handoffs when the dispute was opened. */}
+      <StampedHandoffEvidence escrow={escrow} evidence={evidence.data} />
 
       <VerdictMessages flow={verdictFlow} />
 

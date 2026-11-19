@@ -532,6 +532,94 @@ describe("DisputeDetailPage evidence (FRD-14)", () => {
     expect(mocks.messageCalls.every((call) => !call.open)).toBe(true);
   });
 
+  /* Persona simulation BUG-6: the evidence the server stamped when the dispute was opened. */
+  function stampedEscrow(handoffEvidence: Record<string, unknown>) {
+    return {
+      escrow: {
+        ...escrow().escrow,
+        buyerId: "buyer-1",
+        farmerId: "farmer-1",
+        truckerId: "trucker-1",
+        dispute: { reason: "not_delivered", createdAt: "2026-10-27T09:50:00Z", handoffEvidence },
+      },
+    };
+  }
+
+  it("shows the handoffs stamped when the dispute was opened, and that the disputer confirmed receipt", () => {
+    mocks.escrow.data = stampedEscrow({
+      deliveryId: "del-101",
+      deliveryStatus: "delivered",
+      selfPickup: false,
+      pickedUpAt: "2026-10-27T05:05:00Z",
+      pickupMethod: "qr",
+      pickupBy: "trucker-1",
+      pickupFix: false,
+      confirmedAt: "2026-10-27T08:00:00Z",
+      confirmMethod: "qr",
+      confirmedBy: "buyer-1",
+      dropoffFix: true,
+      confirmedByDisputer: true,
+    });
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "Handoffs when the dispute was opened" })).toBeTruthy();
+    expect(screen.getByRole("note").textContent).toBe(
+      "The user who opened this dispute is the one who confirmed receipt.",
+    );
+    // The pickup: by QR, and without a fix (BUG-5).
+    expect(screen.getByText("QR scanned by Trucker · Dawit")).toBeTruthy();
+    expect(screen.getByText("No GPS fix at the handoff")).toBeTruthy();
+    // The confirmation: by the buyer, with a fix, and the distance the evidence read measured.
+    expect(screen.getByText("QR scanned by Buyer · Sara")).toBeTruthy();
+    expect(screen.getByText("GPS fix sent")).toBeTruthy();
+    expect(screen.getByText("7.78 km from the trip's destination")).toBeTruthy();
+    expect(screen.queryByText("Receipt was not confirmed when the dispute was opened.")).toBeNull();
+  });
+
+  it("a stamped dispute opened before the confirmation says so, without the disputer note", () => {
+    mocks.escrow.data = stampedEscrow({
+      deliveryId: "del-101",
+      deliveryStatus: "inTransit",
+      selfPickup: false,
+      pickedUpAt: "2026-10-27T05:05:00Z",
+      pickupMethod: "code",
+      pickupBy: "trucker-1",
+      pickupFix: true,
+    });
+    renderPage();
+
+    expect(screen.getByText("Code typed by Trucker · Dawit")).toBeTruthy();
+    expect(screen.getByText("0.4 km from the listing")).toBeTruthy();
+    expect(screen.getByText("Receipt was not confirmed when the dispute was opened.")).toBeTruthy();
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  it("a self-pickup shows one stamped leg at the farm, and a farmer's dispute carries no disputer note", () => {
+    mocks.escrow.data = stampedEscrow({
+      deliveryId: "del-101",
+      deliveryStatus: "delivered",
+      selfPickup: true,
+      confirmedAt: "2026-10-27T08:00:00Z",
+      confirmMethod: "code",
+      confirmedBy: "buyer-1",
+      dropoffFix: true,
+      confirmedByDisputer: false,
+    });
+    renderPage();
+
+    expect(screen.getByText("Self-pickup at the farm")).toBeTruthy();
+    expect(screen.getByText("Code typed by Buyer · Sara")).toBeTruthy();
+    expect(screen.queryByText("Pickup")).toBeNull();
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  it("a dispute without a stamp (from before 2.28.0) shows no stamped handoffs", () => {
+    renderPage();
+
+    expect(screen.queryByRole("heading", { name: "Handoffs when the dispute was opened" })).toBeNull();
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
   it("the Timeline tab shows each handoff: how, who, where and how far from the planned point", async () => {
     await openTab("Timeline");
 

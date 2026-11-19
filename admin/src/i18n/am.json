@@ -215,6 +215,11 @@
     "awayStopRange": "ከ{from} እስከ {until} በ{place}፣ ከቅርቡ የታቀደ ቦታ ወይም የQR ቅኝት {km} ኪ.ሜ"
   },
   "evidence": {
+    "stampedTitle": "ክርክሩ ሲከፈት የነበሩ ርክክቦች",
+    "confirmedByDisputer": "ይህን ክርክር የከፈተው ተጠቃሚ እቃውን መቀበሉን ራሱ ያረጋገጠ ነው።",
+    "confirmedByDisputerShort": "ከራካሪው መቀበሉን አረጋግጧል",
+    "gpsSent": "የGPS ቦታ ተልኳል",
+    "notConfirmed": "ክርክሩ ሲከፈት እቃው መድረሱ አልተረጋገጠም ነበር።",
     "tabTimeline": "የጊዜ ሰሌዳ",
     "tabPhotos": "ፎቶዎች",
     "tabPhotosCount": "ፎቶዎች · {count}",

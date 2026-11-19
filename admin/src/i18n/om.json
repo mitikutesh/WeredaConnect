@@ -215,6 +215,11 @@
     "awayStopRange": "{from} hanga {until} {place} irratti, bakka karoorfame ykn iskaanii QR dhihoo irraa km {km}"
   },
   "evidence": {
+    "stampedTitle": "Walharkaan qaqqabsiisuu yeroo komiin banamu turan",
+    "confirmedByDisputer": "Fayyadamaan komii kana bane, meeshaa fudhachuu isaa ofuma isaatiin kan mirkaneesse dha.",
+    "confirmedByDisputerShort": "Komataan fudhachuu mirkaneesseera",
+    "gpsSent": "Bakki GPS ergameera",
+    "notConfirmed": "Yeroo komiin banamu meeshaan ga'uun hin mirkanoofne ture.",
     "tabTimeline": "Sarara Yeroo",
     "tabPhotos": "Suuraalee",
     "tabPhotosCount": "Suuraalee · {count}",
