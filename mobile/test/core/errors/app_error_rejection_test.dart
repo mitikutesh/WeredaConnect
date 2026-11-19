@@ -444,6 +444,129 @@ void main() {
     });
   });
 
+  // BUG-L9: "This change could not be saved on the server." told a farmer
+  // nothing about a listing the server would not take.
+  group('a listing or trip refused for its details', () {
+    test('says which details to check', () {
+      for (final (entityType, action, message, code) in [
+        (
+          'crop_listing',
+          'create',
+          'CROP_VALIDATION: pricePerKg must be between 0.01 and 1000.',
+          AppErrorCode.listingDetailsNotAccepted,
+        ),
+        (
+          'crop_listing',
+          'update',
+          'CROP_VALIDATION: Invalid cropType.',
+          AppErrorCode.listingDetailsNotAccepted,
+        ),
+        (
+          'trip',
+          'create',
+          'TRIP_VALIDATION: capacity must be between 0.1 and 1000.',
+          AppErrorCode.tripDetailsNotAccepted,
+        ),
+        (
+          'trip',
+          'update',
+          'TRIP_VALIDATION: departureDate must be in the future.',
+          AppErrorCode.tripDetailsNotAccepted,
+        ),
+      ]) {
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: action,
+            message: message,
+          ),
+          code,
+          reason: message,
+        );
+      }
+    });
+
+    test('not a refusal no correction on the form can pass', () {
+      for (final (entityType, message) in [
+        // A field the app never lets the user change.
+        (
+          'crop_listing',
+          'CROP_VALIDATION: farmerId is immutable and cannot be changed on '
+              'update.',
+        ),
+        (
+          'trip',
+          'TRIP_VALIDATION: truckerPhone is immutable and cannot be changed '
+              'on update.',
+        ),
+        // The server could not read the profile.
+        (
+          'crop_listing',
+          'CROP_VALIDATION: The farmer profile could not be read. Please try '
+              'again later.',
+        ),
+        (
+          'trip',
+          'TRIP_VALIDATION: Your profile could not be read. Please try again '
+              'later.',
+        ),
+        // Another entity's validation keeps the generic text.
+        ('delivery', 'DELIVERY_VALIDATION: Invalid gpsPickup.'),
+      ]) {
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: 'update',
+            message: message,
+          ),
+          AppErrorCode.changeNotSaved,
+          reason: message,
+        );
+      }
+    });
+
+    test('a phone number in the text keeps its own reason', () {
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'crop_listing',
+          action: 'create',
+          message: 'CROP_CONTACT_IN_TEXT: x',
+        ),
+        AppErrorCode.contactInText,
+      );
+    });
+
+    test('reads in en, am and om, without the word server', () async {
+      const serverWords = ['server', 'sarvar', 'አገልጋ', 'ሰርቨ'];
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final listing = localizeErrorCode(
+          AppErrorCode.listingDetailsNotAccepted,
+          l10n,
+        );
+        final trip = localizeErrorCode(
+          AppErrorCode.tripDetailsNotAccepted,
+          l10n,
+        );
+        final generic = localizeErrorCode(AppErrorCode.changeNotSaved, l10n);
+        expect(listing, l10n.errorListingDetailsNotAccepted);
+        expect(trip, l10n.errorTripDetailsNotAccepted);
+        expect(listing, isNot(trip), reason: locale);
+        expect(listing, isNot(generic), reason: locale);
+        expect(listing, isNot(l10n.errorOccurred), reason: locale);
+        for (final text in [listing, trip, generic]) {
+          for (final word in serverWords) {
+            expect(
+              text.toLowerCase(),
+              isNot(contains(word)),
+              reason: '$locale: $text',
+            );
+          }
+        }
+      }
+    });
+  });
+
   test('the new codes read in en, am and om, never as the generic error',
       () async {
     for (final locale in ['en', 'am', 'om']) {

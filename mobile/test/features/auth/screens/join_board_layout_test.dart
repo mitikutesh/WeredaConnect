@@ -93,7 +93,7 @@ void main() {
 
       expect(find.byType(LoginScreen), findsOneWidget);
       expect(find.text('Welcome to WeredaConnect'), findsOneWidget);
-      expect(find.text('Offline Ready'), findsOneWidget);
+      expect(find.text('Works without network'), findsOneWidget);
       expect(find.byType(LanguageSegmentedPicker), findsOneWidget);
       expect(find.text("Don't have an account? Register"), findsOneWidget);
       // No agriculture hero, no bar, no guest link: the board has none.
