@@ -138,7 +138,8 @@ The findings were fixed in six pull requests, grouped by area. #444, #445 and #4
 | PR | Group | Findings |
 |---|---|---|
 | #445 | Mobile offline sync | BUG-31, 32, 33, 34, 35, 36, 37 |
-| #447 | Buyer payment flow and forms | BUG-17, 18, 19, 20, 21, 22, 23, 24, 26, 28, 29, 30, 38, 39, 40 (BUG-27 not reproducible in code) |
+| #447 | Buyer payment flow and forms | BUG-17, 18, 19, 20, 21, 22, 23, 24, 26, 28, 29, 30, 38, 39, 40 |
+| this PR | Create button folds to its plus while a tab scrolls | BUG-27 |
 | #444 | Localization and low-literacy aids | BUG-L1, L2, L4 (picker), L5, L8, L9, L10, L11, L12, L14, L16, BUG-25 |
 | #448 | Server order, delivery, dispute, rating | BUG-1, 9, 10, 11, 12, 13, 16 |
 | #446 | Server duplicate lot and trip rules | BUG-2, 4 (BUG-15 matches the design) |
