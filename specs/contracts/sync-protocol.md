@@ -149,6 +149,7 @@ This format ensures:
 7. **The same for a change that reaches a finished entity (1.45.0, FUP-128).** A delivery update that reaches a delivery already `cancelled` (or soft-deleted before `delivery-verification-api.md` 1.9.0) with a version lower than the stored one is answered `conflict` with the row, by rule 6's caller rule (the trucker for `pickedUp` and `inTransit`, the buyer for `delivered`, any party for `disputed`; for an update without a status the trucker, or the farmer storing `qrNonce`). A trip update or delete that reaches a trip already `cancelled`, `delivered` or deleted has answered that way to its trucker since `trip-listing-api.md` 2.4.0. In every other case the errors stand (`DELIVERY_ALREADY_CANCELLED`, `TRIP_TERMINAL_STATE`, `TRIP_ALREADY_CANCELLED`), and clients no longer resend them (see Changes to a finished delivery or trip).
 8. **A deleted crop listing never changes again (1.66.0, FUP-152).** A `crop_listing` `update` that reaches a listing already deleted (`deletedAt` set, or `status: deleted`) writes nothing and is answered `conflict` with `serverVersion` and the stored row in `serverData` to the listing's farmer, whatever version it carries and with or without a `status`, message `CROP_ALREADY_DELETED: The listing is already deleted.` (`crop-listing-api.md` 1.14.0, rule 11). Anyone else keeps `CROP_UNAUTHORIZED` and gets no row. The write's own condition carries the check, so a delete that lands between the server's read and its write gets the same answer. Before, an update without a `status` sent at the version the delete left was written onto the hidden row (its version moved), and one with a `status` at that version got `CROP_INVALID_TRANSITION`, which the mobile queue retried. No client change: the mobile queue resolves the conflict server-wins (the deleted row removes the local listing with the FUP-149 client, 1.65.0; an older app keeps it as a local `draft`), and web treats it as a failed save.
 9. **A deleted crop listing is not deleted again, and a sold one is not edited (1.67.0, FUP-494 and FUP-495).** A `crop_listing` `delete` that reaches a listing already deleted writes nothing and is answered `success` with the stored version to the listing's farmer, whatever version it carries (not a conflict: an app older than the FUP-149 client would keep a conflict's deleted row as a local `draft`). A `crop_listing` `update` that reaches a `sold` listing writes nothing and is answered `conflict` with the stored row, message `CROP_SOLD: The listing is sold.`, as rule 8 answers a deleted one (`crop-listing-api.md` 1.15.0, rules 11 and 12). Both checks are in the write's condition too, so a delete or a `sold` that lands between the server's read and its write gets the same answer. Anyone else keeps `CROP_UNAUTHORIZED`. No client change.
+10. **A caller who is no party to a delivery learns nothing from a refusal (1.68.0).** A `delivery` `update` from a caller who is not the delivery's buyer, farmer or trucker is answered `DELIVERY_UNAUTHORIZED` before any rule that reads the row: `Only the trucker can mark as <status>.` for `pickedUp` and `inTransit`, `Only the buyer can confirm delivery.` for `delivered`, `Only participants can dispute a delivery.` for `disputed`, `You can only update your own deliveries.` for anything else. Before, an invalid transition was checked first and answered `DELIVERY_INVALID_TRANSITION: Cannot transition from '<stored>' to '<requested>'.`, which told the stored status to anyone who guessed an id; a cancelled delivery answered `DELIVERY_ALREADY_CANCELLED` and an old one `DELIVERY_DISPUTE_EXPIRED` the same way. Rules 6 and 7 are unchanged for parties: the errors that "stand" there now stand for parties only. A cancel already checked the party first. Orders, trips and crop listings already check the party or owner before the transition. Clients need no change (`DELIVERY_UNAUTHORIZED` is permanent since 1.43.0).
 
 ### Client-Side Conflict Resolution (Mobile)
 
@@ -392,6 +393,23 @@ farmer, the trip's trucker, the order's buyer, farmer or trucker, the delivery's
 farmer or trucker. Anyone else gets the conflict status with `serverData: null`
 (role-visibility rule). The client treats a null `serverData` as "already exists, not
 yours" and drops the operation.
+
+Since 1.68.0 a `crop_listing` create looks the id up before the listing fraud rules
+(velocity, duplicate, price). A create for an id that already exists is answered by this
+conflict and the rules are not asked: before, the farmer's own re-queued create, sent with a
+new idempotency key, was called a duplicate of the listing it had already made
+(`FRAUD_DUPLICATE_LISTING`, with a fraud signal on an honest farmer).
+
+## Updates with nothing to write (1.68.0)
+
+An `order` or `delivery` update whose payload holds nothing the server stores, once the fields
+it owns, the echo keys and unchanged echoes are dropped, writes nothing and is answered
+`success` with the stored `serverVersion` and the stored row (scrubbed as in every answer). The
+version does not move. Examples: an order update that holds only `orderTotal`; a trucker's
+delivery update that holds only `qrNonce` (only the farmer sets it, so it is dropped). The
+caller must still pass the entity's party and role rules, and an order update still needs its
+`version`. Before 1.68.0 such an update was written empty and the version moved, which made the
+next queued change of another party conflict. Clients need no change.
 
 ## Operation errors added (1.4.0)
 
@@ -1800,6 +1818,7 @@ without a reason as permanent with the generic text.
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.68.0 | 2026-11-19 | Persona simulation fixes (server only, no client change; `order-lifecycle.md` 2.24.0, `delivery-verification-api.md` 2.17.0, `crop-listing-api.md` 1.16.0, `rating-api.md` 1.6.0): a `delivery` update from a caller who is no party is `DELIVERY_UNAUTHORIZED` before the transition, cancelled and dispute-window rules (conflict rule 10); an `order` or `delivery` update with nothing left to write answers `success` at the stored version and writes nothing (Updates with nothing to write); a `crop_listing` create for an existing id is answered by the create-conflict echo before the listing fraud rules; the delivery's buyer who sends `qrNonce` reads `DELIVERY_UNAUTHORIZED: Only the farmer sets the pickup code.`; a delivery confirm under a disputed escrow answers with the delivery as the dispute mirror left it (`disputed`); a `payment_submitted` for an order the listing can no longer fill is `ORDER_VALIDATION`; a rating of an order whose escrow is in dispute is `RATING_FORBIDDEN` |
 | 1.67.2 | 2026-11-17 | A listing deleted elsewhere leaves the farmer's phone (FUP-498, mobile only, no wire change): when My Crops opens, the phone reads the farmer's own list (`GET /crops?farmerId=`, every page, no `status`) and removes a listing of that farmer it holds that the list leaves out once `GET /crops/{id}` answers 404, 403 or a deleted row; a listing with a `crop_listing` operation still on its way, or whose create the server refused for good, stays, and a failed page removes nothing. A listing deleted on this phone (`expired` there) leaves the same way once its delete reached the server. The listed rows are not stored; buyers and truckers never run it; web needs no change. See "Client-Side Conflict Resolution (Mobile)" |
 | 1.67.1 | 2026-11-16 | The trucker's status change behind a refused pickup is matched when its own answer arrives (FUP-493, mobile only, no wire change): a `delivery` operation that sets a `status`, answered `DELIVERY_INVALID_TRANSITION` from `pending`, is rejected when the queue holds a pickup of that delivery refused for good in an earlier batch, by the same user and queued before it; the drop-off code registration and status changes still waiting behind that pickup go with it, the delivery is put back from the server and leaves the "Sync failed" count, nothing new is announced. Covers a mark tapped while the pickup's sync ran and one left by an app killed before the refusal was settled. See "GPS refusals of a handoff" |
 | 1.67.0 | 2026-11-16 | Deleted and sold crop listings (FUP-494, FUP-495, `crop-listing-api.md` 1.15.0): a `crop_listing` `delete` of a listing already deleted writes nothing and answers its farmer `success` with the stored version (before, it was written again and its `deletedAt` and version moved); a `crop_listing` `update` of a `sold` listing writes nothing and answers `conflict` with the stored row, message `CROP_SOLD: The listing is sold.` (before, an update without a `status` was written onto it). Both checks are in the write's condition. Anyone else keeps `CROP_UNAUTHORIZED`. No client change. New conflict resolution rule 9 |
@@ -1873,5 +1892,5 @@ without a reason as permanent with the generic text.
 
 ---
 
-**Last Updated**: 2026-11-17
-**Version**: 1.67.2
+**Last Updated**: 2026-11-19
+**Version**: 1.68.0
