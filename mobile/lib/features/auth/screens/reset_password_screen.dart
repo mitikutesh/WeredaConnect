@@ -82,7 +82,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   }
 
   Widget _eye({required bool obscured, required VoidCallback onPressed}) {
+    final l10n = AppLocalizations.of(context)!;
     return IconButton(
+      tooltip: obscured ? l10n.showPassword : l10n.hidePassword,
       icon: Icon(obscured ? Icons.visibility_off : Icons.visibility),
       onPressed: onPressed,
       iconSize: 22,

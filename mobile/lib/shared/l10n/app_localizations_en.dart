@@ -32,7 +32,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get offlineMode => 'Offline Mode';
 
   @override
-  String get syncPending => 'Sync Pending';
+  String get syncPending => 'Waiting to be sent';
 
   @override
   String get taglineShort => 'Connecting Farmers, Truckers & Buyers';
@@ -41,19 +41,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get telebirrPayment => 'Telebirr Payment';
 
   @override
-  String get syncInProgress => 'Syncing...';
+  String get syncInProgress => 'Sending...';
 
   @override
-  String get syncComplete => 'Sync Complete';
+  String get syncComplete => 'Everything is sent';
 
   @override
-  String get syncFailed => 'Sync Failed';
+  String get syncFailed => 'Not sent';
 
   @override
   String get retry => 'Retry';
 
   @override
-  String get syncNow => 'Sync Now';
+  String get syncNow => 'Send now';
 
   @override
   String get selectLanguagePrompt => 'Select Your Language';
@@ -124,8 +124,15 @@ class AppLocalizationsEn extends AppLocalizations {
       'This order could not be placed, so it was removed. Please order again.';
 
   @override
-  String get errorChangeNotSaved =>
-      'This change could not be saved on the server.';
+  String get errorChangeNotSaved => 'This change was not accepted.';
+
+  @override
+  String get errorListingDetailsNotAccepted =>
+      'Your crop listing details were not accepted. Check them and try again.';
+
+  @override
+  String get errorTripDetailsNotAccepted =>
+      'Your trip details were not accepted. Check them and try again.';
 
   @override
   String get showingCachedResults =>
@@ -136,7 +143,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your data will sync when you\'re back online';
 
   @override
-  String get offlineReady => 'Offline Ready';
+  String get offlineReady => 'Works without network';
 
   @override
   String get home => 'Home';
@@ -220,6 +227,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get password => 'Password';
 
   @override
+  String get showPassword => 'Show password';
+
+  @override
+  String get hidePassword => 'Hide password';
+
+  @override
   String get confirmPassword => 'Confirm Password';
 
   @override
@@ -290,7 +303,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get loginOffline => 'Login Offline';
 
   @override
-  String get offlineModeIndicator => 'You are in offline mode';
+  String get offlineModeIndicator =>
+      'No network. Your work is saved on your phone.';
 
   @override
   String get passwordRequirements =>
@@ -1598,6 +1612,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get copiedToClipboard => 'Copied to clipboard';
 
   @override
+  String ratingStarsOf(int count, int max) {
+    return '$count of $max stars';
+  }
+
+  @override
   String get forgotPasswordContactSupport =>
       'Please contact support at +251-111-234567 to reset your password.';
 
@@ -2365,6 +2384,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get orderTimeline => 'Order Timeline';
 
   @override
+  String get orderTimelineStepDone => 'Done';
+
+  @override
+  String get orderTimelineStepNow => 'Now';
+
+  @override
+  String get orderTimelineStepLater => 'Not yet';
+
+  @override
   String etbCurrency(String amount) {
     return '$amount ETB';
   }
@@ -2476,7 +2504,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String syncedAgo(String time) {
-    return 'Synced $time ago';
+    return 'Updated $time ago';
   }
 
   @override
@@ -2643,19 +2671,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tapToListCrops => 'List your crops and reach buyers directly';
 
   @override
-  String get synced => 'Synced';
+  String get synced => 'All sent';
 
   @override
-  String get offline => 'Offline';
+  String get offline => 'No network';
 
   @override
   String syncFailureCount(int count) {
-    return '$count operations need attention';
+    return '$count could not be sent';
   }
 
   @override
   String syncPendingCount(int count) {
-    return '$count waiting to sync';
+    return '$count waiting to be sent';
   }
 
   @override
@@ -2696,6 +2724,33 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get savedOnPhoneWillSend =>
       'Saved on your phone. It will be sent when you have network.';
+
+  @override
+  String syncStillWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count changes are still waiting. They will be sent again by themselves.',
+      one: '1 change is still waiting. It will be sent again by itself.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get listingNotSentYet => 'Not sent yet';
+
+  @override
+  String get listingNotSentYetNote =>
+      'Saved on this phone only. Buyers will see it once it is sent.';
+
+  @override
+  String get myCropsNotSentNote =>
+      'Listings marked \"Not sent yet\" are saved on this phone only. Buyers see them once they are sent.';
+
+  @override
+  String get authNetworkTooSlow =>
+      'The network is too slow right now. Move to a place with better signal and try again.';
 
   @override
   String get orderAcceptedSent => 'You accepted the order.';

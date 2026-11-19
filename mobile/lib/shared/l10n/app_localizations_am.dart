@@ -32,7 +32,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get offlineMode => 'ከመስመር ውጭ';
 
   @override
-  String get syncPending => 'ማመሳሰል በመጠባበቅ ላይ';
+  String get syncPending => 'ለመላክ እየጠበቀ ነው';
 
   @override
   String get taglineShort => 'ገበሬዎችን፣ መኪና ሹፌሮችን እና ገዢዎችን ማገናኘት';
@@ -41,25 +41,25 @@ class AppLocalizationsAm extends AppLocalizations {
   String get telebirrPayment => 'ቴሌብር ክፍያ';
 
   @override
-  String get syncInProgress => 'በማመሳሰል ላይ...';
+  String get syncInProgress => 'በመላክ ላይ...';
 
   @override
-  String get syncComplete => 'ማመሳሰል ተጠናቅቋል';
+  String get syncComplete => 'ሁሉም ተልኳል';
 
   @override
-  String get syncFailed => 'ማመሳሰል አልተሳካም';
+  String get syncFailed => 'አልተላከም';
 
   @override
   String get retry => 'እንደገና ሞክር';
 
   @override
-  String get syncNow => 'አሁን አመሳስል';
+  String get syncNow => 'አሁን ላክ';
 
   @override
   String get selectLanguagePrompt => 'ቋንቋዎን ይምረጡ';
 
   @override
-  String get cancel => 'ሰርዝ';
+  String get cancel => 'ይቅር';
 
   @override
   String get save => 'አስቀምጥ';
@@ -102,7 +102,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get errorSecureConnectionFailed =>
-      'ከአገልጋዩ ጋር ደህንነቱ የተጠበቀ ግንኙነት መፍጠር አልተቻለም። መተግበሪያውን ያዘምኑ ወይም ሌላ አውታረ መረብ ይሞክሩ።';
+      'ደህንነቱ የተጠበቀ ግንኙነት መፍጠር አልተቻለም። መተግበሪያውን ያዘምኑ ወይም ሌላ ኔትወርክ ይሞክሩ።';
 
   @override
   String get noInternetConnection => 'የበይነመረብ ግንኙነት የለም';
@@ -121,7 +121,15 @@ class AppLocalizationsAm extends AppLocalizations {
       'ይህ ትዕዛዝ ሊገባ አልቻለም፣ ስለዚህ ተወግዷል። እባክዎ እንደገና ይዘዙ።';
 
   @override
-  String get errorChangeNotSaved => 'ይህ ለውጥ በአገልጋዩ ላይ ሊቀመጥ አልቻለም።';
+  String get errorChangeNotSaved => 'ይህ ለውጥ ተቀባይነት አላገኘም።';
+
+  @override
+  String get errorListingDetailsNotAccepted =>
+      'የሰብል ዝርዝርዎ መረጃ ተቀባይነት አላገኘም። መረጃውን አረጋግጠው እንደገና ይሞክሩ።';
+
+  @override
+  String get errorTripDetailsNotAccepted =>
+      'የጉዞዎ መረጃ ተቀባይነት አላገኘም። መረጃውን አረጋግጠው እንደገና ይሞክሩ።';
 
   @override
   String get showingCachedResults => 'የተቀመጡ ውጤቶችን በማሳየት ላይ — ማደስ አልተቻለም።';
@@ -130,7 +138,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get dataWillSyncWhenOnline => 'መስመር ላይ ሲሆኑ መረጃዎ ይመሳሰላል';
 
   @override
-  String get offlineReady => 'ከመስመር ውጭ ዝግጁ';
+  String get offlineReady => 'ያለ ኔትወርክ ይሰራል';
 
   @override
   String get home => 'መነሻ';
@@ -213,6 +221,12 @@ class AppLocalizationsAm extends AppLocalizations {
   String get password => 'የይለፍ ቃል';
 
   @override
+  String get showPassword => 'የይለፍ ቃል አሳይ';
+
+  @override
+  String get hidePassword => 'የይለፍ ቃል ደብቅ';
+
+  @override
   String get confirmPassword => 'የይለፍ ቃል አረጋግጥ';
 
   @override
@@ -282,7 +296,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get loginOffline => 'ከመስመር ውጭ ግባ';
 
   @override
-  String get offlineModeIndicator => 'ከመስመር ውጭ ነዎት';
+  String get offlineModeIndicator => 'ኔትወርክ የለም። ስራዎ በስልክዎ ላይ ተቀምጧል።';
 
   @override
   String get passwordRequirements =>
@@ -318,7 +332,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get authRateLimitExceeded => 'ብዙ ጊዜ ሞክረዋል። እባክዎ ቆይተው እንደገና ይሞክሩ።';
 
   @override
-  String get authServerError => 'የሰርቨር ስህተት። እባክዎ ቆይተው እንደገና ይሞክሩ።';
+  String get authServerError => 'በእኛ በኩል ችግር ተፈጥሯል። እባክዎ ቆይተው እንደገና ይሞክሩ።';
 
   @override
   String get authServiceUnavailable =>
@@ -752,7 +766,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliverySelfPickupPayFirst =>
-      'መጀመሪያ ወደ ኤስክሮው ይክፈሉ፣ ከዚያ በእርሻው ላይ ለመረከብ ይቃኙ።';
+      'መጀመሪያ ወደ ኢስክሮ ይክፈሉ፣ ከዚያ በእርሻው ላይ ለመረከብ ይቃኙ።';
 
   @override
   String get orderOpenDelivery => 'ማድረሻውን ክፈት';
@@ -1025,12 +1039,12 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String escrowConfirmPaymentDialog(String amount, String farmerName) {
-    return 'ብር $amount ለ$farmerName ይከፈል?';
+    return '$amount ብር ለ$farmerName ይከፈል?';
   }
 
   @override
   String get escrowFaydaWarning =>
-      'ከብር 10,000 በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።';
+      'ከ10,000 ብር በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።';
 
   @override
   String get escrowFundsHeldInfo => 'ገንዘብ ቢበዛ ለ7 ቀናት ይቀመጣል። ካልደረሰ ተመላሽ ይሆናል።';
@@ -1167,11 +1181,11 @@ class AppLocalizationsAm extends AppLocalizations {
   String get escrowReasonOther => 'ሌላ';
 
   @override
-  String get escrowErrorInvalidAmount => 'መጠን ከብር 100 እስከ ብር 500,000 መሆን አለበት።';
+  String get escrowErrorInvalidAmount => 'መጠን ከ100 ብር እስከ 500,000 ብር መሆን አለበት።';
 
   @override
   String get escrowErrorFaydaRequired =>
-      'ከብር 10,000 በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።';
+      'ከ10,000 ብር በላይ ለሆኑ ክፍያዎች ፋይዳ መታወቂያ ማረጋገጫ ያስፈልጋል።';
 
   @override
   String get escrowErrorAlreadyExists => 'ለዚህ ማድረሻ ክፍያ ቀድሞ ተከፍሏል።';
@@ -1253,7 +1267,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String escrowEtbAmount(String amount) {
-    return 'ብር $amount';
+    return '$amount ብር';
   }
 
   @override
@@ -1344,14 +1358,14 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get dataUsageScopeNote =>
-      'በዚህ መሣሪያ ላይ ይህ መለያ ወደ WeredaConnect አገልጋዮች የላካቸውን ጥያቄዎች ብቻ ይቆጥራል። የስልክዎ ጠቅላላ የውሂብ አጠቃቀም (የመተግበሪያ ዝማኔዎች፣ ምስሎች፣ ሌሎች መተግበሪያዎች) ከዚህ ሊበልጥ ይችላል። የመግቢያ ትራፊክ አይካተትም።';
+      'በዚህ መሣሪያ ላይ ይህ መለያ ወደ WeredaConnect የላካቸውን ጥያቄዎች ብቻ ይቆጥራል። የስልክዎ ጠቅላላ የውሂብ አጠቃቀም (የመተግበሪያ ዝማኔዎች፣ ምስሎች፣ ሌሎች መተግበሪያዎች) ከዚህ ሊበልጥ ይችላል። የመግቢያ ትራፊክ አይካተትም።';
 
   @override
   String get conflictTitle => 'ዳታ ተዘምኗል';
 
   @override
   String get conflictExplanation =>
-      'ሌላ መሳሪያ ወይም አገልጋይ ይህን መዝገብ ዘምኗል። የአካባቢ ቅጂዎ ተዘምኗል።';
+      'ይህ መረጃ በሌላ ስልክ ወይም በወረዳ ኮነክት ላይ ተቀይሯል። በዚህ ስልክ ላይ ያለውም አብሮ ተስተካክሏል።';
 
   @override
   String get conflictAccept => 'እሺ፣ ገባኝ';
@@ -1548,6 +1562,11 @@ class AppLocalizationsAm extends AppLocalizations {
   String get copiedToClipboard => 'ተቀድቷል';
 
   @override
+  String ratingStarsOf(int count, int max) {
+    return 'ከ$max ኮከብ $count';
+  }
+
+  @override
   String get forgotPasswordContactSupport =>
       'የይለፍ ቃልዎን ለማስቀየር እባክዎ በ +251-111-234567 ድጋፍን ያግኙ።';
 
@@ -1595,7 +1614,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String escrowPayoutExpectedOn(String date) {
-    return 'ክፍያው በ$date ይጠበቃል';
+    return 'ገንዘብዎ በ$date ይደርስዎታል ተብሎ ይጠበቃል';
   }
 
   @override
@@ -1650,7 +1669,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String escrowPaymentAmount(String amount) {
-    return 'ክፍያ: ETB $amount';
+    return 'ክፍያ፦ $amount ብር';
   }
 
   @override
@@ -1720,7 +1739,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryErrorQrPending =>
-      'የገበሬው QR ኮድ ገና ወደ አገልጋዩ አልደረሰም። ገበሬው በኢንተርኔት ላይ ሆኖ QR ኮዱን እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።';
+      'የገበሬው QR ኮድ ገና አልደረሰንም። ገበሬው በኢንተርኔት ላይ ሆኖ QR ኮዱን እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።';
 
   @override
   String get deliveryErrorCancelNotAllowed =>
@@ -2025,10 +2044,10 @@ class AppLocalizationsAm extends AppLocalizations {
   String get trackDeliveries => 'የሰብል ማጓጓዣዎን ይከታተሉ';
 
   @override
-  String get trackPayments => 'ገቢዎን እና ኤስክሮ ይከታተሉ';
+  String get trackPayments => 'ገቢዎን እና ኢስክሮ ይከታተሉ';
 
   @override
-  String get trackBuyerPayments => 'ክፍያዎን እና ኤስክሮ ይከታተሉ';
+  String get trackBuyerPayments => 'ክፍያዎን እና ኢስክሮ ይከታተሉ';
 
   @override
   String get listsPaymentsNote =>
@@ -2084,7 +2103,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get splashSubtitle =>
-      'ለገበሬዎች፣ ለመኪና ሹፌሮች እና ለገዢዎች አንድ መድረክ — በተረጋገጠ ኤስክሮ።';
+      'ለገበሬዎች፣ ለመኪና ሹፌሮች እና ለገዢዎች አንድ መድረክ፣ በተረጋገጠ ኢስክሮ።';
 
   @override
   String get orderFunded => 'ገንዘብ ተከፍሏል';
@@ -2198,11 +2217,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get statusPaymentSubmittedInfo =>
-      'ገዢው ክፍያውን ልኳል፤ በማረጋገጥ ላይ ነው። ገንዘቡ ገና በአደራ (ኤስክሮ) አልተረጋገጠም።';
+      'ገዢው ክፍያውን ልኳል፤ በማረጋገጥ ላይ ነው። ገንዘቡ ገና በአደራ (ኢስክሮ) አልተረጋገጠም።';
 
   @override
   String get statusFundedInfo =>
-      'ክፍያው ተረጋግጦ በአደራ (ኤስክሮ) በደህና ተይዟል። የታዘዘው መጠን ከገበሬው ዝርዝር ተይዟል።';
+      'ክፍያው ተረጋግጦ በአደራ (ኢስክሮ) በደህና ተይዟል። የታዘዘው መጠን ከገበሬው ዝርዝር ተይዟል።';
 
   @override
   String get orderAcceptedInfo => 'ገበሬው ትዕዛዙን ተቀብሎ ሰብሉን ለርክክብ ያዘጋጃል።';
@@ -2215,11 +2234,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get statusDeliveredInfo =>
-      'ርክክብ በገዢው ተረጋግጧል። አደራው (ኤስክሮ) ክፍያውን ለገበሬው ይለቃል።';
+      'ርክክብ በገዢው ተረጋግጧል። አደራው (ኢስክሮ) ክፍያውን ለገበሬው ይለቃል።';
 
   @override
   String get statusDisbursingInfo =>
-      'ገንዘቡ ከአደራ (ኤስክሮ) በመውጣት ላይ ነው፤ ለገበሬው እና ካለ ለጭነት መኪና ሹፌሩ እየተከፈለ ነው።';
+      'ገንዘቡ ከአደራ (ኢስክሮ) በመውጣት ላይ ነው፤ ለገበሬው እና ካለ ለጭነት መኪና ሹፌሩ እየተከፈለ ነው።';
 
   @override
   String get statusSettledInfo =>
@@ -2227,11 +2246,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get orderCancelledInfo =>
-      'ትዕዛዙ ተሰርዟል። በአደራ (ኤስክሮ) የተያዘ ገንዘብ ካለ ለገዢው ይመለሳል።';
+      'ትዕዛዙ ተሰርዟል። በአደራ (ኢስክሮ) የተያዘ ገንዘብ ካለ ለገዢው ይመለሳል።';
 
   @override
   String get orderRejectedInfo =>
-      'ገበሬው ይህን ትዕዛዝ አልተቀበለም። በአደራ (ኤስክሮ) የተያዘ ገንዘብ ለገዢው ይመለሳል።';
+      'ገበሬው ይህን ትዕዛዝ አልተቀበለም። በአደራ (ኢስክሮ) የተያዘ ገንዘብ ለገዢው ይመለሳል።';
 
   @override
   String get statusPaymentFailedInfo =>
@@ -2239,7 +2258,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get statusDisputedInfo =>
-      'ክርክር ቀርቧል። ክርክሩ እስኪፈታ ድረስ ገንዘቡ በአደራ (ኤስክሮ) ተይዞ ይቆያል።';
+      'ክርክር ቀርቧል። ክርክሩ እስኪፈታ ድረስ ገንዘቡ በአደራ (ኢስክሮ) ተይዞ ይቆያል።';
 
   @override
   String get statusDisputeResolvedInfo => 'ክርክሩ ተፈቷል፤ ገንዘቡ ላሸነፈው ወገን ተላልፏል።';
@@ -2294,6 +2313,15 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get orderTimeline => 'የትዕዛዝ ሂደት';
+
+  @override
+  String get orderTimelineStepDone => 'ተጠናቋል';
+
+  @override
+  String get orderTimelineStepNow => 'አሁን';
+
+  @override
+  String get orderTimelineStepLater => 'ገና';
 
   @override
   String etbCurrency(String amount) {
@@ -2406,7 +2434,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String syncedAgo(String time) {
-    return 'ከ$time በፊት ተመሳስሏል';
+    return 'ከ$time በፊት ታድሷል';
   }
 
   @override
@@ -2567,19 +2595,19 @@ class AppLocalizationsAm extends AppLocalizations {
   String get tapToListCrops => 'ሰብልዎን ዘርዝረው ገዢዎችን በቀጥታ ያግኙ';
 
   @override
-  String get synced => 'ተመሳስሏል';
+  String get synced => 'ሁሉም ተልኳል';
 
   @override
-  String get offline => 'ከመስመር ውጭ';
+  String get offline => 'ኔትወርክ የለም';
 
   @override
   String syncFailureCount(int count) {
-    return '$count ስራዎች ትኩረት ይፈልጋሉ';
+    return '$count ሊላኩ አልቻሉም';
   }
 
   @override
   String syncPendingCount(int count) {
-    return '$count ለማመሳሰል ይጠብቃሉ';
+    return '$count ለመላክ እየጠበቁ ነው';
   }
 
   @override
@@ -2618,6 +2646,32 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get savedOnPhoneWillSend => 'በስልክዎ ላይ ተቀምጧል። ኔትወርክ ሲኖር ይላካል።';
+
+  @override
+  String syncStillWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ለውጦች አሁንም በመጠባበቅ ላይ ናቸው። በራሳቸው እንደገና ይላካሉ።',
+      one: '1 ለውጥ አሁንም በመጠባበቅ ላይ ነው። በራሱ እንደገና ይላካል።',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get listingNotSentYet => 'ገና አልተላከም';
+
+  @override
+  String get listingNotSentYetNote =>
+      'በዚህ ስልክ ላይ ብቻ ተቀምጧል። ከተላከ በኋላ ገዢዎች ያዩታል።';
+
+  @override
+  String get myCropsNotSentNote =>
+      '\"ገና አልተላከም\" የሚል ምልክት ያላቸው ዝርዝሮች በዚህ ስልክ ላይ ብቻ ተቀምጠዋል። ከተላኩ በኋላ ገዢዎች ያዩዋቸዋል።';
+
+  @override
+  String get authNetworkTooSlow =>
+      'ኔትወርኩ አሁን በጣም ቀርፋፋ ነው። የተሻለ ኔትወርክ ወዳለበት ቦታ ሄደው እንደገና ይሞክሩ።';
 
   @override
   String get orderAcceptedSent => 'ትዕዛዙን ተቀብለዋል።';
@@ -2958,7 +3012,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get orderCheckoutWaitingToSend =>
-      'ክፍያዎ ለመላክ እየጠበቀ ነው። ወደ ሰርቨሩ ሲደርስ ቴሌብር ይከፈታል።';
+      'ክፍያዎ ለመላክ እየጠበቀ ነው። ሲላክ ቴሌብር ይከፈታል።';
 
   @override
   String orderCheckoutOpenUntil(String time) {
@@ -3004,7 +3058,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get orderCheckoutOrderMissing =>
-      'ይህ ትዕዛዝ ገና ሰርቨሩ ላይ የለም። ከተመሳሰለ በኋላ እንደገና ይሞክሩ።';
+      'ይህ ትዕዛዝ ገና አልተላከም። ከተላከ በኋላ እንደገና ይሞክሩ።';
 
   @override
   String get orderCheckoutPaymentFailed =>
@@ -3186,7 +3240,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deleteAccountNetworkError =>
-      'ሰርቨሩን ማግኘት አልቻልንም፣ ስለዚህ መለያዎ መሰረዙን ማወቅ አንችልም። ግንኙነትዎን አረጋግጠው እንደገና ይሞክሩ።';
+      'መገናኘት አልቻልንም፣ ስለዚህ መለያዎ መሰረዙን ማወቅ አንችልም። ግንኙነትዎን አረጋግጠው እንደገና ይሞክሩ።';
 
   @override
   String get deleteAccountIncomplete =>
@@ -5048,11 +5102,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryQrReadCheckedOnline =>
-      'QR ኮዱ ተነቧል። ስልክዎ ከኢንተርኔት ሲገናኝ አገልጋዩ ያረጋግጠዋል።';
+      'QR ኮዱ ተነቧል። ስልክዎ ከኢንተርኔት ሲገናኝ ይረጋገጣል።';
 
   @override
   String get deliveryCodeTypedCheckedOnline =>
-      'ኮዱ ተተይቧል። ስልክዎ ከኢንተርኔት ሲገናኝ አገልጋዩ ያረጋግጠዋል።';
+      'ኮዱ ተተይቧል። ስልክዎ ከኢንተርኔት ሲገናኝ ይረጋገጣል።';
 
   @override
   String get qrTypedCodeNeedsGps =>
@@ -5183,11 +5237,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get deliveryDropoffQrNotSent =>
-      'ገና ወደ አገልጋዩ አልደረሰም። ይህን QR በኢንተርኔት ላይ ሆነው በከፈቱ ቁጥር እንደገና ይላካል፤ የገዢው ማረጋገጫም እስኪደርስ ይጠብቃል።';
+      'ገና አልተላከም። ይህን QR በኢንተርኔት ላይ ሆነው በከፈቱ ቁጥር እንደገና ይላካል፤ የገዢው ማረጋገጫም እስኪደርስ ይጠብቃል።';
 
   @override
   String get deliveryErrorDropoffQrPending =>
-      'የሹፌሩ የማውረጃ ኮድ ገና ወደ አገልጋዩ አልደረሰም። ሹፌሩ በኢንተርኔት ላይ ሆኖ የማውረጃ QR እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።';
+      'የሹፌሩ የማውረጃ ኮድ ገና አልደረሰንም። ሹፌሩ በኢንተርኔት ላይ ሆኖ የማውረጃ QR እንዲከፍት ይጠይቁ፣ ከዚያ እንደገና ይሞክሩ።';
 
   @override
   String get deliveryErrorDropoffCodeLocked =>
@@ -5782,7 +5836,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get checkInPendingNote =>
-      'QR ኮዱ እስከ ማንሳቻው የመጨረሻ ጊዜ ካልተቃኘ፣ እነዚህ ማረጋገጫዎች የሚሆነውን ይወስናሉ። የሚቆጠረው እያንዳንዱ ሰርቨሩ ጋር የደረሰበት ጊዜ ነው።';
+      'QR ኮዱ እስከ ማንሳቻው የመጨረሻ ጊዜ ካልተቃኘ፣ እነዚህ ማረጋገጫዎች የሚሆነውን ይወስናሉ። የሚቆጠረው እያንዳንዱ እኛ ጋር የደረሰበት ጊዜ ነው።';
 
   @override
   String get checkInDeadlinePassedNote =>
@@ -5857,7 +5911,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get errorCheckInTooLate =>
-      'ማረጋገጫዎ ሰርቨሩ ጋር የደረሰው ከማንሳቻው የመጨረሻ ጊዜ በኋላ ስለሆነ አይቆጠርም። ለግምገማ ተቀምጧል።';
+      'ማረጋገጫዎ እኛ ጋር የደረሰው ከማንሳቻው የመጨረሻ ጊዜ በኋላ ስለሆነ አይቆጠርም። ለግምገማ ተቀምጧል።';
 
   @override
   String get errorCheckInValidation =>
@@ -5966,7 +6020,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get errorCheckInPhotoRequired =>
-      'የመድረሻ ፎቶው ሰርቨሩ ጋር አልደረሰም። መጀመሪያ የመድረሻ ፎቶውን ያንሱ፣ ከዚያ ማውረጃ ቦታ ላይ እንደገና ያረጋግጡ።';
+      'የመድረሻ ፎቶው ገና አልደረሰንም። መጀመሪያ የመድረሻ ፎቶውን ያንሱ፣ ከዚያ ማውረጃ ቦታ ላይ እንደገና ያረጋግጡ።';
 
   @override
   String get errorDropoffCheckInNotOpen =>
@@ -5986,7 +6040,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get errorDropoffCheckInTooLate =>
-      'ማረጋገጫዎ ሰርቨሩ ጋር የደረሰው ከማድረሻው የመጨረሻ ጊዜ በኋላ ስለሆነ አይቆጠርም። ለግምገማ ተቀምጧል።';
+      'ማረጋገጫዎ እኛ ጋር የደረሰው ከማድረሻው የመጨረሻ ጊዜ በኋላ ስለሆነ አይቆጠርም። ለግምገማ ተቀምጧል።';
 
   @override
   String get errorDropoffCheckInClosed =>

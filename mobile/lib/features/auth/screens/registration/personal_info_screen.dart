@@ -262,6 +262,9 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   decoration: labeledFieldDecoration().copyWith(
                     counterText: '',
                     suffixIcon: IconButton(
+                      tooltip: _obscurePassword
+                          ? l10n.showPassword
+                          : l10n.hidePassword,
                       icon: Icon(
                         _obscurePassword
                             ? Icons.visibility_off
@@ -297,6 +300,9 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   controller: _confirmController,
                   decoration: labeledFieldDecoration().copyWith(
                     suffixIcon: IconButton(
+                      tooltip: _obscureConfirm
+                          ? l10n.showPassword
+                          : l10n.hidePassword,
                       icon: Icon(
                         _obscureConfirm
                             ? Icons.visibility_off

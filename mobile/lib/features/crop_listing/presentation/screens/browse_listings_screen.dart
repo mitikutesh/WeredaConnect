@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show kIsWeb, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -12,6 +13,8 @@ import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
@@ -126,6 +129,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     _loadListings();
     _loadOrderedQuintals();
     _loadOpenTrips();
+    _watchNotSent();
     if (widget.originTrip != null) {
       // The place list resolves the listings' and the truck's place ids.
       PlaceRepository.instance.ensureLoaded().then((_) {
@@ -134,8 +138,55 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     }
   }
 
+  /// BUG-36 (My Crops): the ids of the farmer's listings whose create or
+  /// edit has not reached the server yet (the phone's sync queue). Their
+  /// card says "Not sent yet" with an upload icon instead of "Active", and
+  /// a note under the list says buyers do not see them yet. Always empty on
+  /// web, which keeps no queue.
+  Set<String> _notSent = const {};
+  int _notSentReads = 0;
+  StreamSubscription<({int pending, int failed})>? _queueSub;
+
+  /// Reads [_notSent] when the list paints (the bloc listener in [build])
+  /// and again whenever the phone's queue changes, so a mark goes once its
+  /// listing was sent.
+  void _watchNotSent() {
+    if (!widget.ownerMode || kIsWeb) return;
+    try {
+      _queueSub = context.read<SyncQueue>().watchCounts().listen(
+            (_) => _loadNotSent(),
+            onError: (Object _) {},
+          );
+    } on Object {
+      // No queue above this screen (widget tests): read with the list only.
+    }
+  }
+
+  Future<void> _loadNotSent() async {
+    if (!widget.ownerMode || !mounted) return;
+    final read = ++_notSentReads;
+    final waiting = <String>{};
+    try {
+      final bloc = context.read<CropListingBloc>();
+      final state = bloc.state;
+      if (state is! CropListingsLoaded) return;
+      for (final listing in state.listings) {
+        if (await bloc.repository.hasChangeWaiting(listing.listingId)) {
+          waiting.add(listing.listingId);
+        }
+      }
+    } on Object catch (e) {
+      // Secondary detail: the cards stay without the mark.
+      debugPrint('[MyCrops] queue read failed: $e');
+      return;
+    }
+    if (!mounted || read != _notSentReads) return;
+    if (!setEquals(waiting, _notSent)) setState(() => _notSent = waiting);
+  }
+
   @override
   void dispose() {
+    _queueSub?.cancel();
     _debounce?.cancel();
     _searchController.dispose();
     _priceMinController.dispose();
@@ -725,9 +776,31 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                               const SizedBox(height: 10),
                           itemBuilder: (context, index) {
                             if (index == listings.length) {
-                              return widget.ownerMode
-                                  ? _PrivacyNote(text: l10n.myCropsPrivacyNote)
-                                  : _Footnote(text: _footnote(l10n));
+                              if (!widget.ownerMode) {
+                                return _Footnote(text: _footnote(l10n));
+                              }
+                              final privacy =
+                                  _PrivacyNote(text: l10n.myCropsPrivacyNote);
+                              // BUG-36: never claim buyers see a listing
+                              // that is still on this phone only.
+                              final anyNotSent = listings.any(
+                                (l) => _notSent.contains(l.listingId),
+                              );
+                              if (!anyNotSent) return privacy;
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _PrivacyNote(
+                                    key: const Key('my_crops_not_sent_note'),
+                                    text: l10n.myCropsNotSentNote,
+                                    icon: Icons.cloud_upload_outlined,
+                                    background: AppTheme.actionCream,
+                                    foreground: AppTheme.actionInk,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  privacy,
+                                ],
+                              );
                             }
                             final listing = listings[index];
                             final crop = CropType.labelFor(
@@ -796,9 +869,13 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                   progress: widget.ownerMode
                                       ? _orderedShare(listing)
                                       : null,
-                                  status: widget.ownerMode
-                                      ? _statusLabel(listing.status, l10n)
-                                      : null,
+                                  status: !widget.ownerMode
+                                      ? null
+                                      : _notSent.contains(listing.listingId)
+                                          ? l10n.listingNotSentYet
+                                          : _statusLabel(listing.status, l10n),
+                                  statusPending: widget.ownerMode &&
+                                      _notSent.contains(listing.listingId),
                                   subtitle: widget.ownerMode
                                       ? _ownListingSubtitle(listing, l10n)
                                       : null,
@@ -897,8 +974,17 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
 
     return BlocListener<CropListingBloc, CropListingState>(
       listenWhen: (previous, current) =>
-          current is CropListingCreated || current is CropListingUpdated,
-      listener: (context, state) => _loadListings(),
+          current is CropListingCreated ||
+          current is CropListingUpdated ||
+          (widget.ownerMode && current is CropListingsLoaded),
+      listener: (context, state) {
+        if (state is CropListingsLoaded) {
+          // BUG-36: the list just painted; mark the listings not sent yet.
+          _loadNotSent();
+        } else {
+          _loadListings();
+        }
+      },
       child: widget.embedded ? content : Scaffold(body: content),
     );
   }
@@ -1100,34 +1186,39 @@ class _NoMatch extends StatelessWidget {
 /// MyCrops board: who sees the listings, in a blue note under the list.
 class _PrivacyNote extends StatelessWidget {
   final String text;
+  final IconData icon;
+  final Color background;
+  final Color foreground;
 
-  const _PrivacyNote({required this.text});
+  const _PrivacyNote({
+    required this.text,
+    super.key,
+    this.icon = Icons.place_outlined,
+    this.background = AppTheme.dropoffBlueTint,
+    this.foreground = AppTheme.dropoffBlue,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppTheme.dropoffBlueTint,
+        color: background,
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.place_outlined,
-            size: 18,
-            color: AppTheme.dropoffBlue,
-          ),
+          Icon(icon, size: 18, color: foreground),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 height: 1.4,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.dropoffBlue,
+                color: foreground,
               ),
             ),
           ),

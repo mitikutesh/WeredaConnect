@@ -264,6 +264,14 @@ enum AppErrorCode {
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
+
+  /// `CROP_VALIDATION` on a queued crop listing change: the details the
+  /// farmer entered were not accepted (BUG-L9).
+  listingDetailsNotAccepted,
+
+  /// `TRIP_VALIDATION` on a queued trip change: the details the trucker
+  /// entered were not accepted (BUG-L9).
+  tripDetailsNotAccepted,
   unknown,
 }
 
@@ -544,6 +552,9 @@ String localizeErrorCode(
     AppErrorCode.dropoffCheckInNeedsLocation =>
       l10n.dropoffCheckInNeedsLocation,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
+    AppErrorCode.listingDetailsNotAccepted =>
+      l10n.errorListingDetailsNotAccepted,
+    AppErrorCode.tripDetailsNotAccepted => l10n.errorTripDetailsNotAccepted,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
     AppErrorCode.server ||
@@ -674,10 +685,26 @@ AppErrorCode syncRejectionErrorCode({
   if (isContactInTextMessage(message)) {
     return AppErrorCode.contactInText;
   }
+  // BUG-L9: the listing or trip itself was refused; say what to check.
+  if (_isDetailsRefusal(message, 'CROP_VALIDATION')) {
+    return AppErrorCode.listingDetailsNotAccepted;
+  }
+  if (_isDetailsRefusal(message, 'TRIP_VALIDATION')) {
+    return AppErrorCode.tripDetailsNotAccepted;
+  }
   return isRevertableRejectionMessage(message)
       ? AppErrorCode.orderRefused
       : AppErrorCode.changeNotSaved;
 }
+
+/// Whether [message] is a [code] refusal (`CROP_VALIDATION`,
+/// `TRIP_VALIDATION`) for the details the user entered. Not the two the same
+/// codes also carry and no correction on the form can pass: a field the app
+/// never lets the user change, and the server failing to read the profile.
+bool _isDetailsRefusal(String message, String code) =>
+    message.startsWith('$code:') &&
+    !message.contains('is immutable and cannot be changed') &&
+    !message.contains('profile could not be read');
 
 /// The code of an arrival check-in refusal ([isCheckInRefusalMessage],
 /// FUP-285): one per `CHECKIN_*` code; the unsupported-entity answer of a

@@ -364,7 +364,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _ProfileRow(
             icon: Icons.history,
             title: l10n.escrowHistory,
-            subtitle: '${stats['escrow'] ?? '0'} ETB',
+            subtitle: l10n.etbCurrency(stats['escrow'] ?? '0'),
             onTap: () => _openPaymentHistory(context),
           ),
         ],

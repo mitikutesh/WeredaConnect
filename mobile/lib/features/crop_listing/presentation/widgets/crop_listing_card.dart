@@ -103,6 +103,7 @@ class CropListingCard extends StatelessWidget {
               if (onDelete != null) ...[
                 const SizedBox(width: 8),
                 IconButton(
+                  tooltip: l10n.delete,
                   icon: const Icon(Icons.delete_outline),
                   onPressed: onDelete,
                   iconSize: 20,

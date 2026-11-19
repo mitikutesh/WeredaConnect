@@ -26,13 +26,13 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
-  String get worksOffline => 'Oflaayiniin Hojjeta';
+  String get worksOffline => 'Neetworkii malee ni hojjeta';
 
   @override
-  String get offlineMode => 'Haalata Offline';
+  String get offlineMode => 'Neetworkii malee';
 
   @override
-  String get syncPending => 'Walsimsiisuun Eegaa Jira';
+  String get syncPending => 'Ergamuuf eegaa jira';
 
   @override
   String get taglineShort =>
@@ -42,19 +42,19 @@ class AppLocalizationsOm extends AppLocalizations {
   String get telebirrPayment => 'Kaffaltii Telebirr';
 
   @override
-  String get syncInProgress => 'Walsimsiisuun Itti Fufeera...';
+  String get syncInProgress => 'Ergamaa jira...';
 
   @override
-  String get syncComplete => 'Walsimsiisuun Xumurameera';
+  String get syncComplete => 'Hundi ergameera';
 
   @override
-  String get syncFailed => 'Walsimsiisuun Hin Milkoofne';
+  String get syncFailed => 'Hin ergamne';
 
   @override
   String get retry => 'Irra Deebi\'ii Yaali';
 
   @override
-  String get syncNow => 'Amma Walsimsisi';
+  String get syncNow => 'Amma ergi';
 
   @override
   String get selectLanguagePrompt => 'Afaan Kee Filadhu';
@@ -103,7 +103,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get errorSecureConnectionFailed =>
-      'Server waliin walqunnamtii nageenya qabu uumuun hin danda\'amne. Appii haaromsaa yookiin neetworkii biraa yaalaa.';
+      'Walqunnamtii nageenya qabu uumuun hin danda\'amne. Appii haaromsaa yookiin neetworkii biraa yaalaa.';
 
   @override
   String get noInternetConnection => 'Walitti Dhufeenya Interneetii Hin Jiru';
@@ -125,8 +125,15 @@ class AppLocalizationsOm extends AppLocalizations {
       'Ajajni kun galmaa\'uu hin dandeenye, kanaaf haqameera. Maaloo irra deebi\'aa ajajaa.';
 
   @override
-  String get errorChangeNotSaved =>
-      'Jijjiiramni kun sarvarii irratti olkaa\'amuu hin dandeenye.';
+  String get errorChangeNotSaved => 'Jijjiiramni kun hin fudhatamne.';
+
+  @override
+  String get errorListingDetailsNotAccepted =>
+      'Odeeffannoon tarree midhaanii keessanii hin fudhatamne. Sirreessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get errorTripDetailsNotAccepted =>
+      'Odeeffannoon imala keessanii hin fudhatamne. Sirreessaatii irra deebi\'aa yaalaa.';
 
   @override
   String get showingCachedResults =>
@@ -134,10 +141,10 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get dataWillSyncWhenOnline =>
-      'Yeroo online taatan deetaan keessan walsimsifama';
+      'Yeroo neetworkiin jiru daataan keessan ni ergama';
 
   @override
-  String get offlineReady => 'Offline Qophaa\'eera';
+  String get offlineReady => 'Neetworkii malee ni hojjeta';
 
   @override
   String get home => 'Mana';
@@ -197,7 +204,8 @@ class AppLocalizationsOm extends AppLocalizations {
   String get dataSaverDescription => 'Itti fayyadama daataa hir\'isi';
 
   @override
-  String get aboutDescription => 'Waltajjii loojistikii qonnaa offline-first';
+  String get aboutDescription =>
+      'Waltajjii loojistikii qonnaa neetworkii malee hojjetu';
 
   @override
   String get aboutTagline =>
@@ -219,6 +227,12 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get password => 'Jecha Icciitii';
+
+  @override
+  String get showPassword => 'Jecha icciitii agarsiisi';
+
+  @override
+  String get hidePassword => 'Jecha icciitii dhoksi';
 
   @override
   String get confirmPassword => 'Jecha Icciitii Mirkaneessi';
@@ -285,13 +299,14 @@ class AppLocalizationsOm extends AppLocalizations {
   String get getStarted => 'Jalqabi';
 
   @override
-  String get loginOnline => 'Online ta\'ii Seeni';
+  String get loginOnline => 'Interneetiin seeni';
 
   @override
-  String get loginOffline => 'Offline ta\'ii Seeni';
+  String get loginOffline => 'Neetworkii malee seeni';
 
   @override
-  String get offlineModeIndicator => 'Haalata offline keessa jirtu';
+  String get offlineModeIndicator =>
+      'Neetworkiin hin jiru. Hojiin keessan bilbila keessan irratti olkaa\'ameera.';
 
   @override
   String get passwordRequirements =>
@@ -332,7 +347,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get authServerError =>
-      'Dogoggora sarvaraa. Maaloo booda irra deebi\'ii yaali.';
+      'Rakkoon gama keenyaan uumameera. Maaloo booda irra deebi\'ii yaali.';
 
   @override
   String get authServiceUnavailable =>
@@ -372,7 +387,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get authOfflineNotAvailable =>
-      'Haalata offline dandeessisuuf dursa online seenaa.';
+      'Neetworkii malee seenuuf, dursa interneetiin seenaa.';
 
   @override
   String get authAccountDisabled =>
@@ -421,11 +436,11 @@ class AppLocalizationsOm extends AppLocalizations {
   String get myOrders => 'Ajaja Koo';
 
   @override
-  String get clearOfflineData => 'Daataa offline haqamuu?';
+  String get clearOfflineData => 'Daataa bilbila irratti olkaa\'ame haquu?';
 
   @override
   String get clearOfflineDataDescription =>
-      'Yoo daataa kana hin haqiin offline ta\'anii seenuu dandeessu';
+      'Yoo daataa kana hin haqiin neetworkii malee seenuu dandeessu';
 
   @override
   String get ethiopianPhoneExample => 'Fakkeenya: 0911234567 ykn +251911234567';
@@ -464,7 +479,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get selectCropType => 'Gosa Midhaan Filadhu';
 
   @override
-  String get quantityInQuintals => 'Hamma (kuuntaalii)';
+  String get quantityInQuintals => 'Hamma (kuntaala)';
 
   @override
   String get priceInBirr => 'Gatii (Birrii/kg)';
@@ -533,7 +548,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get allCrops => 'Hunda';
 
   @override
-  String get quintals => 'kuuntaalii';
+  String get quintals => 'kuntaala';
 
   @override
   String get etbPerKg => 'Birrii/kg';
@@ -625,10 +640,10 @@ class AppLocalizationsOm extends AppLocalizations {
   String get departureDate => 'Guyyaa Ka\'umsaa';
 
   @override
-  String get capacity => 'Dandeettii (Kuintaalii)';
+  String get capacity => 'Dandeettii (Kuntaala)';
 
   @override
-  String get pricePerQuintal => 'Gatii Kuintaalii (ETB)';
+  String get pricePerQuintal => 'Gatii Kuntaala Tokkoo (Birrii)';
 
   @override
   String get tripStatusOpen => 'Banaa';
@@ -680,10 +695,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get invalidCapacity =>
-      'Dandeettiin 0.1 hanga 1000 kuintaalii ta\'uu qaba';
+      'Dandeettiin kuntaala 0.1 hanga 1000 ta\'uu qaba';
 
   @override
-  String get invalidPrice => 'Gatiin 0.01 hanga 10000 ETB ta\'uu qaba';
+  String get invalidPrice =>
+      'Gatiin Birrii 0.01 hanga Birrii 10000 ta\'uu qaba';
 
   @override
   String get sameOriginDestination =>
@@ -777,7 +793,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliverySelfPickupPayFirst =>
-      'Duraan escrow keessa kaffali, ergasii qonnaan bulaa biratti fudhachuuf iskaanii godhi.';
+      'Duraan eeskiroo keessa kaffali, ergasii qonnaan bulaa biratti fudhachuuf iskaanii godhi.';
 
   @override
   String get orderOpenDelivery => 'Geejjiba bani';
@@ -1220,7 +1236,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get escrowErrorOrderAlreadyFunded =>
-      'Kaffaltiin ajaja kanaa duraan eskiroo keessatti qabamee jira.';
+      'Kaffaltiin ajaja kanaa duraan eeskiroo keessatti qabamee jira.';
 
   @override
   String get escrowErrorGateway =>
@@ -1396,14 +1412,14 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get dataUsageScopeNote =>
-      'Kun gaaffii herregni kun meeshaa kana irraa gara sarvaroota WeredaConnect ergu qofa lakkaa\'a. Itti fayyadamni daataa bilbila keessanii waliigalaa (haaromsa appii, suuraalee, appiiwwan biroo) kana caaluu danda\'a. Daataan seensaa (sign-in) hin dabalamne.';
+      'Kun gaaffii herregni kun meeshaa kana irraa gara WeredaConnect ergu qofa lakkaa\'a. Itti fayyadamni daataa bilbila keessanii waliigalaa (haaromsa appii, suuraalee, appiiwwan biroo) kana caaluu danda\'a. Daataan seensaa (sign-in) hin dabalamne.';
 
   @override
   String get conflictTitle => 'Deetaan Haaromfame';
 
   @override
   String get conflictExplanation =>
-      'Meeshaan biraa ykn serveriin galmee kana haaromse. Kophi naannoo kee haaromfameera.';
+      'Odeeffannoon kun bilbila biraa ykn WeredaConnect irratti jijjiirameera. Kan bilbila kana irra jirus sirreeffameera.';
 
   @override
   String get conflictAccept => 'Tole, Hubadhe';
@@ -1601,6 +1617,11 @@ class AppLocalizationsOm extends AppLocalizations {
   String get copiedToClipboard => 'Garagalchamee';
 
   @override
+  String ratingStarsOf(int count, int max) {
+    return 'Urjii $max keessaa $count';
+  }
+
+  @override
   String get forgotPasswordContactSupport =>
       'Jecha darbii keessan haaromsuuf gargaarsa +251-111-234567 irratti quunnamaa.';
 
@@ -1651,7 +1672,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String escrowPayoutExpectedOn(String date) {
-    return 'Kaffaltiin $date irratti eegama';
+    return 'Maallaqni keessan $date isin ga\'a jedhamee eegama';
   }
 
   @override
@@ -1707,7 +1728,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String escrowPaymentAmount(String amount) {
-    return 'Kaffaltii: ETB $amount';
+    return 'Kaffaltii: Birrii $amount';
   }
 
   @override
@@ -1739,7 +1760,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get authErrorOfflineLoginFailed =>
-      'Oflaayiniin seenuu hin milkoofne. Maaloo dursa onlaayiniin seeni.';
+      'Neetworkii malee seenuun hin milkoofne. Maaloo dursa interneetiin seeni.';
 
   @override
   String get authErrorSecureStorage =>
@@ -1784,7 +1805,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryErrorQrPending =>
-      'Koodiin QR qonnaan bulaa hanga ammaatti sarvarii hin geenye. Qonnaan bulaan interneetii irratti koodii QR akka banu gaafadhaa, achiis irra deebi\'aa yaalaa.';
+      'Koodiin QR qonnaan bulaa hanga ammaatti nu hin geenye. Qonnaan bulaan interneetii irratti koodii QR akka banu gaafadhaa, achiis irra deebi\'aa yaalaa.';
 
   @override
   String get deliveryErrorCancelNotAllowed =>
@@ -1925,7 +1946,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get rating => 'Sadarkaa';
 
   @override
-  String get inEscrowEtb => 'Eeskiroo Keessaa (ETB)';
+  String get inEscrowEtb => 'Eeskiroo Keessaa (Birrii)';
 
   @override
   String get wallet => 'Waaleetii';
@@ -2100,10 +2121,10 @@ class AppLocalizationsOm extends AppLocalizations {
   String get trackDeliveries => 'Geejjiba midhaanii kee hordofi';
 
   @override
-  String get trackPayments => 'Galii fi eesciroo kee hordofi';
+  String get trackPayments => 'Galii fi eeskiroo kee hordofi';
 
   @override
-  String get trackBuyerPayments => 'Kaffaltii fi eesciroo kee hordofi';
+  String get trackBuyerPayments => 'Kaffaltii fi eeskiroo kee hordofi';
 
   @override
   String get listsPaymentsNote =>
@@ -2160,7 +2181,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get splashSubtitle =>
-      'Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf — eesciroo nageenya qabuun.';
+      'Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf, eeskiroo nageenya qabuun.';
 
   @override
   String get orderFunded => 'Kaffaltii';
@@ -2277,11 +2298,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get statusPaymentSubmittedInfo =>
-      'Bitataan kaffaltii ergeera; mirkanaa\'aa jira. Maallaqni ammallee eskiroo keessatti hin mirkanoofne.';
+      'Bitataan kaffaltii ergeera; mirkanaa\'aa jira. Maallaqni ammallee eeskiroo keessatti hin mirkanoofne.';
 
   @override
   String get statusFundedInfo =>
-      'Kaffaltiin mirkanaa\'ee eskiroo keessatti nagaan qabameera. Hangi ajajame tarree qonnaan bulaa irraa qabameera.';
+      'Kaffaltiin mirkanaa\'ee eeskiroo keessatti nagaan qabameera. Hangi ajajame tarree qonnaan bulaa irraa qabameera.';
 
   @override
   String get orderAcceptedInfo =>
@@ -2296,11 +2317,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get statusDeliveredInfo =>
-      'Ga\'umsi bitataadhaan mirkanaa\'eera. Eskiroon kaffaltii qonnaan bulaaf gadhiisa.';
+      'Ga\'umsi bitataadhaan mirkanaa\'eera. Eeskiroon kaffaltii qonnaan bulaaf gadhiisa.';
 
   @override
   String get statusDisbursingInfo =>
-      'Maallaqni eskiroo irraa ba\'aa jira: qonnaan bulaa fi, yoo jiraate, konkolaataa fe\'aatiif kaffalamaa jira.';
+      'Maallaqni eeskiroo irraa ba\'aa jira: qonnaan bulaa fi, yoo jiraate, konkolaataa fe\'aatiif kaffalamaa jira.';
 
   @override
   String get statusSettledInfo =>
@@ -2308,11 +2329,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get orderCancelledInfo =>
-      'Ajajni haqameera. Maallaqni eskiroo keessatti qabame yoo jiraate bitataaf deebi\'a.';
+      'Ajajni haqameera. Maallaqni eeskiroo keessatti qabame yoo jiraate bitataaf deebi\'a.';
 
   @override
   String get orderRejectedInfo =>
-      'Qonnaan bulaan ajaja kana hin fudhanne. Maallaqni eskiroo keessatti qabame bitataaf deebi\'a.';
+      'Qonnaan bulaan ajaja kana hin fudhanne. Maallaqni eeskiroo keessatti qabame bitataaf deebi\'a.';
 
   @override
   String get statusPaymentFailedInfo =>
@@ -2320,7 +2341,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get statusDisputedInfo =>
-      'Falmiin dhiyaateera. Hanga falmiin furamutti maallaqni eskiroo keessatti qabamee tura.';
+      'Falmiin dhiyaateera. Hanga falmiin furamutti maallaqni eeskiroo keessatti qabamee tura.';
 
   @override
   String get statusDisputeResolvedInfo =>
@@ -2378,6 +2399,15 @@ class AppLocalizationsOm extends AppLocalizations {
   String get orderTimeline => 'Sarara Yeroo Ajajaa';
 
   @override
+  String get orderTimelineStepDone => 'Xumurameera';
+
+  @override
+  String get orderTimelineStepNow => 'Amma';
+
+  @override
+  String get orderTimelineStepLater => 'Ammallee miti';
+
+  @override
   String etbCurrency(String amount) {
     return 'Birrii $amount';
   }
@@ -2410,7 +2440,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get findMatches => 'Walsimatu Barbaadi';
 
   @override
-  String get quantityNeeded => 'Hamma barbaadamu (kuuntaalii)';
+  String get quantityNeeded => 'Hamma barbaadamu (kuntaala)';
 
   @override
   String get maxPrice => 'Gatii ol\'aanaa (Birrii/kg)';
@@ -2489,7 +2519,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String syncedAgo(String time) {
-    return '$time dura walsimame';
+    return '$time dura haaromfame';
   }
 
   @override
@@ -2659,19 +2689,19 @@ class AppLocalizationsOm extends AppLocalizations {
       'Midhaan keessan galmeessaa bittoota kallattiin argadhaa';
 
   @override
-  String get synced => 'Walsimame';
+  String get synced => 'Hundi ergameera';
 
   @override
-  String get offline => 'Oflaayinii';
+  String get offline => 'Neetworkiin hin jiru';
 
   @override
   String syncFailureCount(int count) {
-    return '$count hojiiwwan xiyyeeffannoo barbaadu';
+    return '$count ergamuu hin dandeenye';
   }
 
   @override
   String syncPendingCount(int count) {
-    return '$count walsimsisuuf eeggataa jiru';
+    return '$count ergamuuf eegaa jiru';
   }
 
   @override
@@ -2705,7 +2735,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get logoutOfflineNeedsInternet =>
-      'Oflaayinii jirtu. Irra deebitanii seenuuf interneetiin barbaachisa.';
+      'Neetworkiin hin jiru. Irra deebitanii seenuuf interneetiin barbaachisa.';
 
   @override
   String get logoutAnyway => 'Haa ta\'u malee ba\'i';
@@ -2713,6 +2743,34 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get savedOnPhoneWillSend =>
       'Bilbila keessan irratti olkaa\'ameera. Yeroo neetworkiin jiru ni ergama.';
+
+  @override
+  String syncStillWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Jijjiiramni $count ammallee eegaa jiru. Ofumaan irra deebi\'anii ni ergamu.',
+      one:
+          'Jijjiiramni 1 ammallee eegaa jira. Ofumaan irra deebi\'ee ni ergama.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get listingNotSentYet => 'Ammallee hin ergamne';
+
+  @override
+  String get listingNotSentYetNote =>
+      'Bilbila kana irratti qofa olkaa\'ameera. Erga ergamee booda bitoonni ni argu.';
+
+  @override
+  String get myCropsNotSentNote =>
+      'Tarreewwan \"Ammallee hin ergamne\" jedhan bilbila kana irratti qofa olkaa\'amaniiru. Erga ergamanii booda bitoonni ni argu.';
+
+  @override
+  String get authNetworkTooSlow =>
+      'Neetworkiin amma baay\'ee suuta jira. Bakka neetworkiin gaarii jirutti deemaatii irra deebi\'aa yaalaa.';
 
   @override
   String get orderAcceptedSent => 'Ajajicha fudhattaniittu.';
@@ -2877,7 +2935,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get kycRequiredFaydaMessage =>
-      'Kaffaltiin qarshii 10,000 ol ta\'e ID Faayidaa mirkanaa\'e barbaada. Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti ni ergama.';
+      'Kaffaltiin Birrii 10,000 ol ta\'e ID Faayidaa mirkanaa\'e barbaada. Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti ni ergama.';
 
   @override
   String get kycRequiredPhoneMessage =>
@@ -2956,7 +3014,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get faydaNotVerifiedSubtitle =>
-      'Kaffaltii qarshii 10,000 ol ta\'eef barbaachisa';
+      'Kaffaltii Birrii 10,000 ol ta\'eef barbaachisa';
 
   @override
   String get appLockTitle => 'Cufaa appii';
@@ -3009,7 +3067,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get kycFarmerFaydaMessage =>
-      'Kaffaltiin qarshii 10,000 ol ta\'e qonnaan bulaanis ID Faayidaa mirkanaa\'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
+      'Kaffaltiin Birrii 10,000 ol ta\'e qonnaan bulaanis ID Faayidaa mirkanaa\'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
 
   @override
   String get kycFarmerNotVerifiedMessage =>
@@ -3076,7 +3134,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get orderCheckoutWaitingToSend =>
-      'Kaffaltiin keessan ergamuuf eegaa jira. Yeroo sarvarii bira gahu Telebirr ni banama.';
+      'Kaffaltiin keessan ergamuuf eegaa jira. Yeroo ergamu Telebirr ni banama.';
 
   @override
   String orderCheckoutOpenUntil(String time) {
@@ -3123,7 +3181,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get orderCheckoutOrderMissing =>
-      'Ajajni kun ammallee sarvarii irra hin jiru. Erga walsimee booda irra deebi\'aa yaalaa.';
+      'Ajajni kun ammallee hin ergamne. Erga ergamee booda irra deebi\'aa yaalaa.';
 
   @override
   String get orderCheckoutPaymentFailed =>
@@ -3139,7 +3197,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get paymentTotalOutOfRange =>
-      'Telebirr kaffaltii tokkoon qarshii 100 hanga 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta\'eef, Telebirr\'n kaffalamuu hin danda\'u.';
+      'Telebirr kaffaltii tokkoon Birrii 100 hanga Birrii 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta\'eef, Telebirr\'n kaffalamuu hin danda\'u.';
 
   @override
   String get paymentMethodUnavailable =>
@@ -3317,7 +3375,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deleteAccountNetworkError =>
-      'Sarvarii argachuu hin dandeenye, kanaaf herregni keessan haqamuu isaa beekuu hin dandeenyu. Walqunnamtii keessan mirkaneessaatii irra deebi\'aa yaalaa.';
+      'Wal qunnamuu hin dandeenye, kanaaf herregni keessan haqamuu isaa beekuu hin dandeenyu. Walqunnamtii keessan mirkaneessaatii irra deebi\'aa yaalaa.';
 
   @override
   String get deleteAccountIncomplete =>
@@ -4965,7 +5023,7 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
-  String get detailEtbPerQuintalShort => 'ETB/k';
+  String get detailEtbPerQuintalShort => 'Birrii/kuntaala';
 
   @override
   String detailFitsTrip(String quintals) {
@@ -4974,7 +5032,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String detailExceedsTrip(String quintals) {
-    return 'iddoo imalli kun qabuu ol ($quintals kuntaala hafe)';
+    return 'iddoo imalli kun qabuu ol (kuntaala $quintals hafe)';
   }
 
   @override
@@ -5107,7 +5165,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String marketQuintalsLeft(String quantity) {
-    return '$quantity kuntaalli hafe';
+    return 'kuntaala $quantity hafe';
   }
 
   @override
@@ -5234,11 +5292,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryQrReadCheckedOnline =>
-      'Koodiin QR dubbifameera. Yeroo bilbilli kee interneetii irra jiru sarvariin ni mirkaneessa.';
+      'Koodiin QR dubbifameera. Yeroo bilbilli kee interneetii irra jiru ni mirkanaa\'a.';
 
   @override
   String get deliveryCodeTypedCheckedOnline =>
-      'Koodiin barreeffameera. Yeroo bilbilli kee interneetii irra jiru sarvariin ni mirkaneessa.';
+      'Koodiin barreeffameera. Yeroo bilbilli kee interneetii irra jiru ni mirkanaa\'a.';
 
   @override
   String get qrTypedCodeNeedsGps =>
@@ -5371,11 +5429,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryDropoffQrNotSent =>
-      'Ammaaf sarvarii hin geenye. Yeroo QR kana interneetii irratti banattu hundaa irra deebi\'ee ergama, mirkaneessi bitaas hanga inni ga\'utti eeggata.';
+      'Ammaaf hin ergamne. Yeroo QR kana interneetii irratti banattu hundaa irra deebi\'ee ergama, mirkaneessi bitaas hanga inni ga\'utti eeggata.';
 
   @override
   String get deliveryErrorDropoffQrPending =>
-      'Koodiin buusuu konkolaachisaa hanga ammaatti sarvarii hin geenye. Konkolaachisaan interneetii irratti QR buusuu akka banu gaafadhaa, achiis irra deebi\'aa yaalaa.';
+      'Koodiin buusuu konkolaachisaa hanga ammaatti nu hin geenye. Konkolaachisaan interneetii irratti QR buusuu akka banu gaafadhaa, achiis irra deebi\'aa yaalaa.';
 
   @override
   String get deliveryErrorDropoffCodeLocked =>
@@ -5777,7 +5835,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String reputationShowingSaved(String date) {
-    return 'Oflaayinii jirtu. Kan $date olkaa\'ame agarsiifamaa jira.';
+    return 'Neetworkiin hin jiru. Kan $date olkaa\'ame agarsiifamaa jira.';
   }
 
   @override
@@ -5988,7 +6046,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get checkInPendingNote =>
-      'Koodiin QR hanga yeroo dhumaa fudhannaatti yoo hin iskaanamne, mirkaneessonni kunneen waan ta\'u murteessu. Kan lakkaa\'amu yeroo tokkoon tokkoon isaanii sarvarii bira ga\'u dha.';
+      'Koodiin QR hanga yeroo dhumaa fudhannaatti yoo hin iskaanamne, mirkaneessonni kunneen waan ta\'u murteessu. Kan lakkaa\'amu yeroo tokkoon tokkoon isaanii nu bira ga\'u dha.';
 
   @override
   String get checkInDeadlinePassedNote =>
@@ -6064,7 +6122,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get errorCheckInTooLate =>
-      'Mirkaneessi kee yeroo dhumaa fudhannaa booda sarvarii bira waan ga\'eef hin lakkaa\'amu. Gamaaggamaaf olkaa\'ameera.';
+      'Mirkaneessi kee yeroo dhumaa fudhannaa booda nu bira waan ga\'eef hin lakkaa\'amu. Gamaaggamaaf olkaa\'ameera.';
 
   @override
   String get errorCheckInValidation =>
@@ -6174,7 +6232,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get errorCheckInPhotoRequired =>
-      'Suuraan ga\'umsaa sarvarii bira hin geenye. Jalqaba suuraa ga\'umsaa kaasi, sana booda bakka buusuu irratti irra deebi\'ii mirkaneessi.';
+      'Suuraan ga\'umsaa nu bira hin geenye. Jalqaba suuraa ga\'umsaa kaasi, sana booda bakka buusuu irratti irra deebi\'ii mirkaneessi.';
 
   @override
   String get errorDropoffCheckInNotOpen =>
@@ -6194,7 +6252,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get errorDropoffCheckInTooLate =>
-      'Mirkaneessi kee yeroo dhumaa geejjibaa booda sarvarii bira waan ga\'eef hin lakkaa\'amu. Gamaaggamaaf olkaa\'ameera.';
+      'Mirkaneessi kee yeroo dhumaa geejjibaa booda nu bira waan ga\'eef hin lakkaa\'amu. Gamaaggamaaf olkaa\'ameera.';
 
   @override
   String get errorDropoffCheckInClosed =>

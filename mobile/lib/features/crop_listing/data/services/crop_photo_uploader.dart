@@ -36,12 +36,50 @@ class CropPhotoUploader {
         _storage = storage ??
             Dio(
               BaseOptions(
-                // A 600 KB photo on a slow 3G uplink.
                 connectTimeout: const Duration(seconds: 30),
-                sendTimeout: const Duration(seconds: 120),
-                receiveTimeout: const Duration(seconds: 30),
+                // Each PUT sets its own send and receive timeout
+                // ([uploadTimeoutFor]).
+                sendTimeout: maxUploadTimeout,
+                receiveTimeout: maxUploadTimeout,
               ),
             );
+
+  /// The shortest time a photo gets to go up, whatever its size: the
+  /// request headers and S3's answer.
+  static const Duration minUploadTimeout = Duration(seconds: 30);
+
+  /// The longest one photo may hold the sync, so a dead link cannot keep the
+  /// other waiting changes back for long.
+  static const Duration maxUploadTimeout = Duration(minutes: 3);
+
+  /// The slowest uplink a photo is still given time for: 2 KB per second
+  /// (16 kbit/s, about a 2G GSM data link).
+  static const int slowestUplinkBytesPerSecond = 2000;
+
+  /// BUG-33: how long one photo of [sizeBytes] may take to go up, used for
+  /// both the send and the receive timeout of its PUT: [minUploadTimeout]
+  /// plus the time [sizeBytes] need at [slowestUplinkBytesPerSecond], at
+  /// most [maxUploadTimeout]. A 95 KB photo gets 78 seconds, a 44 KB one 52
+  /// seconds.
+  ///
+  /// Why the receive timeout has to cover the upload: Dio's send timeout
+  /// only runs while the body is handed to the socket, and a photo this
+  /// small fits in the phone's socket buffer, so that hand-over is over at
+  /// once. The bytes then leave at the speed of the uplink while Dio already
+  /// waits for the response, which the receive timeout bounds. With the old
+  /// fixed 30 seconds a photo had to go up at 25 kbit/s or faster, and on a
+  /// 2G link it never did; the 120 second send timeout never applied. A
+  /// larger photo that does not fit the buffer is bounded by the send
+  /// timeout instead, so both get the same budget.
+  ///
+  /// A presigned S3 PUT cannot resume, so a photo that runs out of time is
+  /// sent again whole on the next sync. A photo that went up is not sent
+  /// again (the sync preflight keeps its state).
+  static Duration uploadTimeoutFor(int sizeBytes) {
+    final budget = minUploadTimeout +
+        Duration(seconds: (sizeBytes / slowestUplinkBytesPerSecond).ceil());
+    return budget > maxUploadTimeout ? maxUploadTimeout : budget;
+  }
 
   /// Uploads [photos] for listing [listingId] and returns the ids that went
   /// up. Throws when the URLs cannot be had (offline, server refusal); a
@@ -83,11 +121,14 @@ class CropPhotoUploader {
     for (final photo in photos) {
       final url = urls[photo.photoId];
       if (url == null) continue;
+      final timeout = uploadTimeoutFor(photo.sizeBytes);
       try {
         await _storage.put<void>(
           url,
           data: Stream<List<int>>.value(photo.bytes),
           options: Options(
+            sendTimeout: timeout,
+            receiveTimeout: timeout,
             // Both headers are signed into the URL: anything else is a 403.
             // A browser sets Content-Length itself and refuses a script
             // that tries to.
