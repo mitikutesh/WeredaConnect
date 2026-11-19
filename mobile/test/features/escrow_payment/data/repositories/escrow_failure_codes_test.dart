@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/web_escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
@@ -193,6 +196,143 @@ void main() {
         expect(text.trim(), isNotEmpty, reason: locale);
         expect(text, isNot(l10n.escrowErrorInvalidTransition), reason: locale);
         expect(text, isNot(l10n.escrowErrorGeneric), reason: locale);
+      }
+    });
+  });
+
+  group('a "not delivered" dispute while the goods are on the road (BUG-8)',
+      () {
+    const onTheWay = 'The goods are still on the way. You can report them as '
+        'not delivered after 2026-11-22 08:46 UTC. For any other problem, '
+        'choose another reason.';
+
+    test('escrowCodeOf reads it from the server text of the 422', () {
+      expect(
+        escrowCodeOf(
+          const ServerException(onTheWay, 422, 'ESCROW_INVALID_TRANSITION'),
+          '',
+        ),
+        escrowDisputeGoodsOnTheWayCode,
+      );
+      // A queued dispute stores the same code, and never retries a 422.
+      expect(
+        escrowFailureCodeOf(
+          const ServerException(onTheWay, 422, 'ESCROW_INVALID_TRANSITION'),
+        ),
+        escrowDisputeGoodsOnTheWayCode,
+      );
+      expect(
+        isPermanentEscrowRefusal(
+          const ServerException(onTheWay, 422, 'ESCROW_INVALID_TRANSITION'),
+        ),
+        isTrue,
+      );
+    });
+
+    test(
+        'any other invalid transition, and the wording under another code, '
+        'keep their code', () {
+      expect(
+        escrowCodeOf(
+          const ServerException(
+            "Cannot dispute escrow in 'released' state. Must be 'escrowed'.",
+            422,
+            'ESCROW_INVALID_TRANSITION',
+          ),
+          '',
+        ),
+        'ESCROW_INVALID_TRANSITION',
+      );
+      expect(
+        escrowCodeOf(const ServerException(onTheWay, 422, 'ESCROW_041'), ''),
+        'ESCROW_041',
+      );
+      // The scheduled refund keeps its own code.
+      expect(
+        escrowCodeOf(
+          const ConflictException(
+            _refundScheduled,
+            409,
+            'ESCROW_INVALID_TRANSITION',
+          ),
+          'ESCROW_009',
+        ),
+        escrowDisputeRefundScheduledCode,
+      );
+    });
+
+    test('shows the time the server names, in Ethiopia time', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final text = localizeEscrowError(
+          l10n,
+          escrowDisputeGoodsOnTheWayCode,
+          onTheWay,
+        );
+        // 08:46 UTC is 11:46 in Addis Ababa.
+        expect(text, contains('11:46'), reason: locale);
+        expect(text, isNot(contains('UTC')), reason: locale);
+        expect(
+          text,
+          isNot(l10n.escrowErrorDisputeGoodsOnTheWay),
+          reason: locale,
+        );
+      }
+      expect(
+        goodsOnTheWayOpensAt(onTheWay),
+        DateTime.utc(2026, 11, 22, 8, 46),
+      );
+    });
+
+    test(
+        'names the day in both calendars in Amharic and Afaan Oromoo (FUP-545)',
+        () async {
+      // What MaterialApp does at start: intl's date data for its languages.
+      await GlobalMaterialLocalizations.delegate.load(const Locale('en'));
+      addTearDown(() => Intl.defaultLocale = null);
+      // 2026-11-22 08:46 UTC is 11:46 on 22 November in Addis Ababa, which is
+      // Hidar 13, 2019 in the Ethiopian calendar.
+      final expected = {
+        'am': '\u1285\u12f3\u122d 13',
+        'om': 'Sadaasa 13',
+        'en': 'Nov 22',
+      };
+      for (final entry in expected.entries) {
+        applyDateLocale(Locale(entry.key));
+        final l10n = await AppLocalizations.delegate.load(Locale(entry.key));
+        final text = localizeEscrowError(
+          l10n,
+          escrowDisputeGoodsOnTheWayCode,
+          onTheWay,
+        );
+        expect(text, contains(entry.value), reason: entry.key);
+        expect(text, contains('11:46'), reason: entry.key);
+      }
+    });
+
+    test('falls back to the text without a time when none can be read', () {
+      expect(goodsOnTheWayOpensAt('The goods are still on the way.'), isNull);
+      expect(
+        goodsOnTheWayOpensAt('... after 2026-13-40 25:61 UTC. ...'),
+        isNull,
+      );
+    });
+
+    test('has its own text in en, am and om', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final text =
+            localizeEscrowError(l10n, escrowDisputeGoodsOnTheWayCode, 'raw');
+        expect(text, l10n.escrowErrorDisputeGoodsOnTheWay, reason: locale);
+        expect(text.trim(), isNotEmpty, reason: locale);
+        expect(text, isNot(l10n.escrowErrorInvalidTransition), reason: locale);
+        expect(
+          text,
+          isNot(l10n.escrowErrorDisputeBeforePickup),
+          reason: locale,
+        );
+        expect(text, isNot(l10n.escrowErrorGeneric), reason: locale);
+        expect(text, isNot(contains('ESCROW_')), reason: locale);
       }
     });
   });

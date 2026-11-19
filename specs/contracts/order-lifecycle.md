@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.24.2
+2.25.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -1133,6 +1133,7 @@ only with `COMMITMENTS_ENABLED`; before it goes on, the client FUP-336 and the b
 
 ## Changelog
 
+- **2.25.0 (2026-11-19)**: Persona simulation BUG-7 and BUG-8 (fraud spec 3.44.0 Rule 7, `escrow-protocol.md` 2.28.0). An order create on a trip whose `fromWoreda` is neither the listing's `woreda` nor its `locationName` (trimmed, case and inner spaces ignored) is accepted and records the weight 0 review flag `ORDER_ROUTE_MISMATCH` on the buyer. T8 (`dropoffDeadlineAt`, else `pickedUpAt` + `delivery-overdue-hours`) also opens the buyer's `not_delivered` escrow dispute of goods on the road. No wire change.
 - **2.24.2 (2026-11-19)**: Client only, no server change (persona simulation BUG-29): the demo payment screen defaults to Telebirr instead of the bank transfer, and offers the CBE transfer only when a real account number is configured; the placeholder `1000XXXXXXXXXX` is never shown. The reference stays the full order id (SIM-54). `ORDER_PAYMENT_METHOD_UNAVAILABLE` and the stored `cbe_transfer` default of the mobile order create are unchanged.
 - **2.24.1 (2026-11-19)**: Client only, no server change (persona simulation BUG-20): the place-order form no longer starts at the listing's whole stock. The quantity starts empty, the form names the kg that can be ordered and offers "All"; an order from a buying request still starts at the request's quantity (Units). A typed drop-off place that was not picked from the list now blocks Place Order instead of silently falling back to the trip's destination (BUG-18); an empty field still means the trip's destination.
 - **2.24.0 (2026-11-19)**: Persona simulation fixes (`escrow-protocol.md` 2.27.0, `rating-api.md` 1.6.0, `sync-protocol.md` 1.70.0, `delivery-verification-api.md` 2.17.0). A dispute between pickup and delivery: the buyer's later delivery confirm takes the delivery and the order to `disputed` through the dispute mirror instead of leaving them `delivered` over frozen money, and a rating is refused while the order's escrow is `disputed` or `dispute_resolved`. The order quantity minimum of 0.01 kg is enforced. An order update with nothing left to write answers `success` at the stored version and writes nothing. The payment gate refuses a `payment_submitted` when the listing's free stock is already below the order's quantity (`ORDER_VALIDATION`), with the funding check kept as the race guard. No client change.

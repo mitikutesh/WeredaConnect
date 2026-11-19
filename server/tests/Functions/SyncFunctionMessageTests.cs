@@ -524,4 +524,126 @@ public class SyncFunctionMessageTests
         Assert.Contains("SYNC_SERVER_ERROR", response.Body);
         await AssertNothingStored();
     }
+
+    // --- Persona sim 2026-11-19, BUG-14: a phone number in the chat before delivery ---
+    // Contact is open after the accept by design, so the message is stored as sent; the sender gets a
+    // weight 0 flag for review, once per order.
+
+    private const string ChatFlag = "CHAT_CONTACT_BEFORE_DELIVERY";
+    private const string OffPlatformAsk = "send 7000 birr to telebirr 0911223344";
+
+    private readonly IFraudDetectionService _fraud = Substitute.For<IFraudDetectionService>();
+
+    private SyncFunction WithFraud()
+    {
+        _fraud.GetUserRiskScoreAsync(Arg.Any<string>())
+            .Returns(new RiskScoreResult { Score = 0, EnforcementScore = 0, Tier = RiskTier.Low });
+        return new SyncFunction(_meta, _crop, _ddb, "trips", "deliveries",
+            fraudService: _fraud, userRepo: _users, orderRepo: _orders, messageRepo: _messages);
+    }
+
+    private async Task<SyncOperationResult> SendWithFraud(SyncOperationRequest op, string userId, string role)
+        => Result(await WithFraud().FunctionHandler(Req(op, userId, role), _ctx));
+
+    private Task NoChatFlag()
+        => _fraud.DidNotReceive().RecordFraudSignalAsync(
+            Arg.Any<string>(), ChatFlag, Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+
+    [Theory]
+    [InlineData("accepted")]
+    [InlineData("pickup_confirmed")]
+    [InlineData("in_transit")]
+    public async Task APhoneNumberInAnOrderChat_BeforeDelivery_IsStored_AndFlaggedOnTheSender(string status)
+    {
+        OrderWith(status);
+
+        var result = await SendWithFraud(
+            MessageOp(senderId: "farmer-1", recipientId: "buyer-1", body: OffPlatformAsk), "farmer-1", "farmer");
+
+        // Nothing is blocked: the message is stored exactly as before.
+        Assert.Equal("success", result.Status);
+        await _messages.Received(1).CreateAsync("msg-1", Arg.Any<Dictionary<string, object>>());
+        // On the sender, about the order, and without a word of the message.
+        await _fraud.Received(1).RecordFraudSignalAsync("farmer-1", ChatFlag, "order-1", "order",
+            Arg.Is<string>(d => !d.Contains("0911223344") && !d.Contains("birr") && !d.Contains("telebirr")));
+        await _fraud.DidNotReceive().RecordFraudSignalAsync("buyer-1", Arg.Any<string>(), Arg.Any<string?>(),
+            Arg.Any<string>(), Arg.Any<string?>());
+        Assert.Equal(0, FraudDetectionService.SignalWeight(ChatFlag));
+    }
+
+    [Fact]
+    public async Task AMessageWithoutANumber_RecordsNothing_AndReadsNothingMore()
+    {
+        OrderWith();
+
+        var result = await SendWithFraud(MessageOp(body: "The 30 quintals are ready on 12-03-2018."), "buyer-1", "buyer");
+
+        Assert.Equal("success", result.Status);
+        await NoChatFlag();
+        await _fraud.DidNotReceiveWithAnyArgs().HasSignalAsync(default!, default!, default!);
+    }
+
+    [Theory]
+    [InlineData("delivered")]
+    [InlineData("disbursing")]
+    [InlineData("settled")]
+    [InlineData("disputed")]
+    public async Task APhoneNumber_OnceTheOrderIsDeliveredOrInDispute_RecordsNothing(string status)
+    {
+        OrderWith(status);
+
+        var result = await SendWithFraud(MessageOp(body: OffPlatformAsk), "buyer-1", "buyer");
+
+        Assert.Equal("success", result.Status);
+        await NoChatFlag();
+    }
+
+    [Fact]
+    public async Task ASecondNumberOnTheSameOrder_BySameSender_RecordsNothingMore()
+    {
+        OrderWith();
+        _fraud.HasSignalAsync("farmer-1", ChatFlag, "order-1").Returns(true);
+
+        var result = await SendWithFraud(
+            MessageOp(senderId: "farmer-1", recipientId: "buyer-1", body: OffPlatformAsk), "farmer-1", "farmer");
+
+        Assert.Equal("success", result.Status);
+        await NoChatFlag();
+    }
+
+    [Fact]
+    public async Task APhoneNumberOnADeliveryThread_IsFlaggedOnTheDeliverysOrder()
+    {
+        OrderWith("pickup_confirmed");
+        DeliveryWith();
+
+        var result = await SendWithFraud(MessageOp(contextType: "delivery", contextId: "delivery-1",
+            senderId: "trucker-1", recipientId: "buyer-1", body: "call +251 911 22 33 44"), "trucker-1", "trucker");
+
+        Assert.Equal("success", result.Status);
+        await _fraud.Received(1).RecordFraudSignalAsync("trucker-1", ChatFlag, "order-1", "order", Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task ARefusedMessageWithANumber_RecordsNothing()
+    {
+        OrderWith("cancelled");
+
+        var result = await SendWithFraud(MessageOp(body: OffPlatformAsk), "buyer-1", "buyer");
+
+        Assert.Equal("error", result.Status);
+        await AssertNothingStored();
+        await NoChatFlag();
+    }
+
+    [Fact]
+    public async Task AChatFlagThatCannotBeWritten_NeverFailsTheMessage()
+    {
+        OrderWith();
+        _fraud.HasSignalAsync(default!, default!, default!).ThrowsAsyncForAnyArgs(new AmazonDynamoDBException("signals down"));
+
+        var result = await SendWithFraud(MessageOp(body: OffPlatformAsk), "buyer-1", "buyer");
+
+        Assert.Equal("success", result.Status);
+    }
 }

@@ -112,6 +112,8 @@ WEIGHTS = {
     "NO_SHOW": 15, "DELIVERY_OVERDUE": 25,
     # Fraud spec 3.43.0, Rules 1 and 6: refusals and a flag honest users also meet, review only.
     "DUPLICATE_LOT": 0, "DUPLICATE_TRIP": 0, "TRIP_SAME_DAY": 0,
+    # Fraud spec 3.44.0, Rule 7: flags of things honest users also do, review only.
+    "PICKUP_NO_FIX": 0, "ORDER_ROUTE_MISMATCH": 0, "CHAT_CONTACT_BEFORE_DELIVERY": 0,
 }
 DEFAULT_WEIGHT = 10
 PATTERN_TYPES = {"AMOUNT_ANOMALY", "NEW_ACCOUNT_LARGE_AMOUNT", "KYC_THRESHOLD_STRUCTURING",
@@ -134,6 +136,9 @@ RULES = {
     "DUPLICATE_LOT": ("Rule 1", "FraudDetectionService.CheckListingCreationAsync: the same lot (crop type, quantity and place) at any price, refused on the wire as FRAUD_DUPLICATE_LISTING and recorded with weight 0"),
     "DUPLICATE_TRIP": ("Rule 6", "FraudDetectionService.CheckTripCreationAsync: the same route, Ethiopia day and vehicle, refused on the wire as FRAUD_DUPLICATE_LISTING and recorded with weight 0"),
     "TRIP_SAME_DAY": ("Rule 6", "FraudDetectionService.CheckTripCreationAsync: another open trip of the trucker on the same day, flag only, weight 0"),
+    "PICKUP_NO_FIX": ("Rule 7", "SyncFunction.TryRecordPickupWithoutFixAsync: a trucker's pickedUp without gpsPickup, accepted, on the trucker with the delivery as the entity, weight 0"),
+    "ORDER_ROUTE_MISMATCH": ("Rule 7", "SyncFunction.TryRecordOrderRouteMismatchAsync: an order created on a trip whose fromWoreda is neither the listing's woreda nor its locationName, accepted, on the buyer with the order as the entity, weight 0"),
+    "CHAT_CONTACT_BEFORE_DELIVERY": ("Rule 7", "SyncFunction.TryRecordChatContactAsync: a stored order or delivery message with a phone number before the order is delivered, on the sender with the order as the entity, once per order and sender, weight 0"),
     "FRAUD_VELOCITY_EXCEEDED": ("Rule 3", "FraudDetectionService.CheckListingCreationAsync (5 listings per hour), SyncFunction crop create"),
     "PRICE_ANOMALY": ("Rule 2", "FraudDetectionService.CheckListingCreationAsync (more than 3 robust spreads from the median of the last 50 listings of the type: 1.4826 x MAD, floored at 10% of the median), flag only"),
     "IDOR_CREATE_CONFLICT": ("FRD-08", "SyncFunction create conflict on a crop, trip, order or delivery id the caller does not own"),

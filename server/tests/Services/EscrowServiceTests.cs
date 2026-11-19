@@ -1,9 +1,11 @@
 using System.Globalization;
+using System.Text.Json;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
@@ -1877,6 +1879,321 @@ public class EscrowServiceTests
         Assert.True(result.IsSuccess, result.Error?.Message);
     }
 
+    // ── Persona simulation BUG-8: "not delivered" while the goods are on the road ──
+
+    private static DisputeEscrowRequest NotDeliveredRequest(string disputedBy = BuyerId) => new()
+    {
+        EscrowId = "escrow-001",
+        DisputedBy = disputedBy,
+        Reason = "not_delivered",
+        IdempotencyKey = $"{disputedBy}:escrow-001:dispute:1708171200000"
+    };
+
+    /// <summary>An order behind the escrow whose delivery is on the road, picked up <paramref name="pickedUpHoursAgo"/> hours ago.</summary>
+    private (IOrderRepository Orders, IDeliveryRepository Deliveries) OnTheRoadRig(
+        string deliveryStatus, double pickedUpHoursAgo, DateTime? dropoffDeadlineAt = null)
+    {
+        var (orders, deliveries) = PickupRig("pickup_confirmed", deliveryStatus);
+        var order = MakeOrder("order-1", "pickup_confirmed", 2);
+        if (dropoffDeadlineAt is { } deadline)
+        {
+            order["dropoffDeadlineAt"] = deadline.ToString("o");
+        }
+
+        orders.GetByIdAsync("order-1", true).Returns(order);
+        deliveries.GetByIdAsync(DeliveryId, true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "status", deliveryStatus },
+            { "pickedUpAt", DateTime.UtcNow.AddHours(-pickedUpHoursAgo).ToString("o") }
+        });
+        return (orders, deliveries);
+    }
+
+    private async Task AssertNothingFrozen()
+    {
+        await _mockIdempotencyRepo.DidNotReceive().StoreAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        await _mockEscrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _mockEscrowRepo.DidNotReceive().TryUpdateStatusWithAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<Dictionary<string, object>?>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
+    }
+
+    [Theory]
+    [InlineData("pickedUp")]
+    [InlineData("inTransit")]
+    public async Task DisputeAsync_BuyerSaysNotDelivered_WhileTheTruckDrives_IsRefused_AndNothingIsFrozen(string deliveryStatus)
+    {
+        // BUG-8: 30 seconds after the pickup the buyer froze the money as "not delivered".
+        var (orders, deliveries) = OnTheRoadRig(deliveryStatus, pickedUpHoursAgo: 0.01);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(NotDeliveredRequest(), BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(422, result.Error!.HttpStatus);
+        // The code every released app already explains; the text is what the newer apps key on.
+        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error.Code);
+        Assert.StartsWith("The goods are still on the way. You can report them as not delivered after ", result.Error.Message);
+        Assert.EndsWith(" UTC. For any other problem, choose another reason.", result.Error.Message);
+        await AssertNothingFrozen();
+    }
+
+    [Fact]
+    public async Task DisputeAsync_NotDeliveredOnTheRoad_NamesTheOrdersStampedDeadline()
+    {
+        // With dropoffClassification on the order carries T8; that is the time the buyer is told.
+        var deadline = DateTime.UtcNow.AddHours(30);
+        var (orders, deliveries) = OnTheRoadRig("inTransit", pickedUpHoursAgo: 100, dropoffDeadlineAt: deadline);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(NotDeliveredRequest(), BuyerId);
+
+        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error!.Code);
+        Assert.Contains(deadline.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " UTC", result.Error.Message);
+    }
+
+    [Theory]
+    [InlineData("damaged_goods")]
+    [InlineData("wrong_quantity")]
+    [InlineData("wrong_crop")]
+    [InlineData("quality_mismatch")]
+    [InlineData("other")]
+    public async Task DisputeAsync_AnyOtherReason_WhileTheTruckDrives_IsAcceptedAsBefore(string reason)
+    {
+        var (orders, deliveries) = OnTheRoadRig("inTransit", pickedUpHoursAgo: 0.01);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders)
+            .DisputeAsync(NotDeliveredRequest() with { Reason = reason }, BuyerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal("disputed", result.Value!.Status);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_TheFarmersNotDelivered_WhileTheTruckDrives_IsAcceptedAsBefore()
+    {
+        // The rule holds back the buyer only: the farmer's disputes stay as they are.
+        var (orders, deliveries) = OnTheRoadRig("inTransit", pickedUpHoursAgo: 0.01);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders)
+            .DisputeAsync(NotDeliveredRequest(FarmerId), FarmerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_NotDelivered_AfterTheDeliveryDeadline_IsAccepted()
+    {
+        // T8 as the contract computes it: 72 hours after the pickup. One hour later the truck is overdue.
+        var (orders, deliveries) = OnTheRoadRig("inTransit", pickedUpHoursAgo: 73);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(NotDeliveredRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.Equal("disputed", result.Value!.Status);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_NotDelivered_AfterTheOrdersStampedDeadline_IsAccepted()
+    {
+        var (orders, deliveries) = OnTheRoadRig("inTransit", pickedUpHoursAgo: 2, dropoffDeadlineAt: DateTime.UtcNow.AddMinutes(-5));
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(NotDeliveredRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_NotDelivered_AfterAConfirmedDelivery_IsAcceptedAsBefore()
+    {
+        // BUG-6 stays a dispute (the evidence is stamped for the admin); only goods on the road are held back.
+        var (orders, deliveries) = OnTheRoadRig("inTransit", pickedUpHoursAgo: 0.01);
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["orderId"] = "order-1";
+        escrowItem["deliveryConfirmedAt"] = DateTime.UtcNow.AddMinutes(-1).ToString("o");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(NotDeliveredRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_NotDelivered_OnADeliveryWithoutAPickupTime_IsNotHeldBack()
+    {
+        // Nothing to compute a deadline from: an honest buyer is never refused on a guess.
+        var (orders, deliveries) = PickupRig("pickup_confirmed", "pickedUp");
+
+        var result = await CreateServiceWithDeliveryAndOrderRepo(deliveries, orders).DisputeAsync(NotDeliveredRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+    }
+
+    [Fact]
+    public void NotDeliveredOpensAt_OnlyWhileOnTheRoad_TheOrdersDeadlineFirst()
+    {
+        var pickedUpAt = new DateTime(2026, 11, 19, 8, 46, 0, DateTimeKind.Utc);
+        Dictionary<string, object> Delivery(string status) => new()
+        {
+            { "deliveryId", DeliveryId }, { "status", status }, { "pickedUpAt", pickedUpAt.ToString("o") }
+        };
+        var stamped = new Dictionary<string, object> { { "dropoffDeadlineAt", "2026-11-25T00:00:00.0000000Z" } };
+
+        Assert.Equal(pickedUpAt.AddHours(72), EscrowService.NotDeliveredOpensAt(null, Delivery("pickedUp"), TimeSpan.FromHours(72)));
+        Assert.Equal(pickedUpAt.AddHours(48), EscrowService.NotDeliveredOpensAt(MakeOrder("order-1", "in_transit", 2), Delivery("inTransit"), TimeSpan.FromHours(48)));
+        Assert.Equal(new DateTime(2026, 11, 25, 0, 0, 0, DateTimeKind.Utc),
+            EscrowService.NotDeliveredOpensAt(stamped, Delivery("inTransit"), TimeSpan.FromHours(72)));
+        Assert.Null(EscrowService.NotDeliveredOpensAt(stamped, Delivery("delivered"), TimeSpan.FromHours(72)));
+        Assert.Null(EscrowService.NotDeliveredOpensAt(stamped, Delivery("pending"), TimeSpan.FromHours(72)));
+        Assert.Null(EscrowService.NotDeliveredOpensAt(stamped, null, TimeSpan.FromHours(72)));
+    }
+
+    // ── Persona simulation BUG-6: the handoff evidence stamped on a new dispute ──
+
+    private static Dictionary<string, object> AuditRow(string action, string actor, string timestamp, string? metadata = null)
+    {
+        var row = new Dictionary<string, object>
+        {
+            { "entityType", "delivery" }, { "entityId", DeliveryId }, { "action", action },
+            { "actor", actor }, { "timestamp", timestamp }
+        };
+        if (metadata != null)
+        {
+            row["metadata"] = metadata;
+        }
+
+        return row;
+    }
+
+    /// <summary>A delivery the buyer confirmed by QR with a fix, picked up by code without one, and its audit rows.</summary>
+    private EscrowService ConfirmedHandoffRig(string confirmedBy = BuyerId)
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["deliveryConfirmedAt"] = DateTime.UtcNow.AddMinutes(-1).ToString("o");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var deliveries = Substitute.For<IDeliveryRepository>();
+        deliveries.GetByIdAsync(DeliveryId, true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "status", "delivered" }, { "truckerId", "trucker-1" }, { "buyerId", BuyerId },
+            { "pickedUpAt", "2026-11-19T08:46:00.0000000Z" }, { "confirmedAt", "2026-11-19T08:47:45.0000000Z" },
+            { "gpsDropoff", new Dictionary<string, object> { { "latitude", "9.6" }, { "longitude", "39.5" } } }
+        });
+        var txAudit = Substitute.For<ITransactionAuditRepository>();
+        txAudit.GetByEntityAsync(DeliveryId).Returns(new List<Dictionary<string, object>>
+        {
+            AuditRow("picked_up", "trucker-1", "2026-11-19T08:46:00.0000000Z", "handoff=code"),
+            AuditRow("delivered", confirmedBy, "2026-11-19T08:47:45.0000000Z", "handoff=qr")
+        });
+        Dictionary<string, object>? captured = null;
+        _mockEscrowRepo.UpdateStatusAsync("escrow-001", Arg.Any<string>(), "disputed", "escrowed",
+                Arg.Do<Dictionary<string, object>?>(f => captured = f))
+            .Returns(Task.CompletedTask);
+        _capturedDisputeFields = () => captured;
+        return new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            _mockUserRepo, null, deliveries, null, txAudit);
+    }
+
+    private Func<Dictionary<string, object>?> _capturedDisputeFields = () => null;
+
+    [Fact]
+    public async Task DisputeAsync_StampsTheHandoffEvidence_AndThatTheDisputerConfirmedReceipt()
+    {
+        // BUG-6: the buyer confirmed the handoff by QR and GPS, then said "not delivered".
+        var service = ConfirmedHandoffRig();
+
+        var result = await service.DisputeAsync(NotDeliveredRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        var evidence = Assert.IsType<Dictionary<string, object>>(_capturedDisputeFields()![DisputeHandoffEvidence.Field]);
+        Assert.Equal(DeliveryId, evidence["deliveryId"]);
+        Assert.Equal("delivered", evidence["deliveryStatus"]);
+        Assert.Equal(false, evidence["selfPickup"]);
+        Assert.Equal("2026-11-19T08:46:00.0000000Z", evidence["pickedUpAt"]);
+        Assert.Equal("code", evidence["pickupMethod"]);
+        Assert.Equal("trucker-1", evidence["pickupBy"]);
+        Assert.Equal(false, evidence["pickupFix"]); // BUG-5: no fix at the pickup
+        Assert.Equal("2026-11-19T08:47:45.0000000Z", evidence["confirmedAt"]);
+        Assert.Equal("qr", evidence["confirmMethod"]);
+        Assert.Equal(BuyerId, evidence["confirmedBy"]);
+        Assert.Equal(true, evidence["dropoffFix"]);
+        Assert.Equal(true, evidence["confirmedByDisputer"]);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_TheFarmersDispute_OfADeliveryTheBuyerConfirmed_IsNotMarkedConfirmedByDisputer()
+    {
+        var service = ConfirmedHandoffRig();
+
+        var result = await service.DisputeAsync(MakeDisputeRequest(FarmerId), FarmerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        var evidence = Assert.IsType<Dictionary<string, object>>(_capturedDisputeFields()![DisputeHandoffEvidence.Field]);
+        Assert.Equal(false, evidence["confirmedByDisputer"]);
+    }
+
+    [Fact]
+    public async Task DisputeAsync_EvidenceThatCannotBeRead_NeverFailsTheDispute()
+    {
+        var escrowItem = MakeEscrowItem(status: "escrowed");
+        escrowItem["deliveryConfirmedAt"] = DateTime.UtcNow.AddMinutes(-1).ToString("o");
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(escrowItem);
+        var deliveries = Substitute.For<IDeliveryRepository>();
+        deliveries.GetByIdAsync(DeliveryId, true).ThrowsAsync(new AmazonDynamoDBException("deliveries down"));
+        Dictionary<string, object>? captured = null;
+        _mockEscrowRepo.UpdateStatusAsync("escrow-001", Arg.Any<string>(), "disputed", "escrowed",
+                Arg.Do<Dictionary<string, object>?>(f => captured = f))
+            .Returns(Task.CompletedTask);
+
+        var result = await CreateServiceWithDeliveryRepo(deliveries).DisputeAsync(MakeDisputeRequest(), BuyerId);
+
+        Assert.True(result.IsSuccess, result.Error?.Message);
+        Assert.False(captured!.ContainsKey(DisputeHandoffEvidence.Field));
+    }
+
+    [Fact]
+    public void HandoffEvidence_WithoutAnAuditRow_LeavesOutWhoAndHow_AndNeverGuessesTheFlag()
+    {
+        var delivery = new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "status", "delivered" }, { "deliveryType", "self_pickup" },
+            { "confirmedAt", "2026-11-19T08:47:45.0000000Z" },
+            { "gpsDropoff", new Dictionary<string, object> { { "latitude", "0" }, { "longitude", "0" } } }
+        };
+
+        var evidence = DisputeHandoffEvidence.Build(delivery, new List<Dictionary<string, object>>(), BuyerId)!;
+
+        Assert.Equal(true, evidence["selfPickup"]);
+        Assert.False(evidence.ContainsKey("pickedUpAt"));
+        Assert.False(evidence.ContainsKey("confirmedBy"));
+        Assert.False(evidence.ContainsKey("confirmMethod"));
+        Assert.False(evidence.ContainsKey("confirmedByDisputer"));
+        Assert.Equal(false, evidence["dropoffFix"]); // (0, 0) is no fix
+        Assert.Null(DisputeHandoffEvidence.Build(null, new List<Dictionary<string, object>>(), BuyerId));
+    }
+
+    [Fact]
+    public void HandoffEvidence_IsNeverOnAPartysEscrowRead()
+    {
+        // The party mapper builds the dispute without it, whatever the row holds.
+        var escrowItem = MakeEscrowItem(status: "disputed");
+        escrowItem["disputeId"] = "dispute-1";
+        escrowItem["disputedBy"] = BuyerId;
+        escrowItem["disputeReason"] = "not_delivered";
+        escrowItem["disputeCreatedAt"] = "2026-11-19T08:48:18.0000000Z";
+        escrowItem[DisputeHandoffEvidence.Field] = new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "confirmedByDisputer", true }
+        };
+
+        var dto = EscrowService.MapToEscrowDto(escrowItem);
+
+        Assert.NotNull(dto.Dispute);
+        Assert.Null(dto.Dispute!.HandoffEvidence);
+        var json = JsonSerializer.Serialize(dto, AppJsonContext.Default.EscrowDto);
+        Assert.DoesNotContain("confirmedByDisputer", json);
+        Assert.DoesNotContain("handoffEvidence", json, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ── FUP-53: the order the pickup rule judged is checked again inside the freeze's transaction ──
 
     private const string OrderCreatedAt = "2026-10-01T09:00:00.0000000Z";
@@ -2030,6 +2347,39 @@ public class EscrowServiceTests
         }
 
         return escrow;
+    }
+
+    [Fact]
+    public async Task FreezeForDeliveryDispute_StampsTheSameHandoffEvidence()
+    {
+        // BUG-6 through sync: the buyer confirmed, then disputed the delivery from the app.
+        _mockEscrowRepo.GetByIdAsync("escrow-order-order-1", true).Returns(MakeOrderEscrow("escrowed"));
+        var deliveries = Substitute.For<IDeliveryRepository>();
+        deliveries.GetByIdAsync(DeliveryId, true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "status", "delivered" }, { "deliveryType", "self_pickup" },
+            { "confirmedAt", "2026-11-19T08:47:38.0000000Z" },
+            { "gpsDropoff", new Dictionary<string, object> { { "latitude", "9.68" }, { "longitude", "39.53" } } }
+        });
+        var txAudit = Substitute.For<ITransactionAuditRepository>();
+        txAudit.GetByEntityAsync(DeliveryId).Returns(new List<Dictionary<string, object>>
+        {
+            AuditRow("delivered", BuyerId, "2026-11-19T08:47:38.0000000Z", "handoff=code")
+        });
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway,
+            _mockUserRepo, null, deliveries, null, txAudit);
+
+        var frozen = await service.FreezeForDeliveryDisputeAsync(DeliveryId, "order-1", BuyerId, "never arrived");
+
+        Assert.Equal(DeliveryDisputeFreeze.Frozen, frozen.Outcome);
+        await _mockEscrowRepo.Received(1).UpdateStatusAsync(
+            "escrow-order-order-1", Arg.Any<string>(), "disputed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f =>
+                f.ContainsKey(DisputeHandoffEvidence.Field)
+                && (bool)((Dictionary<string, object>)f[DisputeHandoffEvidence.Field])["selfPickup"]
+                && (bool)((Dictionary<string, object>)f[DisputeHandoffEvidence.Field])["dropoffFix"]
+                && (string)((Dictionary<string, object>)f[DisputeHandoffEvidence.Field])["confirmMethod"] == "code"
+                && (bool)((Dictionary<string, object>)f[DisputeHandoffEvidence.Field])["confirmedByDisputer"]));
     }
 
     [Fact]

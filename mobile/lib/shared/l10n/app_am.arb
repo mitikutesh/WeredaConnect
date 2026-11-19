@@ -1602,6 +1602,8 @@
     "description": "Error when a dispute is raised before the goods are picked up (ESCROW_041)"
   },
   "escrowErrorDisputeRefundScheduled": "ለዚህ ክፍያ ገንዘቡ ለገዢው እንዲመለስ አስቀድሞ ተይዟል፣ ስለዚህ ከእንግዲህ ክርክር ማንሳት አይቻልም። ካልተስማሙ ድጋፍ ሰጪን ያግኙ።",
+  "escrowErrorDisputeGoodsOnTheWay": "እቃው ገና በመንገድ ላይ ነው። አልደረሰም ብለው ማሳወቅ የሚችሉት የማድረሻው የጊዜ ገደብ ካለፈ በኋላ ነው። ለሌላ ችግር ሌላ ምክንያት ይምረጡ።",
+  "escrowErrorDisputeGoodsOnTheWayAfter": "እቃው ገና በመንገድ ላይ ነው። አልደረሰም ብለው ማሳወቅ የሚችሉት ከ{time} በኋላ ነው። ለሌላ ችግር ሌላ ምክንያት ይምረጡ።",
   "escrowErrorInvalidTransition": "ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።",
   "@escrowErrorInvalidTransition": {
     "description": "Error when escrow state transition is invalid"

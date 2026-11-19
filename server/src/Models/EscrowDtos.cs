@@ -731,6 +731,50 @@ public sealed record DisputeDto
 
     /// <summary>FUP-16: when <see cref="Disposition"/> was recorded. Admin routes only.</summary>
     public string? DispositionAt { get; init; }
+
+    /// <summary>
+    /// Persona simulation BUG-6 (2.28.0): the handoff evidence stamped when the dispute was created.
+    /// Admin routes only; null for the parties and for a dispute from before 2.28.0.
+    /// </summary>
+    public DisputeHandoffEvidenceDto? HandoffEvidence { get; init; }
+}
+
+/// <summary>
+/// The handoffs of the disputed delivery as the server held them when the dispute was created
+/// (escrow-protocol.md 2.28.0, <c>Helpers.DisputeHandoffEvidence</c>). Admin routes only.
+/// </summary>
+public sealed record DisputeHandoffEvidenceDto
+{
+    public required string DeliveryId { get; init; }
+
+    /// <summary>The delivery's status when the dispute was created.</summary>
+    public string? DeliveryStatus { get; init; }
+
+    /// <summary>A self-pickup has no pickup leg: the buyer confirms at the farm.</summary>
+    public bool SelfPickup { get; init; }
+
+    public string? PickedUpAt { get; init; }
+
+    /// <summary><c>qr</c> or <c>code</c>; null when the audit row is missing or names neither.</summary>
+    public string? PickupMethod { get; init; }
+
+    public string? PickupBy { get; init; }
+
+    /// <summary>Whether the pickup carried a GPS fix (BUG-5); null without a pickup leg.</summary>
+    public bool? PickupFix { get; init; }
+
+    public string? ConfirmedAt { get; init; }
+
+    /// <summary><c>qr</c> or <c>code</c>; null when the audit row is missing or names neither.</summary>
+    public string? ConfirmMethod { get; init; }
+
+    public string? ConfirmedBy { get; init; }
+
+    /// <summary>Whether the confirmation carried a GPS fix; null when the delivery was not confirmed.</summary>
+    public bool? DropoffFix { get; init; }
+
+    /// <summary>True when the user who opened the dispute is the one who confirmed receipt; null when unknown.</summary>
+    public bool? ConfirmedByDisputer { get; init; }
 }
 
 /// <summary>

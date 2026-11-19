@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.17.0
+2.18.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -929,6 +929,10 @@ GPS coordinates are captured at pickup and delivery to provide physical proof of
   coordinates; a scanned pickup without a fix is accepted (a typed code on a paid delivery needs
   one, `DELIVERY_CODE_GPS_REQUIRED`). Too far: `DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is
   <d>km from listing location (max 5km).` (the reason token since 2.15.0, see Refusal reasons)
+- A trucker's pickup without `gpsPickup` stays accepted; since 2.18.0 it records the weight 0 review flag
+  `PICKUP_NO_FIX` on the trucker (fraud spec 3.44.0 Rule 7), and the dispute evidence shows "no fix at
+  pickup" (`escrow-protocol.md` 2.28.0). The trucker's `GPS_ANOMALY` row then measures the check-ins from
+  the listing's point (FUP-448, fraud spec Rule 4). Nothing changes on the wire.
 
 **Delivery Validation**:
 - As built (2.0.0 doc fix; the text before said "the buyer's registered location or the trip's
@@ -2083,6 +2087,7 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.18.0 | 2026-11-19 | A pickup without a fix (persona simulation BUG-5, FUP-448; fraud spec 3.44.0): still accepted, with the weight 0 review flag `PICKUP_NO_FIX` on the trucker; the trucker's `GPS_ANOMALY` row judges the check-ins against the listing's point when no `gpsPickup` was stored. A dispute stamps the handoff evidence for admins (`escrow-protocol.md` 2.28.0). No wire or client change. |
 | 1.0.0 | 2026-02-17 | Initial contract: CRUD endpoints, QR verification, GPS validation, photo evidence, state machine, offline behavior, Ethiopian context |
 | 1.1.0 | 2026-07-09 | Buyer self-pickup (`deliveryType: self_pickup`); QR nonce moved to a dedicated secret table (never echoed); server-side freshness + single-use; `deferred` sync status for unsynced secrets; listing-GPS mandatory for self-pickup confirmation |
 | 1.1.1 | 2026-07-11 | Doc fix: delivery statuses are camelCase on the wire (`pickedUp`, `inTransit`) — the server state machine rejects the previously-documented snake_case (`picked_up`, `in_transit`). `deliveryType: self_pickup` is unchanged (it is a type, not a status). |
@@ -2137,5 +2142,5 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 ---
 
 **Last Updated**: 2026-11-19
-**Version**: 2.17.0
+**Version**: 2.18.0
 **Status**: Draft (Phase R4.2)

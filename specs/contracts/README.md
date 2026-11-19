@@ -59,11 +59,11 @@ Each contract file follows this structure:
 | Sync Protocol | `sync-protocol.md` | 1.70.0 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 2.16.0 | Mobile, Backend, Infrastructure |
 | User Entity (profile read and edit: `GET /user/profile`, the `/sync` `user` entity) | `user-entity.md` | 2.3.0 | Mobile, Web, Backend, Admin, Infrastructure |
-| Rating API | `rating-api.md` | 1.6.0 | Mobile, Web, Backend, Infrastructure, Admin |
+| Rating API | `rating-api.md` | 1.7.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Reputation API (penalty events, tiers, appeals, gates; events, aggregate, reads, appeal, gates and admin endpoints BUILT on the server; app BUILT behind the flags, ESC-31) | `reputation-api.md` | 1.8.1 | Mobile, Web, Backend, Admin, Infrastructure |
-| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.24.2 | Mobile, Backend, Admin |
-| Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.27.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
-| Delivery Verification API | `delivery-verification-api.md` | 2.17.0 | Mobile, Web, Backend, Infrastructure, Admin |
+| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.25.0 | Mobile, Backend, Admin |
+| Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.28.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
+| Delivery Verification API | `delivery-verification-api.md` | 2.18.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Account Deletion | `account-deletion.md` | 1.7.3 | Mobile, Backend, Infrastructure, Admin |
 | Crop Listing API | `crop-listing-api.md` | 1.17.0 | Mobile, Web, Backend, Infrastructure |
 | Trip Listing API | `trip-listing-api.md` | 2.10.0 | Mobile, Backend |
@@ -72,7 +72,7 @@ Each contract file follows this structure:
 | Push Alerts API (device tokens, `buyer_intent` sync, `GET /intents`) | `push-alerts-api.md` | 1.5.0 | Mobile, Web, Backend, Infrastructure |
 | Notifications API (order, delivery, money and reputation inbox + push) | `notifications-api.md` | 1.6.0 | Mobile, Web, Backend, Infrastructure |
 | Live Trip (`location_ping` check-ins, track, admin trail, `truck_nearby`) | `live-trip-api.md` | 1.1.2 | Mobile, Web, Backend, Infrastructure, Admin |
-| In-App Messaging (context-scoped chat) | `messaging.md` | 1.5.0 | Mobile, Backend, Admin |
+| In-App Messaging (context-scoped chat) | `messaging.md` | 1.6.0 | Mobile, Backend, Admin |
 | Data Models | `data-models.md` | 1.22.0 | Mobile, Backend |
 | Listing Reports (`listing_report` sync entity, admin queue) | `listing-report-api.md` | 1.0.0 | Mobile, Web, Backend, Admin, Infrastructure |
 

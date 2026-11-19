@@ -3823,7 +3823,8 @@ public partial class AdminFunction
                 Disposition = GetStringOrNull(item, DisputeDispositionFields.Disposition),
                 DispositionReason = GetStringOrNull(item, DisputeDispositionFields.Reason),
                 DispositionBy = GetStringOrNull(item, DisputeDispositionFields.By),
-                DispositionAt = GetStringOrNull(item, DisputeDispositionFields.At)
+                DispositionAt = GetStringOrNull(item, DisputeDispositionFields.At),
+                HandoffEvidence = DisputeHandoffEvidence.Read(item)
             };
         }
 

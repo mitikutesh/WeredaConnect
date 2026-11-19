@@ -1254,6 +1254,15 @@ class AppLocalizationsAm extends AppLocalizations {
       'ለዚህ ክፍያ ገንዘቡ ለገዢው እንዲመለስ አስቀድሞ ተይዟል፣ ስለዚህ ከእንግዲህ ክርክር ማንሳት አይቻልም። ካልተስማሙ ድጋፍ ሰጪን ያግኙ።';
 
   @override
+  String get escrowErrorDisputeGoodsOnTheWay =>
+      'እቃው ገና በመንገድ ላይ ነው። አልደረሰም ብለው ማሳወቅ የሚችሉት የማድረሻው የጊዜ ገደብ ካለፈ በኋላ ነው። ለሌላ ችግር ሌላ ምክንያት ይምረጡ።';
+
+  @override
+  String escrowErrorDisputeGoodsOnTheWayAfter(String time) {
+    return 'እቃው ገና በመንገድ ላይ ነው። አልደረሰም ብለው ማሳወቅ የሚችሉት ከ$time በኋላ ነው። ለሌላ ችግር ሌላ ምክንያት ይምረጡ።';
+  }
+
+  @override
   String get escrowErrorInvalidTransition => 'ይህ ድርጊት በአሁኑ የክፍያ ሁኔታ አይፈቀድም።';
 
   @override

@@ -1,7 +1,7 @@
 # Rating API
 
 ## Version
-1.6.0
+1.7.0
 
 ## Parties
 Mobile, Web, Backend, Infrastructure, Admin
@@ -203,6 +203,24 @@ Built in FUP-162 (1.5.0): the users Scan and `scanFrom` of
 The wire shape of the create is unchanged; the mobile and web clients change
 nothing for it.
 
+### Ratings between linked accounts (1.7.0, persona simulation BUG-3)
+
+A rating create whose rater and ratee are linked accounts is stored outside the aggregate:
+
+- linked means one identity (the same user id, phone number or Fayda ID on both users rows, the rule of
+  `SELF_TRADE`) or a common install (`knownDevices`, the `X-Device-Id` of each sign-in, the rule of
+  `SHARED_DEVICE_TRADE`; fraud spec 15.2). Decided at the create from the two users rows; the fraud signal
+  rows are not read. A rater row that cannot be read counts the rating (the check never fails a rating).
+- The rating is put alone (`attribute_not_exists(ratingId)`, the same conflict) with `inAggregate: false`
+  and the server-only `aggregateExclusion: linked_accounts`. The ratee's `ratingSum`, `ratingCount` and
+  `HEAL` row are not touched.
+- The backfill (step 4) and the create's heal read only ratings without `inAggregate`, so they never add
+  it; the 1.1.0 summary walk skips a row with `aggregateExclusion`. A future role rebuild (step 5) must
+  skip it too.
+- The answer is the `success` every rating gets, with the same `serverData`; neither field is returned.
+  The row stays readable (`GET /ratings` lists it to buyers and the ratee) and visible to admins.
+- A family or cooperative phone loses only the effect of its members rating each other.
+
 ## Read rules (1.2.0; BUILT in 1.4.0, ESC-29)
 
 | Caller | `GET /ratings?rateeId=` | `GET /ratings/{id}` |
@@ -294,8 +312,11 @@ As built (1.4.0, `Functions/RatingFunction.cs`):
 - `inAggregate` (BOOL, 1.2.0): written by the create transaction and the
   backfill; `true` when the stars are in the ratee's stored aggregate. Never
   returned to clients.
+- `aggregateExclusion` (STRING, 1.7.0): `linked_accounts` on a rating kept out of
+  the aggregate on purpose (with `inAggregate: false`). Never returned to clients.
 
 ## Changelog
+- **1.7.0** (2026-11-19): BUILT (persona simulation BUG-3, fraud spec 3.44.0 Rule 7): a rating between linked accounts (one identity, or one install in `knownDevices`) is stored with `inAggregate: false` and `aggregateExclusion: linked_accounts`, never added to the ratee's sum and count by the create, the backfill or the heal, and skipped by the summary walk. The answer is unchanged (`success`). Wire shapes unchanged.
 - **1.6.0** (2026-11-19): BUILT (persona simulation BUG-1): a rating create for a `delivered` order whose escrow is `disputed` or `dispute_resolved` is refused with `RATING_FORBIDDEN: This order is in dispute and cannot be rated.`; an escrow that cannot be read refuses for now without a code (retried). Create and read wire shapes unchanged.
 - **1.5.0** (2026-11-12): BUILT (FUP-162): the farmers and truckers without `ratingsAggregatedAt` (no `woreda`, so the ESC-28 backfill skipped them) get stamped. `reputation_backfill_ratings` Scans the users table once after the index walk (manual action only; time budget; `scanCursor` in the answer, `scanFrom` in the request to resume; new `unindexed` count), and a successful `/sync` rating create stamps an unstamped ratee's full aggregate (bounded, best effort, before the reputation refresh). Both count each rating once through the per-rating `inAggregate` condition. A create cancelled by `TransactionConflict` on the ratee's row is sent once more. Create and read wire shapes unchanged; the reads stay read-only.
 - **1.4.0** (2026-11-11): BUILT (ESC-29): the read rules. `GET /ratings` and `GET /ratings/{id}` only for buyers (farmer and trucker ratees) and the ratee, else `403 RATING_FORBIDDEN`, decided from the caller's role claim before any read; new optional `rateeRole` filter (`400 RATING_VALIDATION` for another value), default the ratee's current role; the summary from the users row when the role is current and the row carries `ratingsAggregatedAt`, else the walk filtered by role; `summary.rateeRole`; `summary.effectiveRating` and the `reputation` block behind `reputationPublicTags` (off everywhere). Create unchanged.

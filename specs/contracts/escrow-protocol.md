@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.27.0
+2.28.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -552,6 +552,7 @@ is answered like a lost race. See "Additions in 1.25.0".
 | `503` | `ESCROW_012` | The order or delivery behind the escrow could not be read for the pickup check; nothing was written, retry (1.21.0) |
 | `409` | `ESCROW_INVALID_TRANSITION` | A release or refund holds the settlement lock (1.9.0), or the escrow changed while the dispute was written and is still `escrowed`: try again (1.12.0), or a refund is scheduled on it (`refundReason`), also when it was armed between the read and the write (1.25.0) |
 | `422` | `ESCROW_INVALID_TRANSITION` | Escrow is in any state but `escrowed` or `disputed` (a `held` escrow is refused too, 1.7.0), also when it moved there between the read and the write (1.12.0) |
+| `422` | `ESCROW_INVALID_TRANSITION` | The buyer's `not_delivered` while the goods are on the road before the delivery deadline (2.28.0): the message starts `The goods are still on the way.` and names the time (UTC) from which it can be raised; see "Not delivered while on the road" |
 | `500` | `ESCROW_012` | Internal server error |
 | `503` | `ESCROW_012` | The escrow (or an admin caller's profile) could not be read for the step-up check; the dispute did not run and nothing was written, safe to retry (1.24.0; before, a Lambda error that API Gateway answered `502` without a code) |
 | `410` | `ACCOUNT_004` | The caller's account is being or has been deleted; carries `error.deletionState`; nothing written (1.28.0, ACC-02) |
@@ -838,6 +839,7 @@ Delivery confirmed (2.16.0, FUP-97): each row carries `deliveryConfirmedAt` (see
 | `dispositionReason` | string | No | Admin responses only (1.21.0) | The admin's reason for it |
 | `dispositionBy` | string | No | Admin responses only (1.21.0) | Who recorded it |
 | `dispositionAt` | string (ISO 8601) | No | Admin responses only (1.21.0) | When it was recorded |
+| `handoffEvidence` | object | No | Admin responses only (2.28.0) | The handoffs as the server held them when the dispute was created; see "Handoff evidence on a dispute". Absent on disputes from before 2.28.0 and on every party read |
 | `createdAt` | string (ISO 8601) | Yes | Server-generated | When dispute was raised |
 
 ### Dispute Reasons (Enum)
@@ -3681,6 +3683,50 @@ money and produces a `farmer_wins` with nothing to settle. Decision record:
 The apps show `ESCROW_041` with its own message in en, am and om (mobile and web,
 `escrowErrorDisputeBeforePickup`).
 
+### Not delivered while on the road (2.28.0, persona simulation BUG-8)
+A buyer's `POST /escrow/dispute` with reason `not_delivered` is refused with `422 ESCROW_INVALID_TRANSITION`
+and nothing is written when all of these hold:
+
+- the escrow has no `deliveryConfirmedAt`;
+- the order's active delivery (else the escrow's `deliveryId`), read by the pickup rule above, is
+  `pickedUp` or `inTransit`;
+- the delivery deadline has not passed. The deadline is the order's `dropoffDeadlineAt` (T8 of
+  `order-lifecycle.md` Deadlines) when it carries one, else the delivery's `pickedUpAt` plus
+  `delivery-overdue-hours` (72 by default), which is how T8 is computed. A delivery with neither is not
+  held back.
+
+Message: `The goods are still on the way. You can report them as not delivered after <yyyy-MM-dd HH:mm> UTC.
+For any other problem, choose another reason.` Every other reason (`damaged_goods`, `wrong_quantity`,
+`wrong_crop`, `quality_mismatch`, `other`), the farmer's disputes, and a dispute after the deadline or after
+the delivery are unchanged. A delivery dispute through `/sync` starts only from `delivered`, so it is not
+affected. No signal is written.
+
+Why the shared code: every released app shows an unknown escrow code as "Something went wrong. Please
+try again." and `ESCROW_INVALID_TRANSITION` as "This action is not allowed in the current payment state.",
+which is true and not misleading; a 422 is permanent on every client (no retry loop). Apps from this
+version read the message's first sentence, as they read the scheduled refund's (FUP-77), and show their
+own text (`escrowErrorDisputeGoodsOnTheWay`, en, am and om; it does not repeat the time).
+
+### Handoff evidence on a dispute (2.28.0, persona simulation BUG-6)
+When a dispute freezes an escrow (`POST /escrow/dispute`, the delivery dispute through `/sync`, the
+system's drop-off dispute) the escrow is stamped with the server-only map `disputeHandoffEvidence`, built
+from the delivery (strongly consistent) and its transaction-audit rows:
+
+| Key | When | Meaning |
+|---|---|---|
+| `deliveryId`, `deliveryStatus` | always | The delivery and its status at the dispute |
+| `selfPickup` | always | A self-pickup has no pickup leg |
+| `pickedUpAt`, `pickupMethod`, `pickupBy`, `pickupFix` | a trucker pickup happened | Time, `qr` or `code` (from the audit metadata `handoff=`), who, and whether `gpsPickup` was sent (BUG-5) |
+| `confirmedAt`, `confirmMethod`, `confirmedBy`, `dropoffFix` | the delivery was confirmed | The same for the confirmation (`gpsDropoff`) |
+| `confirmedByDisputer` | the confirmation's audit row names who confirmed | `true` when the user who opened the dispute confirmed receipt |
+
+A method or actor without its audit row is left out, never guessed. Best effort: a failed read stamps less
+or nothing and never fails the dispute. It is returned as `dispute.handoffEvidence` on admin routes only
+(`GET /admin/disputes`, `GET /admin/escrows/{id}`, `GET /admin/disputes/{escrowId}/evidence`); the party
+mapper (`EscrowService.MapToEscrowDto`) never reads it. No refusal, no signal, no score. The distance of
+each fix to its planned point is not stamped: the evidence read measures it live. The admin Disputes list
+marks a row whose disputer confirmed receipt, and the dispute page shows the stamped handoffs.
+
 ### Dispute between pickup and delivery (2.27.0)
 A dispute that passes the pickup rule while the goods are still moving (order `pickup_confirmed` or
 `in_transit`, delivery `pickedUp` or `inTransit`) freezes the escrow as any dispute does. The mirror
@@ -6522,6 +6568,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.28.0 | 2026-11-19 | Persona simulation BUG-8 and BUG-6 (fraud spec 3.44.0 Rule 7). A buyer's `not_delivered` dispute while the delivery is `pickedUp` or `inTransit` before its deadline (T8, else `pickedUpAt` + 72h) is refused with `422 ESCROW_INVALID_TRANSITION` ("The goods are still on the way. ..."); other reasons, the farmer and later disputes unchanged (§Not delivered while on the road). A new dispute stamps the server-only `disputeHandoffEvidence` (how and by whom each leg was confirmed, GPS fix sent, `confirmedByDisputer`), returned as `DisputeDto.handoffEvidence` on admin routes only (§Handoff evidence on a dispute). Clients: mobile and web show `escrowErrorDisputeGoodsOnTheWay`; released apps show the shared invalid transition text. |
 | 2.27.0 | 2026-11-19 | A dispute between pickup and delivery (persona simulation BUG-1, §Dispute between pickup and delivery; `order-lifecycle.md` 2.24.0, `rating-api.md` 1.6.0): a delivery confirmed while its escrow is already `disputed` is not stamped as confirmed; the sync Lambda runs the dispute mirror instead, so the delivery and the order end `disputed` and not `delivered` over frozen money. `POST /escrow/dispute` itself is unchanged. No client change. |
 | 2.26.1 | 2026-11-17 | Two order deadline alarms in the money alarm table (FUP-255, monitoring only, no API or behaviour change): `order-deadline-unstamped` (`ORDER_DEADLINE_STAMP_FAILED` from every Lambda that writes orders, `ORDER_DEADLINE_REPAIR_FAILED` from order-cron; any line in an hour) and `order-deadline-stuck` (`ORDER_DEADLINE_STUCK`, three of four hourly periods) |
 | 2.26.0 | 2026-11-13 | Missing members on the admin and checkout bodies (FUP-148, as 2.3.0 did for initiate and dispute; 2.25.0 belongs to a change in flight). `POST /escrow/order-checkout`: an absent `orderId` answers `400 ESCROW_033` `"orderId is required."` with `field: orderId`, as a `null` or blank one already did. `POST /admin/disputes/{id}/resolve`: an absent `resolution` or `action` answers `400 ADMIN_014` with its `field`, as a `null` or wrong one already did. `POST /admin/fraud-signals/{id}/action` and `POST /admin/users/{id}/action`: an absent, `null` or blank `action` answers `400 ADMIN_009` `"action is required."` with `field: action` (`fraud-detection-architecture.md` 3.40.0, section 19); a `null` one was `ADMIN_009` without a `field`. Each is checked right after the body is read, before any read or write. Before, an absent member failed deserialization and answered `400 ESCROW_033` or `400 ADMIN_005` `"Invalid JSON in request body."` without a `field`. A body that is not JSON keeps that answer. The apps and the admin always send these members; every code is one they already map; no app change |

@@ -6,7 +6,7 @@ import { HandoffPhoto, TransactionTimeline } from "@/components/transactions/Tra
 import { useLocale } from "@/hooks/useLocale";
 import { useDisputeMessages } from "@/hooks/useQuery";
 import type { DisputeEvidence, EvidenceMessage, Handoff } from "@/lib/evidence";
-import { partiesOf } from "@/lib/evidence";
+import { confirmContradictsReason, partiesOf } from "@/lib/evidence";
 import { formatDateTime } from "@/lib/i18n";
 import { formatGps } from "@/lib/transaction";
 import { fill } from "@/lib/trail";
@@ -90,6 +90,112 @@ function HandoffItem({ handoff, who }: { handoff: Handoff; who: (id: string | un
         <p className="mt-1 text-sm text-text-muted">{t("evidence.noGps")}</p>
       )}
     </li>
+  );
+}
+
+type Row = Record<string, unknown>;
+
+
+/** One leg of the stamped evidence: when, how and by whom, and whether a GPS fix was sent. */
+function StampedLeg({
+  legKey,
+  at,
+  method,
+  by,
+  fix,
+  distanceKm,
+  distanceKey,
+}: {
+  legKey: string;
+  at: unknown;
+  method: unknown;
+  by: string;
+  fix: unknown;
+  distanceKm?: number;
+  distanceKey: string;
+}) {
+  const { t } = useLocale();
+  const how = by
+    ? fill(t(`evidence.method_${method === "qr" || method === "code" ? method : "unknown"}`), { who: by })
+    : t("evidence.whoUnknown");
+  return (
+    <li className="rounded-lg border border-gray-200 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-semibold">{t(legKey)}</span>
+        {typeof at === "string" && at && <span className="text-sm text-text-muted">{formatDateTime(at)}</span>}
+      </div>
+      <p className="mt-1 text-sm">{how}</p>
+      <p className="mt-1 flex flex-wrap items-center gap-1 text-sm">
+        {fix === true ? (
+          <>
+            <MapPin size={14} aria-hidden="true" className="text-text-muted" />
+            <span>{t("evidence.gpsSent")}</span>
+            {distanceKm != null && (
+              <Badge variant={distanceKm > 5 ? "warning" : "default"}>{fill(t(distanceKey), { km: distanceKm })}</Badge>
+            )}
+          </>
+        ) : (
+          <Badge variant="warning">{t("evidence.noGps")}</Badge>
+        )}
+      </p>
+    </li>
+  );
+}
+
+/**
+ * Persona simulation BUG-6 (escrow-protocol.md 2.28.0): the handoff evidence the server stamped on the
+ * dispute when it was created (how each leg was confirmed, by whom, whether a GPS fix was sent), and
+ * whether the user who opened the dispute is the one who confirmed receipt. The distance to the planned
+ * point comes from the evidence read (FRD-14) once it has loaded. Nothing for a dispute without a stamp.
+ */
+export function StampedHandoffEvidence({ escrow, evidence }: { escrow: Row; evidence: DisputeEvidence | undefined }) {
+  const { t } = useLocale();
+  const who = useWho(evidence ?? { escrow, timeline: [], handoffs: [] });
+  const stamped = (escrow.dispute as Row | undefined)?.handoffEvidence as Row | undefined;
+  if (!stamped) return null;
+
+  const selfPickup = stamped.selfPickup === true;
+  const distanceOf = (pickup: boolean) =>
+    evidence?.handoffs.find((h) => (pickup ? h.leg === "pickup" : h.leg !== "pickup"))?.distanceKm;
+  const text = (value: unknown) => (typeof value === "string" ? value : undefined);
+
+  return (
+    <Card className="mb-6">
+      <h3 className="mb-3 font-semibold">{t("evidence.stampedTitle")}</h3>
+      {stamped.confirmedByDisputer === true &&
+        (confirmContradictsReason(escrow.dispute as Row | undefined) ? (
+          <p role="note" className="mb-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm font-semibold">
+            {t("evidence.confirmedByDisputer")}
+          </p>
+        ) : (
+          <p className="mb-3 text-sm text-text-muted">{t("evidence.confirmedByDisputerFact")}</p>
+        ))}
+      <ul className="space-y-3">
+        {!selfPickup && text(stamped.pickedUpAt) && (
+          <StampedLeg
+            legKey="evidence.leg_pickup"
+            at={stamped.pickedUpAt}
+            method={stamped.pickupMethod}
+            by={who(text(stamped.pickupBy))}
+            fix={stamped.pickupFix}
+            distanceKm={distanceOf(true)}
+            distanceKey="evidence.fromListing"
+          />
+        )}
+        {text(stamped.confirmedAt) && (
+          <StampedLeg
+            legKey={selfPickup ? "evidence.leg_self_pickup" : "evidence.leg_dropoff"}
+            at={stamped.confirmedAt}
+            method={stamped.confirmMethod}
+            by={who(text(stamped.confirmedBy))}
+            fix={stamped.dropoffFix}
+            distanceKm={distanceOf(false)}
+            distanceKey={selfPickup ? "evidence.fromListing" : "evidence.fromDestination"}
+          />
+        )}
+      </ul>
+      {!text(stamped.confirmedAt) && <p className="mt-3 text-sm text-text-muted">{t("evidence.notConfirmed")}</p>}
+    </Card>
   );
 }
 

@@ -2464,6 +2464,18 @@ abstract class AppLocalizations {
   /// **'A refund to the buyer is already scheduled for this payment, so it can no longer be disputed. Contact support if you disagree.'**
   String get escrowErrorDisputeRefundScheduled;
 
+  /// A buyer's dispute with the reason not delivered was refused because the goods are picked up and still on the road and the delivery deadline has not passed (422 ESCROW_INVALID_TRANSITION with that reason, persona simulation BUG-8)
+  ///
+  /// In en, this message translates to:
+  /// **'The goods are still on the way. You can report them as not delivered once the delivery deadline has passed. For another problem, choose another reason.'**
+  String get escrowErrorDisputeGoodsOnTheWay;
+
+  /// The same refusal as escrowErrorDisputeGoodsOnTheWay, with the time (Ethiopia time) from which the buyer can report the goods as not delivered
+  ///
+  /// In en, this message translates to:
+  /// **'The goods are still on the way. You can report them as not delivered after {time}. For another problem, choose another reason.'**
+  String escrowErrorDisputeGoodsOnTheWayAfter(String time);
+
   /// Error when escrow state transition is invalid
   ///
   /// In en, this message translates to:

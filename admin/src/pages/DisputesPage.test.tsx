@@ -101,6 +101,35 @@ describe("DisputesPage", () => {
     mocks.awaiting.data = { pages: [{ escrows: [recordedVerdict()] }] };
   });
 
+  it("marks an open dispute whose disputer confirmed receipt, as a warning only where it contradicts the reason (BUG-6)", () => {
+    mocks.disputes.data = {
+      pages: [
+        {
+          disputes: [
+            { ...openDispute(), dispute: { reason: "not_delivered", handoffEvidence: { confirmedByDisputer: true } } },
+            { ...openDispute(), escrowId: "escrow-3", dispute: { reason: "wrong_crop", handoffEvidence: { confirmedByDisputer: false } } },
+            { ...openDispute(), escrowId: "escrow-4", dispute: { reason: "damaged_goods", handoffEvidence: { confirmedByDisputer: true } } },
+          ],
+        },
+      ],
+    };
+    render(
+      <MemoryRouter>
+        <DisputesPage />
+      </MemoryRouter>,
+    );
+
+    const rows = within(table()).getAllByRole("row");
+    const flagged = rows.find((row) => row.textContent?.includes("not_delivered"))!;
+    const plain = rows.find((row) => row.textContent?.includes("wrong_crop"))!;
+    const usual = rows.find((row) => row.textContent?.includes("damaged_goods"))!;
+    // A warning only where the confirmation contradicts the complaint (not delivered, wrong quantity).
+    expect(within(flagged).getByText("Disputer confirmed receipt").className).toContain("text-warning");
+    expect(within(plain).queryByText("Disputer confirmed receipt")).toBeNull();
+    // Damage after a confirm is the normal path: the same fact, neutral.
+    expect(within(usual).getByText("Disputer confirmed receipt").className).not.toContain("text-warning");
+  });
+
   it("sends a plain verdict, and on ADMIN_015 offers the goods choices for buyer_wins", async () => {
     const user = userEvent.setup();
     render(<DisputesPage />, { wrapper: MemoryRouter });

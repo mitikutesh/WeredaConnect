@@ -1854,7 +1854,19 @@ public partial class SyncFunction
             };
         }
 
-        var createResult = await _ratingRepo.CreateAsync(operation.EntityId, operation.Data);
+        // BUG-3: a rating between linked accounts (one identity, or one install) is stored but never
+        // enters the ratee's aggregate. The answer is the same either way.
+        var linkedReason = await RatingLinkedAccountsReasonAsync(authenticatedUserId!, rateeId, ratee, context);
+        var createResult = linkedReason == null
+            ? await _ratingRepo.CreateAsync(operation.EntityId, operation.Data)
+            : await _ratingRepo.CreateOutsideAggregateAsync(
+                operation.EntityId, operation.Data, RatingRepository.LinkedAccountsExclusion);
+        if (createResult.IsSuccess && linkedReason != null)
+        {
+            context.Logger.LogWarning(
+                $"RATING_OUTSIDE_AGGREGATE orderId={MoneyAlarmLog.LogId(orderId)} reason={linkedReason}");
+        }
+
         if (createResult.IsSuccess)
         {
             // FUP-162: an unstamped ratee gets their full aggregate first, so the refresh reads it.
@@ -2112,6 +2124,13 @@ public partial class SyncFunction
         operation.Data["recipientName"] = recipient.DisplayName ?? recipient.FullName ?? "";
 
         var createResult = await _messageRepo.CreateAsync(operation.EntityId, operation.Data);
+        if (createResult.IsSuccess)
+        {
+            // BUG-14: a phone number in the chat before delivery, flagged for review (weight 0).
+            await TryRecordChatContactAsync(
+                contextType, contextId, senderId, operation.Data["body"]?.ToString(), context);
+        }
+
         return createResult.IsSuccess
             ? new SyncOperationResult
             {
@@ -6276,6 +6295,11 @@ public partial class SyncFunction
                         {
                             await TryRecordTruckerGpsAnomalyAsync(operation, existing, now, authenticatedUserId, context);
                         }
+                        else if (resolvedNewStatus == "pickedUp")
+                        {
+                            // BUG-5: accepted without a fix, flagged for review (weight 0).
+                            await TryRecordPickupWithoutFixAsync(operation, existing, handoffMethod, authenticatedUserId, context);
+                        }
 
                         // Audit the delivery transition (who/when; GPS is joined at
                         // read time from the delivery record) for the monitor.
@@ -7139,6 +7163,7 @@ public partial class SyncFunction
 
         var clientTransportCost = ParseDoubleOrNull(operation.Data, "transportCost");
         var transportCost = 0.0;
+        Dictionary<string, AttributeValue>? orderTrip = null;
         if (!string.IsNullOrEmpty(tripId))
         {
             var trip = await GetTripItemAsync(tripId);
@@ -7146,6 +7171,8 @@ public partial class SyncFunction
             {
                 return OrderValidationError(operation, "Trip not found.");
             }
+
+            orderTrip = trip;
 
             var tripError = BindOrderToTrip(
                 operation.Data, trip, truckerId!, quantityKg, clientTransportCost, DateTime.UtcNow,
@@ -7195,6 +7222,9 @@ public partial class SyncFunction
         {
             await EmitTxAuditAsync(context, operation.EntityId, "order", operation.EntityId,
                 "order_created", null, "created");
+
+            // BUG-7: a trip that does not start where the listing is, flagged for review (weight 0).
+            await TryRecordOrderRouteMismatchAsync(operation, listing, orderTrip, authenticatedUserId, context);
             return new SyncOperationResult
             {
                 OperationId = operation.OperationId,
