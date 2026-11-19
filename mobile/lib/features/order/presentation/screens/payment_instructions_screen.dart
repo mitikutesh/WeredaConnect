@@ -11,6 +11,7 @@ import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
+import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/payment_cards.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -42,10 +43,17 @@ class PaymentInstructionsScreen extends StatefulWidget {
   /// [Environment.telebirrLive]; tests set it.
   final bool? telebirrLive;
 
+  /// The order detail is the page under this one (Pay Now on the order):
+  /// a paid order closes this screen and nothing else. Without it (straight
+  /// from Place order) the paid order's detail takes this screen's place.
+  /// Either way the buyer ends on the order (BUG-17, BUG-21).
+  final bool fromOrderDetail;
+
   const PaymentInstructionsScreen({
     required this.order,
     this.kycVerificationScreen,
     this.telebirrLive,
+    this.fromOrderDetail = false,
     super.key,
   });
 
@@ -128,8 +136,21 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
         );
   }
 
+  /// A password prompt is open. Only the server knows that a payment needs
+  /// a fresh password (AUTH_040: the token's age and the risk tier), so the
+  /// first submit is how the client learns it. This keeps the answer to one
+  /// prompt and one resubmission (BUG-23).
+  bool _stepUpOpen = false;
+
   Future<void> _retryAfterStepUp() async {
-    final ok = await showStepUpDialog(context);
+    if (_stepUpOpen) return;
+    _stepUpOpen = true;
+    final bool ok;
+    try {
+      ok = await showStepUpDialog(context);
+    } finally {
+      _stepUpOpen = false;
+    }
     if (ok && mounted) _submitPayment();
   }
 
@@ -177,17 +198,25 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
             // server.
             Navigator.of(context).pushReplacement(
               MaterialPageRoute<void>(
-                builder: (_) => OrderCheckoutScreen(order: widget.order),
+                builder: (_) => OrderCheckoutScreen(
+                  order: widget.order,
+                  fromOrderDetail: widget.fromOrderDetail,
+                ),
               ),
             );
           } else if (state is PaymentSubmitted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(l10n.paymentSubmittedSuccess)),
             );
-            // Pop back to the orders list
-            Navigator.of(context)
-              ..pop() // pop payment instructions
-              ..pop(); // pop place order (if still in stack) or crop detail
+            // End on the order: back to its detail when that is the page
+            // underneath, else the detail in this screen's place. Never a
+            // second pop: an order opened by its address has no page under
+            // its detail (BUG-17).
+            if (widget.fromOrderDetail) {
+              Navigator.of(context).pop();
+            } else {
+              replaceWithOrderDetail(context, widget.order.orderId);
+            }
           } else if (state is OrderError &&
               state.code == AppErrorCode.stepUpRequired) {
             // Web submits straight to /sync: confirm the password, then
@@ -201,8 +230,23 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
             // the buyer must verify, and names the farmer otherwise (SIM-49).
             _retryAfterKyc(state.message);
           } else if (state is OrderError) {
+            // BUG-19: a lost connection says so and offers the same payment
+            // again. The order is read first, so a payment that did reach
+            // the server is not sent twice.
+            final offline = state.code == AppErrorCode.network ||
+                state.code == AppErrorCode.timeout;
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
+              SnackBar(
+                content: Text(localizeErrorCode(state.code, l10n)),
+                action: offline
+                    ? SnackBarAction(
+                        label: l10n.retry,
+                        onPressed: () {
+                          if (mounted) _submitPayment();
+                        },
+                      )
+                    : null,
+              ),
             );
           }
         },

@@ -44,6 +44,7 @@ import 'package:wereda_connect/features/messaging/presentation/screens/conversat
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
+import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/delivery_place.dart';
@@ -290,7 +291,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   ? l10n.orderAcceptedSent
                   : l10n.orderRejectedSent,
             ).ignore();
-            Navigator.of(context).pop();
+            leaveOrderDetail(context);
           } else if (state is TruckerResponded) {
             // ESC-15: stay on the order, which now shows the next step
             // (Create Delivery after an accept); said only when it waits.
@@ -322,7 +323,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(l10n.orderCancelledSuccess)),
             );
-            Navigator.of(context).pop();
+            leaveOrderDetail(context);
           } else if (state is OrderError) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -361,14 +362,19 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const FwDetailHeader(),
+                FwDetailHeader(onBack: () => leaveOrderDetail(context)),
                 Expanded(
                   child: Center(
                     child: state is OrderError
                         ? Padding(
                             padding: const EdgeInsets.all(24),
                             child: Text(
-                              localizeErrorCode(state.code, l10n),
+                              // BUG-30: someone else's order (the server
+                              // answers 403) says so, not "an error".
+                              state.code == AppErrorCode.forbidden
+                                  ? l10n.unauthorizedAccess
+                                  : localizeErrorCode(state.code, l10n),
+                              key: const Key('order_detail_load_error'),
                               textAlign: TextAlign.center,
                             ),
                           )
@@ -738,7 +744,12 @@ class _OrderDetailBody extends StatelessWidget {
                 MaterialPageRoute<void>(
                   builder: (_) => order.status == OrderStatus.paymentSubmitted
                       ? OrderCheckoutScreen(order: order)
-                      : PaymentInstructionsScreen(order: order),
+                      // This page stays under the payment: a paid order
+                      // comes back here (BUG-17).
+                      : PaymentInstructionsScreen(
+                          order: order,
+                          fromOrderDetail: true,
+                        ),
                 ),
               );
               // The payment may have moved the order on.
@@ -1348,6 +1359,8 @@ class _OrderHeader extends StatelessWidget {
 
     return FwDetailHeader(
       key: const Key('order_summary_hero'),
+      // Back also works on an order opened by its own address (BUG-17).
+      onBack: () => leaveOrderDetail(context),
       title: title,
       subtitle: subtitle,
       trailing: farmerAnswering
@@ -1595,10 +1608,49 @@ class _BuyerTotalRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final held = escrowHeldOrderStatuses.contains(order.status);
+    // BUG-22: what the total is made of, from the order's own server
+    // fields. An order without them (a legacy row, or one not yet answered
+    // by the server) shows the total alone. Only the buyer sees this card:
+    // the farmer and the trucker see their own leg, never the commission.
+    final cropCost = order.cropCost;
+    final commission = order.commissionAmount;
+    final transport = order.transportCost ?? 0;
+    final split = cropCost != null && commission != null;
     return FwCard(
       key: const Key('order_buyer_total'),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (split) ...[
+            FwMoneyRow(
+              key: const Key('order_buyer_crop_cost'),
+              label: l10n.cropCost,
+              amount: l10n.etbCurrency(formatEtbAmount(cropCost)),
+            ),
+            if (transport > 0) ...[
+              const SizedBox(height: 9),
+              FwMoneyRow(
+                key: const Key('order_buyer_transport_cost'),
+                label: l10n.transportCost,
+                amount: l10n.etbCurrency(formatEtbAmount(transport)),
+              ),
+            ],
+            const SizedBox(height: 9),
+            FwMoneyRow(
+              key: const Key('order_buyer_commission'),
+              label: l10n.platformCommission,
+              amount: l10n.etbCurrency(formatEtbAmount(commission)),
+            ),
+            const Divider(height: 22),
+          ],
+          _totalLine(l10n, held),
+        ],
+      ),
+    );
+  }
+
+  Widget _totalLine(AppLocalizations l10n, bool held) => Row(
         children: [
           Icon(
             held ? Icons.lock_outline : Icons.receipt_long_outlined,
@@ -1626,9 +1678,7 @@ class _BuyerTotalRow extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
+      );
 }
 
 class _OrderDeliveryActions extends StatefulWidget {
