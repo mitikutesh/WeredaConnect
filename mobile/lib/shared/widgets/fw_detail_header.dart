@@ -122,6 +122,85 @@ class FwDetailHeader extends StatelessWidget {
   }
 }
 
+/// A form or detail page's header as the Register boards stack it: the
+/// round back button on its own row (with an optional [trailing] at the
+/// end), then the small [eyebrow], the 32 px title and an optional line
+/// under it. The title gets the page's full width, so a long Amharic or
+/// Afaan Oromo title wraps by words instead of being squeezed beside the
+/// button. [showBack] false leaves the button out (a page that is a route
+/// of its own on the web).
+class FwStackedHeader extends StatelessWidget {
+  final String title;
+  final String? eyebrow;
+  final String? subtitle;
+  final Widget? trailing;
+  final VoidCallback? onBack;
+  final bool showBack;
+  final EdgeInsetsGeometry padding;
+
+  const FwStackedHeader({
+    required this.title,
+    this.eyebrow,
+    this.subtitle,
+    this.trailing,
+    this.onBack,
+    this.showBack = true,
+    this.padding = EdgeInsets.zero,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final eyebrow = this.eyebrow;
+    final subtitle = this.subtitle;
+    final trailing = this.trailing;
+    return Padding(
+      padding: padding,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (showBack || trailing != null) ...[
+            Row(
+              children: [
+                if (showBack) FwBackButton(onPressed: onBack),
+                const Spacer(),
+                if (trailing != null) trailing,
+              ],
+            ),
+            const SizedBox(height: 14),
+          ],
+          if (eyebrow != null && eyebrow.isNotEmpty) ...[
+            Text(
+              eyebrow,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppTheme.slate,
+              ),
+            ),
+            const SizedBox(height: 2),
+          ],
+          Semantics(
+            header: true,
+            child: Text(title, style: FwText.detailTitle),
+          ),
+          if (subtitle != null && subtitle.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              style: const TextStyle(
+                fontSize: 14,
+                height: 1.4,
+                color: AppTheme.slate,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 /// The boards' action area pinned to the foot of the page (Save, Place
 /// Order, Reject and Accept) with the note under it. Goes in a Scaffold's
 /// `bottomNavigationBar`; centred like the page on a wide window.

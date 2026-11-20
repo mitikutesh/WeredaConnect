@@ -9,8 +9,10 @@ import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
-import 'package:wereda_connect/shared/widgets/join_chrome.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
@@ -309,18 +311,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: JoinBackButton(),
-                  ),
-                  const SizedBox(height: 12),
-                  FwPageHeader(
-                    padding: EdgeInsets.zero,
+                  FwStackedHeader(
                     eyebrow: l10n.profile,
                     title: l10n.profileEditTitle,
                   ),
                   const SizedBox(height: 16),
-                  JoinNote.info(text: l10n.profileEditNote),
+                  FwInfoNote(
+                    icon: Icons.info_outline,
+                    text: l10n.profileEditNote,
+                  ),
                   const SizedBox(height: 20),
                   if (current == null)
                     const Center(child: CircularProgressIndicator())
@@ -401,7 +400,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           ? const SizedBox(
                               width: 20,
                               height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppTheme.ink,
+                              ),
                             )
                           : Text(l10n.save),
                     ),

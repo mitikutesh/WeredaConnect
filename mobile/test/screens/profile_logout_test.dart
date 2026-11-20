@@ -198,7 +198,7 @@ void main() {
 
     expect(synced, 1);
     expect(find.text(en.syncInProgress), findsOneWidget);
-    final confirm = tester.widget<TextButton>(
+    final confirm = tester.widget<FilledButton>(
       find.byKey(const Key('logout_confirm')),
     );
     expect(confirm.onPressed, isNull);
@@ -228,7 +228,7 @@ void main() {
     await tester.pump();
     expect(
       tester
-          .widget<TextButton>(find.byKey(const Key('logout_confirm')))
+          .widget<FilledButton>(find.byKey(const Key('logout_confirm')))
           .onPressed,
       isNull,
     );
@@ -239,7 +239,7 @@ void main() {
     expect(dialogText(en.logoutUnsentChanges(1)), findsOneWidget);
     expect(
       tester
-          .widget<TextButton>(find.byKey(const Key('logout_confirm')))
+          .widget<FilledButton>(find.byKey(const Key('logout_confirm')))
           .onPressed,
       isNotNull,
     );
