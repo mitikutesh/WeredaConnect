@@ -6664,6 +6664,24 @@ abstract class AppLocalizations {
   /// **'Your order was closed because it was not paid in time. You can place a new order.'**
   String get notifOrderExpiredUnpaidBody;
 
+  /// Inbox: an admin agreed another platform commission for the buyer's unpaid order (notifications-api.md order_commission_changed)
+  ///
+  /// In en, this message translates to:
+  /// **'Order total changed'**
+  String get notifCommissionChangedTitle;
+
+  /// Inbox: an admin agreed another platform commission for the buyer's unpaid order (notifications-api.md order_commission_changed)
+  ///
+  /// In en, this message translates to:
+  /// **'The platform commission on this order is now {rate}. New total: {total}. Nothing has been paid yet.'**
+  String notifCommissionChangedBody(String rate, String total);
+
+  /// Inbox: an admin agreed another platform commission for the buyer's unpaid order (notifications-api.md order_commission_changed)
+  ///
+  /// In en, this message translates to:
+  /// **'The platform commission on this order changed. Open the order to see the new total before you pay.'**
+  String get notifCommissionChangedBodyNoTotal;
+
   /// Inbox entry title, notification type payment_failed
   ///
   /// In en, this message translates to:

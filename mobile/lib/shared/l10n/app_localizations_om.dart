@@ -3780,6 +3780,19 @@ class AppLocalizationsOm extends AppLocalizations {
       'Ajajni keessan yeroodhaan waan hin kaffalamneef cufameera. Ajaja haaraa galchuu dandeessu.';
 
   @override
+  String get notifCommissionChangedTitle =>
+      'Waliigalli gatii ajajaa jijjiirameera';
+
+  @override
+  String notifCommissionChangedBody(String rate, String total) {
+    return 'Komishiiniin waltajjii ajaja kanaa amma $rate dha. Waliigala haaraa: $total. Hanga ammaatti homtuu hin kaffalamne.';
+  }
+
+  @override
+  String get notifCommissionChangedBodyNoTotal =>
+      'Komishiiniin waltajjii ajaja kanaa jijjiirameera. Osoo hin kaffalin dura waliigala haaraa ilaaluuf ajaja bani.';
+
+  @override
   String get notifPaymentFailedTitle => 'Kaffaltiin hin milkoofne';
 
   @override

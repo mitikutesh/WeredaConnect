@@ -3740,6 +3740,18 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your order was closed because it was not paid in time. You can place a new order.';
 
   @override
+  String get notifCommissionChangedTitle => 'Order total changed';
+
+  @override
+  String notifCommissionChangedBody(String rate, String total) {
+    return 'The platform commission on this order is now $rate. New total: $total. Nothing has been paid yet.';
+  }
+
+  @override
+  String get notifCommissionChangedBodyNoTotal =>
+      'The platform commission on this order changed. Open the order to see the new total before you pay.';
+
+  @override
   String get notifPaymentFailedTitle => 'Payment failed';
 
   @override
