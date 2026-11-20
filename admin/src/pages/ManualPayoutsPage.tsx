@@ -216,7 +216,7 @@ export function ManualPayoutsPage() {
         <div className="space-y-1">
           <Link
             to={`/escrows/${row.payout.escrowId}`}
-            className="font-medium text-primary hover:underline"
+            className="font-medium text-ink underline decoration-field underline-offset-2 hover:decoration-ink"
           >
             {row.payout.escrowId}
           </Link>
@@ -225,7 +225,7 @@ export function ManualPayoutsPage() {
               {t(`payouts.op_${row.payout.op}`)}
             </Badge>
           </div>
-          <p className="text-xs text-text-muted">
+          <p className="text-xs text-slate">
             {label(`payouts.reason_${row.payout.reason}`, row.payout.reason)}
           </p>
         </div>
@@ -238,12 +238,12 @@ export function ManualPayoutsPage() {
         row.payout.orderId ? (
           <Link
             to={`/transactions/${row.payout.orderId}`}
-            className="text-primary hover:underline"
+            className="text-ink underline decoration-field underline-offset-2 hover:decoration-ink"
           >
             {row.payout.orderId}
           </Link>
         ) : (
-          <span className="text-text-muted">{t("common.notAvailable")}</span>
+          <span className="text-slate">{t("common.notAvailable")}</span>
         ),
     },
     {
@@ -270,15 +270,15 @@ export function ManualPayoutsPage() {
         <div className="space-y-1">
           <span className="font-semibold">{formatETB(Number(row.leg.amount) || 0, locale)}</span>
           {row.payout.reason === REF_MISSING && row.leg.status === "pending" && (
-            <p className="max-w-56 text-xs text-warning">{t("payouts.refMissingHint")}</p>
+            <p className="max-w-56 text-xs text-orange-ink">{t("payouts.refMissingHint")}</p>
           )}
           {row.payout.reason === OUTCOME_UNKNOWN && row.leg.status === "pending" && (
             <>
-              <p className="max-w-56 text-xs text-warning">
+              <p className="max-w-56 text-xs text-orange-ink">
                 {fill(t("payouts.outcomeUnknownHint"), { gatewayRef: row.leg.gatewayRef ?? row.payout.escrowId })}
               </p>
               {row.payout.settlementLockedAt && (
-                <p className="text-xs text-text-muted">
+                <p className="text-xs text-slate">
                   {fill(t("payouts.lockAge"), { hours: String(hoursSince(row.payout.settlementLockedAt)) })}
                 </p>
               )}
@@ -298,7 +298,7 @@ export function ManualPayoutsPage() {
             {hours >= OVERDUE_HOURS ? (
               <Badge variant="danger">{t("payouts.overdue")}</Badge>
             ) : (
-              <p className="text-xs text-text-muted">
+              <p className="text-xs text-slate">
                 {fill(t("payouts.age"), { hours: String(hours) })}
               </p>
             )}
@@ -322,7 +322,7 @@ export function ManualPayoutsPage() {
           {row.payout.op === "refund" &&
             row.payout.deliveryConfirmedAt &&
             row.payout.deliveryConfirmedAt > row.payout.queuedAt && (
-            <p className="max-w-56 text-xs text-warning">{t("payouts.deliveredWarning")}</p>
+            <p className="max-w-56 text-xs text-orange-ink">{t("payouts.deliveredWarning")}</p>
           )}
           {contradictsVerdict(row.payout) && (
             <p role="alert" className="max-w-56 text-xs text-danger">
@@ -344,7 +344,7 @@ export function ManualPayoutsPage() {
               <Badge variant="success">{t("payouts.paid")}</Badge>
               <p className="text-xs">{row.leg.externalRef}</p>
               {row.leg.paidBy && (
-                <p className="text-xs text-text-muted">
+                <p className="text-xs text-slate">
                   {t("payouts.paidBy")}: {row.leg.paidBy}
                 </p>
               )}
@@ -357,7 +357,7 @@ export function ManualPayoutsPage() {
             <div className="space-y-1">
               <Badge variant="danger">{t("payouts.payeeNotVerified")}</Badge>
               {row.leg.blockReason && (
-                <p className="text-xs text-text-muted">{row.leg.blockReason}</p>
+                <p className="text-xs text-slate">{row.leg.blockReason}</p>
               )}
             </div>
           );
@@ -372,7 +372,7 @@ export function ManualPayoutsPage() {
           return (
             <div className="space-y-1 md:max-w-56">
               <Badge variant="warning">{t("payouts.claimedByOther")}</Badge>
-              <p className="text-xs text-text-muted">
+              <p className="text-xs text-slate">
                 {fill(t("payouts.claimedByOtherHint"), { admin: row.leg.claimedBy ?? "", time: claimTime })}
               </p>
             </div>
@@ -387,7 +387,7 @@ export function ManualPayoutsPage() {
             type="button"
             onClick={() => changeClaim(row, "claim")}
             disabled={busy}
-            className="rounded border border-primary px-2 py-1 text-xs text-primary hover:bg-primary/10 disabled:opacity-50"
+            className="rounded-[10px] border border-field px-2 py-1 text-xs text-ink hover:bg-paper disabled:opacity-50"
           >
             {t("payouts.claim")}
           </button>
@@ -406,11 +406,11 @@ export function ManualPayoutsPage() {
           return (
             <div className="space-y-1 md:max-w-56">
               {lapsedText ? (
-                <p role="note" className="text-xs text-warning">
+                <p role="note" className="text-xs text-orange-ink">
                   {lapsedText}
                 </p>
               ) : (
-                <p className="text-xs text-text-muted">{t("payouts.claimHint")}</p>
+                <p className="text-xs text-slate">{t("payouts.claimHint")}</p>
               )}
               {claimButton}
             </div>
@@ -425,7 +425,7 @@ export function ManualPayoutsPage() {
                 type="button"
                 onClick={() => changeClaim(row, "claim", true)}
                 disabled={busy}
-                className="rounded border border-primary px-2 py-1 text-xs text-primary hover:bg-primary/10 disabled:opacity-50"
+                className="rounded-[10px] border border-field px-2 py-1 text-xs text-ink hover:bg-paper disabled:opacity-50"
               >
                 {t("payouts.renew")}
               </button>
@@ -433,7 +433,7 @@ export function ManualPayoutsPage() {
                 type="button"
                 onClick={() => changeClaim(row, "unclaim")}
                 disabled={busy}
-                className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
+                className="rounded-[10px] border border-field px-2 py-1 text-xs hover:bg-paper disabled:opacity-50"
               >
                 {t("payouts.unclaim")}
               </button>
@@ -454,7 +454,7 @@ export function ManualPayoutsPage() {
                   type="button"
                   onClick={() => submit(row)}
                   disabled={busy}
-                  className="rounded bg-success px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
+                  className="rounded-[10px] bg-ink px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
                 >
                   {t("payouts.confirm")}
                 </button>
@@ -462,7 +462,7 @@ export function ManualPayoutsPage() {
                   type="button"
                   onClick={() => setConfirming(null)}
                   disabled={busy}
-                  className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
+                  className="rounded-[10px] border border-field px-2 py-1 text-xs hover:bg-paper disabled:opacity-50"
                 >
                   {t("payouts.cancel")}
                 </button>
@@ -480,13 +480,13 @@ export function ManualPayoutsPage() {
               onChange={(e) => setRefs((prev) => ({ ...prev, [row.key]: e.target.value }))}
               aria-label={t("payouts.externalRef")}
               placeholder={t("payouts.externalRefPlaceholder")}
-              className="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-primary focus:outline-none"
+              className="w-full rounded-[10px] border border-field px-2 py-1 text-sm focus:border-ink focus:outline-none"
             />
             <button
               type="button"
               onClick={() => setConfirming(row.key)}
               disabled={!value.trim() || busy}
-              className="rounded bg-primary px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
+              className="rounded-[10px] bg-ink px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
             >
               {t(checkPortalFirst ? "payouts.recordRef" : "payouts.markPaid")}
             </button>
@@ -500,20 +500,20 @@ export function ManualPayoutsPage() {
     <div>
       <div className="mb-6 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div>
-          <h2 className="text-xl font-bold">{t("payouts.title")}</h2>
-          <p className="mt-1 max-w-2xl text-sm text-text-muted">{t("payouts.subtitle")}</p>
+          <h2 className="text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("payouts.title")}</h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate">{t("payouts.subtitle")}</p>
         </div>
         {payouts.length > 0 && (
-          <p className="text-sm text-text-muted">
+          <p className="text-sm text-slate">
             {t("payouts.pendingTotal")}:{" "}
-            <span className="font-semibold text-text">{formatETB(pendingTotal, locale)}</span>
+            <span className="font-semibold text-ink">{formatETB(pendingTotal, locale)}</span>
           </p>
         )}
       </div>
       {errorMsg && (
         <div
           role="alert"
-          className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger"
+          className="mb-4 rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger"
         >
           {errorMsg}
           {usedOn && (
@@ -526,7 +526,7 @@ export function ManualPayoutsPage() {
       {isError && (
         <div
           role="alert"
-          className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger"
+          className="mb-4 rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger"
         >
           {t("payouts.loadFailed")}
         </div>
@@ -534,7 +534,7 @@ export function ManualPayoutsPage() {
       {notice && (
         <div
           role="status"
-          className="mb-4 rounded border border-success/30 bg-success/10 px-4 py-2 text-sm text-success"
+          className="mb-4 rounded-[10px] border border-success/30 bg-success-tint px-4 py-2 text-sm text-success"
         >
           {notice}
         </div>
@@ -542,19 +542,19 @@ export function ManualPayoutsPage() {
       {!isError && (
         <Card>
           {!isLoading && rows.length === 0 ? (
-            <div className="flex items-center justify-center py-12 text-text-muted">
+            <div className="flex items-center justify-center py-12 text-slate">
               {t("payouts.empty")}
             </div>
           ) : (
             <DataTable columns={columns} data={rows} isLoading={isLoading} />
           )}
           {hasNextPage && (
-            <div className="flex justify-center border-t border-gray-200 p-4">
+            <div className="flex justify-center border-t border-line p-4">
               <button
                 type="button"
                 onClick={() => fetchNextPage()}
                 disabled={isFetchingNextPage}
-                className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
+                className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
               >
                 {t("payouts.loadMore")}
               </button>

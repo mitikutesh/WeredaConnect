@@ -35,7 +35,7 @@ function adminRecorded(status: string | undefined, paidBy: string | undefined, r
 function LegRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex justify-between gap-3">
-      <dt className="shrink-0 text-text-muted">{label}</dt>
+      <dt className="shrink-0 text-slate">{label}</dt>
       <dd className="text-right">{children}</dd>
     </div>
   );
@@ -78,9 +78,9 @@ export function TruckerLegRows({ escrow, showPayout = true }: { escrow: Row; sho
       {leg?.paidAt ? <LegRow label={t("legs.truckerPaidAt")}>{formatDateTime(String(leg.paidAt))}</LegRow> : null}
       {leg?.telebirrRef ? <LegRow label={t("legs.truckerRef")}>{String(leg.telebirrRef)}</LegRow> : null}
       {leg && (state === "manual_queue" || state === "blocked" || state === "pending") && (
-        <p className="text-xs text-text-muted">
+        <p className="text-xs text-slate">
           {t(state === "manual_queue" ? "legs.truckerQueueHint" : "legs.truckerRetryHint")}{" "}
-          <Link to="/payouts" className="font-medium text-primary hover:underline">
+          <Link to="/payouts" className="font-medium text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
             {t("nav.manualPayouts")}
           </Link>
         </p>
@@ -118,13 +118,13 @@ export function ManualLegsCard({ escrow }: { escrow: Row }) {
 
   return (
     <Card className="lg:col-span-2">
-      <h3 className="mb-1 font-semibold">{t("legs.manualLegsTitle")}</h3>
-      <p className="mb-4 text-xs text-text-muted">{t("legs.manualLegsHint")}</p>
+      <h3 className="mb-1 text-[15px] font-extrabold">{t("legs.manualLegsTitle")}</h3>
+      <p className="mb-4 text-xs text-slate">{t("legs.manualLegsHint")}</p>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <caption className="sr-only">{t("legs.manualLegsTitle")}</caption>
           <thead>
-            <tr className="border-b border-gray-200 text-xs text-text-muted">
+            <tr className="border-b border-line text-xs text-slate">
               <th scope="col" className="px-2 py-2 font-medium">{t("payouts.payee")}</th>
               <th scope="col" className="px-2 py-2 font-medium">{t("legs.colStatus")}</th>
               <th scope="col" className="px-2 py-2 font-medium">{t("payouts.externalRef")}</th>
@@ -133,7 +133,7 @@ export function ManualLegsCard({ escrow }: { escrow: Row }) {
           </thead>
           <tbody>
             {legs.map((leg) => (
-              <tr key={leg.ref} className="border-b border-gray-100 align-top">
+              <tr key={leg.ref} className="border-b border-track align-top">
                 <td className="px-2 py-2">{labelOrRaw(t, `payouts.role_${leg.ref}`, leg.ref)}</td>
                 <td className="px-2 py-2">
                   <Badge variant={leg.status === "paid" ? "success" : "warning"}>
@@ -181,47 +181,47 @@ export function LedgerCard({ escrow }: { escrow: Row }) {
 
   return (
     <Card className="lg:col-span-2">
-      <h3 className="mb-1 font-semibold">{t("legs.ledgerTitle")}</h3>
-      <p className="mb-4 text-xs text-text-muted">{t("legs.ledgerHint")}</p>
+      <h3 className="mb-1 text-[15px] font-extrabold">{t("legs.ledgerTitle")}</h3>
+      <p className="mb-4 text-xs text-slate">{t("legs.ledgerHint")}</p>
 
       <ul aria-label={t("legs.legsLabel")} className="mb-4 flex flex-wrap gap-3 text-sm">
         {["crop", "transport", "commission"]
           .filter((leg) => legs[leg])
           .map((leg) => (
-            <li key={leg} className="rounded-lg border border-gray-200 px-3 py-2">
-              <span className="block text-xs text-text-muted">{t(`legs.leg_${leg}`)}</span>
+            <li key={leg} className="rounded-[14px] border border-line px-3 py-2">
+              <span className="block text-xs text-slate">{t(`legs.leg_${leg}`)}</span>
               <span className="font-medium">{formatETB(Number(escrow[legAmountField[leg]]) || 0, locale)}</span>{" "}
               <Badge variant={legStateVariant[legs[leg]] || "default"}>
                 {labelOrRaw(t, `legs.legState_${legs[leg]}`, legs[leg])}
               </Badge>
             </li>
           ))}
-        <li className="rounded-lg border border-gray-200 px-3 py-2">
-          <span className="block text-xs text-text-muted">{t("legs.releasedTotal")}</span>
+        <li className="rounded-[14px] border border-line px-3 py-2">
+          <span className="block text-xs text-slate">{t("legs.releasedTotal")}</span>
           <span className="font-medium">{formatETB(Number(escrow.releasedTotal) || 0, locale)}</span>
         </li>
-        <li className="rounded-lg border border-gray-200 px-3 py-2">
-          <span className="block text-xs text-text-muted">{t("legs.refundedTotal")}</span>
+        <li className="rounded-[14px] border border-line px-3 py-2">
+          <span className="block text-xs text-slate">{t("legs.refundedTotal")}</span>
           <span className="font-medium">{formatETB(Number(escrow.refundedTotal) || 0, locale)}</span>
         </li>
       </ul>
 
       {ledger.isLoading ? (
-        <p role="status" className="text-sm text-text-muted">
+        <p role="status" className="text-sm text-slate">
           {t("common.loading")}
         </p>
       ) : ledger.isError ? (
-        <div role="alert" className="rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
+        <div role="alert" className="rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger">
           {t("legs.ledgerLoadFailed")}
         </div>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-text-muted">{t("legs.ledgerEmpty")}</p>
+        <p className="text-sm text-slate">{t("legs.ledgerEmpty")}</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <caption className="sr-only">{t("legs.ledgerTitle")}</caption>
             <thead>
-              <tr className="border-b border-gray-200 text-xs text-text-muted">
+              <tr className="border-b border-line text-xs text-slate">
                 <th scope="col" className="px-2 py-2 font-medium">{t("legs.colLeg")}</th>
                 <th scope="col" className="px-2 py-2 font-medium">{t("legs.colKind")}</th>
                 <th scope="col" className="px-2 py-2 font-medium">{t("legs.colPayee")}</th>
@@ -245,7 +245,7 @@ export function LedgerCard({ escrow }: { escrow: Row }) {
             type="button"
             onClick={() => ledger.fetchNextPage()}
             disabled={ledger.isFetchingNextPage}
-            className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
+            className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
           >
             {t("disputes.loadMore")}
           </button>
@@ -258,17 +258,17 @@ export function LedgerCard({ escrow }: { escrow: Row }) {
 function LedgerTableRow({ row, escrowId }: { row: LedgerRow; escrowId: string }) {
   const { t, locale } = useLocale();
   return (
-    <tr className="border-b border-gray-100 align-top">
+    <tr className="border-b border-track align-top">
       <td className="px-2 py-2">
         {(row.legs ?? []).map((leg) => labelOrRaw(t, `legs.leg_${leg}`, leg)).join(", ")}
       </td>
       <td className="px-2 py-2">
         {labelOrRaw(t, `legs.kind_${row.kind}`, row.kind)}
-        <span className="block font-mono text-xs text-text-muted">{row.ref}</span>
+        <span className="block font-mono text-xs text-slate">{row.ref}</span>
       </td>
       <td className="px-2 py-2">
         {row.payeeRole ? labelOrRaw(t, `payouts.role_${row.payeeRole}`, row.payeeRole) : ""}
-        <span className="block text-xs text-text-muted">{partyName(row.payeeName, row.payeeId, locale)}</span>
+        <span className="block text-xs text-slate">{partyName(row.payeeName, row.payeeId, locale)}</span>
       </td>
       <td className="px-2 py-2 text-right font-medium">{formatETB(Number(row.amount) || 0, locale)}</td>
       <td className="px-2 py-2">
@@ -276,17 +276,17 @@ function LedgerTableRow({ row, escrowId }: { row: LedgerRow; escrowId: string })
           {labelOrRaw(t, `legs.rowStatus_${row.status}`, row.status)}
         </Badge>
         {row.manualReason && (
-          <span className="mt-1 block text-xs text-text-muted">
+          <span className="mt-1 block text-xs text-slate">
             {labelOrRaw(t, `legs.manual_${row.manualReason}`, row.manualReason)}
           </span>
         )}
         {row.lastCode && row.status !== "done" && (
-          <span className="mt-1 block font-mono text-xs text-text-muted">{row.lastCode}</span>
+          <span className="mt-1 block font-mono text-xs text-slate">{row.lastCode}</span>
         )}
       </td>
       <td className="px-2 py-2 font-mono text-xs">
         {row.telebirrRef || ""}
-        <span className="block text-text-muted">{row.gatewayRef}</span>
+        <span className="block text-slate">{row.gatewayRef}</span>
         {/* FUP-218: a row an admin recorded in Manual Payouts can have its reference corrected. */}
         {adminRecorded(row.status, row.paidBy, row.telebirrRef) && (
           <CorrectReference escrowId={escrowId} legRef={row.ref} currentRef={row.telebirrRef!} />
