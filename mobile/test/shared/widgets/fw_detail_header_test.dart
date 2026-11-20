@@ -77,6 +77,46 @@ void main() {
     expect(material.color, AppTheme.inkCard);
   });
 
+  testWidgets('FwBottomActions: a hairline over white only when asked',
+      (tester) async {
+    Future<void> pump({required bool hairline}) => tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.light(),
+            home: Scaffold(
+              bottomNavigationBar: FwBottomActions(
+                hairline: hairline,
+                children: [
+                  FilledButton(onPressed: () {}, child: const Text('Save')),
+                ],
+              ),
+            ),
+          ),
+        );
+    Finder box() => find.descendant(
+          of: find.byType(FwBottomActions),
+          matching: find.byType(DecoratedBox),
+        );
+
+    await pump(hairline: false);
+    expect(box(), findsNothing);
+    final plainTop = tester.getTopLeft(find.byType(FilledButton)).dy -
+        tester.getTopLeft(find.byType(FwBottomActions)).dy;
+    expect(plainTop, 8);
+
+    await pump(hairline: true);
+    final decoration =
+        tester.widget<DecoratedBox>(box()).decoration as BoxDecoration;
+    expect(decoration.color, AppTheme.ground);
+    expect(
+      decoration.border,
+      const Border(top: BorderSide(color: AppTheme.line)),
+    );
+    // The board's 12 px over the button (the line is drawn inside them).
+    final top = tester.getTopLeft(find.byType(FilledButton)).dy -
+        tester.getTopLeft(find.byType(FwBottomActions)).dy;
+    expect(top, 12);
+  });
+
   testWidgets('FwStackedHeader: back on its own row, eyebrow, 32 px title',
       (tester) async {
     await tester.pumpWidget(

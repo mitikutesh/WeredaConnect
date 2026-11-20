@@ -5012,6 +5012,12 @@ class AppLocalizationsAm extends AppLocalizations {
       'ከ10,000 ብር በላይ የሆኑ ክፍያዎች ፋይዳ ያስፈልጋቸዋል። ያነሱት የይለፍ ቃልዎን ይጠይቃሉ።';
 
   @override
+  String get checkoutConfirmedWithFayda => 'በፋይዳ ተረጋግጧል';
+
+  @override
+  String get checkoutConfirmedWithPassword => 'በይለፍ ቃልዎ ተረጋግጧል';
+
+  @override
   String myCropsOrderedOf(String ordered, String total) {
     return 'ከ$total ኩንታል $ordered ታዝዟል';
   }

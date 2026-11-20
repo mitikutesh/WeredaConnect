@@ -25,6 +25,15 @@ class StepUpRequired extends SecurityEvent {
   final bool withFayda;
 }
 
+/// How the user confirmed it is them at a step-up prompt.
+enum StepUpMethod {
+  /// A fresh password (the answer to AUTH_040).
+  password,
+
+  /// A fresh Fayda login (the answer to AUTH_041).
+  fayda,
+}
+
 /// Whose verification a KYC rejection says is missing.
 ///
 /// The server writes `ORDER_KYC_REQUIRED: <reason>: <text>`
@@ -226,6 +235,7 @@ class SecurityEvents {
   final DateTime Function() _now;
   DateTime? _stepUpDeclinedAt;
   StepUpRequired? _pendingStepUp;
+  StepUpMethod? _lastStepUpMethod;
 
   /// The held operations behind [_pendingStepUp], by holder key, with
   /// whether each needs a Fayda login.
@@ -384,7 +394,11 @@ class SecurityEvents {
   /// after a cancelled prompt is dropped. A [SyncOperationRejected] with no
   /// listener is kept for the first one.
   void emit(SecurityEvent event) {
-    if (event is StepUpRequired) _pendingStepUp = event;
+    if (event is StepUpRequired) {
+      _pendingStepUp = event;
+      // The server asks again: the earlier confirmation no longer counts.
+      _lastStepUpMethod = null;
+    }
     if (event is StepUpRequired && stepUpSuppressed) return;
     if (event is SyncOperationRejected &&
         isAppUpdateRequiredMessage(event.message)) {
@@ -413,6 +427,7 @@ class SecurityEvents {
   void clearKeptRejections() {
     _undeliveredRejections.clear();
     _pendingStepUp = null;
+    _lastStepUpMethod = null;
     _stepUpHolds.clear();
   }
 
@@ -462,10 +477,19 @@ class SecurityEvents {
   /// The user cancelled the background step-up prompt.
   void stepUpDeclined() => _stepUpDeclinedAt = _now();
 
-  /// Report a successful step-up re-authentication.
-  void stepUpCompleted() {
+  /// How the last step-up of this sign-in was confirmed: set by
+  /// [stepUpCompleted], gone once the server asks again (a
+  /// [StepUpRequired]) and on logout. A fact about what the user did, never
+  /// a guess of what the next payment will need: the checkout names it
+  /// ("Confirmed with Fayda") only for a confirmation made while it is open.
+  StepUpMethod? get lastStepUpMethod => _lastStepUpMethod;
+
+  /// Report a successful step-up re-authentication, with the [method] the
+  /// user confirmed by when the caller knows it.
+  void stepUpCompleted({StepUpMethod? method}) {
     _stepUpDeclinedAt = null;
     _pendingStepUp = null;
+    _lastStepUpMethod = method;
     // The held operations go again now; one still refused is held again.
     _stepUpHolds.clear();
     if (!_stepUpCompleted.isClosed) _stepUpCompleted.add(null);

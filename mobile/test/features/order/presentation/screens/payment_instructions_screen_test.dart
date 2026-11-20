@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
@@ -580,6 +581,58 @@ void main() {
         expect(button.onPressed, isNull);
       });
     }
+
+    // PaymentM: the pill names the method only after the buyer confirmed.
+    testWidgets('Fayda confirmed for this payment: the pill says so',
+        (tester) async {
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OrderBloc>.value(value: bloc),
+            BlocProvider<EscrowBloc>.value(value: escrowBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: PaymentInstructionsScreen(
+              order: order()..orderTotal = 94500,
+              telebirrLive: true,
+              kycVerificationScreen: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('fayda screen'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final pill = find.byKey(const Key('checkout_confirmed_with'));
+      // Nothing is named before the server asks and the buyer answers.
+      expect(pill, findsNothing);
+
+      await tester.tap(find.text('Pay with Telebirr'));
+      await tester.pump();
+      states.add(
+        const OrderError(
+          message: "AUTH_041: Confirm it's you with Fayda",
+          code: AppErrorCode.faydaStepUpRequired,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(pill, findsNothing);
+
+      await tester.tap(find.byKey(const Key('fayda_step_up_verify_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('fayda screen'));
+      await tester.pumpAndSettle();
+
+      expect(submitted, hasLength(2));
+      expect(find.text('Confirmed with Fayda'), findsOneWidget);
+      SecurityEvents.instance.clearKeptRejections();
+    });
 
     testWidgets('once submitted, the checkout screen takes over',
         (tester) async {

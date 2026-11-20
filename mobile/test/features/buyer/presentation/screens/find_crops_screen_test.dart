@@ -115,6 +115,17 @@ void main() {
       expect(find.text('My Requests'), findsOneWidget);
     });
 
+    testWidgets('the header asks for the buyer sketch under its buttons',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      final header = tester.widget<FwPageHeader>(find.byType(FwPageHeader));
+      expect(header.sketchRole, UserRole.buyer);
+      expect(header.sketchBelowTrailing, isTrue);
+      expect(header.trailing, isNotNull);
+    });
+
     testWidgets('the tabs are the board segmented switch (Market board)',
         (tester) async {
       await tester.pumpWidget(buildTestWidget());

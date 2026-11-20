@@ -16,6 +16,7 @@ import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
@@ -477,9 +478,7 @@ class _CropTypeChips extends StatelessWidget {
                           ),
                           const SizedBox(width: 6),
                         ],
-                        ExcludeSemantics(
-                          child: FwSprout(color: ink, size: 20),
-                        ),
+                        CropGlyph(cropKey: type.name, color: ink),
                         const SizedBox(width: 6),
                         Flexible(
                           child: Text(

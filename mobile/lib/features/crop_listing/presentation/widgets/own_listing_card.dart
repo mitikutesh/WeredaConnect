@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/kg_entry.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
@@ -18,6 +19,10 @@ import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 /// The listing is stored in quintals; the card converts for display only.
 class OwnListingCard extends StatelessWidget {
   final String crop;
+
+  /// The stored crop key ("wheat"), for the tile's glyph; the sprout
+  /// without one.
+  final String? cropKey;
   final String subtitle;
 
   /// "42", with [priceUnit] ("ETB/kg") small beside it.
@@ -29,7 +34,7 @@ class OwnListingCard extends StatelessWidget {
   final String status;
   final bool statusPending;
 
-  /// The first card of the list: its tile is black with the orange sprout.
+  /// The first card of the list: its tile is black with the orange glyph.
   final bool lead;
 
   /// Replaces the crop tile (the listing's cover photo).
@@ -51,6 +56,7 @@ class OwnListingCard extends StatelessWidget {
     required this.priceUnit,
     required this.status,
     required this.freeQuintals,
+    this.cropKey,
     this.orderedQuintals = 0,
     this.statusPending = false,
     this.lead = false,
@@ -128,9 +134,9 @@ class OwnListingCard extends StatelessWidget {
                       color: lead ? AppTheme.ink : AppTheme.sand,
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: FwSprout(
+                    child: CropGlyph(
+                      cropKey: cropKey,
                       color: lead ? AppTheme.orange : AppTheme.ink,
-                      size: 20,
                     ),
                   ),
               const SizedBox(width: 12),

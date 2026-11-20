@@ -33,6 +33,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 import 'package:wereda_connect/shared/widgets/listing_card.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -207,6 +208,14 @@ void main() {
       expect(find.text('All'), findsOneWidget);
       expect(find.text('Teff'), findsOneWidget);
       expect(find.text('Wheat'), findsOneWidget);
+
+      // MarketM: each crop chip with its own glyph, "All" with none.
+      final glyphs = tester
+          .widgetList<CropGlyph>(find.byType(CropGlyph))
+          .map((glyph) => glyph.cropKey)
+          .toList();
+      expect(glyphs, containsAllInOrder(['teff', 'wheat', 'barley']));
+      expect(glyphs, isNot(contains(null)));
     });
   });
 

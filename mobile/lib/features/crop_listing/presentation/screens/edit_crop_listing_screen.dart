@@ -204,6 +204,7 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
         ),
       ),
       bottomNavigationBar: FwBottomActions(
+        hairline: true,
         children: [
           FilledButton(
             key: const Key('edit_listing_save'),

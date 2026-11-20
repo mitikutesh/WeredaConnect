@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -164,18 +165,23 @@ class PaymentAmountCard extends StatelessWidget {
 }
 
 /// "Confirm it's you" on the sand tile: payments over 10,000 ETB need
-/// Fayda, smaller ones the password (AUTH_041 / AUTH_040). [method] names
-/// the one this payment will use ("Confirmed with Fayda") as a pill under
-/// the title.
+/// Fayda, smaller ones the password (AUTH_041 / AUTH_040). [confirmedWith]
+/// is how the buyer confirmed for this payment, once they did: the board's
+/// "Confirmed with Fayda" pill under the title. Null before that (only the
+/// server knows which one a payment needs, so nothing is named ahead).
 class ConfirmItsYouCard extends StatelessWidget {
-  final String? method;
+  final StepUpMethod? confirmedWith;
 
-  const ConfirmItsYouCard({this.method, super.key});
+  const ConfirmItsYouCard({this.confirmedWith, super.key});
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final method = this.method;
+    final method = switch (confirmedWith) {
+      StepUpMethod.fayda => l10n.checkoutConfirmedWithFayda,
+      StepUpMethod.password => l10n.checkoutConfirmedWithPassword,
+      null => null,
+    };
     return FwCard.sand(
       key: const Key('checkout_confirm_its_you'),
       child: Column(
@@ -204,7 +210,11 @@ class ConfirmItsYouCard extends StatelessWidget {
                     Text(l10n.stepUpTitle, style: FwText.cardTitle),
                     if (method != null) ...[
                       const SizedBox(height: 4),
-                      FwPill(label: method),
+                      FwPill(
+                        key: const Key('checkout_confirmed_with'),
+                        icon: Icons.check,
+                        label: method,
+                      ),
                     ],
                   ],
                 ),

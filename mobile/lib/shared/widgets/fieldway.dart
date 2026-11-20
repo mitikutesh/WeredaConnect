@@ -24,12 +24,21 @@ class FwPageHeader extends StatelessWidget {
   /// the title leaves it room (the canvas's sketch rules, [RoleSketch]).
   final UserRole? sketchRole;
 
+  /// For a header whose [trailing] buttons leave the title's line no room
+  /// for the sketch (Market: the bell and the account button). The sketch
+  /// then sits under the buttons, at the end of the title's line, with the
+  /// eyebrow up beside the buttons. It still hides when the title is too
+  /// long for one line with it, with large text and with reduced effects;
+  /// the header is then the usual one.
+  final bool sketchBelowTrailing;
+
   const FwPageHeader({
     required this.title,
     this.eyebrow,
     this.eyebrowWidget,
     this.trailing,
     this.sketchRole,
+    this.sketchBelowTrailing = false,
     this.padding = const EdgeInsets.fromLTRB(20, 16, 20, 12),
     super.key,
   });
@@ -38,6 +47,10 @@ class FwPageHeader extends StatelessWidget {
   /// from the title.
   static const double _sketchWidth = 84;
   static const double _sketchMinWidth = 56;
+
+  /// The sketch's width under the trailing buttons (MarketM draws it 58
+  /// wide): no taller than the title's line.
+  static const double _sketchBelowWidth = 58;
   static const double _sketchGap = 16;
 
   /// How wide the sketch may be beside [title] in a header [width] wide,
@@ -79,6 +92,13 @@ class FwPageHeader extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ));
+    final titleText = Semantics(
+      header: true,
+      child: Text(
+        title,
+        style: FwText.pageTitle,
+      ),
+    );
     final text = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -86,13 +106,7 @@ class FwPageHeader extends StatelessWidget {
           eyebrowWidget,
           const SizedBox(height: 2),
         ],
-        Semantics(
-          header: true,
-          child: Text(
-            title,
-            style: FwText.pageTitle,
-          ),
-        ),
+        titleText,
       ],
     );
     final sketchRole = this.sketchRole;
@@ -116,18 +130,74 @@ class FwPageHeader extends StatelessWidget {
             },
           );
     final trailing = this.trailing;
+    final usual = trailing == null
+        ? Row(children: [Expanded(child: heading)])
+        : FwHeaderRow(
+            heading: heading,
+            trailing: trailing,
+            headingFontSize: FwText.pageTitle.fontSize!,
+            // A 42 px title: seven letters of room (294 px) keep the
+            // bell beside it on every phone, as on the boards.
+            minWidthInLetters: 7,
+          );
+    if (!sketchBelowTrailing || sketchRole == null || trailing == null) {
+      return Padding(padding: padding, child: usual);
+    }
     return Padding(
       padding: padding,
-      child: trailing == null
-          ? Row(children: [Expanded(child: heading)])
-          : FwHeaderRow(
-              heading: heading,
-              trailing: trailing,
-              headingFontSize: FwText.pageTitle.fontSize!,
-              // A 42 px title: seven letters of room (294 px) keep the
-              // bell beside it on every phone, as on the boards.
-              minWidthInLetters: 7,
-            ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // The title has the header's whole width here, so the sketch
+          // fits whenever the title and it share one line.
+          final room = _sketchWidthFor(context, title, constraints.maxWidth);
+          if (room == null) return usual;
+          final sketchWidth =
+              room < _sketchBelowWidth ? room : _sketchBelowWidth;
+          // Read as the usual header: the eyebrow, the title, the buttons.
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Semantics(
+                      container: true,
+                      explicitChildNodes: true,
+                      sortKey: const OrdinalSortKey(0),
+                      child: eyebrowWidget ?? const SizedBox.shrink(),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Semantics(
+                    container: true,
+                    explicitChildNodes: true,
+                    sortKey: const OrdinalSortKey(2),
+                    child: trailing,
+                  ),
+                ],
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Semantics(
+                      container: true,
+                      explicitChildNodes: true,
+                      sortKey: const OrdinalSortKey(1),
+                      child: titleText,
+                    ),
+                  ),
+                  const SizedBox(width: _sketchGap),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: RoleSketch(role: sketchRole, width: sketchWidth),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }

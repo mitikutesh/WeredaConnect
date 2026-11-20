@@ -21,6 +21,8 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 class _MockCropListingBloc extends Mock implements CropListingBloc {}
 
@@ -130,6 +132,7 @@ void main() {
     required CropListing listing,
     String userId = 'farmer-001',
     UserRole role = UserRole.farmer,
+    ThemeData? theme,
   }) =>
       MultiBlocProvider(
         providers: [
@@ -138,6 +141,7 @@ void main() {
           BlocProvider<RatingBloc>.value(value: ratingBloc),
         ],
         child: MaterialApp(
+          theme: theme,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           locale: const Locale('en'),
@@ -167,9 +171,15 @@ void main() {
     CropListing? listing,
     String userId = 'farmer-001',
     UserRole role = UserRole.farmer,
+    ThemeData? theme,
   }) async {
     await tester.pumpWidget(
-      app(listing: listing ?? _listing(), userId: userId, role: role),
+      app(
+        listing: listing ?? _listing(),
+        userId: userId,
+        role: role,
+        theme: theme,
+      ),
     );
     await tester.tap(find.text('home'));
     await tester.pumpAndSettle();
@@ -177,6 +187,71 @@ void main() {
 
   const edit = Key('crop_detail_edit');
   const delete = Key('crop_detail_delete');
+
+  // Design canvas page M: the owner's detail in the app's own theme.
+  group('page M look of the owner\'s detail', () {
+    final theme = AppTheme.light(role: UserRole.farmer);
+
+    testWidgets('Edit is the 54 px orange pill, Delete outlined in error',
+        (tester) async {
+      await open(tester, theme: theme);
+
+      final editButton = find.byKey(edit);
+      expect(tester.getSize(editButton).height, 54);
+      final editMaterial = tester.widget<Material>(
+        find.descendant(of: editButton, matching: find.byType(Material)).first,
+      );
+      expect(editMaterial.color, AppTheme.orange);
+      expect(editMaterial.shape, isA<StadiumBorder>());
+
+      final deleteButton = find.byKey(delete);
+      expect(tester.widget(deleteButton), isA<OutlinedButton>());
+      expect(tester.getSize(deleteButton).height, greaterThanOrEqualTo(48));
+      final deleteMaterial = tester.widget<Material>(
+        find
+            .descendant(of: deleteButton, matching: find.byType(Material))
+            .first,
+      );
+      final shape = deleteMaterial.shape! as StadiumBorder;
+      expect(shape.side.color, AppTheme.statusError);
+      expect(deleteMaterial.color, isNot(AppTheme.statusError));
+      final label = tester.widget<RichText>(
+        find.descendant(of: deleteButton, matching: find.byType(RichText)),
+      );
+      expect(label.text.style!.color, AppTheme.statusError);
+    });
+
+    testWidgets('"Not sent yet" is the orange tint pill with the upload mark',
+        (tester) async {
+      when(() => cropRepo.hasChangeWaiting('listing-1'))
+          .thenAnswer((_) async => true);
+      await open(tester, theme: theme);
+
+      final pill = tester.widget<FwPill>(
+        find.byKey(const Key('listing_not_sent_pill')),
+      );
+      expect(pill.background, AppTheme.orangeTint);
+      expect(pill.foreground, AppTheme.orangeInk);
+      expect(pill.icon, Icons.cloud_upload_outlined);
+      expect(pill.label, 'Not sent yet');
+    });
+
+    testWidgets('the quantity line leads with kg, quintals in parentheses',
+        (tester) async {
+      await open(tester, theme: theme);
+
+      final line = tester.widget<Text>(
+        find.byKey(const Key('crop_detail_quantity_line')),
+      );
+      final text = line.textSpan!.toPlainText();
+      final kg = text.indexOf('kg');
+      final quintals = text.indexOf('(');
+      expect(kg, greaterThan(0));
+      expect(quintals, greaterThan(kg));
+      expect(text, contains('quintal'));
+      expect(text.substring(quintals), contains(')'));
+    });
+  });
 
   // BUG-36: the detail of a listing saved offline said "Active" like a
   // synced one.

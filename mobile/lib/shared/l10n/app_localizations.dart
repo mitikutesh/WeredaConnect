@@ -8879,6 +8879,18 @@ abstract class AppLocalizations {
   /// **'Payments over 10,000 ETB need Fayda. Smaller ones ask for your password.'**
   String get checkoutConfirmItsYouNote;
 
+  /// Design canvas page M, PaymentM. Pill on the checkout's Confirm it's you card once the buyer confirmed for this payment. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed with Fayda'**
+  String get checkoutConfirmedWithFayda;
+
+  /// Design canvas page M, PaymentM. Pill on the checkout's Confirm it's you card once the buyer confirmed for this payment. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed with your password'**
+  String get checkoutConfirmedWithPassword;
+
   /// Fieldway design alignment (specs/design-canvas). My Crops card: paid orders out of the listing's quintals; numbers
   ///
   /// In en, this message translates to:

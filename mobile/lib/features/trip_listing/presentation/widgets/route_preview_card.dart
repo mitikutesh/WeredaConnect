@@ -389,6 +389,7 @@ class PlacePreviewCard extends StatelessWidget {
     this.excludeId,
     this.footer,
     this.height = 128,
+    this.footerPadding = const EdgeInsets.fromLTRB(14, 12, 14, 12),
     super.key,
   });
 
@@ -403,6 +404,9 @@ class PlacePreviewCard extends StatelessWidget {
   final String? excludeId;
   final Widget? footer;
   final double height;
+
+  /// The room around [footer]; tighter when it ends in a 44 px link.
+  final EdgeInsetsGeometry footerPadding;
 
   @override
   Widget build(BuildContext context) {
@@ -420,25 +424,25 @@ class PlacePreviewCard extends StatelessWidget {
             child: ExcludeSemantics(
               child: SizedBox(
                 height: height,
-                child: CustomPaint(
-                  painter: _PlacePreviewPainter(
-                    lat: lat,
-                    lng: lng,
-                    label: label,
-                    towns: towns,
-                    languageCode: languageCode,
-                    textDirection: Directionality.of(context),
-                    accent: context.roleColors.primary,
+                // Clipped: a town near the edge must not spill its dot
+                // into the footer.
+                child: ClipRect(
+                  child: CustomPaint(
+                    painter: _PlacePreviewPainter(
+                      lat: lat,
+                      lng: lng,
+                      label: label,
+                      towns: towns,
+                      languageCode: languageCode,
+                      textDirection: Directionality.of(context),
+                      accent: context.roleColors.primary,
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-          if (footer != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-              child: footer,
-            ),
+          if (footer != null) Padding(padding: footerPadding, child: footer),
         ],
       ),
     );

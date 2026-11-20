@@ -21,7 +21,9 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import '../../../../helpers/crop_photo_fixtures.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
@@ -124,6 +126,20 @@ void main() {
 
       // Verify audio note placeholder
       expect(find.text('Record Audio Note'), findsOneWidget);
+    });
+
+    testWidgets('each crop pill draws its own glyph', (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      for (final crop in ['teff', 'chickpea', 'coffee', 'sesame']) {
+        final glyph = find.descendant(
+          of: find.byKey(Key('create_listing_crop_$crop')),
+          matching: find.byType(CropGlyph),
+        );
+        expect(glyph, findsOneWidget, reason: crop);
+        expect(tester.widget<CropGlyph>(glyph).cropKey, crop);
+      }
     });
 
     testWidgets('shows validation errors on empty submit', (tester) async {
@@ -233,6 +249,114 @@ void main() {
       expect(find.text('GPS unavailable'), findsOneWidget);
       expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
       expect(find.byIcon(Icons.refresh), findsOneWidget);
+    });
+  });
+
+  // CreateCropListingM: the raised location card with "Change".
+  group('Location card', () {
+    final card = find.byKey(const Key('create_listing_location_card'));
+    final change = find.byKey(const Key('create_listing_location_change'));
+    final field = find.byType(PlaceSelector);
+    const meki = Place(id: 'gn-2', en: 'Meki', lat: 8.15, lng: 38.82);
+
+    testWidgets('the card leads; the field stays until a place is picked',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(card, findsOneWidget);
+      expect(field, findsOneWidget);
+      expect(change, findsNothing);
+      // The card is over the field, as on the board.
+      expect(
+        tester.getBottomLeft(card).dy,
+        lessThanOrEqualTo(tester.getTopLeft(field).dy),
+      );
+
+      // Typed text that is not a pick keeps the field (it is checked on
+      // Save).
+      await tester.enterText(
+        find.descendant(of: field, matching: find.byType(TextFormField)),
+        'Meki',
+      );
+      await tester.pump();
+      expect(field, findsOneWidget);
+      expect(change, findsNothing);
+    });
+
+    testWidgets('a picked place closes the field; Change opens it focused',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(of: field, matching: find.byType(TextFormField)),
+        'Meki',
+      );
+      tester.widget<PlaceSelector>(field).onPlaceSelected!(meki);
+      await tester.pumpAndSettle();
+
+      expect(field, findsNothing);
+      expect(find.text('GPS Captured · Meki'), findsOneWidget);
+      expect(change, findsOneWidget);
+      expect(tester.widget<TextButton>(change).child, isA<Text>());
+      expect(find.text('Change'), findsOneWidget);
+      // A real tap target.
+      expect(tester.getSize(change).height, greaterThanOrEqualTo(48));
+      expect(tester.getSize(change).width, greaterThanOrEqualTo(48));
+
+      await tester.ensureVisible(change);
+      await tester.tap(change);
+      await tester.pumpAndSettle();
+
+      expect(field, findsOneWidget);
+      expect(change, findsNothing);
+      final input = tester.widget<EditableText>(
+        find.descendant(of: field, matching: find.byType(EditableText)),
+      );
+      expect(input.focusNode.hasFocus, isTrue);
+      expect(input.controller.text, 'Meki');
+    });
+
+    testWidgets('without any position there is no card, only the field',
+        (tester) async {
+      when(() => mockGpsService.captureCurrentPosition()).thenAnswer(
+        (_) async =>
+            const GpsCaptureResult.unavailable('Location services disabled'),
+      );
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(card, findsNothing);
+      expect(field, findsOneWidget);
+      expect(change, findsNothing);
+    });
+
+    testWidgets('the picked place draws the card when GPS is unavailable',
+        (tester) async {
+      when(() => mockGpsService.captureCurrentPosition()).thenAnswer(
+        (_) async =>
+            const GpsCaptureResult.unavailable('Location services disabled'),
+      );
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(of: field, matching: find.byType(TextFormField)),
+        'Meki',
+      );
+      tester.widget<PlaceSelector>(field).onPlaceSelected!(meki);
+      await tester.pumpAndSettle();
+
+      expect(card, findsOneWidget);
+      expect(field, findsNothing);
+      expect(change, findsOneWidget);
+    });
+
+    testWidgets('Save sits over a hairline', (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      final bar = tester.widget<FwBottomActions>(find.byType(FwBottomActions));
+      expect(bar.hairline, isTrue);
     });
   });
 

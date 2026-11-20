@@ -207,15 +207,23 @@ class FwStackedHeader extends StatelessWidget {
 class FwBottomActions extends StatelessWidget {
   final List<Widget> children;
 
-  const FwBottomActions({required this.children, super.key});
+  /// The form boards' bar (Create listing, Create trip): the page's white
+  /// under a hairline, so the form scrolls away behind it.
+  final bool hairline;
+
+  const FwBottomActions({
+    required this.children,
+    this.hairline = false,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
+    final actions = SafeArea(
       top: false,
       child: FwContentWidth(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          padding: EdgeInsets.fromLTRB(20, hairline ? 12 : 8, 20, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -223,6 +231,14 @@ class FwBottomActions extends StatelessWidget {
           ),
         ),
       ),
+    );
+    if (!hairline) return actions;
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppTheme.ground,
+        border: Border(top: BorderSide(color: AppTheme.line)),
+      ),
+      child: actions,
     );
   }
 }

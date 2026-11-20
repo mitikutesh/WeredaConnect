@@ -24,6 +24,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
@@ -79,6 +80,13 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
   /// The place chosen from the location selector, if any. Null for free text.
   Place? _selectedLocationPlace;
 
+  /// Whether the place field shows. It closes once a place is picked from
+  /// the list (the board's card then names it) and "Change" opens it again.
+  bool _placeFieldOpen = true;
+
+  /// The field was opened by "Change": it takes the focus as it appears.
+  bool _placeFieldFocus = false;
+
   late final GpsCaptureService _gpsCaptureService;
   GpsCaptureResult? _gpsResult;
   bool _gpsCapturing = false;
@@ -104,6 +112,13 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
   void _onLocationTyped() {
     if (mounted) setState(() {});
   }
+
+  /// The place field is closed only while a place picked from the list
+  /// stands in it.
+  bool get _placeFieldShown =>
+      _placeFieldOpen ||
+      _selectedLocationPlace == null ||
+      _locationController.text.trim().isEmpty;
 
   void _onAmountTyped() {
     if (mounted) setState(() {});
@@ -274,12 +289,13 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
             ),
           ),
         ),
-        // Save pinned at the foot, as on the board. Driven by THIS screen's
+        // Save pinned at the foot over a hairline, as on the board. Driven by THIS screen's
         // own submission, not the shared bloc's CropListingLoading: the
         // still-mounted "My Crops" list re-dispatches LoadCropListings on
         // CropListingCreated, which would otherwise re-gray this button
         // around the pop.
         bottomNavigationBar: FwBottomActions(
+          hairline: true,
           children: [
             FilledButton(
               onPressed: _isSubmitting ? null : _handleSave,
@@ -402,44 +418,62 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
         ],
         const SizedBox(height: 18),
 
-        // Location: the place, then the board's card with the farm drawn
-        // from the GPS fix (else the picked place) and the GPS state.
+        // Location, as on the board: the raised card with the farm drawn
+        // from the GPS fix (else the picked place), the GPS state and
+        // "Change". The place field shows until a place is picked from the
+        // list, and again after "Change".
         CropFormSectionLabel(
           icon: Icons.place_outlined,
           text: l10n.location,
         ),
         const SizedBox(height: 10),
-        Semantics(
-          // The suggestions stay their own nodes: the label is read on
-          // its own, just before the field.
-          label: l10n.location,
-          child: PlaceSelector(
-            key: const Key('create_listing_location'),
-            controller: _locationController,
-            labelAbove: true,
-            showSearchIcon: false,
-            hintText: l10n.wereda,
-            onPlaceSelected: (place) =>
-                setState(() => _selectedLocationPlace = place),
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) {
-                return l10n.locationRequired;
-              }
-              // FUP-49: buyers read it before any order.
-              if (containsPhoneNumber(value)) {
-                return l10n.errorContactInText;
-              }
-              return null;
-            },
-          ),
-        ),
-        const SizedBox(height: 8),
         _LocationCard(
           gpsResult: _gpsResult,
           isCapturing: _gpsCapturing,
           place: _selectedLocationPlace,
           locationName: _locationController.text.trim(),
           onRetry: _captureGps,
+          onChange: _placeFieldShown
+              ? null
+              : () => setState(() {
+                    _placeFieldOpen = true;
+                    _placeFieldFocus = true;
+                  }),
+          // A field no place was picked in is checked on Save, so it is
+          // kept in the form: only a picked place closes it.
+          placeField: _placeFieldShown
+              ? Semantics(
+                  // The suggestions stay their own nodes: the label is
+                  // read on its own, just before the field.
+                  label: l10n.location,
+                  child: PlaceSelector(
+                    key: const Key('create_listing_location'),
+                    controller: _locationController,
+                    labelAbove: true,
+                    showSearchIcon: false,
+                    hintText: l10n.wereda,
+                    autofocus: _placeFieldFocus,
+                    selectAllOnFocus: _placeFieldFocus,
+                    onPlaceSelected: (place) => setState(() {
+                      _selectedLocationPlace = place;
+                      if (place != null) {
+                        _placeFieldOpen = false;
+                        _placeFieldFocus = false;
+                      }
+                    }),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return l10n.locationRequired;
+                      }
+                      // FUP-49: buyers read it before any order.
+                      if (containsPhoneNumber(value)) {
+                        return l10n.errorContactInText;
+                      }
+                      return null;
+                    },
+                  ),
+                )
+              : null,
         ),
         const SizedBox(height: 18),
 
@@ -492,10 +526,12 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
   }
 }
 
-/// The board's location card: the farm on a small drawing with the towns
-/// around it, and the GPS state in the foot (captured as a green chip,
-/// capturing, or unavailable with a retry). Without any position yet it is
-/// the GPS state alone, with the hint to pick the wereda from the list.
+/// The board's location card: raised, the farm on a small drawing with the
+/// towns around it, and in the foot the GPS state (captured as a tint
+/// pill, capturing, or unavailable with a retry) beside "Change", which
+/// opens the place field again. [placeField] sits under the card while it
+/// is open. Without any position yet it is the field and the GPS state
+/// alone, with the hint to pick the wereda from the list.
 class _LocationCard extends StatelessWidget {
   final GpsCaptureResult? gpsResult;
   final bool isCapturing;
@@ -503,12 +539,18 @@ class _LocationCard extends StatelessWidget {
   final String locationName;
   final VoidCallback onRetry;
 
+  /// Opens the place field; null while the field is open.
+  final VoidCallback? onChange;
+  final Widget? placeField;
+
   const _LocationCard({
     required this.gpsResult,
     required this.isCapturing,
     required this.place,
     required this.locationName,
     required this.onRetry,
+    required this.onChange,
+    required this.placeField,
   });
 
   @override
@@ -534,25 +576,63 @@ class _LocationCard extends StatelessWidget {
             ),
           )
         : null;
+    final field = placeField;
     if (lat == null || lng == null) {
       return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [status, if (hint != null) hint],
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (field != null) ...[field, const SizedBox(height: 8)],
+          status,
+          if (hint != null) hint,
+        ],
       );
     }
+    final change = onChange;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         PlacePreviewCard(
+          key: const Key('create_listing_location_card'),
           lat: lat,
           lng: lng,
           label: l10n.detailYourFarm,
+          height: 116,
           places: PlaceRepository.instance.isLoaded
               ? PlaceRepository.instance.places
               : const [],
           excludeId: gps == null ? place?.id : null,
-          footer: status,
+          footerPadding: change == null
+              ? const EdgeInsets.fromLTRB(16, 12, 16, 14)
+              : const EdgeInsetsDirectional.fromSTEB(16, 4, 6, 6),
+          // A wrap: with large text or a long place the link moves under
+          // the pill instead of squeezing it.
+          footer: change == null
+              ? status
+              : Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 10,
+                  children: [
+                    status,
+                    TextButton(
+                      key: const Key('create_listing_location_change'),
+                      onPressed: change,
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        textStyle: const TextStyle(
+                          fontFamily: AppTheme.fontFamily,
+                          fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      child: Text(l10n.detailChange),
+                    ),
+                  ],
+                ),
         ),
+        if (field != null) ...[const SizedBox(height: 10), field],
         if (hint != null) hint,
       ],
     );
@@ -596,6 +676,7 @@ class _GpsStatusIndicator extends StatelessWidget {
       final name = placeName;
       return Align(
         alignment: AlignmentDirectional.centerStart,
+        widthFactor: 1,
         child: FwPill(
           icon: Icons.check,
           label: name == null || name.isEmpty
@@ -630,8 +711,8 @@ class _GpsStatusIndicator extends StatelessWidget {
   }
 }
 
-/// The board's crop picker: three pills per row (44 tall), each with the
-/// sprout glyph; the chosen one black with white ink and a check.
+/// The board's crop picker: three pills per row (44 tall), each with its
+/// crop's glyph; the chosen one black with white ink and a check.
 class _CropTypeGrid extends StatelessWidget {
   final CropType? selectedCropType;
   final ValueChanged<CropType> onSelected;
@@ -683,7 +764,8 @@ class _CropTypeGrid extends StatelessWidget {
                           ),
                           const SizedBox(width: 4),
                         ],
-                        FwSprout(
+                        CropGlyph(
+                          cropKey: type.name,
                           size: 18,
                           color: isSelected ? Colors.white : AppTheme.inkSoft,
                         ),

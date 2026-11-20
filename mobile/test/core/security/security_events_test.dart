@@ -130,6 +130,30 @@ void main() {
       expect(events.pendingStepUp, isNull);
     });
 
+    test('the method of a completed step-up is kept until asked again', () {
+      final events = SecurityEvents.forTesting();
+      expect(events.lastStepUpMethod, isNull);
+
+      events.stepUpCompleted(method: StepUpMethod.fayda);
+      expect(events.lastStepUpMethod, StepUpMethod.fayda);
+
+      // The server asks again: nothing is confirmed any more.
+      events.emit(const StepUpRequired());
+      expect(events.lastStepUpMethod, isNull);
+
+      events.stepUpCompleted(method: StepUpMethod.password);
+      expect(events.lastStepUpMethod, StepUpMethod.password);
+
+      // A completion that does not say how names nothing.
+      events.stepUpCompleted();
+      expect(events.lastStepUpMethod, isNull);
+
+      events
+        ..stepUpCompleted(method: StepUpMethod.password)
+        ..clearKeptRejections();
+      expect(events.lastStepUpMethod, isNull);
+    });
+
     test('a live payment (no reference) can be submitted again', () {
       const live = KycRequired(
         orderId: 'o-1',

@@ -54,8 +54,13 @@ class PlaceSelector extends StatefulWidget {
     this.showSearchIcon = true,
     this.pickerLook = false,
     this.selectAllOnFocus = false,
+    this.autofocus = false,
     super.key,
   });
+
+  /// Takes the focus as soon as the field is built: for a field a link
+  /// has just opened ("Change" on the listing form's location card).
+  final bool autofocus;
 
   /// Selects the whole text when the field gains focus, for a field that
   /// starts prefilled: typing then replaces the name instead of landing in
@@ -272,6 +277,7 @@ class _PlaceSelectorState extends State<PlaceSelector>
               TextFormField(
                 controller: controller,
                 focusNode: focusNode,
+                autofocus: widget.autofocus,
                 enabled: widget.enabled,
                 validator: widget.validator,
                 onChanged: _handleFieldChanged,

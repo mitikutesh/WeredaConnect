@@ -118,13 +118,16 @@ class _FindCropsScreenState extends State<FindCropsScreen> {
                         ),
                       ),
                     ),
-                  // MarketM board: where the crops go, then the title,
-                  // the buyer sketch when the title leaves it room, the
-                  // bell and the account button.
+                  // MarketM board: where the crops go, then the title
+                  // with the buyer sketch on its line. The bell and the
+                  // account button fill the room the board's single bell
+                  // leaves the sketch, so it sits under them; a long title
+                  // or large text drops it.
                   FwPageHeader(
                     eyebrowWidget: const DeliverToLine(),
                     title: l10n.findCrops,
                     sketchRole: UserRole.buyer,
+                    sketchBelowTrailing: true,
                     trailing: const HeaderActions(),
                   ),
                 ],

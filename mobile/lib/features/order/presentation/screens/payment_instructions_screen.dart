@@ -176,25 +176,36 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
   /// prompt and one resubmission (BUG-23).
   bool _stepUpOpen = false;
 
+  /// How the buyer confirmed it is them for this payment, once they did
+  /// (the board's "Confirmed with Fayda" pill). Cleared when the server
+  /// asks again.
+  StepUpMethod? _confirmedWith;
+
   Future<void> _retryAfterStepUp() async {
     if (_stepUpOpen) return;
     _stepUpOpen = true;
+    setState(() => _confirmedWith = null);
     final bool ok;
     try {
       ok = await showStepUpDialog(context);
     } finally {
       _stepUpOpen = false;
     }
-    if (ok && mounted) _submitPayment();
+    if (!ok || !mounted) return;
+    setState(() => _confirmedWith = StepUpMethod.password);
+    _submitPayment();
   }
 
   /// Above 10,000 ETB the server wants a fresh Fayda login, not the password.
   Future<void> _retryAfterFaydaStepUp() async {
+    setState(() => _confirmedWith = null);
     final outcome = await showFaydaStepUpDialog(
       context,
       verificationScreen: widget.kycVerificationScreen,
     );
-    if (outcome == StepUpOutcome.verified && mounted) _submitPayment();
+    if (outcome != StepUpOutcome.verified || !mounted) return;
+    setState(() => _confirmedWith = StepUpMethod.fayda);
+    _submitPayment();
   }
 
   /// KYC gate: verified as this account's owner → send the same payment
@@ -246,6 +257,7 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
                 builder: (_) => OrderCheckoutScreen(
                   order: widget.order,
                   fromOrderDetail: widget.fromOrderDetail,
+                  confirmedWith: _confirmedWith,
                 ),
               ),
             );
@@ -323,7 +335,9 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
                               if (_live) ...[
                                 // Telebirr payment board: how the payment asks the
                                 // buyer to confirm it is them.
-                                const ConfirmItsYouCard(),
+                                ConfirmItsYouCard(
+                                  confirmedWith: _confirmedWith,
+                                ),
                                 if (!_withinTelebirrLimits) ...[
                                   const SizedBox(height: 14),
                                   Text(

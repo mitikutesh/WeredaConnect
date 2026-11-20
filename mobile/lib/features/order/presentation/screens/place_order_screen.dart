@@ -37,6 +37,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_normalizer.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_trip_card.dart';
 import 'package:wereda_connect/core/models/user.dart';
@@ -495,6 +496,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                           label: l10n.listingSummary,
                           child: _PartyCard(
                             sand: true,
+                            cropKey: widget.listing.cropType,
                             iconBackground:
                                 cropTileColors(widget.listing.cropType)
                                     .background,
@@ -775,8 +777,11 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 /// The board's one-line card: a tinted icon tile, a title, a line under it
 /// and an optional action at the end (the listing, the transport).
 class _PartyCard extends StatelessWidget {
-  /// The tile's icon; null draws the boards' crop sprout.
+  /// The tile's icon; null draws the glyph of [cropKey].
   final IconData? icon;
+
+  /// The listing's stored crop key, for its glyph.
+  final String? cropKey;
   final Color iconBackground;
   final Color? iconColor;
   final String title;
@@ -792,6 +797,7 @@ class _PartyCard extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.icon,
+    this.cropKey,
     this.iconColor,
     this.trailing,
     this.sand = false,
@@ -813,7 +819,7 @@ class _PartyCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(14),
             ),
             child: icon == null
-                ? FwSprout(color: iconColor)
+                ? CropGlyph(cropKey: cropKey, size: 22, color: iconColor)
                 : Icon(icon, size: 22, color: iconColor),
           ),
           const SizedBox(width: 12),

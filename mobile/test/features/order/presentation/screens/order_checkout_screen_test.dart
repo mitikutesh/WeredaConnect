@@ -621,6 +621,132 @@ void main() {
     await leave(tester);
   });
 
+  // PaymentM: "Confirmed with Fayda", only once it happened.
+  group('the confirmed-with pill', () {
+    final pill = find.byKey(const Key('checkout_confirmed_with'));
+
+    Future<void> openQueuedForStepUp(
+      WidgetTester tester, {
+      required bool withFayda,
+      StepUpMethod? confirmedWith,
+    }) async {
+      events
+        ..stepUpDeclined()
+        ..emit(StepUpRequired(withFayda: withFayda));
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: OrderCheckoutScreen(
+            order: order(),
+            bloc: OrderCheckoutBloc(
+              orderId: orderId,
+              escrow: escrow,
+              readServerOrder: (_) async => null,
+              readLocalOrder: (_) async => order(),
+              securityEvents: events,
+            ),
+            isWeb: false,
+            returnLinks: links.stream,
+            securityEvents: events,
+            confirmedWith: confirmedWith,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('not shown before anything was confirmed', (tester) async {
+      fails('ESCROW_032', 409);
+      await open(tester);
+
+      expect(pill, findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets('a pending Fayda step-up is not named as confirmed',
+        (tester) async {
+      await openQueuedForStepUp(tester, withFayda: true);
+
+      expect(
+        find.widgetWithText(FilledButton, "Confirm it's you"),
+        findsOneWidget,
+      );
+      expect(pill, findsNothing);
+      await leave(tester);
+    });
+
+    for (final (method, words) in [
+      (StepUpMethod.fayda, 'Confirmed with Fayda'),
+      (StepUpMethod.password, 'Confirmed with your password'),
+    ]) {
+      testWidgets('shown once the step-up completes: $words', (tester) async {
+        await openQueuedForStepUp(
+          tester,
+          withFayda: method == StepUpMethod.fayda,
+        );
+        expect(pill, findsNothing);
+
+        // What a finished prompt reports (this screen's or the shell's).
+        events.stepUpCompleted(method: method);
+        await tester.pump();
+        await tester.pump();
+
+        expect(pill, findsOneWidget);
+        expect(find.text(words), findsOneWidget);
+        await leave(tester);
+      });
+    }
+
+    testWidgets('a completion that names no method shows nothing',
+        (tester) async {
+      await openQueuedForStepUp(tester, withFayda: false);
+
+      events.stepUpCompleted();
+      await tester.pump();
+      await tester.pump();
+
+      expect(pill, findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets('carried over from the page before, gone when asked again',
+        (tester) async {
+      fails('ESCROW_032', 409);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: OrderCheckoutScreen(
+            order: order(),
+            bloc: bloc(),
+            isWeb: false,
+            returnLinks: links.stream,
+            connectivityRestored: network.stream,
+            securityEvents: events,
+            confirmedWith: StepUpMethod.password,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Confirmed with your password'), findsOneWidget);
+      await leave(tester);
+
+      // A queued payment that asks again starts without the pill.
+      await openQueuedForStepUp(
+        tester,
+        withFayda: true,
+        confirmedWith: StepUpMethod.password,
+      );
+      expect(pill, findsNothing);
+      await leave(tester);
+    });
+  });
+
   for (final locale in ['am', 'om']) {
     testWidgets('renders in $locale', (tester) async {
       fails('ESCROW_032', 409);

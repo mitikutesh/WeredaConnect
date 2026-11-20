@@ -58,6 +58,7 @@ import 'package:wereda_connect/features/rating/presentation/widgets/rate_counter
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
@@ -1533,9 +1534,7 @@ class _OrderHeader extends StatelessWidget {
           const SizedBox(height: 2),
           Row(
             children: [
-              const ExcludeSemantics(
-                child: FwSprout(color: AppTheme.slate, size: 20),
-              ),
+              CropGlyph(cropKey: order.cropType, color: AppTheme.slate),
               const SizedBox(width: 5),
               Expanded(
                 child: Text(subtitle, style: muted.copyWith(fontSize: 14)),

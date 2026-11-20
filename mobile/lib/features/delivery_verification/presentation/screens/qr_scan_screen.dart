@@ -98,6 +98,11 @@ class _QrScanScreenState extends State<QrScanScreen> {
   MobileScannerController? _scannerController;
   String? _errorCode;
 
+  /// Why the server refused the confirm (a code that is not this
+  /// delivery's, a locked code, a code not synced yet), in the viewer's
+  /// language: the failed page shows it instead of a scan failure.
+  String? _serverRefusal;
+
   // Verified phase data
   GpsCaptureResult? _gpsResult;
   String? _photoRef;
@@ -259,6 +264,19 @@ class _QrScanScreenState extends State<QrScanScreen> {
     return localizeDeliveryError(l10n, code);
   }
 
+  /// A refusal of the code itself after Confirm: not this delivery's,
+  /// locked, or not on the server yet. Scanning (or typing) again is what
+  /// helps, so these open the failed page. Anything else (the place, the
+  /// network, the session) keeps the confirm page and says why there.
+  bool _refusesTheCode(DeliveryError error) =>
+      _phase == _ScanPhase.verified &&
+      const {
+        DeliveryErrorCode.codeMismatch,
+        DeliveryErrorCode.codeLocked,
+        DeliveryErrorCode.codeLockedDropoff,
+        DeliveryErrorCode.qrPending,
+      }.contains(error.code);
+
   void _onBarcodeDetected(BarcodeCapture capture) {
     if (_phase != _ScanPhase.scanning) return;
 
@@ -400,6 +418,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
     setState(() {
       _phase = _ScanPhase.scanning;
       _errorCode = null;
+      _serverRefusal = null;
       _gpsResult = null;
       _isCapturingGps = false;
       _photoRef = null;
@@ -441,6 +460,15 @@ class _QrScanScreenState extends State<QrScanScreen> {
             );
           }
           Navigator.of(context).pop(true);
+        } else if (state is DeliveryError && _refusesTheCode(state)) {
+          // TruckerQrFailedM: the server did not take the code. The same
+          // failed page as a scan the phone refused, with the server's
+          // reason; Try again goes back to the scanner.
+          setState(() {
+            _isConfirming = false;
+            _serverRefusal = _errorText(AppLocalizations.of(context)!, state);
+            _phase = _ScanPhase.invalid;
+          });
         } else if (state is DeliveryError) {
           setState(() => _isConfirming = false);
           ScaffoldMessenger.of(context).showSnackBar(
@@ -905,7 +933,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
     // confirming a delivery just goes back.
     return QrScanFailedView(
       pickup: _isPickup,
-      reason: _localizeQrError(l10n),
+      reason: _serverRefusal ?? _localizeQrError(l10n),
       backLabel: _isPickup ? l10n.qrFailedBackToTrip : l10n.back,
       onRetry: _resetScanner,
       onBack: () => Navigator.of(context).maybePop(),
@@ -918,7 +946,8 @@ class _QrScanScreenState extends State<QrScanScreen> {
 /// page M, TruckerQrFailedM): the round Back with the kind of scan beside
 /// it, the error tile, "The scan did not work", why (the failure the phone
 /// found: a QR of another delivery, one it cannot read, one that is not a
-/// handoff code) and that nothing was lost, then Try again (the one orange
+/// handoff code; or the server's refusal of the code after Confirm) and
+/// that nothing was lost, then Try again (the one orange
 /// action), the way back, and the typed code for a QR that will not read.
 /// Nothing here needs the network.
 class QrScanFailedView extends StatelessWidget {
