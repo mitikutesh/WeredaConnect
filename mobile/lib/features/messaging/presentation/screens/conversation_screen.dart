@@ -142,7 +142,7 @@ class _ConversationViewState extends State<_ConversationView> {
       widget.contextType == 'crop' || widget.contextType == 'trip';
 
   /// Open the crop/trip this thread is linked to. Loads the entity through
-  /// the marketplace repositories (Isar on mobile, HTTP on web) — the detail
+  /// the marketplace repositories (Isar on mobile, HTTP on web): the detail
   /// screens need the full model, not just the tag's label info.
   Future<void> _openLinkedContext() async {
     final authState = context.read<AuthBloc>().state;

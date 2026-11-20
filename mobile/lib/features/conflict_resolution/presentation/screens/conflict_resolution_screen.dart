@@ -50,7 +50,7 @@ String _humanizeToken(String token) {
 /// Modal bottom sheet shown when a sync conflict is auto-resolved.
 ///
 /// Informs the user that their local data was updated by the server.
-/// The conflict is already resolved — this is purely informational.
+/// The conflict is already resolved: this is purely informational.
 ///
 /// Shows:
 /// - Entity type (crop listing, delivery, trip)

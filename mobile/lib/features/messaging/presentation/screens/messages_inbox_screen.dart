@@ -20,7 +20,7 @@ import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
-/// The conversations inbox — the current user's chats across all roles.
+/// The conversations inbox: the current user's chats across all roles.
 ///
 /// Drawn in the boards' language (no board of its own): the 42 px page
 /// header with the role's sketch, the threads as rows of one raised paper
@@ -237,7 +237,7 @@ class _ConversationTile extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 3),
-                  // What the thread is about — the linked crop or trip.
+                  // What the thread is about: the linked crop or trip.
                   ConversationContextTag(
                     contextType: summary.contextType,
                     contextId: summary.contextId,

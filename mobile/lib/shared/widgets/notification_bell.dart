@@ -854,7 +854,7 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
     if (mounted && retried > 0) {
       await _syncNow();
     } else if (mounted) {
-      // Refresh counts — failed ops may have been cleared
+      // Refresh counts: failed ops may have been cleared
       _loadCounts();
     }
   }

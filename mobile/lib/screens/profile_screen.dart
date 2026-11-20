@@ -5,7 +5,7 @@ import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:intl/intl.dart';
 // The device build gets isar via isar_service.dart's re-export, but the web
-// build swaps in isar_service_web.dart which does NOT re-export it — keep the
+// build swaps in isar_service_web.dart which does NOT re-export it: keep the
 // direct import so QAfterFilterCondition resolves on both platforms.
 // ignore: unnecessary_import
 import 'package:isar/isar.dart' show QAfterFilterCondition;
@@ -607,7 +607,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  /// Web has no Isar — sum escrow-held order values from the API instead.
+  /// Web has no Isar: sum escrow-held order values from the API instead.
   /// Trades/rating stay placeholders (no local history on web).
   Future<Map<String, String>> _loadWebProfileStats(
     String userId,
@@ -719,7 +719,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // Escape key or barrier tap returns null, which is not true.
     if (confirmed == true && context.mounted) {
       // Explicit logout MUST clear the offline credential cache (tokens + PBKDF2
-      // password hash) — auth-api.md invariant 7, stolen-device mitigation. The
+      // password hash): auth-api.md invariant 7, stolen-device mitigation. The
       // AuthLogoutRequested default (clearCache: true) does exactly this; passing
       // clearCache:false here previously defeated it.
       context.read<AuthBloc>().add(const AuthLogoutRequested());

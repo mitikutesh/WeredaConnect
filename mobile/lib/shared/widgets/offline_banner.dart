@@ -41,7 +41,7 @@ Future<void> showSavedOrSent(BuildContext context, {String? sent}) async {
   if (text != null) messenger.showSnackBar(SnackBar(content: Text(text)));
 }
 
-/// The one offline banner — offline is a status, never a surprise.
+/// The one offline banner: offline is a status, never a surprise.
 ///
 /// Self-contained (monitors connectivity itself) so any screen can drop
 /// it into its column. Appears in the same slot (under the header) on

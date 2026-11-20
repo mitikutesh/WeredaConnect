@@ -29,7 +29,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// - Keyboard navigable (up/down/enter to pick, escape to dismiss) and
 ///   accessible (labelled field + results region).
 ///
-/// Pure Flutter — works on mobile and web. The caller owns [controller] so
+/// Pure Flutter: works on mobile and web. The caller owns [controller] so
 /// existing form validators that read `controller.text` keep working unchanged.
 class PlaceSelector extends StatefulWidget {
   const PlaceSelector({
@@ -92,14 +92,14 @@ class PlaceSelector extends StatefulWidget {
   final int minQueryLength;
   final int maxResults;
 
-  /// Renders the field in a compact (dense) layout — used for tight filter rows.
+  /// Renders the field in a compact (dense) layout: used for tight filter rows.
   final bool isDense;
 
   /// Overrides the field's content padding. Defaults to a comfortable
   /// H16/V20 (or a compact H12/V10 when [isDense] is true and this is null).
   final EdgeInsetsGeometry? contentPadding;
 
-  /// The Fieldway boards' field: its label sits above it (the caller wraps
+  /// The boards' field: its label sits above it (the caller wraps
   /// it in a `LabeledField`), so no floating label, a 48 tall box with
   /// radius 14 and the hint inside.
   final bool labelAbove;

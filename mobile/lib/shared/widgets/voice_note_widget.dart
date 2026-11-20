@@ -11,10 +11,10 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// Self-contained voice note widget handling record/playback lifecycle.
 ///
 /// States:
-/// 1. **Empty** — shows record button (mic icon)
-/// 2. **Recording** — stop button + elapsed timer + animated red dot
-/// 3. **Recorded/Has file** — play/pause + duration + delete + re-record
-/// 4. **Playing** — pause button + progress indicator + re-record
+/// 1. **Empty**: shows record button (mic icon)
+/// 2. **Recording**: stop button + elapsed timer + animated red dot
+/// 3. **Recorded/Has file**: play/pause + duration + delete + re-record
+/// 4. **Playing**: pause button + progress indicator + re-record
 class VoiceNoteWidget extends StatefulWidget {
   /// Path to existing audio file (null if no recording yet).
   final String? audioFilePath;

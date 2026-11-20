@@ -17,7 +17,7 @@ import 'package:wereda_connect/features/messaging/presentation/widgets/conversat
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// The conversation currently on screen — arrivals for it are already visible
+/// The conversation currently on screen: arrivals for it are already visible
 /// in the thread, so the banner suppresses them. Set/cleared by the
 /// conversation screen.
 class ActiveConversation {
@@ -27,7 +27,7 @@ class ActiveConversation {
 }
 
 /// Shows an in-app heads-up banner when a chat message arrives while the app
-/// is open (mobile AND web — background delivery on Android is FCM's job).
+/// is open (mobile AND web: background delivery on Android is FCM's job).
 ///
 /// Wraps the app shell; listens to the message repository's inbound stream
 /// (fed by the inbox poll / pulls). Tapping the banner opens the thread; a
@@ -48,7 +48,7 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener>
   OverlayEntry? _banner;
   Timer? _dismissTimer;
 
-  /// Which user the inbox was last bootstrapped for — guards against
+  /// Which user the inbox was last bootstrapped for: guards against
   /// re-dispatching [LoadInbox] on every auth re-emission (token refresh).
   String? _inboxLoadedFor;
 
@@ -59,7 +59,7 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     // Subscribe only while authenticated: reading InboxBloc forces its lazy
-    // creation, which touches the local store — and signed-out sessions have
+    // creation, which touches the local store: and signed-out sessions have
     // no arrivals to announce anyway.
     final authBloc = context.read<AuthBloc>();
     _syncToAuth(authBloc.state);
@@ -83,7 +83,7 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener>
         context.read<InboxBloc>().add(LoadInbox(state.userId));
       }
     } else {
-      // Only touch InboxBloc when a user WAS signed in (we had subscribed) —
+      // Only touch InboxBloc when a user WAS signed in (we had subscribed):
       // reading it while signed out forces lazy creation and touches the
       // local store for nothing.
       if (_subscription != null) {
@@ -104,7 +104,7 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener>
   /// notification shade) is deliberately ignored.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_subscription == null) return; // Not signed in — nothing polls.
+    if (_subscription == null) return; // Not signed in: nothing polls.
     final inbox = context.read<InboxBloc>();
     if (state == AppLifecycleState.resumed) {
       inbox.add(const InboxResumed());
