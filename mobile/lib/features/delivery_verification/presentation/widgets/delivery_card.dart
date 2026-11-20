@@ -145,8 +145,13 @@ class DeliveryCard extends StatelessWidget {
         subtitle: subtitle,
         selfPickup: selfPickup,
         windowEnd: windowEnd,
-        pill: windowEnd != null && (isBuyer || isFarmer)
-            ? FwPill(label: l10n.liveTripReleasePending)
+        // The web board's chip: orange tint, the money still waits.
+        pill: releasePending
+            ? FwPill(
+                label: l10n.liveTripReleasePending,
+                background: AppTheme.orangeTint,
+                foreground: AppTheme.orangeInk,
+              )
             : statusPill,
       );
     }
@@ -404,37 +409,55 @@ class DeliveryCard extends StatelessWidget {
         style: style,
       );
     }
-    return FwCard(
-      onTap: onTap,
-      padding: const EdgeInsets.all(14),
-      borderColor: selected ? context.roleColors.primary : AppTheme.line,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: FwText.cardTitle.copyWith(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
+    // The web board's list card: white, a hairline edge, radius 18; the
+    // one shown in the pane takes a 2 px edge in the role's colour.
+    return Material(
+      color: AppTheme.surfaceWhite,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: selected ? context.roleColors.primary : AppTheme.line,
+          width: selected ? 2 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: _compactColumn(title, pill, line),
+        ),
+      ),
+    );
+  }
+
+  Widget _compactColumn(String title, Widget? pill, Widget line) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: FwText.cardTitle.copyWith(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              if (pill != null) ...[
-                const SizedBox(width: 8),
-                pill,
-              ],
+            ),
+            if (pill != null) ...[
+              const SizedBox(width: 8),
+              pill,
             ],
-          ),
-          const SizedBox(height: 6),
-          line,
-        ],
-      ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        line,
+      ],
     );
   }
 

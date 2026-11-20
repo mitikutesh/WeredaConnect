@@ -24,7 +24,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   if (children == null || children === "") return null;
   return (
     <div className="flex justify-between gap-3">
-      <dt className="text-text-muted shrink-0">{label}</dt>
+      <dt className="text-slate shrink-0">{label}</dt>
       <dd className="text-right">{children}</dd>
     </div>
   );
@@ -47,7 +47,7 @@ export function PickupEvidenceCard({
 
   return (
     <Card>
-      <h3 className="mb-4 font-semibold">{t("pickup.title")}</h3>
+      <h3 className="mb-4 text-[15px] font-extrabold">{t("pickup.title")}</h3>
       <dl className="space-y-3 text-sm">
         <Row label={t("pickup.judgement")}>
           {judgement ? (
@@ -74,7 +74,7 @@ export function PickupEvidenceCard({
           const entry = evidence.checkIns?.[kind];
           const title = t(kind === "arrived_pickup" && evidence.selfPickup ? "pickup.kind_arrived_pickup_self" : `pickup.kind_${kind}`);
           return (
-            <section key={kind} aria-label={title} className="rounded border border-gray-200 p-3">
+            <section key={kind} aria-label={title} className="rounded-[10px] border border-line p-3">
               <h4 className="mb-2 text-sm font-medium">{title}</h4>
               {entry ? (
                 <dl className="space-y-2 text-xs">
@@ -88,11 +88,11 @@ export function PickupEvidenceCard({
                     </Badge>
                   </Row>
                   <Row label={t("pickup.by")}>{entry.by ?? ""}</Row>
-                  {entry.late && <p className="text-warning">{t("pickup.late")}</p>}
-                  {entry.outOfRange && <p className="text-warning">{t("pickup.outOfRange")}</p>}
+                  {entry.late && <p className="text-orange-ink">{t("pickup.late")}</p>}
+                  {entry.outOfRange && <p className="text-orange-ink">{t("pickup.outOfRange")}</p>}
                 </dl>
               ) : (
-                <p className="text-xs text-text-muted">{t("pickup.noCheckIn")}</p>
+                <p className="text-xs text-slate">{t("pickup.noCheckIn")}</p>
               )}
             </section>
           );
@@ -100,7 +100,7 @@ export function PickupEvidenceCard({
       </div>
 
       {NO_SHOW_JUDGEMENTS.includes(judgement) && (
-        <p className="mt-4 text-xs text-text-muted">
+        <p className="mt-4 text-xs text-slate">
           {t(judgement === "trucker_no_show" && noShowExits.length > 0 ? "pickup.truckerNoShowHint" : "pickup.noShowHint")}
         </p>
       )}

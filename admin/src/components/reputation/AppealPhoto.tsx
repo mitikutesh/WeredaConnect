@@ -10,7 +10,7 @@ export function AppealPhoto({ url }: { url?: string }) {
   const [failed, setFailed] = useState(false);
 
   if (!url || failed) {
-    return <p className="text-xs text-warning">{t("reputation.photoExpired")}</p>;
+    return <p className="text-xs text-orange-ink">{t("reputation.photoExpired")}</p>;
   }
 
   return (
@@ -21,9 +21,9 @@ export function AppealPhoto({ url }: { url?: string }) {
         loading="lazy"
         referrerPolicy="no-referrer"
         onError={() => setFailed(true)}
-        className="max-h-40 rounded border border-gray-200"
+        className="max-h-40 rounded-[10px] border border-line"
       />
-      <span className="mt-1 block text-xs text-primary hover:underline">{t("reputation.viewPhoto")}</span>
+      <span className="mt-1 block text-xs text-ink underline decoration-field underline-offset-2 hover:decoration-ink">{t("reputation.viewPhoto")}</span>
     </a>
   );
 }

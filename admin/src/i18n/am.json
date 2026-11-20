@@ -5,6 +5,7 @@
     "tagline": "ለኢትዮጵያ ገጠር ማህበረሰቦች የግብርና ሎጂስቲክስ መድረክ"
   },
   "nav": {
+    "label": "አስተዳደር",
     "dashboard": "ዳሽቦርድ",
     "escrows": "ኢስክሮዎች",
     "disputes": "ክርክሮች",
@@ -140,6 +141,7 @@
     "recordedChoice": "የተመዘገበ ምርጫ",
     "noChoice": "ገና የለም",
     "loadMore": "ተጨማሪ ጫን",
+    "breadcrumb": "የገጽ መንገድ",
     "detailTitle": "ክርክር",
     "evidence": "ማስረጃ",
     "raisedAt": "የቀረበበት",

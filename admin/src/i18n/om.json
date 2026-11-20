@@ -5,6 +5,7 @@
     "tagline": "Mala'ummaa Loojistiiksii Qonnaa Hawaasa Baadiyyaa Itoophiyaa"
   },
   "nav": {
+    "label": "Bulchiinsa",
     "dashboard": "Daashboordii",
     "escrows": "Eeskiroo",
     "disputes": "Waldhabdee",
@@ -140,6 +141,7 @@
     "recordedChoice": "Filannoo galmaa'e",
     "noChoice": "Ammaaf hin jiru",
     "loadMore": "Dabalata fe'i",
+    "breadcrumb": "Karaa fuulaa",
     "detailTitle": "Waldhabdee",
     "evidence": "Ragaa",
     "raisedAt": "Kan dhiyaate",

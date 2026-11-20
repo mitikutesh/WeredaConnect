@@ -5,6 +5,7 @@
     "tagline": "Agritech Logistics Platform for Ethiopian Rural Communities"
   },
   "nav": {
+    "label": "Admin",
     "dashboard": "Dashboard",
     "escrows": "Escrows",
     "disputes": "Disputes",
@@ -140,6 +141,7 @@
     "recordedChoice": "Recorded choice",
     "noChoice": "None yet",
     "loadMore": "Load more",
+    "breadcrumb": "Breadcrumb",
     "detailTitle": "Dispute",
     "evidence": "Evidence",
     "raisedAt": "Raised",

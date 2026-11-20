@@ -41,7 +41,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   if (children == null || children === "") return null;
   return (
     <div className="flex justify-between gap-3">
-      <dt className="text-text-muted shrink-0">{label}</dt>
+      <dt className="text-slate shrink-0">{label}</dt>
       <dd className="text-right">{children}</dd>
     </div>
   );
@@ -54,7 +54,7 @@ export function TransactionDetailPage() {
   const { data, isLoading } = useTransactionDetail(orderId || "");
 
   if (isLoading) {
-    return <div className="text-text-muted">{t("common.loading")}</div>;
+    return <div className="text-slate">{t("common.loading")}</div>;
   }
 
   const resp = (data as Row) || {};
@@ -74,14 +74,14 @@ export function TransactionDetailPage() {
     <div>
       <button
         onClick={() => navigate("/transactions")}
-        className="mb-4 inline-flex items-center gap-1 text-sm text-text-muted hover:text-text"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-slate hover:text-ink"
       >
         <ArrowLeft size={16} /> {t("common.back")}
       </button>
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
-        <h2 className="text-xl font-bold">{t("transactions.detail")}</h2>
-        <span className="font-mono text-xs text-text-muted">{s(order.orderId)}</span>
+        <h2 className="text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("transactions.detail")}</h2>
+        <span className="font-mono text-xs text-slate">{s(order.orderId)}</span>
         <Badge variant={stageVariant[stage] || "default"}>{stageLabel(stage, t)}</Badge>
         <Badge variant={orderStatusVariant[status] || "default"}>
           {orderStatusLabel(status, t)}
@@ -91,7 +91,7 @@ export function TransactionDetailPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Parties */}
         <Card>
-          <h3 className="mb-4 font-semibold">{t("transactions.parties")}</h3>
+          <h3 className="mb-4 text-[15px] font-extrabold">{t("transactions.parties")}</h3>
           <dl className="space-y-3 text-sm">
             <Field label={t("transactions.buyer")}>
               {partyName(order.buyerName, order.buyerId, locale)}
@@ -164,7 +164,7 @@ export function TransactionDetailPage() {
 
         {/* Payment & Escrow */}
         <Card>
-          <h3 className="mb-4 font-semibold">{t("transactions.payment")}</h3>
+          <h3 className="mb-4 text-[15px] font-extrabold">{t("transactions.payment")}</h3>
           {escrow ? (
             <dl className="space-y-3 text-sm">
               <Field label={t("transactions.escrowStatus")}>
@@ -214,7 +214,7 @@ export function TransactionDetailPage() {
               <Field label={t("transactions.orderTotal")}>
                 {formatETB(Number(order.orderTotal) || 0, locale)}
               </Field>
-              <p className="text-text-muted">{t("transactions.noEscrow")}</p>
+              <p className="text-slate">{t("transactions.noEscrow")}</p>
             </div>
           )}
         </Card>
@@ -224,7 +224,7 @@ export function TransactionDetailPage() {
 
         {/* Delivery */}
         <Card>
-          <h3 className="mb-4 font-semibold">{t("transactions.delivery")}</h3>
+          <h3 className="mb-4 text-[15px] font-extrabold">{t("transactions.delivery")}</h3>
           {delivery ? (
             <dl className="space-y-3 text-sm">
               <Field label={t("transactions.deliveryStatus")}>
@@ -258,7 +258,7 @@ export function TransactionDetailPage() {
               })}
             </dl>
           ) : (
-            <p className="text-sm text-text-muted">{t("transactions.noDelivery")}</p>
+            <p className="text-sm text-slate">{t("transactions.noDelivery")}</p>
           )}
           {/* FUP-19: a delivery picked up and never delivered is cancelled here once its money is decided. */}
           {delivery && (
@@ -279,7 +279,7 @@ export function TransactionDetailPage() {
 
         {/* Timeline */}
         <Card>
-          <h3 className="mb-4 font-semibold">{t("transactions.timeline")}</h3>
+          <h3 className="mb-4 text-[15px] font-extrabold">{t("transactions.timeline")}</h3>
           <TransactionTimeline timeline={timeline} />
         </Card>
       </div>

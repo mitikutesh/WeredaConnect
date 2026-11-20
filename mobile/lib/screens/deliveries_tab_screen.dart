@@ -295,10 +295,14 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
             ),
           );
 
-    final header = Padding(
-      padding: const EdgeInsets.fromLTRB(32, 28, 32, 16),
+    // Beside the pane the header spans the page; with one centred column
+    // (the trucker, self-pickups) it sits over that column.
+    final headerRow = Padding(
+      padding: split
+          ? const EdgeInsets.fromLTRB(32, 28, 32, 20)
+          : const EdgeInsets.fromLTRB(20, 28, 20, 12),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
             child: Column(
@@ -308,10 +312,14 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
                   header: true,
                   child: Text(
                     l10n.deliveries,
-                    style: FwText.pageTitle.copyWith(fontSize: 28),
+                    style: FwText.pageTitle.copyWith(
+                      fontSize: 28,
+                      height: 1.2,
+                      letterSpacing: -0.84,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   _summaryLine(all, l10n),
                   style: FwText.body.copyWith(fontSize: 14),
@@ -328,30 +336,38 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
 
     final Widget body;
     if (split) {
-      // The web board's proportions: a narrow list, the pane gets the rest
-      // (at 1280 px about 660 px, close to the board's, for its two columns).
+      // The web board's proportions: the list starts at 300 px and takes a
+      // quarter of what is left over, the pane the rest (at 1280 px about
+      // 670 px, for its two columns; at 1440 px the board's 370 and 770).
       body = Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(
-              width: 336,
-              child: _list(
-                context,
-                l10n,
-                state,
-                shown,
-                userId,
-                split: true,
-                selected: selected,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: liveTripPane(selected!, userId) ?? const SizedBox.shrink(),
-            ),
-          ],
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final spare = constraints.maxWidth - 20 - 300 - 660;
+            final listWidth = (300 + spare / 4).clamp(300.0, 380.0);
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: listWidth,
+                  child: _list(
+                    context,
+                    l10n,
+                    state,
+                    shown,
+                    userId,
+                    split: true,
+                    selected: selected,
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: liveTripPane(selected!, userId) ??
+                      const SizedBox.shrink(),
+                ),
+              ],
+            );
+          },
         ),
       );
     } else {
@@ -379,6 +395,8 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
       );
     }
 
+    final header = split ? headerRow : FwContentWidth(child: headerRow);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -389,37 +407,15 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
     );
   }
 
+  /// The web board's search box: white, a hairline edge, radius 14. The
+  /// theme's filled input would draw a second box inside it, so the field
+  /// itself is bare; the box takes the role's edge while it has focus.
   Widget _searchBox(AppLocalizations l10n) {
-    return Container(
-      width: 330,
-      height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceWhite,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.line),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.search, size: 18, color: AppTheme.slate),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              key: const Key('deliveries_search'),
-              onChanged: (value) => setState(() => _searchQuery = value),
-              decoration: InputDecoration(
-                hintText: l10n.deliveriesSearchHint,
-                hintStyle: FwText.body,
-                border: InputBorder.none,
-                isDense: true,
-              ),
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppTheme.ink,
-              ),
-            ),
-          ),
-        ],
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 200, maxWidth: 300),
+      child: _DesktopSearchBox(
+        hint: l10n.deliveriesSearchHint,
+        onChanged: (value) => setState(() => _searchQuery = value),
       ),
     );
   }
@@ -931,6 +927,83 @@ class _EmptyState extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The desktop search field of the Web · Buyer deliveries board.
+class _DesktopSearchBox extends StatefulWidget {
+  final String hint;
+  final ValueChanged<String> onChanged;
+
+  const _DesktopSearchBox({required this.hint, required this.onChanged});
+
+  @override
+  State<_DesktopSearchBox> createState() => _DesktopSearchBoxState();
+}
+
+class _DesktopSearchBoxState extends State<_DesktopSearchBox> {
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(_onFocus);
+  }
+
+  void _onFocus() => setState(() {});
+
+  @override
+  void dispose() {
+    _focus
+      ..removeListener(_onFocus)
+      ..dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final focused = _focus.hasFocus;
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceWhite,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: focused ? context.roleColors.primary : AppTheme.line,
+          width: focused ? 2 : 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search, size: 18, color: AppTheme.slate),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              key: const Key('deliveries_search'),
+              focusNode: _focus,
+              onChanged: widget.onChanged,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: widget.hint,
+                hintStyle: FwText.body.copyWith(fontSize: 14),
+                filled: false,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                contentPadding: EdgeInsets.zero,
+                isDense: true,
+              ),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: AppTheme.ink,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

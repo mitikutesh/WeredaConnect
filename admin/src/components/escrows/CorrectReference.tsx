@@ -94,7 +94,7 @@ export function CorrectReference({
             setError(null);
             setStep("form");
           }}
-          className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
+          className="rounded-[10px] border border-field px-2 py-1 text-xs hover:bg-paper"
         >
           {t("correctRef.action")}
         </button>
@@ -104,20 +104,20 @@ export function CorrectReference({
 
   if (step === "confirm") {
     return (
-      <div className="mt-2 max-w-sm space-y-2 rounded border border-warning/40 bg-warning/5 p-2 text-left text-xs">
+      <div className="mt-2 max-w-sm space-y-2 rounded-[10px] border border-orange/60 bg-orange-wash p-2 text-left text-xs">
         <p className="text-sm font-medium">
           {fill(t("correctRef.confirmQuestion"), { oldRef: currentRef, newRef: newRef.trim() })}
         </p>
-        <p className="text-text-muted">
+        <p className="text-slate">
           {t("correctRef.reason")}: {reason.trim()}
         </p>
-        <p className="text-text-muted">{t("correctRef.hint")}</p>
+        <p className="text-slate">{t("correctRef.hint")}</p>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={submit}
             disabled={busy}
-            className="rounded bg-primary px-2 py-1 text-white hover:opacity-90 disabled:opacity-50"
+            className="rounded-[10px] bg-ink px-2 py-1 text-white hover:opacity-90 disabled:opacity-50"
           >
             {t("correctRef.confirm")}
           </button>
@@ -125,7 +125,7 @@ export function CorrectReference({
             type="button"
             onClick={() => setStep("form")}
             disabled={busy}
-            className="rounded border border-gray-300 px-2 py-1 hover:bg-gray-50 disabled:opacity-50"
+            className="rounded-[10px] border border-field px-2 py-1 hover:bg-paper disabled:opacity-50"
           >
             {t("correctRef.back")}
           </button>
@@ -135,9 +135,9 @@ export function CorrectReference({
   }
 
   return (
-    <div className="mt-2 max-w-sm space-y-2 rounded border border-gray-200 p-2 text-left text-xs">
+    <div className="mt-2 max-w-sm space-y-2 rounded-[10px] border border-line p-2 text-left text-xs">
       <p className="font-medium">{t("correctRef.title")}</p>
-      <p className="text-text-muted">{t("correctRef.hint")}</p>
+      <p className="text-slate">{t("correctRef.hint")}</p>
       <p>
         {t("correctRef.current")}: <span className="font-mono">{currentRef}</span>
       </p>
@@ -158,10 +158,10 @@ export function CorrectReference({
           placeholder={t("payouts.externalRefPlaceholder")}
           aria-invalid={refProblem ? true : undefined}
           aria-describedby={refProblem ? `${id}-ref-problem` : undefined}
-          className="w-full rounded border border-gray-300 px-2 py-1 font-mono text-sm focus:border-primary focus:outline-none"
+          className="w-full rounded-[10px] border border-field px-2 py-1 font-mono text-sm focus:border-ink focus:outline-none"
         />
         {refProblem && (
-          <p id={`${id}-ref-problem`} className="text-warning">
+          <p id={`${id}-ref-problem`} className="text-orange-ink">
             {refProblem}
           </p>
         )}
@@ -177,9 +177,9 @@ export function CorrectReference({
           rows={3}
           maxLength={500}
           aria-describedby={`${id}-reason-hint`}
-          className="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-primary focus:outline-none"
+          className="w-full rounded-[10px] border border-field px-2 py-1 text-sm focus:border-ink focus:outline-none"
         />
-        <p id={`${id}-reason-hint`} className="text-text-muted">
+        <p id={`${id}-reason-hint`} className="text-slate">
           {t("correctRef.reasonHint")}
         </p>
       </div>
@@ -191,7 +191,7 @@ export function CorrectReference({
             setStep("confirm");
           }}
           disabled={!canReview}
-          className="rounded bg-primary px-2 py-1 text-white hover:opacity-90 disabled:opacity-50"
+          className="rounded-[10px] bg-ink px-2 py-1 text-white hover:opacity-90 disabled:opacity-50"
         >
           {t("correctRef.review")}
         </button>
@@ -201,7 +201,7 @@ export function CorrectReference({
             setError(null);
             close();
           }}
-          className="rounded border border-gray-300 px-2 py-1 hover:bg-gray-50"
+          className="rounded-[10px] border border-field px-2 py-1 hover:bg-paper"
         >
           {t("correctRef.cancel")}
         </button>

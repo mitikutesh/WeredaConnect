@@ -98,8 +98,8 @@ export function ReputationAppealsPage() {
       type="button"
       aria-pressed={tab === value}
       onClick={() => changeTab(value)}
-      className={`rounded px-3 py-1 text-sm ${
-        tab === value ? "bg-primary text-white" : "border border-gray-300 hover:bg-gray-50"
+      className={`rounded-[10px] px-3 py-1 text-sm ${
+        tab === value ? "bg-ink text-white" : "border border-field hover:bg-paper"
       }`}
     >
       {t(`reputation.tab_${value}`)}
@@ -110,13 +110,13 @@ export function ReputationAppealsPage() {
   if (isLoading) {
     body = (
       <Card>
-        <div className="flex items-center justify-center py-12 text-text-muted">{t("common.loading")}</div>
+        <div className="flex items-center justify-center py-12 text-slate">{t("common.loading")}</div>
       </Card>
     );
   } else if (appeals.length === 0) {
     body = isError ? null : (
       <Card>
-        <div className="flex items-center justify-center py-12 text-text-muted">
+        <div className="flex items-center justify-center py-12 text-slate">
           {t(tab === "pending" ? "reputation.emptyPending" : "reputation.emptyReview")}
         </div>
       </Card>
@@ -135,10 +135,10 @@ export function ReputationAppealsPage() {
                   {item.role && <Badge>{label(`users.${item.role}`, item.role)}</Badge>}
                 </div>
                 <p className="text-sm">
-                  <Link to={`/users/${item.userId}`} className="font-medium text-primary hover:underline">
+                  <Link to={`/users/${item.userId}`} className="font-medium text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
                     {name}
                   </Link>
-                  <span className="ml-2 text-xs text-text-muted">
+                  <span className="ml-2 text-xs text-slate">
                     {item.tripId
                       ? `${t("reputation.trip")} ${item.tripId}`
                       : item.orderId
@@ -146,7 +146,7 @@ export function ReputationAppealsPage() {
                         : ""}
                   </span>
                 </p>
-                <p className="text-xs text-text-muted">
+                <p className="text-xs text-slate">
                   {item.occurredAt && fill(t("reputation.occurred"), { date: formatDateTime(item.occurredAt) })}
                   {item.appealedAt && ` · ${fill(t("reputation.appealedAt"), { date: formatDateTime(item.appealedAt) })}`}
                 </p>
@@ -155,14 +155,14 @@ export function ReputationAppealsPage() {
             {item.text ? (
               <p className="max-w-3xl whitespace-pre-line text-sm">{item.text}</p>
             ) : (
-              <p className="text-sm text-text-muted">{t("reputation.noText")}</p>
+              <p className="text-sm text-slate">{t("reputation.noText")}</p>
             )}
             {item.hasPhoto && (
               <div className="mt-3">
                 <AppealPhoto url={item.appealPhotoUrl} />
               </div>
             )}
-            <div className="mt-3 flex flex-wrap gap-2 border-t border-gray-100 pt-3">
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-track pt-3">
               <button
                 type="button"
                 onClick={() => {
@@ -172,7 +172,7 @@ export function ReputationAppealsPage() {
                   setOpen({ item, decision: "excuse" });
                 }}
                 disabled={decide.isPending}
-                className="rounded bg-primary px-3 py-1 text-sm text-white hover:opacity-90 disabled:opacity-50"
+                className="rounded-[10px] bg-ink px-3 py-1 text-sm text-white hover:opacity-90 disabled:opacity-50"
               >
                 {t("reputation.acceptAppeal")}
               </button>
@@ -185,7 +185,7 @@ export function ReputationAppealsPage() {
                   setOpen({ item, decision: "uphold" });
                 }}
                 disabled={decide.isPending}
-                className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
+                className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
               >
                 {t("reputation.upholdPenalty")}
               </button>
@@ -201,24 +201,24 @@ export function ReputationAppealsPage() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold">{t("reputation.appealsTitle")}</h2>
-      <p className="mb-4 mt-1 max-w-3xl text-sm text-text-muted">{t("reputation.appealsSubtitle")}</p>
+      <h2 className="text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("reputation.appealsTitle")}</h2>
+      <p className="mb-4 mt-1 max-w-3xl text-sm text-slate">{t("reputation.appealsSubtitle")}</p>
       <div className="mb-4 flex flex-wrap gap-2">
         {tabButton("pending")}
         {tabButton("review")}
       </div>
       {isError && (
-        <div role="alert" className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
+        <div role="alert" className="mb-4 rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger">
           {t("reputation.appealsLoadFailed")}
         </div>
       )}
       {notice && (
-        <div role="status" className="mb-4 rounded border border-success/30 bg-success/10 px-4 py-2 text-sm text-success">
+        <div role="status" className="mb-4 rounded-[10px] border border-success/30 bg-success-tint px-4 py-2 text-sm text-success">
           {notice}
         </div>
       )}
       {changed && (
-        <div role="alert" className="mb-4 rounded border border-warning/30 bg-warning/10 px-4 py-2 text-sm text-warning">
+        <div role="alert" className="mb-4 rounded-[10px] border border-orange/60 bg-orange-tint px-4 py-2 text-sm text-orange-ink">
           {changed}
         </div>
       )}
@@ -229,7 +229,7 @@ export function ReputationAppealsPage() {
             type="button"
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
+            className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
           >
             {t("reputation.loadMoreAppeals")}
           </button>
