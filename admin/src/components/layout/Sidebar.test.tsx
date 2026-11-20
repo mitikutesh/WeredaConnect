@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
-import { SidebarProvider } from "@/hooks/useSidebar";
+import { SidebarProvider } from "@/hooks/SidebarProvider";
 import { Sidebar } from "./Sidebar";
 
 /* The rendered sidebar is the source of truth for the admin navigation: e2e/admin

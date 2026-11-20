@@ -1,7 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { LocaleProvider } from "@/hooks/useLocale";
-import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import { LocaleProvider } from "@/hooks/LocaleProvider";
+import { AuthProvider } from "@/hooks/AuthProvider";
+import { useAuth } from "@/hooks/useAuth";
 import { AppShell } from "@/components/layout/AppShell";
 import { LoginPage } from "@/pages/LoginPage";
 import { DashboardPage } from "@/pages/DashboardPage";

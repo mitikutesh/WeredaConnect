@@ -1,7 +1,7 @@
 import { Outlet } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
-import { SidebarProvider } from "@/hooks/useSidebar";
+import { SidebarProvider } from "@/hooks/SidebarProvider";
 
 export function AppShell() {
   return (
