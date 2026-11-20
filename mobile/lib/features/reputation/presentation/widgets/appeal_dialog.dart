@@ -266,7 +266,7 @@ class _AppealDialogState extends State<AppealDialog> {
                 key: const Key('reputation_appeal_error'),
                 style: const TextStyle(
                   fontSize: 13,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
                   color: AppTheme.statusError,
                 ),
               ),
@@ -281,12 +281,16 @@ class _AppealDialogState extends State<AppealDialog> {
         ),
         FilledButton(
           key: const Key('reputation_appeal_send'),
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
           onPressed: _sending || _text.text.trim().isEmpty ? null : _send,
           child: _sending
               ? const SizedBox(
                   width: 18,
                   height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppTheme.ink,
+                  ),
                 )
               : Text(l10n.reputationAppealSend),
         ),

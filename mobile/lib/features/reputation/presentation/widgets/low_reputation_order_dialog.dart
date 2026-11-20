@@ -35,6 +35,7 @@ Future<bool> confirmLowReputationOrder(
         ),
         FilledButton(
           key: const Key('low_reputation_order_continue'),
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
           onPressed: () => Navigator.of(dialogContext).pop(true),
           child: Text(l10n.reputationLowOrderContinue),
         ),

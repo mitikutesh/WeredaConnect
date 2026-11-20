@@ -17,7 +17,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
-import 'package:wereda_connect/shared/widgets/join_chrome.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// ESC-31: the signed-in farmer's or trucker's own reputation
 /// (reputation-api.md sections 2, 4, 6 and 13): their standing and penalty
@@ -100,15 +100,9 @@ class _MyReputationScreenState extends State<MyReputationScreen> {
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
                   children: [
-                    if (Navigator.of(context).canPop()) ...[
-                      const Align(
-                        alignment: AlignmentDirectional.centerStart,
-                        child: JoinBackButton(),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                    FwPageHeader(
-                      padding: EdgeInsets.zero,
+                    FwStackedHeader(
+                      showBack: Navigator.of(context).canPop(),
+                      eyebrow: l10n.profile,
                       title: l10n.reputationMyTitle,
                     ),
                     const SizedBox(height: 16),
@@ -157,6 +151,7 @@ class _MyReputationScreenState extends State<MyReputationScreen> {
         Align(
           alignment: AlignmentDirectional.centerStart,
           child: OutlinedButton(
+            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 46)),
             onPressed: () =>
                 _bloc.add(const MyReputationRequested(force: true)),
             child: Text(l10n.retry),
@@ -225,11 +220,11 @@ class _MyReputationScreenState extends State<MyReputationScreen> {
     }
     if (state.events.isEmpty) {
       return [
-        FwCard(
+        FwCard.sand(
           child: Text(
             l10n.reputationEventsEmpty,
             key: const Key('reputation_events_empty'),
-            style: FwText.body,
+            style: FwText.body.copyWith(color: AppTheme.inkSoft),
           ),
         ),
       ];
@@ -268,6 +263,9 @@ class _MyReputationScreenState extends State<MyReputationScreen> {
                       ),
                     OutlinedButton(
                       key: const Key('reputation_load_more'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(0, 46),
+                      ),
                       onPressed: () =>
                           _bloc.add(const MyReputationMoreRequested()),
                       child: Text(l10n.reputationLoadMore),
@@ -281,6 +279,20 @@ class _MyReputationScreenState extends State<MyReputationScreen> {
 
 /// "Nov 7, 2026" for the Ethiopia calendar day of [instant].
 String _day(DateTime instant) => formatDate(dayInEthiopia(instant));
+
+/// A card's secondary line.
+const TextStyle _noteStyle = TextStyle(
+  fontSize: 13,
+  height: 1.45,
+  color: AppTheme.slate,
+);
+
+/// A secondary line on the sand ground.
+const TextStyle _onSandStyle = TextStyle(
+  fontSize: 13,
+  height: 1.45,
+  color: AppTheme.inkSoft,
+);
 
 /// One decimal, as ratings are written everywhere.
 String _stars(double value) => value.toStringAsFixed(1);
@@ -331,8 +343,8 @@ class _StandingCard extends StatelessWidget {
           ? l10n.reputationWarning(lowAt)
           : l10n.reputationRecoverHint;
       icon = Icons.info_outline;
-      ink = AppTheme.statusWarning;
-      ground = AppTheme.statusWarningContainer;
+      ink = AppTheme.orangeInk;
+      ground = AppTheme.orangeTint;
     } else {
       title = l10n.reputationTierGood;
       body = l10n.reputationTierGoodBody;
@@ -352,8 +364,10 @@ class _StandingCard extends StatelessWidget {
       if (reputation.activePoints > 0) l10n.reputationRecoverHint,
     ];
 
+    // The standing leads the screen: the raised card.
     return FwCard(
       key: const Key('reputation_standing'),
+      raised: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -364,21 +378,25 @@ class _StandingCard extends StatelessWidget {
                 height: 40,
                 decoration: BoxDecoration(
                   color: ground,
-                  borderRadius: BorderRadius.circular(12),
+                  shape: BoxShape.circle,
                 ),
-                child: Icon(icon, size: 22, color: ink),
+                child: Icon(icon, size: 20, color: ink),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: FwText.cardTitle),
+                    Text(
+                      title,
+                      style: FwText.cardTitle.copyWith(fontSize: 19),
+                    ),
                     const SizedBox(height: 2),
                     Text(
                       l10n.reputationMyPoints(reputation.activePoints),
                       key: const Key('reputation_points'),
                       style: FwText.body.copyWith(
+                        fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: AppTheme.ink,
                       ),
@@ -389,10 +407,18 @@ class _StandingCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Text(body, style: FwText.body),
+          Text(
+            body,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.45,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.ink,
+            ),
+          ),
           for (final note in notes) ...[
             const SizedBox(height: 6),
-            Text(note, style: FwText.body),
+            Text(note, style: _noteStyle),
           ],
           if (override != null && override.until != null) ...[
             const SizedBox(height: 10),
@@ -400,10 +426,10 @@ class _StandingCard extends StatelessWidget {
               override.tag == 'clear'
                   ? l10n.reputationOverrideClear(_day(override.until!))
                   : l10n.reputationOverrideLow(_day(override.until!)),
-              style: FwText.body,
+              style: _noteStyle,
             ),
             if (override.reason != null && override.reason!.trim().isNotEmpty)
-              Text(override.reason!.trim(), style: FwText.body),
+              Text(override.reason!.trim(), style: _noteStyle),
           ],
         ],
       ),
@@ -425,15 +451,15 @@ class _RatingCard extends StatelessWidget {
     final deduction = reputation.ratingDeduction ?? 0;
     final effective = reputation.effectiveRating;
     final total = reputation.totalOrders90d;
-    return FwCard(
+    // A fact, not an action: a flat sand tile.
+    return FwCard.sand(
       key: const Key('reputation_rating'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.star_rounded,
-                  size: 22, color: context.roleColors.primary,),
+              const Icon(Icons.star_rounded, size: 22, color: AppTheme.ink),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -456,13 +482,13 @@ class _RatingCard extends StatelessWidget {
                       _stars(deduction),
                     )
                   : l10n.reputationRatingFromBuyers(_stars(average!)),
-              style: FwText.body,
+              style: _onSandStyle,
             ),
             if (deduction >= 0.05 && effective != null) ...[
               const SizedBox(height: 4),
               Text(
                 l10n.reputationShownToBuyers(_stars(effective)),
-                style: FwText.body,
+                style: _onSandStyle,
               ),
             ],
           ],
@@ -473,7 +499,7 @@ class _RatingCard extends StatelessWidget {
                 reputation.completedOrders90d,
                 total,
               ),
-              style: FwText.body,
+              style: _onSandStyle,
             ),
           ],
         ],
@@ -524,7 +550,7 @@ class _EventCard extends StatelessWidget {
     ];
 
     return FwCard(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -557,9 +583,9 @@ class _EventCard extends StatelessWidget {
                       : l10n.reputationEventNoPoints,
                   background: event.points > 0 && event.isActive
                       ? AppTheme.orangeTint
-                      : AppTheme.segmentTrack,
+                      : AppTheme.sand,
                   foreground: event.points > 0 && event.isActive
-                      ? context.roleColors.primary
+                      ? AppTheme.orangeInk
                       : AppTheme.inkSoft,
                 ),
               ],
@@ -567,7 +593,7 @@ class _EventCard extends StatelessWidget {
           ),
           for (final line in lines) ...[
             const SizedBox(height: 6),
-            Text(line, style: FwText.body),
+            Text(line, style: _noteStyle),
           ],
           if (onAppeal != null) ...[
             const SizedBox(height: 8),
@@ -575,6 +601,7 @@ class _EventCard extends StatelessWidget {
               alignment: AlignmentDirectional.centerEnd,
               child: OutlinedButton(
                 key: Key('reputation_appeal_${event.eventId}'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 46)),
                 onPressed: onAppeal,
                 child: Text(l10n.reputationAppeal),
               ),

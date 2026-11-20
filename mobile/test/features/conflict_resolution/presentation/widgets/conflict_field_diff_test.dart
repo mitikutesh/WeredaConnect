@@ -48,7 +48,7 @@ void main() {
       expect(find.text('CURRENT VERSION'), findsOneWidget);
     });
 
-    testWidgets('has green styling (background and left border)',
+    testWidgets('has the success tint, radius 16, no border',
         (WidgetTester tester) async {
       await tester.pumpWidget(
         _buildWidget(
@@ -72,15 +72,8 @@ void main() {
 
       final decoration = container.decoration as BoxDecoration;
       expect(decoration.color, equals(AppTheme.statusSuccessContainer));
-      expect(
-        decoration.border,
-        equals(
-          const Border(
-            left:
-                BorderSide(color: AppTheme.onStatusSuccessContainer, width: 4),
-          ),
-        ),
-      );
+      expect(decoration.border, isNull);
+      expect(decoration.borderRadius, BorderRadius.circular(16));
     });
 
     testWidgets('shows check icon', (WidgetTester tester) async {
@@ -130,7 +123,7 @@ void main() {
 
       final labelText = tester.widget<Text>(find.text('CURRENT VERSION'));
       expect(labelText.style?.fontSize, equals(12));
-      expect(labelText.style?.fontWeight, equals(FontWeight.w600));
+      expect(labelText.style?.fontWeight, equals(FontWeight.w700));
       expect(labelText.style?.color, equals(AppTheme.onStatusSuccessContainer));
     });
 
