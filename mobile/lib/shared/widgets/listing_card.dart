@@ -5,10 +5,11 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/low_reputation_pill.dart';
 
-/// A crop listing card as the Fieldway boards draw it (Market.dc.html and
-/// MyCrops.dc.html): a crop tile, the title, one muted line with the seller
-/// and the rating, the price large with its unit beside it, and either the
-/// transport pill (Find Crops) or the ordered share bar (My Crops).
+/// A crop listing card as the boards draw it (design canvas page M:
+/// MarketM.dc.html and MyCropsM.dc.html): raised on paper, a crop tile, the
+/// title with the quintals after it in small muted text, one muted line
+/// with the seller and the rating, the price in the role colour, and either
+/// the transport pill (Find Crops) or the ordered share bar (My Crops).
 ///
 /// [rating] is the seller's real aggregate (see `GET /ratings?rateeId=`);
 /// pass null to show nothing, never a placeholder.
@@ -20,8 +21,17 @@ class ListingCard extends StatelessWidget {
   final bool hasEscrow;
   final double? rating;
 
-  /// Number of ratings behind [rating]; rendered as "4.6 (12)" when set.
+  /// Number of ratings behind [rating]; rendered as "4.6 (12 ratings)"
+  /// when set.
   final int? ratingCount;
+
+  /// After [title], smaller and muted: the quintals in parentheses
+  /// ("(28 quintals)", page M's kg-first rule).
+  final String? titleSuffix;
+
+  /// Puts [priceUnit] under the price (Find Crops) instead of beside it
+  /// (My Crops).
+  final bool priceUnitBelow;
 
   /// ESC-31: shows the "Low reputation" label under the seller line (the
   /// seller's public tier is low). Off by default: no label, as before.
@@ -75,6 +85,8 @@ class ListingCard extends StatelessWidget {
     this.hasEscrow = false,
     this.rating,
     this.ratingCount,
+    this.titleSuffix,
+    this.priceUnitBelow = false,
     this.lowReputation = false,
     this.cropKey,
     this.onTap,
@@ -102,9 +114,29 @@ class ListingCard extends StatelessWidget {
     final line = subtitle ??
         [sellerName, location].where((part) => part.isNotEmpty).join(', ');
 
+    // Read only where a string is needed: a card without a rating count or
+    // an escrow pill builds without the app's localizations.
+    AppLocalizations l10n() => AppLocalizations.of(context)!;
+    final titleSuffix = this.titleSuffix;
+    final priceText = Text(
+      price,
+      style: TextStyle(
+        fontSize: 19,
+        fontWeight: FontWeight.w800,
+        letterSpacing: -0.2,
+        color: context.roleColors.primary,
+      ),
+    );
+    final unitText = priceUnit == null
+        ? null
+        : Text(
+            priceUnit!,
+            style: const TextStyle(fontSize: 13, color: AppTheme.slate),
+          );
+
     return FwCard(
+      raised: true,
       onTap: onTap,
-      padding: const EdgeInsets.all(14),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -127,42 +159,66 @@ class ListingCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Two lines at most: a four-digit price can push "Teff ·
-                    // 100 quintals left" over on a phone.
-                    Text(
-                      title,
-                      maxLines: 2,
+                    // Three lines at most: a four-digit price can push
+                    // "Teff · 10,000 kg left (100 quintals)" over on a phone.
+                    Text.rich(
+                      TextSpan(
+                        text: title,
+                        children: [
+                          if (titleSuffix != null && titleSuffix.isNotEmpty)
+                            TextSpan(
+                              // No-break spaces: the parentheses wrap whole.
+                              text: ' ${titleSuffix.replaceAll(' ', '\u00A0')}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0,
+                                color: AppTheme.slate,
+                              ),
+                            ),
+                        ],
+                      ),
+                      maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: FwText.cardTitle,
                     ),
                     const SizedBox(height: 3),
-                    // "Almaz Bekele, Meki · 4.8 (12)" on one line.
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            line,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: FwText.body,
-                          ),
-                        ),
-                        if (rating != null) ...[
-                          const Text(' · ', style: FwText.body),
-                          const Icon(
-                            Icons.star,
-                            size: 13,
-                            color: AppTheme.orange,
-                          ),
-                          const SizedBox(width: 2),
-                          Text(
-                            ratingCount == null
-                                ? rating!.toStringAsFixed(1)
-                                : '${rating!.toStringAsFixed(1)} ($ratingCount)',
-                            style: FwText.body,
-                          ),
+                    // "Almaz Bekele, Meki · 4.8 (12 ratings)": one line when
+                    // it fits, two when the names are long.
+                    Text.rich(
+                      TextSpan(
+                        text: line,
+                        children: [
+                          if (rating != null) ...[
+                            const TextSpan(text: ' · '),
+                            const WidgetSpan(
+                              alignment: PlaceholderAlignment.middle,
+                              child: Padding(
+                                padding: EdgeInsetsDirectional.only(end: 2),
+                                child: Icon(
+                                  Icons.star,
+                                  size: 13,
+                                  color: AppTheme.orange,
+                                ),
+                              ),
+                            ),
+                            TextSpan(
+                              // No-break spaces: the rating wraps whole.
+                              text: (ratingCount == null
+                                      ? rating!.toStringAsFixed(1)
+                                      : '${rating!.toStringAsFixed(1)} '
+                                          '(${l10n().ratingsCount(ratingCount!)})')
+                                  .replaceAll(' ', '\u00A0'),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: FwText.body.copyWith(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                      ),
                     ),
                     if (lowReputation) ...[
                       const SizedBox(height: 6),
@@ -176,7 +232,7 @@ class ListingCard extends StatelessWidget {
                       Align(
                         alignment: Alignment.centerLeft,
                         child: FwPill(
-                          label: AppLocalizations.of(context)!.escrow,
+                          label: l10n().escrow,
                           icon: Icons.verified_user_outlined,
                           background: context.roleColors.tint,
                           foreground: context.roleColors.primary,
@@ -191,9 +247,9 @@ class ListingCard extends StatelessWidget {
                           label: detail!,
                           background: detailHighlighted
                               ? AppTheme.orangeTint
-                              : AppTheme.segmentTrack,
+                              : AppTheme.sand,
                           foreground: detailHighlighted
-                              ? context.roleColors.primary
+                              ? AppTheme.orangeInk
                               : AppTheme.inkSoft,
                         ),
                       ),
@@ -218,33 +274,22 @@ class ListingCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        price,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.3,
-                          color: AppTheme.ink,
-                        ),
-                      ),
-                      if (priceUnit != null) ...[
-                        const SizedBox(width: 3),
-                        Text(
-                          priceUnit!,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: AppTheme.slate,
-                          ),
-                        ),
+                  if (priceUnitBelow) ...[
+                    priceText,
+                    if (unitText != null) unitText,
+                  ] else
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        priceText,
+                        if (unitText != null) ...[
+                          const SizedBox(width: 3),
+                          unitText,
+                        ],
                       ],
-                    ],
-                  ),
+                    ),
                   if (status != null) ...[
                     const SizedBox(height: 4),
                     Row(
@@ -285,8 +330,8 @@ class ListingCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(999),
                     child: LinearProgressIndicator(
                       value: progress!.clamp(0, 1).toDouble(),
-                      minHeight: 6,
-                      backgroundColor: AppTheme.line,
+                      minHeight: 4,
+                      backgroundColor: AppTheme.track,
                       valueColor: AlwaysStoppedAnimation<Color>(
                         context.roleColors.primary,
                       ),

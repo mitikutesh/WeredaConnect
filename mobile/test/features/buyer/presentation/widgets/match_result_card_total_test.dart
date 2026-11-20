@@ -62,7 +62,11 @@ void main() {
     expect(find.textContaining('241000'), findsNothing);
     // The Market board's listing card: crop and what is left, the price
     // large with its unit, the transport pill, then the actions.
-    expect(find.text('Teff · 50 quintals left'), findsOneWidget);
+    // Page M: kilograms first, the quintals after in parentheses.
+    expect(
+      find.text('Teff · 5,000 kg left (50\u00A0quintals)'),
+      findsOneWidget,
+    );
     expect(find.text('45'), findsOneWidget);
     expect(find.text('No trips yet'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Place Order'), findsOneWidget);

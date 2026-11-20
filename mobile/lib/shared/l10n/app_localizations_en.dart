@@ -5417,6 +5417,118 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get actionOpen => 'Open';
+
+  @override
+  String commitmentAnswerDue(String time) {
+    return 'Answer due $time';
+  }
+
+  @override
+  String get commitmentTheFarmer => 'the farmer';
+
+  @override
+  String get commitmentTheTrucker => 'the trucker';
+
+  @override
+  String commitmentWhoFarmer(String name) {
+    return '$name, the farmer,';
+  }
+
+  @override
+  String commitmentWhoTrucker(String name) {
+    return '$name, the trucker,';
+  }
+
+  @override
+  String commitmentBuyerWaitingOnBy(String who, String time) {
+    return 'Now waiting for $who to answer by $time. You do not need to do anything.';
+  }
+
+  @override
+  String commitmentBuyerWaitingOn(String who) {
+    return 'Now waiting for $who to answer. You do not need to do anything.';
+  }
+
+  @override
+  String get commitmentThenTruckerAsked =>
+      'When the farmer accepts, the trucker is asked next.';
+
+  @override
+  String get commitmentContactOpensOnTruckerAccept =>
+      'When the trucker accepts, contact opens here.';
+
+  @override
+  String commitmentYourTurnBy(String time) {
+    return 'It is your turn: accept or reject by $time.';
+  }
+
+  @override
+  String get commitmentYourTurn => 'It is your turn: accept or reject.';
+
+  @override
+  String get commitmentFarmerAcceptThenTrucker =>
+      'When you accept, the trucker is asked next and the buyer\'s payment stays in escrow.';
+
+  @override
+  String get commitmentFarmerAcceptEscrowStays =>
+      'When you accept, the buyer\'s payment stays in escrow.';
+
+  @override
+  String get rejectConfirmTitle => 'Reject this order?';
+
+  @override
+  String get rejectConfirmBody =>
+      'The buyer is told you cannot fill this order, and their payment is refunded from escrow.';
+
+  @override
+  String rejectConfirmReason(String reason) {
+    return 'Reason: $reason';
+  }
+
+  @override
+  String get rejectConfirmYes => 'Yes, reject order';
+
+  @override
+  String get rejectConfirmKeep => 'Keep order';
+
+  @override
+  String get contactMessageLabel => 'Message';
+
+  @override
+  String placeOrderFitsTripKg(String quantity) {
+    return 'fits this trip, $quantity left';
+  }
+
+  @override
+  String placeOrderExceedsTripKg(String quantity) {
+    return 'more than this trip has room for, $quantity left';
+  }
+
+  @override
+  String pricePerQuintalInParens(String price) {
+    return '($price/quintal)';
+  }
+
+  @override
+  String transportPricePerKgAndQuintal(String perKg, String perQuintal) {
+    return '$perKg ETB per kg ($perQuintal per quintal)';
+  }
+
+  @override
+  String get quantityNeededKg => 'Quantity needed (kg)';
+
+  @override
+  String marketKgLeft(String quantity) {
+    return '$quantity left';
+  }
+
+  @override
+  String marketKgRoom(String quantity) {
+    return '$quantity room';
+  }
+
+  @override
   String get marketSearchToggle => 'Search and price filters';
 
   @override

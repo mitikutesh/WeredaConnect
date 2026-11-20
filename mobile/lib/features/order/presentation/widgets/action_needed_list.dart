@@ -242,6 +242,10 @@ class ActionNeededList extends StatefulWidget {
   /// The time now (UTC); the device clock when null. Tests move it.
   final DateTime Function()? clock;
 
+  /// How many waiting orders get a card, most urgent first. Home shows
+  /// one; the buyer's Orders tab, which stands in for a Home, shows more.
+  final int maxItems;
+
   const ActionNeededList({
     required this.userId,
     required this.role,
@@ -249,6 +253,7 @@ class ActionNeededList extends StatefulWidget {
     this.onRefresh,
     this.onShowAll,
     this.clock,
+    this.maxItems = 1,
   });
 
   @override
@@ -429,17 +434,21 @@ class _ActionNeededListState extends State<ActionNeededList> {
           now: _now(),
         );
         if (items.isEmpty) return const SizedBox.shrink();
-        final more = items.length - 1;
+        final shown = items.take(widget.maxItems).toList();
+        final more = items.length - shown.length;
         final onShowAll = widget.onShowAll;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _ActionNeededCard(
-              item: items.first,
-              role: widget.role,
-              l10n: l10n,
-              onTap: () => _open(items.first),
-            ),
+            for (final item in shown) ...[
+              if (item != shown.first) const SizedBox(height: 12),
+              _ActionNeededCard(
+                item: item,
+                role: widget.role,
+                l10n: l10n,
+                onTap: () => _open(item),
+              ),
+            ],
             if (more > 0 && onShowAll != null)
               Align(
                 alignment: AlignmentDirectional.centerEnd,

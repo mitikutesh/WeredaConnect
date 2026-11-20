@@ -265,7 +265,10 @@ void main() {
       await tester.pumpWidget(
         card(listing(tier: 'good', rating: 4.4, count: 12, at: stamp)),
       );
-      expect(find.text('4.4 (12)'), findsOneWidget);
+      expect(
+        find.textContaining('4.4\u00A0(12\u00A0ratings)'),
+        findsOneWidget,
+      );
       expect(find.byType(LowReputationPill), findsNothing);
     });
 
@@ -273,7 +276,7 @@ void main() {
       await tester.pumpWidget(
         card(listing(tier: 'low', rating: 3.8, count: 5, at: stamp)),
       );
-      expect(find.text('3.8 (5)'), findsOneWidget);
+      expect(find.textContaining('3.8\u00A0(5\u00A0ratings)'), findsOneWidget);
       expect(find.text('Low reputation'), findsOneWidget);
     });
   });

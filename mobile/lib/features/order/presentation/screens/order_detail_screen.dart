@@ -13,6 +13,7 @@ import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart'
     if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
@@ -537,21 +538,17 @@ class _OrderDetailBody extends StatelessWidget {
                       // order, the trucker's on a transport request), by when.
                       if (answerDeadline != null &&
                           order.status == OrderStatus.funded) ...[
-                        FwNoteBox.cream(
-                          icon: Icons.schedule,
-                          child: ClockText(
-                            clock.deadline(
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: _DeadlinePill(
+                            label: clock.deadline(
                               answerDeadline,
                               date: formatMonthDay,
                               sentence: l10n.commitmentAnswerBy,
                             ),
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
                           ),
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 18),
                       ],
 
                       // The farmer's money and the order's facts; the
@@ -757,7 +754,6 @@ class _OrderDetailBody extends StatelessWidget {
                 orderBloc.add(LoadOrderById(orderId: order.orderId));
               }
             },
-            style: _primaryStyle,
             child: Text(payLabel),
           ),
         ],
@@ -773,6 +769,7 @@ class _OrderDetailBody extends StatelessWidget {
         children: [
           _AnswerRow(
             decline: OutlinedButton(
+              key: const Key('order_reject_button'),
               onPressed: () => _rejectAsFarmer(context, order, userId),
               style: _secondaryStyle,
               child: Text(l10n.rejectOrder),
@@ -790,7 +787,6 @@ class _OrderDetailBody extends StatelessWidget {
                                 );
                           }
                         : null,
-                    style: _primaryStyle,
                     child: Text(l10n.acceptOrder),
                   ),
           ),
@@ -821,7 +817,6 @@ class _OrderDetailBody extends StatelessWidget {
                               ),
                             )
                         : null,
-                    style: _primaryStyle,
                     child: Text(l10n.truckerAcceptRequest),
                   ),
           ),
@@ -831,22 +826,15 @@ class _OrderDetailBody extends StatelessWidget {
     return null;
   }
 
-  static final ButtonStyle _primaryStyle = FilledButton.styleFrom(
-    minimumSize: const Size.fromHeight(56),
-    textStyle: const TextStyle(
-      fontFamily: AppTheme.fontFamily,
-      fontFamilyFallback: AppTheme.ethiopicFontFallback,
-      fontSize: 16,
-      fontWeight: FontWeight.w800,
-    ),
-  );
-
+  /// Reject and Decline: the smaller outlined pill under the orange
+  /// answer (FarmerOrderRequestM board).
   static final ButtonStyle _secondaryStyle = OutlinedButton.styleFrom(
-    minimumSize: const Size.fromHeight(56),
+    minimumSize: const Size(0, 48),
+    padding: const EdgeInsets.symmetric(horizontal: 22),
     textStyle: const TextStyle(
       fontFamily: AppTheme.fontFamily,
       fontFamilyFallback: AppTheme.ethiopicFontFallback,
-      fontSize: 16,
+      fontSize: 14,
       fontWeight: FontWeight.w800,
     ),
   );
@@ -1026,8 +1014,9 @@ class _OrderDetailBody extends StatelessWidget {
     return widgets;
   }
 
-  /// The farmer declines a new order, saying why (Farmer · Answer a new
-  /// order board); the buyer is refunded.
+  /// The farmer declines a new order, saying why (FarmerOrderRequestM
+  /// board) and then confirming (FarmerRejectConfirmM); the buyer is
+  /// refunded.
   Future<void> _rejectAsFarmer(
     BuildContext context,
     Order order,
@@ -1040,7 +1029,15 @@ class _OrderDetailBody extends StatelessWidget {
       warning: l10n.farmerRejectRefundNote,
       reasons: farmerDeclineReasons,
     );
-    if (reason == null || bloc.isClosed) return;
+    if (reason == null || !context.mounted) return;
+    // FarmerRejectConfirmM: nothing is rejected until the farmer says yes
+    // on the confirm step; "Keep order" and a dismiss leave the order as
+    // it is.
+    final confirmed = await showRejectOrderConfirmSheet(
+      context,
+      reason: declineReasonLabel(l10n, reason),
+    );
+    if (!confirmed || bloc.isClosed) return;
     bloc.add(
       RejectOrder(
         orderId: order.orderId,
@@ -1289,9 +1286,9 @@ String? _cancelDialogBody(Order order, String userId, AppLocalizations l10n) {
 /// finds; any other failure shows the error. The shared [DeliveryBloc] is
 /// only listened to while this widget's own create is in flight, so other
 /// screens' delivery states never show here.
-/// Reject and Accept (or Decline and Accept transport) side by side at the
-/// foot, as on the Farmer · Answer a new order board; Reject alone while the
-/// money is under review.
+/// The orange Accept (or Accept transport) full width with the smaller
+/// outlined Reject (or Decline) under it, as on the FarmerOrderRequestM
+/// board; Reject alone while the money is under review.
 class _AnswerRow extends StatelessWidget {
   final Widget decline;
   final Widget? accept;
@@ -1300,16 +1297,172 @@ class _AnswerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(child: decline),
         if (accept != null) ...[
-          const SizedBox(width: 10),
-          Expanded(child: accept!),
+          accept!,
+          const SizedBox(height: 12),
         ],
+        Center(child: decline),
       ],
     );
   }
+}
+
+/// "Please answer by today 18:00.": the viewer's own deadline as the
+/// boards' orange tint pill with a clock.
+class _DeadlinePill extends StatelessWidget {
+  final ClockLabel label;
+
+  const _DeadlinePill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 34),
+        padding: const EdgeInsetsDirectional.fromSTEB(10, 6, 14, 6),
+        decoration: BoxDecoration(
+          color: AppTheme.orangeTint,
+          borderRadius: BorderRadius.circular(17),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.schedule, size: 17, color: AppTheme.orangeInk),
+            const SizedBox(width: 8),
+            Flexible(
+              child: ClockText(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.orangeInk,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// FarmerRejectConfirmM: the confirm step before a farmer rejects an order.
+/// A sheet that says what rejecting means for the buyer and their money,
+/// names the [reason] the farmer just picked, and offers the red "Yes,
+/// reject order" over "Keep order". True only when the farmer said yes; a
+/// dismiss keeps the order.
+Future<bool> showRejectOrderConfirmSheet(
+  BuildContext context, {
+  required String reason,
+}) async {
+  final l10n = AppLocalizations.of(context)!;
+  final confirmed = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppTheme.ground,
+    barrierColor: AppTheme.ink.withAlpha(153),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+    ),
+    builder: (sheetContext) => SafeArea(
+      child: SingleChildScrollView(
+        key: const Key('reject_confirm_sheet'),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppTheme.line,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: const BoxDecoration(
+                  color: AppTheme.statusErrorContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.close_rounded,
+                  size: 22,
+                  color: AppTheme.statusError,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Semantics(
+              header: true,
+              child: Text(
+                l10n.rejectConfirmTitle,
+                style: const TextStyle(
+                  fontSize: 26,
+                  height: 1.1,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.8,
+                  color: AppTheme.ink,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              l10n.rejectConfirmBody,
+              style: const TextStyle(
+                fontSize: 15,
+                height: 1.45,
+                color: AppTheme.inkSoft,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              l10n.rejectConfirmReason(reason),
+              key: const Key('reject_confirm_reason'),
+              style: const TextStyle(
+                fontSize: 15,
+                height: 1.45,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.ink,
+              ),
+            ),
+            const SizedBox(height: 22),
+            FilledButton(
+              key: const Key('reject_confirm_yes'),
+              onPressed: () => Navigator.of(sheetContext).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.statusError,
+                foregroundColor: Colors.white,
+              ),
+              child: Text(l10n.rejectConfirmYes),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              key: const Key('reject_confirm_keep'),
+              onPressed: () => Navigator.of(sheetContext).pop(false),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(54),
+              ),
+              child: Text(l10n.rejectConfirmKeep),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  return confirmed ?? false;
 }
 
 /// The page header: Back, what the order is (crop and weight) with whom it
@@ -1361,19 +1514,76 @@ class _OrderHeader extends StatelessWidget {
               '${l10n.orderTripOn(_tripDay(pickup))}';
     }
 
-    return FwDetailHeader(
+    const muted = TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w500,
+      color: AppTheme.slate,
+    );
+    final Widget text;
+    if (farmerAnswering) {
+      // FarmerOrderRequestM: "New order" over the crop, with its glyph.
+      text = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Semantics(
+            header: true,
+            child:
+                Text(title, style: FwText.detailTitle.copyWith(fontSize: 30)),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              const ExcludeSemantics(
+                child: FwSprout(color: AppTheme.slate, size: 20),
+              ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(subtitle, style: muted.copyWith(fontSize: 14)),
+              ),
+            ],
+          ),
+        ],
+      );
+    } else {
+      // BuyerOrderDetailM: who and when with the status pill, over the crop
+      // and the weight.
+      text = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(subtitle, style: muted),
+              StatusChip(
+                label: orderStatusLabel(order.status, l10n),
+                kind: orderStatusKind(order.status),
+                icon: orderStatusIcon(order.status),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Semantics(
+            header: true,
+            child:
+                Text(title, style: FwText.detailTitle.copyWith(fontSize: 28)),
+          ),
+        ],
+      );
+    }
+    return Padding(
       key: const Key('order_summary_hero'),
-      // Back also works on an order opened by its own address (BUG-17).
-      onBack: () => leaveOrderDetail(context),
-      title: title,
-      subtitle: subtitle,
-      trailing: farmerAnswering
-          ? null
-          : StatusChip(
-              label: orderStatusLabel(order.status, l10n),
-              kind: orderStatusKind(order.status),
-              icon: orderStatusIcon(order.status),
-            ),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Back also works on an order opened by its own address (BUG-17).
+          FwBackButton(onPressed: () => leaveOrderDetail(context)),
+          const SizedBox(width: 12),
+          Expanded(child: text),
+        ],
+      ),
     );
   }
 }
@@ -1401,6 +1611,8 @@ class _FarmerReceiveCard extends StatelessWidget {
         ? (day == null ? truck : '${_tripDay(day)} · $truck')
         : l10n.detailBuyerCollects;
     return FwCard(
+      raised: true,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1412,7 +1624,7 @@ class _FarmerReceiveCard extends StatelessWidget {
                 child: Text(
                   l10n.orderYouReceive,
                   style: const TextStyle(
-                    fontSize: 13,
+                    fontSize: 14,
                     color: AppTheme.slate,
                   ),
                 ),
@@ -1428,16 +1640,16 @@ class _FarmerReceiveCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                style: const TextStyle(
-                  fontSize: 24,
+                style: TextStyle(
+                  fontSize: 28,
                   fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
-                  color: AppTheme.ink,
+                  letterSpacing: -0.8,
+                  color: context.roleColors.primary,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
@@ -1445,31 +1657,20 @@ class _FarmerReceiveCard extends StatelessWidget {
                   '${kgQuantityText(order.quantity, l10n)} × '
                   '${l10n.etbCurrency(formatEtbAmount(order.pricePerUnit))}',
                   style: const TextStyle(
-                    fontSize: 14,
+                    fontSize: 13,
                     color: AppTheme.inkSoft,
                   ),
                 ),
               ),
-              if (held)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.lock_outline,
-                      size: 14,
-                      color: context.roleColors.primary,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      l10n.detailPaidIntoEscrow,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: context.roleColors.primary,
-                      ),
-                    ),
-                  ],
+              if (held) ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: FwPill(
+                    label: l10n.detailPaidIntoEscrow,
+                    icon: Icons.lock_outline,
+                  ),
                 ),
+              ],
             ],
           ),
           if (payoutAt case final at?) ...[
@@ -1480,7 +1681,7 @@ class _FarmerReceiveCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 12),
-          const Divider(color: AppTheme.segmentTrack),
+          const Divider(height: 1, thickness: 1, color: AppTheme.sketch),
           const SizedBox(height: 12),
           _FactRow(
             label: l10n.buyer,
@@ -1508,7 +1709,7 @@ class _FactRow extends StatelessWidget {
       children: [
         Text(
           label,
-          style: const TextStyle(fontSize: 14, color: AppTheme.slate),
+          style: const TextStyle(fontSize: 13, color: AppTheme.slate),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -1516,8 +1717,8 @@ class _FactRow extends StatelessWidget {
             value,
             textAlign: TextAlign.end,
             style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
               color: AppTheme.ink,
             ),
           ),
@@ -1541,6 +1742,8 @@ class _TruckerPayCard extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final held = escrowHeldOrderStatuses.contains(order.status);
     return FwCard(
+      raised: true,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
       child: Row(
         children: [
           Expanded(
@@ -1550,29 +1753,15 @@ class _TruckerPayCard extends StatelessWidget {
                 Text(
                   l10n.orderYourTransportPay,
                   style: const TextStyle(
-                    fontSize: 13,
+                    fontSize: 14,
                     color: AppTheme.slate,
                   ),
                 ),
                 if (held) ...[
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.lock_outline,
-                        size: 14,
-                        color: context.roleColors.primary,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        l10n.detailPaidIntoEscrow,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: context.roleColors.primary,
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 6),
+                  FwPill(
+                    label: l10n.detailPaidIntoEscrow,
+                    icon: Icons.lock_outline,
                   ),
                 ],
                 if (payoutAt case final at?) ...[
@@ -1589,11 +1778,11 @@ class _TruckerPayCard extends StatelessWidget {
           if (order.transportCost case final transport?)
             Text(
               l10n.etbCurrency(formatEtbAmount(transport)),
-              style: const TextStyle(
-                fontSize: 24,
+              style: TextStyle(
+                fontSize: 28,
                 fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-                color: AppTheme.ink,
+                letterSpacing: -0.8,
+                color: context.roleColors.primary,
               ),
             ),
         ],
@@ -1621,8 +1810,11 @@ class _BuyerTotalRow extends StatelessWidget {
     final commission = order.commissionAmount;
     final transport = order.transportCost ?? 0;
     final split = cropCost != null && commission != null;
+    // BuyerOrderDetailM: an outlined row, the amount in the role colour.
     return FwCard(
       key: const Key('order_buyer_total'),
+      color: Colors.transparent,
+      borderColor: AppTheme.fieldBorder,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1649,18 +1841,19 @@ class _BuyerTotalRow extends StatelessWidget {
             ),
             const Divider(height: 22),
           ],
-          _totalLine(l10n, held),
+          _totalLine(context, l10n, held),
         ],
       ),
     );
   }
 
-  Widget _totalLine(AppLocalizations l10n, bool held) => Row(
+  Widget _totalLine(BuildContext context, AppLocalizations l10n, bool held) =>
+      Row(
         children: [
           Icon(
             held ? Icons.lock_outline : Icons.receipt_long_outlined,
-            size: 18,
-            color: AppTheme.inkSoft,
+            size: 16,
+            color: context.roleColors.primary,
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1676,10 +1869,11 @@ class _BuyerTotalRow extends StatelessWidget {
             l10n.etbCurrency(
               formatEtbAmount(order.orderTotal ?? order.totalPrice),
             ),
-            style: const TextStyle(
-              fontSize: 15,
+            style: TextStyle(
+              fontSize: 17,
               fontWeight: FontWeight.w800,
-              color: AppTheme.ink,
+              letterSpacing: -0.17,
+              color: context.roleColors.primary,
             ),
           ),
         ],
@@ -1931,13 +2125,29 @@ class _StatusTimeline extends StatelessWidget {
     final shown = steps.skip(start).take(_window).toList();
     final later = steps.skip(start + shown.length).map((s) => s.label).toList();
 
-    return FwCard(
+    const note = TextStyle(fontSize: 13, height: 1.4, color: AppTheme.inkSoft);
+    // BuyerOrderDetailM: a flat sand tile under its uppercase label.
+    return FwCard.sand(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Semantics(
-            header: true,
-            child: Text(l10n.orderTimeline, style: _cardTitle),
+          Row(
+            children: [
+              const Icon(Icons.timeline, size: 16, color: AppTheme.inkSoft),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Semantics(
+                  header: true,
+                  child: Text(
+                    l10n.orderTimeline.toUpperCase(),
+                    style: FwText.sectionLabel.copyWith(
+                      color: AppTheme.inkSoft,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 10),
           Row(
@@ -1957,24 +2167,10 @@ class _StatusTimeline extends StatelessWidget {
           ),
           if (later.isNotEmpty) ...[
             const SizedBox(height: 10),
-            Text(
-              l10n.detailTimelineThen(_joinNames(later)),
-              style: const TextStyle(
-                fontSize: 12,
-                height: 1.4,
-                color: AppTheme.slate,
-              ),
-            ),
+            Text(l10n.detailTimelineThen(_joinNames(later)), style: note),
           ] else ...[
             const SizedBox(height: 10),
-            Text(
-              l10n.detailTimelineTapStep,
-              style: const TextStyle(
-                fontSize: 12,
-                height: 1.4,
-                color: AppTheme.slate,
-              ),
-            ),
+            Text(l10n.detailTimelineTapStep, style: note),
           ],
         ],
       ),
@@ -2168,12 +2364,6 @@ class _StatusTimeline extends StatelessWidget {
   }
 }
 
-const TextStyle _cardTitle = TextStyle(
-  fontSize: 15,
-  fontWeight: FontWeight.w800,
-  color: AppTheme.ink,
-);
-
 /// One step of the timeline: its state icon and a 4 px bar over its name.
 /// The icon says the state without colour or reading (BUG-L5): a check for a
 /// finished step, a filled dot for the step the order is at, an empty circle
@@ -2192,16 +2382,18 @@ class _TimelineStepTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Done in black, the current step orange with the ink edge, the rest
+    // on the empty track.
     final bar = done
-        ? context.roleColors.primary
+        ? AppTheme.ink
         : current
             ? AppTheme.orange
-            : AppTheme.line;
+            : AppTheme.track;
     final ink = current
-        ? context.roleColors.primary
+        ? AppTheme.orangeInk
         : done
             ? AppTheme.ink
-            : AppTheme.slate;
+            : AppTheme.inkSoft;
     final l10n = AppLocalizations.of(context)!;
     // The status chips' glyphs: done is their success check, a step ahead
     // their neutral empty circle, and the current step that circle filled.
@@ -2227,15 +2419,18 @@ class _TimelineStepTile extends StatelessWidget {
                 Icon(
                   icon,
                   size: 18,
-                  color: done ? context.roleColors.primary : ink,
+                  color: ink,
                 ),
                 const SizedBox(width: 4),
                 Expanded(
                   child: Container(
-                    height: 4,
+                    height: current ? 7 : 4,
                     decoration: BoxDecoration(
                       color: bar,
                       borderRadius: BorderRadius.circular(999),
+                      border: current
+                          ? Border.all(color: AppTheme.ink, width: 1.5)
+                          : null,
                     ),
                   ),
                 ),
@@ -2247,8 +2442,12 @@ class _TimelineStepTile extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: done || current ? FontWeight.w700 : FontWeight.w600,
+                fontSize: 13,
+                fontWeight: current
+                    ? FontWeight.w800
+                    : done
+                        ? FontWeight.w700
+                        : FontWeight.w500,
                 color: ink,
               ),
             ),
@@ -2302,12 +2501,14 @@ class _OrderContactSection extends StatelessWidget {
     }
 
     final truckerId = order.truckerId ?? '';
-    final parties = <({String id, String name, String role, Key key})>[
+    final parties =
+        <({String id, String name, String role, UserRole as, Key key})>[
       if (order.buyerId != userId)
         (
           id: order.buyerId,
           name: order.buyerName,
           role: l10n.buyer,
+          as: UserRole.buyer,
           key: const Key('order_contact_buyer'),
         ),
       if (order.farmerId != userId)
@@ -2315,6 +2516,7 @@ class _OrderContactSection extends StatelessWidget {
           id: order.farmerId,
           name: order.farmerName,
           role: l10n.farmer,
+          as: UserRole.farmer,
           key: const Key('order_contact_farmer'),
         ),
       if (truckerId.isNotEmpty && truckerId != userId && truckerCommitted)
@@ -2322,6 +2524,7 @@ class _OrderContactSection extends StatelessWidget {
           id: truckerId,
           name: order.truckerName ?? '',
           role: l10n.trucker,
+          as: UserRole.trucker,
           key: const Key('order_contact_trucker'),
         ),
     ];
@@ -2335,12 +2538,17 @@ class _OrderContactSection extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: FwCard(
+        raised: true,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Column(
           children: [
             for (final party in parties)
               _ContactRow(
                 key: party.key,
+                partyRole: party.as,
+                // Call shows only once the server sent this party's
+                // number (ESC-48); until then the row offers Message.
+                canCall: orderPartyPhone(order, party.id) != null,
                 name: switch (partyDisplayName(party.name, l10n)) {
                   '' => party.role,
                   final shown => shown,
@@ -2390,12 +2598,22 @@ class _OrderContactSection extends StatelessWidget {
   }
 }
 
-/// A counterparty on the contact card: initials, name and role, Message and
-/// Call squares. Tapping the row opens the contact sheet (Call, Copy,
-/// Message), as does Call; Message opens the thread.
+/// A counterparty on the contact card (BuyerOrderDetailM board): initials
+/// in that party's role colours, name and role, then Message and Call, each
+/// a 44 px round button with its word under it. Tapping the row opens the
+/// contact sheet (Call, Copy, Message), as does Call; Message opens the
+/// thread. The row never shows a number: the sheet does, and only the
+/// number the server sent once contact is open (ESC-48). Until that number
+/// is on the device the row has no Call, only Message.
 class _ContactRow extends StatelessWidget {
   final String name;
   final String role;
+
+  /// The party's role, for the avatar's colours.
+  final UserRole partyRole;
+
+  /// Whether the party's number is on the device: Call shows only then.
+  final bool canCall;
   final bool divider;
   final VoidCallback onOpen;
   final VoidCallback onMessage;
@@ -2403,6 +2621,8 @@ class _ContactRow extends StatelessWidget {
   const _ContactRow({
     required this.name,
     required this.role,
+    required this.partyRole,
+    required this.canCall,
     required this.divider,
     required this.onOpen,
     required this.onMessage,
@@ -2412,6 +2632,7 @@ class _ContactRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final colors = RoleColors.forRole(partyRole);
     final initials = name
         .split(RegExp(r'\s+'))
         .where((part) => part.isNotEmpty)
@@ -2419,10 +2640,10 @@ class _ContactRow extends StatelessWidget {
         .map((part) => part.characters.first.toUpperCase())
         .join();
     return Container(
-      constraints: const BoxConstraints(minHeight: 60),
+      constraints: const BoxConstraints(minHeight: 62),
       decoration: divider
           ? const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppTheme.segmentTrack)),
+              border: Border(bottom: BorderSide(color: AppTheme.sketch)),
             )
           : null,
       child: Row(
@@ -2431,18 +2652,18 @@ class _ContactRow extends StatelessWidget {
             child: InkWell(
               onTap: onOpen,
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
+                padding: const EdgeInsets.symmetric(vertical: 10),
                 child: Row(
                   children: [
                     CircleAvatar(
                       radius: 19,
-                      backgroundColor: context.roleColors.tint,
+                      backgroundColor: colors.tint,
                       child: Text(
                         initials,
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w800,
-                          color: context.roleColors.primary,
+                          color: colors.primary,
                         ),
                       ),
                     ),
@@ -2454,15 +2675,17 @@ class _ContactRow extends StatelessWidget {
                           Text(
                             name,
                             style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.15,
                               color: AppTheme.ink,
                             ),
                           ),
+                          const SizedBox(height: 2),
                           Text(
                             role,
                             style: const TextStyle(
-                              fontSize: 12,
+                              fontSize: 14,
                               color: AppTheme.slate,
                             ),
                           ),
@@ -2475,35 +2698,97 @@ class _ContactRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          FwSquareButton(
+          _ContactButton(
+            key: const Key('order_contact_message'),
+            label: l10n.contactMessageLabel,
             semanticLabel: l10n.detailMessageParty(name),
+            icon: Icons.chat_bubble_outline,
+            filled: false,
             onTap: onMessage,
-            child: const Icon(
-              Icons.chat_bubble_outline,
-              size: 18,
-              color: AppTheme.ink,
-            ),
           ),
-          const SizedBox(width: 8),
-          Semantics(
-            button: true,
-            label: l10n.detailCallParty(name),
-            child: Material(
-              color: context.roleColors.primary,
-              borderRadius: BorderRadius.circular(14),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: onOpen,
-                child: const SizedBox(
+          if (canCall) ...[
+            const SizedBox(width: 6),
+            _ContactButton(
+              key: const Key('order_contact_call'),
+              label: l10n.call,
+              semanticLabel: l10n.detailCallParty(name),
+              icon: Icons.call_outlined,
+              filled: true,
+              onTap: onOpen,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Message or Call on a contact row: a 44 px circle (outlined, or black
+/// with white ink for Call) with its word under it, in a 48 px wide target.
+class _ContactButton extends StatelessWidget {
+  final String label;
+  final String semanticLabel;
+  final IconData icon;
+  final bool filled;
+  final VoidCallback onTap;
+
+  const _ContactButton({
+    required this.label,
+    required this.semanticLabel,
+    required this.icon,
+    required this.filled,
+    required this.onTap,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 56, minHeight: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
                   width: 44,
                   height: 44,
-                  child:
-                      Icon(Icons.call_outlined, size: 18, color: Colors.white),
+                  decoration: BoxDecoration(
+                    color: filled ? AppTheme.ink : Colors.transparent,
+                    shape: BoxShape.circle,
+                    border:
+                        filled ? null : Border.all(color: AppTheme.fieldBorder),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 18,
+                    color: filled ? Colors.white : AppTheme.ink,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.ink,
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -2519,14 +2804,14 @@ class _LockedContactRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minHeight: 60),
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      constraints: const BoxConstraints(minHeight: 58),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
         children: [
           const CircleAvatar(
             radius: 19,
-            backgroundColor: AppTheme.segmentTrack,
-            child: Icon(Icons.lock_outline, size: 16, color: AppTheme.slate),
+            backgroundColor: AppTheme.sand,
+            child: Icon(Icons.lock_outline, size: 16, color: AppTheme.inkSoft),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -2536,15 +2821,17 @@ class _LockedContactRow extends StatelessWidget {
                 Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.15,
                     color: AppTheme.ink,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
                   note,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 14,
                     color: AppTheme.slate,
                   ),
                 ),

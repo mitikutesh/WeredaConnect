@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
@@ -18,14 +19,16 @@ import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/account_menu.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
-/// The buyer's Find Crops screen (Fieldway Canvas: Market.dc.html): "Deliver
-/// to" with the place tile, the title, then the Browse / My Requests
-/// segmented switch.
+/// The buyer's Find Crops screen (design canvas page M: MarketM.dc.html):
+/// the "Deliver to" eyebrow with its pin, the 42 px title with the buyer
+/// sketch, the bell, then the Browse / My Requests pill switch.
 ///
 /// **Browse** embeds [BrowseListingsScreen] over every farmer's active
 /// listing; its search box and price range stay out of the default view,
-/// behind the header's search button, as the board shows the list bare.
+/// behind the search button at the end of the switch row, as the board
+/// shows the list bare.
 /// **My Requests** lists the buyer's active intents and creates new ones.
 ///
 /// When [embedded] is true the screen omits its own Scaffold and back arrow
@@ -115,54 +118,54 @@ class _FindCropsScreenState extends State<FindCropsScreen> {
                         ),
                       ),
                     ),
-                  // Buyer · Find crops board: where the crops go, then the
-                  // title, with the search button and the profile square.
+                  // MarketM board: where the crops go, then the title,
+                  // the buyer sketch when the title leaves it room, the
+                  // bell and the account button.
                   FwPageHeader(
                     eyebrowWidget: const DeliverToLine(),
                     title: l10n.findCrops,
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_segment == 0) ...[
-                          FwSquareButton(
-                            semanticLabel: l10n.marketSearchToggle,
-                            background: _filtersOpen
-                                ? context.roleColors.tint
-                                : AppTheme.surfaceWhite,
-                            onTap: () =>
-                                setState(() => _filtersOpen = !_filtersOpen),
-                            child: Icon(
-                              Icons.search,
-                              size: 20,
-                              color: _filtersOpen
-                                  ? context.roleColors.primary
-                                  : AppTheme.ink,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-                        const HeaderActions(),
-                      ],
-                    ),
+                    sketchRole: UserRole.buyer,
+                    trailing: const HeaderActions(),
                   ),
                 ],
               ),
             ),
 
-            // ── The board's segmented switch ───────────────────────────
+            // ── The board's pill switch, with the search button (not on
+            // the board) at the row's end while Browse shows ─────────────
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-              child: FwSegmented<int>(
-                segments: [
-                  FwSegment(value: 0, label: l10n.browseAll),
-                  FwSegment(
-                    value: 1,
-                    label: l10n.myRequests,
-                    count: intentCount > 0 ? intentCount : null,
+              padding: const EdgeInsets.fromLTRB(20, 2, 20, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: FwSegmented<int>(
+                      segments: [
+                        FwSegment(value: 0, label: l10n.browseAll),
+                        FwSegment(
+                          value: 1,
+                          label: l10n.myRequests,
+                          count: intentCount > 0 ? intentCount : null,
+                        ),
+                      ],
+                      selected: _segment,
+                      onChanged: (segment) =>
+                          setState(() => _segment = segment),
+                    ),
                   ),
+                  if (_segment == 0) ...[
+                    const SizedBox(width: 8),
+                    FwSquareButton(
+                      semanticLabel: l10n.marketSearchToggle,
+                      background: _filtersOpen ? AppTheme.ink : AppTheme.paper,
+                      onTap: () => setState(() => _filtersOpen = !_filtersOpen),
+                      child: Icon(
+                        Icons.search,
+                        size: 20,
+                        color: _filtersOpen ? Colors.white : AppTheme.ink,
+                      ),
+                    ),
+                  ],
                 ],
-                selected: _segment,
-                onChanged: (segment) => setState(() => _segment = segment),
               ),
             ),
 
@@ -328,26 +331,30 @@ class _MyRequestsTab extends StatelessWidget {
               // these counts/matches were computed against cached data (C1).
               if (state.isStale)
                 Container(
-                  width: double.infinity,
-                  color: AppTheme.statusWarningContainer,
+                  margin: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  decoration: BoxDecoration(
+                    color: AppTheme.orangeTint,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 8,
+                    horizontal: 16,
+                    vertical: 10,
                   ),
                   child: Row(
                     children: [
                       const Icon(
                         Icons.cloud_off,
                         size: 16,
-                        color: AppTheme.ink,
+                        color: AppTheme.orangeInk,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           l10n.showingCachedResults,
                           style: const TextStyle(
-                            fontSize: 12,
-                            color: AppTheme.ink,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.orangeInk,
                           ),
                         ),
                       ),
@@ -365,9 +372,27 @@ class _MyRequestsTab extends StatelessWidget {
                       Breakpoints.fabClearance,
                     ),
                     physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: state.intents.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    // The requests, then the link to add another.
+                    itemCount: state.intents.length + 1,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
+                      if (index == state.intents.length) {
+                        return Center(
+                          child: TextButton.icon(
+                            onPressed: () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const CreateIntentScreen(),
+                                ),
+                              );
+                              onRefresh();
+                            },
+                            icon: const Icon(Icons.add, size: 16),
+                            label: Text(l10n.newBuyingIntent),
+                          ),
+                        );
+                      }
                       final intent = state.intents[index];
                       return IntentCard(
                         intent: intent,
@@ -388,23 +413,6 @@ class _MyRequestsTab extends StatelessWidget {
                       );
                     },
                   ),
-                ),
-              ),
-              // New Request button at the bottom
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: TextButton.icon(
-                  onPressed: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (_) => const CreateIntentScreen(),
-                      ),
-                    );
-                    onRefresh();
-                  },
-                  icon: const Icon(Icons.add, size: 16),
-                  label: Text(l10n.newBuyingIntent),
                 ),
               ),
             ],
@@ -435,31 +443,28 @@ class _EmptyRequestsState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.search_off,
-              size: 64,
-              color: AppTheme.slate,
-            ),
+            // The one large drawing an empty state may carry.
+            const RoleSketch.emptyState(role: UserRole.buyer),
             const SizedBox(height: 16),
             Text(
               l10n.noMatchesYet,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.slate,
-              ),
+              textAlign: TextAlign.center,
+              style: FwText.cardTitle,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
               l10n.whatDoYouNeedSubtitle,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppTheme.slate,
-              ),
+              style: FwText.body,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
+            // Black, not orange: the bar's "Buy" is the screen's one orange
+            // action.
             FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.ink,
+                foregroundColor: Colors.white,
+              ),
               onPressed: () async {
                 await Navigator.push(
                   context,

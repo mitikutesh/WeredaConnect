@@ -45,6 +45,9 @@ class OrderCard extends StatelessWidget {
   /// disabled, so no second, opposite answer can be sent meanwhile.
   final bool actionsEnabled;
 
+  /// The card the list leads with: raised on its soft shadow.
+  final bool raised;
+
   const OrderCard({
     required this.order,
     super.key,
@@ -56,6 +59,7 @@ class OrderCard extends StatelessWidget {
     this.underReview = false,
     this.acceptEnabled = true,
     this.actionsEnabled = true,
+    this.raised = false,
   });
 
   @override
@@ -97,7 +101,11 @@ class OrderCard extends StatelessWidget {
         farmerResponseOf(order) == CommitmentResponse.pending &&
         (onAccept != null || onReject != null);
 
+    final quintals = quintalsInParensText(order.quantity, l10n);
+    const muted = TextStyle(fontSize: 13, color: AppTheme.slate);
+
     return FwCard(
+      raised: raised,
       onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -109,9 +117,24 @@ class OrderCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '${CropType.labelFor(order.cropType, l10n)} · '
-                      '${kgQuantityText(order.quantity, l10n)}',
+                    // Kilograms lead; the quintals follow small and muted.
+                    Text.rich(
+                      TextSpan(
+                        text: '${CropType.labelFor(order.cropType, l10n)} · '
+                            '${kgQuantityText(order.quantity, l10n)}',
+                        children: [
+                          if (quintals.isNotEmpty)
+                            TextSpan(
+                              text: ' ${quintals.replaceAll(' ', '\u00A0')}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0,
+                                color: AppTheme.slate,
+                              ),
+                            ),
+                        ],
+                      ),
                       style: FwText.cardTitle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -120,11 +143,7 @@ class OrderCard extends StatelessWidget {
                     Text(
                       '${isFarmerView ? l10n.buyer : l10n.farmer}: '
                       '${party.isEmpty ? noValueMark : party}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: AppTheme.slate,
-                      ),
+                      style: muted.copyWith(fontSize: 14),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -136,33 +155,20 @@ class OrderCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   if (amount != null) ...[
-                    if (amountLabel != null)
-                      Text(
-                        amountLabel,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: AppTheme.slate,
-                        ),
-                      ),
+                    if (amountLabel != null) Text(amountLabel, style: muted),
+                    // The viewer's money, in the role colour.
                     Text(
                       amount,
-                      style: const TextStyle(
-                        fontSize: 16,
+                      style: TextStyle(
+                        fontSize: 17,
                         fontWeight: FontWeight.w800,
-                        color: AppTheme.ink,
+                        letterSpacing: -0.17,
+                        color: context.roleColors.primary,
                       ),
                     ),
                     const SizedBox(height: 2),
                   ],
-                  Text(
-                    day,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.slate,
-                    ),
-                  ),
+                  Text(day, style: muted),
                 ],
               ),
             ],
@@ -171,11 +177,7 @@ class OrderCard extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               '${l10n.transportCost}: ${etbAmountText(transport, l10n)}',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.slate,
-              ),
+              style: muted,
             ),
           ],
           const SizedBox(height: 10),
@@ -194,6 +196,7 @@ class OrderCard extends StatelessWidget {
           ),
           if (showActions) ...[
             const SizedBox(height: 12),
+            // The orange Accept with the outlined Reject before it.
             Row(
               children: [
                 if (onReject != null)
@@ -201,18 +204,7 @@ class OrderCard extends StatelessWidget {
                     child: OutlinedButton(
                       onPressed: actionsEnabled ? onReject : null,
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.ink,
-                        side: const BorderSide(color: AppTheme.fieldBorder),
                         minimumSize: const Size.fromHeight(48),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        textStyle: const TextStyle(
-                          fontFamily: AppTheme.fontFamily,
-                          fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
                       ),
                       child: Text(l10n.rejectOrder),
                     ),
@@ -224,18 +216,7 @@ class OrderCard extends StatelessWidget {
                       onPressed:
                           acceptEnabled && actionsEnabled ? onAccept : null,
                       style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.ink,
-                        foregroundColor: Colors.white,
                         minimumSize: const Size.fromHeight(48),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        textStyle: const TextStyle(
-                          fontFamily: AppTheme.fontFamily,
-                          fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
                       ),
                       child: Text(l10n.acceptOrder),
                     ),

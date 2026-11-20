@@ -163,7 +163,11 @@ void main() {
       final l10n = l10nOf(tester);
 
       expect(find.text('5,000 ETB'), findsOneWidget);
-      expect(find.text('${l10n.cropTypeWheat} · 100 kg'), findsOneWidget);
+      // Kilograms lead, the quintals follow in parentheses (page M).
+      expect(
+        find.text('${l10n.cropTypeWheat} · 100 kg (1\u00A0quintals)'),
+        findsOneWidget,
+      );
       // The other party stands alone on its line (the date moved under the
       // amount), so a deleted party still reads "Farmer: Deleted user".
       expect(find.text('${l10n.farmer}: Farmer'), findsOneWidget);
@@ -322,7 +326,10 @@ void main() {
         order: _order(OrderStatus.created)..quantity = 0.5,
       );
       final l10n = l10nOf(tester);
-      expect(find.text('${l10n.cropTypeWheat} · 0.5 kg'), findsOneWidget);
+      expect(
+        find.textContaining('${l10n.cropTypeWheat} · 0.5 kg'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a user id where the name belongs reads as a dash',

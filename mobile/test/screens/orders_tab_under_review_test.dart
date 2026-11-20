@@ -214,6 +214,17 @@ void main() {
 
     await tester.tap(find.text(en.declineReasonCropNotReady));
     await tester.pumpAndSettle();
+
+    // FarmerRejectConfirmM: the reason alone rejects nothing; the farmer
+    // confirms on the red button.
+    expect(find.text(en.rejectConfirmTitle), findsOneWidget);
+    expect(
+      find.text(en.rejectConfirmReason(en.declineReasonCropNotReady)),
+      findsOneWidget,
+    );
+    verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+    await tester.tap(find.text(en.rejectConfirmYes));
+    await tester.pumpAndSettle();
     final sent = verify(
       () => orderBloc.add(captureAny(that: isA<RejectOrder>())),
     ).captured.single as RejectOrder;

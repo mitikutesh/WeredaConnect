@@ -357,7 +357,10 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      expect(find.text('4.6 (12)'), findsOneWidget);
+      expect(
+        find.textContaining('4.6\u00A0(12\u00A0ratings)'),
+        findsOneWidget,
+      );
       expect(find.text('4.5'), findsNothing);
       expect(find.text('Escrow'), findsNothing);
     });
@@ -549,8 +552,14 @@ void main() {
         await tester.pumpWidget(buildTestWidget());
         await tester.pumpAndSettle();
 
-        expect(find.text('4.8 (3)'), findsOneWidget);
-        expect(find.text('4.4 (12)'), findsOneWidget);
+        expect(
+          find.textContaining('4.8\u00A0(3\u00A0ratings)'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('4.4\u00A0(12\u00A0ratings)'),
+          findsOneWidget,
+        );
         expect(find.text('Low reputation'), findsNothing);
         verify(() => ratingRepo.getRatingSummary('farmer-plain')).called(1);
         verifyNever(() => ratingRepo.getRatingSummary('farmer-copied'));
@@ -742,7 +751,8 @@ void main() {
 
       // The pill, not the footnote's "Transport is matched for ...".
       expect(find.textContaining(RegExp(r'^Transport ')), findsOneWidget);
-      expect(find.textContaining('18 q room'), findsOneWidget);
+      // Page M: the room in kilograms.
+      expect(find.textContaining('1,800 kg room'), findsOneWidget);
       expect(find.text('2 trips this week'), findsOneWidget);
       expect(find.text('No trip yet'), findsOneWidget);
     });
@@ -962,11 +972,11 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      // Market board: "Teff · 10 quintals left".
+      // MarketM board: "Teff · 1,000 kg left" with "(10 quintals)" after.
       expect(
         find.descendant(
           of: find.byType(ListingCard),
-          matching: find.text('Teff · 10 quintals left'),
+          matching: find.text('Teff · 1,000 kg left (10\u00A0quintals)'),
         ),
         findsOneWidget,
       );

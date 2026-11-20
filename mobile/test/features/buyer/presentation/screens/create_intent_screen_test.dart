@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_event.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -108,5 +109,90 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Enter the quantity you need'), findsOneWidget);
+  });
+
+  // CreateIntentM board: the buyer types kilograms and reads them back kg
+  // first; the intent still stores quintals (buyer-intent contract).
+  group('quantity in kilograms', () {
+    setUp(() {
+      registerFallbackValue(const LoadActiveIntents(buyerId: 'x'));
+      when(() => buyerIntentBloc.add(any())).thenReturn(null);
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'buyer-001',
+          tokens: _testTokens,
+          role: UserRole.buyer,
+          woreda: 'Addis Ababa',
+        ),
+      );
+    });
+
+    testWidgets('the field asks for kg and reads the quantity back kg first',
+        (tester) async {
+      await pump(tester);
+      expect(find.text('Quantity needed (kg)'), findsOneWidget);
+      expect(find.textContaining('quintals'), findsNothing);
+
+      await tester.enterText(
+        find.byKey(const Key('create_intent_quantity')),
+        '2000',
+      );
+      await tester.pump();
+
+      expect(find.text('2,000 kg (20 quintals)'), findsOneWidget);
+    });
+
+    testWidgets('2,000 kg typed is saved as 20 quintals', (tester) async {
+      await pump(tester);
+      await tester.tap(find.byKey(const Key('create_intent_crop_wheat')));
+      await tester.enterText(
+        find.byKey(const Key('create_intent_quantity')),
+        '2000',
+      );
+      await tester.pump();
+      await tester.ensureVisible(find.text('Find Matches'));
+      await tester.tap(find.text('Find Matches'));
+      await tester.pump();
+
+      final sent = verify(
+        () => buyerIntentBloc.add(captureAny(that: isA<CreateBuyerIntent>())),
+      ).captured.single as CreateBuyerIntent;
+      expect(sent.quantityNeeded, 20);
+      expect(sent.cropType, 'wheat');
+      expect(sent.maxPricePerKg, 0);
+      expect(sent.deliveryWoreda, 'Addis Ababa');
+    });
+
+    testWidgets('part of a quintal keeps its fraction', (tester) async {
+      await pump(tester);
+      await tester.tap(find.byKey(const Key('create_intent_crop_teff')));
+      await tester.enterText(
+        find.byKey(const Key('create_intent_quantity')),
+        '250',
+      );
+      await tester.pump();
+      expect(find.text('250 kg (2.5 quintals)'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Find Matches'));
+      await tester.tap(find.text('Find Matches'));
+      await tester.pump();
+      final sent = verify(
+        () => buyerIntentBloc.add(captureAny(that: isA<CreateBuyerIntent>())),
+      ).captured.single as CreateBuyerIntent;
+      expect(sent.quantityNeeded, 2.5);
+    });
+
+    testWidgets('the note about alerts sits in the form, above the button',
+        (tester) async {
+      await pump(tester);
+      final note = find.text(
+        'Saving this request lets us alert you when new matches arrive',
+      );
+      expect(note, findsOneWidget);
+      expect(
+        tester.getTopLeft(note).dy,
+        lessThan(tester.getTopLeft(find.text('Find Matches')).dy),
+      );
+    });
   });
 }

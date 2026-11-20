@@ -2261,11 +2261,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get statusPaymentSubmittedInfo =>
-      'ገዢው ክፍያውን ልኳል፤ በማረጋገጥ ላይ ነው። ገንዘቡ ገና በአደራ (ኢስክሮ) አልተረጋገጠም።';
+      'ገዢው ክፍያውን ልኳል፤ በማረጋገጥ ላይ ነው። ገንዘቡ ገና በኢስክሮ (ኢስክሮ) አልተረጋገጠም።';
 
   @override
   String get statusFundedInfo =>
-      'ክፍያው ተረጋግጦ በአደራ (ኢስክሮ) በደህና ተይዟል። የታዘዘው መጠን ከገበሬው ዝርዝር ተይዟል።';
+      'ክፍያው ተረጋግጦ በኢስክሮ (ኢስክሮ) በደህና ተይዟል። የታዘዘው መጠን ከገበሬው ዝርዝር ተይዟል።';
 
   @override
   String get orderAcceptedInfo => 'ገበሬው ትዕዛዙን ተቀብሎ ሰብሉን ለርክክብ ያዘጋጃል።';
@@ -2282,7 +2282,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get statusDisbursingInfo =>
-      'ገንዘቡ ከአደራ (ኢስክሮ) በመውጣት ላይ ነው፤ ለገበሬው እና ካለ ለጭነት መኪና ሹፌሩ እየተከፈለ ነው።';
+      'ገንዘቡ ከኢስክሮ (ኢስክሮ) በመውጣት ላይ ነው፤ ለገበሬው እና ካለ ለጭነት መኪና ሹፌሩ እየተከፈለ ነው።';
 
   @override
   String get statusSettledInfo =>
@@ -2290,11 +2290,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get orderCancelledInfo =>
-      'ትዕዛዙ ተሰርዟል። በአደራ (ኢስክሮ) የተያዘ ገንዘብ ካለ ለገዢው ይመለሳል።';
+      'ትዕዛዙ ተሰርዟል። በኢስክሮ (ኢስክሮ) የተያዘ ገንዘብ ካለ ለገዢው ይመለሳል።';
 
   @override
   String get orderRejectedInfo =>
-      'ገበሬው ይህን ትዕዛዝ አልተቀበለም። በአደራ (ኢስክሮ) የተያዘ ገንዘብ ለገዢው ይመለሳል።';
+      'ገበሬው ይህን ትዕዛዝ አልተቀበለም። በኢስክሮ (ኢስክሮ) የተያዘ ገንዘብ ለገዢው ይመለሳል።';
 
   @override
   String get statusPaymentFailedInfo =>
@@ -2302,7 +2302,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get statusDisputedInfo =>
-      'ክርክር ቀርቧል። ክርክሩ እስኪፈታ ድረስ ገንዘቡ በአደራ (ኢስክሮ) ተይዞ ይቆያል።';
+      'ክርክር ቀርቧል። ክርክሩ እስኪፈታ ድረስ ገንዘቡ በኢስክሮ (ኢስክሮ) ተይዞ ይቆያል።';
 
   @override
   String get statusDisputeResolvedInfo => 'ክርክሩ ተፈቷል፤ ገንዘቡ ላሸነፈው ወገን ተላልፏል።';
@@ -5159,7 +5159,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get detailNoPhoneNumbersNote =>
-      'ስልክ ቁጥር የለም፦ ክፍያ በአደራ ከተያዘ በኋላ ግንኙነት ይከፈታል።';
+      'ስልክ ቁጥር የለም፦ ክፍያ በኢስክሮ ከተያዘ በኋላ ግንኙነት ይከፈታል።';
 
   @override
   String get detailYourFarm => 'እርሻዎ';
@@ -5173,7 +5173,7 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
-  String get detailPaidIntoEscrow => 'በአደራ ተከፍሏል';
+  String get detailPaidIntoEscrow => 'በኢስክሮ ተከፍሏል';
 
   @override
   String get detailPickupLabel => 'መውሰጃ';
@@ -5187,7 +5187,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get detailBuyerCollects => 'ገዢው ራሱ ይወስዳል';
 
   @override
-  String get detailHeldInEscrow => 'በአደራ ተይዟል';
+  String get detailHeldInEscrow => 'በኢስክሮ ተይዟል';
 
   @override
   String detailPartyPaid(String party) {
@@ -5274,6 +5274,116 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String marketQuintalsLeft(String quantity) {
     return '$quantity ኩንታል ቀርቷል';
+  }
+
+  @override
+  String get actionOpen => 'ክፈት';
+
+  @override
+  String commitmentAnswerDue(String time) {
+    return 'መልስ እስከ $time';
+  }
+
+  @override
+  String get commitmentTheFarmer => 'ገበሬው';
+
+  @override
+  String get commitmentTheTrucker => 'የጭነት መኪና ሹፌሩ';
+
+  @override
+  String commitmentWhoFarmer(String name) {
+    return 'ገበሬው $name';
+  }
+
+  @override
+  String commitmentWhoTrucker(String name) {
+    return 'የጭነት መኪና ሹፌሩ $name';
+  }
+
+  @override
+  String commitmentBuyerWaitingOnBy(String who, String time) {
+    return 'አሁን $who እስከ $time እንዲመልሱ እየተጠበቀ ነው። እርስዎ ምንም ማድረግ አያስፈልግዎትም።';
+  }
+
+  @override
+  String commitmentBuyerWaitingOn(String who) {
+    return 'አሁን $who እንዲመልሱ እየተጠበቀ ነው። እርስዎ ምንም ማድረግ አያስፈልግዎትም።';
+  }
+
+  @override
+  String get commitmentThenTruckerAsked => 'ገበሬው ሲቀበል ቀጥሎ የጭነት መኪና ሹፌሩ ይጠየቃል።';
+
+  @override
+  String get commitmentContactOpensOnTruckerAccept =>
+      'የጭነት መኪና ሹፌሩ ሲቀበል መገናኛው እዚህ ይከፈታል።';
+
+  @override
+  String commitmentYourTurnBy(String time) {
+    return 'ተራው የእርስዎ ነው፦ እስከ $time ይቀበሉ ወይም ውድቅ ያድርጉ።';
+  }
+
+  @override
+  String get commitmentYourTurn => 'ተራው የእርስዎ ነው፦ ይቀበሉ ወይም ውድቅ ያድርጉ።';
+
+  @override
+  String get commitmentFarmerAcceptThenTrucker =>
+      'ሲቀበሉ ቀጥሎ የጭነት መኪና ሹፌሩ ይጠየቃል፣ የገዢው ክፍያም በኢስክሮ ይቆያል።';
+
+  @override
+  String get commitmentFarmerAcceptEscrowStays => 'ሲቀበሉ የገዢው ክፍያ በኢስክሮ ይቆያል።';
+
+  @override
+  String get rejectConfirmTitle => 'ይህን ትዕዛዝ ውድቅ ያድርጉ?';
+
+  @override
+  String get rejectConfirmBody =>
+      'ገዢው ይህን ትዕዛዝ ማሟላት እንደማይችሉ ይነገረዋል፣ ክፍያውም ከኢስክሮ ይመለስለታል።';
+
+  @override
+  String rejectConfirmReason(String reason) {
+    return 'ምክንያት፦ $reason';
+  }
+
+  @override
+  String get rejectConfirmYes => 'አዎ፣ ትዕዛዙን ውድቅ አድርግ';
+
+  @override
+  String get rejectConfirmKeep => 'ትዕዛዙን አቆይ';
+
+  @override
+  String get contactMessageLabel => 'መልዕክት';
+
+  @override
+  String placeOrderFitsTripKg(String quantity) {
+    return 'በዚህ ጉዞ ይገባል፣ $quantity ቀርቷል';
+  }
+
+  @override
+  String placeOrderExceedsTripKg(String quantity) {
+    return 'ከዚህ ጉዞ ቦታ በላይ ነው፣ $quantity ቀርቷል';
+  }
+
+  @override
+  String pricePerQuintalInParens(String price) {
+    return '($price/ኩንታል)';
+  }
+
+  @override
+  String transportPricePerKgAndQuintal(String perKg, String perQuintal) {
+    return 'በኪግ $perKg ብር (በኩንታል $perQuintal)';
+  }
+
+  @override
+  String get quantityNeededKg => 'የሚፈለገው መጠን (ኪግ)';
+
+  @override
+  String marketKgLeft(String quantity) {
+    return '$quantity ቀርቷል';
+  }
+
+  @override
+  String marketKgRoom(String quantity) {
+    return '$quantity ቦታ';
   }
 
   @override

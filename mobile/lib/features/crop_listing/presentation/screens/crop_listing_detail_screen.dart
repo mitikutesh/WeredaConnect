@@ -435,7 +435,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                     const SizedBox(height: 16),
                   ],
                   _HeaderSection(cropType: cropType, listing: _listing),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 16),
 
                   // Who sells it (Crop detail board): name and rating. Not
                   // for a listing without a real name (SIM-33).
@@ -445,7 +445,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                       listing: _listing,
                       showLowLabel: isBuyer,
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                   ],
 
                   // Where it is: the crop and the buyer on one drawing when
@@ -458,33 +458,37 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                   ),
 
                   if (_listing.description.isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    Text(l10n.description, style: _sectionTitle),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 16),
+                    _SectionLabel(
+                      icon: Icons.notes_rounded,
+                      text: l10n.description,
+                    ),
+                    const SizedBox(height: 8),
                     Text(
                       _listing.description,
                       style: const TextStyle(
                         fontSize: 14,
                         height: 1.5,
-                        color: AppTheme.inkSoft,
+                        color: AppTheme.ink,
                       ),
                     ),
                   ],
 
                   // Suggested transport section (buyer with delivery woreda)
                   if (showTransport) ...[
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     ..._buildTransportSection(context, l10n),
                   ],
 
                   if (isBuyer) ...[
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     // ESC-48: no contact before the money is held. The buyer
                     // reaches the farmer from the order once accepted.
                     Text(
                       l10n.contactAfterEscrowNote,
                       style: const TextStyle(
                         fontSize: 13,
+                        height: 1.4,
                         color: AppTheme.slate,
                       ),
                     ),
@@ -514,7 +518,10 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     AppLocalizations l10n,
   ) {
     return [
-      Text(l10n.suggestedTransport, style: _sectionTitle),
+      _SectionLabel(
+        icon: Icons.local_shipping_outlined,
+        text: l10n.suggestedTransport,
+      ),
       const SizedBox(height: 10),
 
       // Trip cards or loading/empty state
@@ -571,25 +578,28 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
               ),
             )),
 
-      // Price for the quantity the buyer needs (Crop detail board).
-      const SizedBox(height: 4),
-      FwCard(
+      // Price for the quantity the buyer needs (CropDetailM board): a flat
+      // sand tile, the total in the role colour.
+      const SizedBox(height: 6),
+      FwCard.sand(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              l10n.detailForQuantity(
-                l10n.quantityKg(wholeNumber(_quantity * 100)),
+            _SectionLabel(
+              icon: Icons.receipt_long_outlined,
+              text: l10n.detailForQuantity(
+                kgQuantityText(_quantity * kgPerQuintal, l10n),
               ),
-              style: _sectionTitle,
+              color: AppTheme.inkSoft,
             ),
-            const SizedBox(height: 11),
+            const SizedBox(height: 10),
             FwMoneyRow(
               label: l10n.cropCostLabel,
               amount: l10n.etbCurrency(formatEtbAmount(_pricing.cropCostEtb)),
             ),
             if (_selectedTrip != null) ...[
-              const SizedBox(height: 9),
+              const SizedBox(height: 8),
               FwMoneyRow(
                 label: l10n.transportCostLabel,
                 amount: l10n.etbCurrency(
@@ -597,16 +607,38 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                 ),
               ),
             ],
-            const SizedBox(height: 9),
+            const SizedBox(height: 8),
             FwMoneyRow(
               label: l10n.commissionLabel,
               amount: l10n.etbCurrency(formatEtbAmount(_commission)),
             ),
-            const SizedBox(height: 9),
-            FwMoneyRow(
-              label: l10n.totalLabel,
-              amount: l10n.etbCurrency(formatEtbAmount(_total)),
-              total: true,
+            const SizedBox(height: 10),
+            const Divider(height: 1, thickness: 1, color: AppTheme.sketch),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    l10n.totalLabel,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.ink,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  l10n.etbCurrency(formatEtbAmount(_total)),
+                  key: const Key('crop_detail_total'),
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.4,
+                    color: context.roleColors.primary,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -636,10 +668,6 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
         FilledButton(
           key: const Key('crop_detail_edit'),
           onPressed: _deleting ? null : _openEdit,
-          style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(56),
-            textStyle: label,
-          ),
           child: Text(l10n.edit),
         ),
         const SizedBox(height: 8),
@@ -649,9 +677,6 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
           style: OutlinedButton.styleFrom(
             minimumSize: const Size.fromHeight(48),
             foregroundColor: AppTheme.statusError,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
             textStyle:
                 label.copyWith(fontSize: 14, fontWeight: FontWeight.w700),
           ),
@@ -863,15 +888,6 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
             FilledButton(
               key: const Key('crop_detail_place_order'),
               onPressed: () => _openPlaceOrder(trip: _selectedTrip),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(56),
-                textStyle: const TextStyle(
-                  fontFamily: AppTheme.fontFamily,
-                  fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
               child: Text(
                 withTransport ? l10n.placeOrderWithTransport : l10n.placeOrder,
               ),
@@ -883,9 +899,6 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                 onPressed: () => _openPlaceOrder(),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
                   textStyle: const TextStyle(
                     fontFamily: AppTheme.fontFamily,
                     fontFamilyFallback: AppTheme.ethiopicFontFallback,
@@ -914,14 +927,42 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   }
 }
 
-const TextStyle _sectionTitle = TextStyle(
-  fontSize: 15,
-  fontWeight: FontWeight.w800,
-  color: AppTheme.ink,
-);
+/// A section's uppercase label with its small icon before it (CropDetailM
+/// board: Description, Suggested Transport, For 1,500 kg).
+class _SectionLabel extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final Color color;
 
-/// The crop large with how much is left and when it was listed, and the
-/// price large on the right (Buyer · Crop detail board).
+  const _SectionLabel({
+    required this.icon,
+    required this.text,
+    this.color = AppTheme.slate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Semantics(
+            header: true,
+            child: Text(
+              text.toUpperCase(),
+              style: FwText.sectionLabel.copyWith(color: color),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The crop large with how much is left (kilograms first, the quintals
+/// after in parentheses) and when it was listed, and the price large in
+/// the role colour on the right (CropDetailM board).
 class _HeaderSection extends StatelessWidget {
   final CropType cropType;
   final CropListing listing;
@@ -934,6 +975,8 @@ class _HeaderSection extends StatelessWidget {
     final listed = l10n.myCropsListedOn(
       formatMonthDay(dayInEthiopia(listing.createdAt)),
     );
+    final kg = listing.quantity * kgPerQuintal;
+    final quintals = quintalsInParensText(kg, l10n);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -946,20 +989,38 @@ class _HeaderSection extends StatelessWidget {
                 child: Text(
                   cropType.displayName(l10n),
                   style: const TextStyle(
-                    fontSize: 30,
+                    fontSize: 38,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: -0.9,
-                    height: 1.1,
+                    letterSpacing: -1.3,
+                    height: 1.05,
                     color: AppTheme.ink,
                   ),
                 ),
               ),
               const SizedBox(height: 2),
-              Text(
-                '${l10n.detailQuintalsLeft(formatQuintals(listing.quantity))}'
-                ' · $listed',
+              // "2,800 kg left (28 quintals) · listed Mon".
+              Text.rich(
+                key: const Key('crop_detail_quantity_line'),
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: l10n.marketKgLeft(kgQuantityText(kg, l10n)),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.ink,
+                      ),
+                    ),
+                    TextSpan(
+                      text: [
+                        if (quintals.isNotEmpty) ' $quintals',
+                        ' · $listed',
+                      ].join(),
+                    ),
+                  ],
+                ),
                 style: const TextStyle(
-                  fontSize: 14,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
                   color: AppTheme.slate,
                 ),
               ),
@@ -972,17 +1033,22 @@ class _HeaderSection extends StatelessWidget {
           children: [
             Text(
               formatEtbAmount(listing.pricePerKg),
-              style: const TextStyle(
-                fontSize: 30,
+              style: TextStyle(
+                fontSize: 38,
                 fontWeight: FontWeight.w800,
-                letterSpacing: -0.9,
-                height: 1.1,
-                color: AppTheme.ink,
+                letterSpacing: -1.3,
+                height: 1.05,
+                color: context.roleColors.primary,
               ),
             ),
+            const SizedBox(height: 2),
             Text(
               l10n.etbPerKg,
-              style: const TextStyle(fontSize: 12, color: AppTheme.slate),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppTheme.slate,
+              ),
             ),
           ],
         ),
@@ -1012,13 +1078,13 @@ class _StatusChip extends StatelessWidget {
           l10n.listingStatusReserved,
         ),
       ListingStatus.draft => (
-          AppTheme.segmentTrack,
+          AppTheme.sand,
           AppTheme.inkSoft,
           l10n.listingStatusDraft,
         ),
       ListingStatus.sold => (
-          AppTheme.dropoffSlateTint,
-          AppTheme.dropoffSlate,
+          AppTheme.sand,
+          AppTheme.inkSoft,
           l10n.listingStatusSold,
         ),
       ListingStatus.expired => (
@@ -1150,7 +1216,7 @@ class _FarmerCardState extends State<_FarmerCard> {
         .take(2)
         .map((part) => part.characters.first.toUpperCase())
         .join();
-    const muted = TextStyle(fontSize: 12, color: AppTheme.slate);
+    const muted = TextStyle(fontSize: 14, color: AppTheme.inkSoft);
     return FutureBuilder<RatingSummary>(
       future: _summaryFuture,
       builder: (context, snapshot) {
@@ -1168,21 +1234,22 @@ class _FarmerCardState extends State<_FarmerCard> {
         final reliability = _reputation.reliabilityPct;
         final asOf = _reputation.asOf;
         final low = widget.showLowLabel && _reputation.isLow;
-        return FwCard(
-          padding: const EdgeInsets.all(14),
+        // CropDetailM board: a flat sand tile, the initials white on black.
+        return FwCard.sand(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Padding(
             padding: EdgeInsets.zero,
             child: Row(
               children: [
                 CircleAvatar(
                   radius: 22,
-                  backgroundColor: context.roleColors.tint,
+                  backgroundColor: AppTheme.ink,
                   child: Text(
                     initials,
-                    style: TextStyle(
-                      fontSize: 13,
+                    style: const TextStyle(
+                      fontSize: 14,
                       fontWeight: FontWeight.w800,
-                      color: context.roleColors.primary,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -1195,7 +1262,8 @@ class _FarmerCardState extends State<_FarmerCard> {
                         name,
                         style: const TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.15,
                           color: AppTheme.ink,
                         ),
                       ),
@@ -1238,18 +1306,18 @@ class _FarmerCardState extends State<_FarmerCard> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.star_rounded,
                         size: 16,
-                        color: context.roleColors.primary,
+                        color: AppTheme.orange,
                       ),
-                      const SizedBox(width: 3),
+                      const SizedBox(width: 4),
                       Text(
                         average.toStringAsFixed(1),
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: context.roleColors.primary,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.ink,
                         ),
                       ),
                     ],

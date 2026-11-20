@@ -141,9 +141,12 @@ void main() {
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
 
-      // Crop detail board: "50 quintals left · listed Feb 20" under the
-      // crop, no separate quantity row.
-      expect(find.textContaining('50 quintals left'), findsOneWidget);
+      // CropDetailM board: "5,000 kg left (50 quintals) · listed Feb 20"
+      // under the crop, kilograms first, no separate quantity row.
+      expect(
+        find.textContaining('5,000 kg left (50 quintals) · '),
+        findsOneWidget,
+      );
       expect(find.text('Quantity'), findsNothing);
     });
 
@@ -199,7 +202,8 @@ void main() {
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
 
-      expect(find.text('Description'), findsOneWidget);
+      // The section label is uppercase (page M).
+      expect(find.text('DESCRIPTION'), findsOneWidget);
       expect(find.text('Premium quality grain'), findsOneWidget);
     });
 

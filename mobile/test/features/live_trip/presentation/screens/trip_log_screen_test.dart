@@ -154,7 +154,8 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(find.text('Who has agreed'), findsOneWidget);
+    // The section label is uppercase (page M).
+    expect(find.text('WHO HAS AGREED'), findsOneWidget);
     expect(
       find.textContaining('A picked-up order can no longer be cancelled.'),
       findsOneWidget,
