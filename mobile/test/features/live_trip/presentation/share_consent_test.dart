@@ -56,6 +56,28 @@ void main() {
       expect(find.text(l10n.liveTripConsentDecline), findsOneWidget);
     });
 
+    // TruckerShareConsentM: the orange primary (the theme's pill, no
+    // override) and the outlined way out, both at least 48 tall.
+    testWidgets('Share is the orange pill, Not now is outlined',
+        (tester) async {
+      await open(tester);
+
+      final share = tester.widget<FilledButton>(
+        find.byKey(const Key('consent_share')),
+      );
+      expect(share.style, isNull);
+      expect(
+        tester.widget(find.byKey(const Key('consent_scans_only'))),
+        isA<OutlinedButton>(),
+      );
+      for (final key in ['consent_share', 'consent_scans_only']) {
+        expect(
+          tester.getSize(find.byKey(Key(key))).height,
+          greaterThanOrEqualTo(48),
+        );
+      }
+    });
+
     testWidgets('web says check-ins go only while the page is open',
         (tester) async {
       await open(tester, web: true);

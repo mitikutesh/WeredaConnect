@@ -1033,7 +1033,7 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets("a QR of another delivery: why, nothing lost, the ways out",
+    testWidgets('a QR of another delivery: why, nothing lost, the ways out',
         (tester) async {
       await scanGarbage(
         tester,

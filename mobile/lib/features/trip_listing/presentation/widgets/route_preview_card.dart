@@ -328,6 +328,7 @@ Rect? _paintLabel(
         text: TextSpan(
           text: text,
           style: TextStyle(
+            fontFamily: AppTheme.fontFamily,
             fontSize: 12,
             fontWeight: FontWeight.w700,
             color: outline == null ? color : null,

@@ -227,6 +227,8 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
               controller: _fromWoredaFilterController,
               hintText: l10n.listsRouteFrom,
               prefixIcon: Icons.trip_origin,
+              // The round search button beside the fields is the search.
+              showSearchIcon: false,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12,
                 vertical: 12,
@@ -242,6 +244,7 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
               controller: _toWoredaFilterController,
               hintText: l10n.listsRouteTo,
               prefixIcon: Icons.place_outlined,
+              showSearchIcon: false,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12,
                 vertical: 12,

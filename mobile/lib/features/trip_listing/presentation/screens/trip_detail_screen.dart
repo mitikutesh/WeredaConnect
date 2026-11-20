@@ -364,8 +364,10 @@ class _OwnerActions extends StatelessWidget {
   }
 }
 
-/// The board's primary button (the orange pill) with a spinner while the
-/// trip's change is on its way.
+/// Start trip and Mark delivered: black with white ink, the second
+/// strongest button. The page's one orange action is Accept transport on a
+/// booking that waits for the trucker, so the foot never competes with it.
+/// Shows a spinner while the trip's change is on its way.
 class _PrimaryAction extends StatelessWidget {
   final String label;
   final IconData icon;
@@ -383,13 +385,17 @@ class _PrimaryAction extends StatelessWidget {
   Widget build(BuildContext context) {
     return FilledButton.icon(
       onPressed: busy ? null : onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: AppTheme.ink,
+        foregroundColor: Colors.white,
+      ),
       icon: busy
           ? const SizedBox(
               height: 20,
               width: 20,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.ink),
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
               ),
             )
           : Icon(icon),

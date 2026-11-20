@@ -119,7 +119,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
   bool _showDriverFields = false;
 
   /// Guards against double-tap submission and drives the Save button's spinner
-  /// from THIS screen's own submit — not the shared bloc's TripListingLoading,
+  /// from THIS screen's own submit, not the shared bloc's TripListingLoading,
   /// which the still-mounted "My Trips" list re-triggers on TripCreated.
   bool _isSubmitting = false;
 
@@ -196,7 +196,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
     final authState = context.read<AuthBloc>().state;
     if (authState is! AuthAuthenticated) return;
 
-    // On web, Isar is unavailable — fall back to AuthBloc state.
+    // On web, Isar is unavailable: fall back to AuthBloc state.
     if (kIsWeb) {
       if (mounted) {
         setState(() {
@@ -229,7 +229,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
         });
       }
     } on Object {
-      // Silently ignore — fields stay empty for manual entry
+      // Silently ignore: fields stay empty for manual entry
     }
   }
 

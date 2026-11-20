@@ -328,8 +328,10 @@ void main() {
         expect(find.text(en.chooseTrip), findsOneWidget);
         expect(find.text('Trucker: Dawit'), findsOneWidget);
         expect(find.text('Trucker: Eyob'), findsOneWidget);
-        expect(find.textContaining('12,000 kg free (120 quintals)'),
-            findsOneWidget);
+        expect(
+          find.textContaining('12,000 kg free (120 quintals)'),
+          findsOneWidget,
+        );
         expect(done, isFalse);
         return chosen;
       };
@@ -358,10 +360,14 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(en.chooseTrip), findsOneWidget);
       expect(
-          find.textContaining('12,000 kg free (120 quintals)'), findsOneWidget);
+        find.textContaining('12,000 kg free (120 quintals)'),
+        findsOneWidget,
+      );
       // A trip nobody booked has its whole capacity free.
       expect(
-          find.textContaining('20,000 kg free (200 quintals)'), findsOneWidget);
+        find.textContaining('20,000 kg free (200 quintals)'),
+        findsOneWidget,
+      );
 
       await tester.tap(find.text('Trucker: Eyob'));
       await tester.pumpAndSettle();

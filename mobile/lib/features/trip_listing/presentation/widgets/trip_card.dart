@@ -142,7 +142,7 @@ class TripCard extends StatelessWidget {
                                   fontWeight: FontWeight.w700,
                                   color: AppTheme.ink,
                                 ),
-                                maxLines: 1,
+                                maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),

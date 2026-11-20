@@ -531,9 +531,17 @@ class _TripHeader extends StatelessWidget {
     }
     return Row(
       children: [
-        const LiveTripBackButton(
-          background: AppTheme.paper,
-          border: AppTheme.paper,
+        // The board's round Back on paper (the live trip parts' own back
+        // button is a square over a map).
+        FwSquareButton(
+          key: const Key('live_trip_back'),
+          semanticLabel: l10n.back,
+          onTap: () => Navigator.of(context).maybePop(),
+          child: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            size: 20,
+            color: AppTheme.ink,
+          ),
         ),
         const SizedBox(width: 12),
         Expanded(
