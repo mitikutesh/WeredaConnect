@@ -243,8 +243,13 @@ void main() {
         ),
         findsOneWidget,
       );
+      // FilledButton.icon is a private subclass on some Flutter versions
+      // (CI's 3.38): match the subtype, not the exact type.
       expect(
-        find.widgetWithText(FilledButton, 'List a crop'),
+        find.ancestor(
+          of: find.text('List a crop'),
+          matching: find.bySubtype<FilledButton>(),
+        ),
         findsOneWidget,
       );
       // One sketch per screen: the large one, none beside the title.
