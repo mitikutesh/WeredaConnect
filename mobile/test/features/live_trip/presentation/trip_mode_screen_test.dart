@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.d
 import 'package:wereda_connect/features/live_trip/domain/sharing_state.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/trip_mode_screen.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 
 import 'live_trip_ui_fixtures.dart';
 
@@ -216,8 +217,8 @@ void main() {
       );
       final l10n = lookup('en');
 
-      // Only the next drop-off is asked for.
-      expect(asked, ['d-1']);
+      // One request per drop-off whose load is on the truck, no more.
+      expect(asked, ['d-1', 'd-2']);
       final facts = tester.widget<Text>(
         find.byKey(const Key('trip_mode_next_facts')),
       );
@@ -235,6 +236,164 @@ void main() {
             '${l10n.tripModeAboutTime('12:35')}'),
         findsOneWidget,
       );
+    });
+
+    // TruckerTripModeM: a later drop-off shows its arrival window.
+    group('arrival windows on later stops', () {
+      DeliveryTrack trackWith(String deliveryId, int hour) => DeliveryTrack(
+            deliveryId: deliveryId,
+            sharing: TrackSharing.live,
+            asOf: startTime,
+            remainingKm: 16,
+            eta: TrackEta(
+              from: DateTime.utc(2026, 10, 27, hour, 20),
+              to: DateTime.utc(2026, 10, 27, hour + 1),
+            ),
+          );
+
+      List<Delivery> bothOnBoard() {
+        final deliveries = oneOnBoard();
+        deliveries[1]
+          ..status = DeliveryStatus.inTransit
+          ..pickedUpAt = pickedUpAt.add(const Duration(minutes: 40));
+        return deliveries;
+      }
+
+      const window = Key('trip_mode_stop_window_d-2');
+
+      testWidgets('the later drop-off shows the window, the next one a time',
+          (tester) async {
+        rig = await EngineRig.signedIn();
+        await rig.engine.start(tripId);
+        await pump(
+          tester,
+          deliveries: bothOnBoard(),
+          // 09:20 to 10:00 UTC for d-1, 10:20 to 11:00 UTC for d-2.
+          trackOf: (id) async => trackWith(id, id == 'd-1' ? 9 : 10),
+        );
+        final l10n = lookup('en');
+
+        expect(
+          tester.widget<ClockText>(find.byKey(window)).label.toString(),
+          contains('13:20-14:00'),
+        );
+        expect(find.textContaining('13:20-14:00'), findsOneWidget);
+        // The next stop keeps "Next · about 12:20"; it has no window line.
+        expect(
+          find.text('${l10n.tripModeNextLabel} · '
+              '${l10n.tripModeAboutTime('12:20')}'),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('trip_mode_stop_window_d-1')),
+          findsNothing,
+        );
+        // The window stands in for the later stop's cargo line.
+        expect(
+          find.text('${l10n.cropTypeMaize} · ${l10n.quantityKg('1,000')}'),
+          findsNothing,
+        );
+      });
+
+      testWidgets('a load not picked up yet is not asked about',
+          (tester) async {
+        rig = await EngineRig.signedIn();
+        await rig.engine.start(tripId);
+        final deliveries = oneOnBoard();
+        // d-2 is picked up later: its pickup is the next stop.
+        final asked = <String>[];
+        await pump(
+          tester,
+          deliveries: deliveries,
+          trackOf: (id) async {
+            asked.add(id);
+            return trackWith(id, 10);
+          },
+        );
+        // Only the load on the truck; its drop-off is a later stop.
+        expect(asked, ['d-1']);
+        expect(
+          find.byKey(const Key('trip_mode_stop_window_d-1')),
+          findsOneWidget,
+        );
+        expect(find.byKey(window), findsNothing);
+      });
+
+      testWidgets('offline or no estimate: the cargo alone, no window',
+          (tester) async {
+        rig = await EngineRig.signedIn();
+        await rig.engine.start(tripId);
+        await pump(
+          tester,
+          deliveries: bothOnBoard(),
+          trackOf: (id) async {
+            if (id == 'd-2') throw Exception('offline');
+            return null;
+          },
+        );
+        final l10n = lookup('en');
+        expect(find.byKey(window), findsNothing);
+        expect(
+          find.text('${l10n.cropTypeMaize} · ${l10n.quantityKg('1,000')}'),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('one failed read does not hide the other', (tester) async {
+        rig = await EngineRig.signedIn();
+        await rig.engine.start(tripId);
+        await pump(
+          tester,
+          deliveries: bothOnBoard(),
+          trackOf: (id) async {
+            if (id == 'd-1') throw Exception('offline');
+            return trackWith(id, 10);
+          },
+        );
+        expect(find.byKey(window), findsOneWidget);
+      });
+
+      testWidgets('a done drop-off is not asked about and shows no window',
+          (tester) async {
+        rig = await EngineRig.signedIn();
+        await rig.engine.start(tripId);
+        final deliveries = bothOnBoard();
+        deliveries[0]
+          ..status = DeliveryStatus.delivered
+          ..confirmedAt = pickedUpAt.add(const Duration(hours: 2));
+        final asked = <String>[];
+        await pump(
+          tester,
+          deliveries: deliveries,
+          trackOf: (id) async {
+            asked.add(id);
+            return trackWith(id, 10);
+          },
+        );
+        expect(asked, ['d-2']);
+        expect(
+          find.byKey(const Key('trip_mode_stop_window_d-1')),
+          findsNothing,
+        );
+      });
+
+      testWidgets('am: the window is on the Ethiopian clock', (tester) async {
+        rig = await EngineRig.signedIn();
+        await rig.engine.start(tripId);
+        await pump(
+          tester,
+          deliveries: bothOnBoard(),
+          locale: 'am',
+          trackOf: (id) async => trackWith(id, id == 'd-1' ? 9 : 10),
+        );
+        final label = tester.widget<ClockText>(find.byKey(window)).label;
+        // 13:20 is 7:20 on the Ethiopian clock; the 24 hour range rides
+        // along for the small text.
+        expect(label.time, contains('7:20'));
+        expect(label.time24, '13:20-14:00');
+        expect(tester.takeException(), isNull);
+      });
     });
 
     testWidgets('without an estimate the stop shows its cargo alone',

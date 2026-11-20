@@ -80,7 +80,8 @@ class TripModeScreen extends StatefulWidget {
     this.trackOf,
   });
 
-  /// The server's estimate for the next drop-off. Defaults to the app's
+  /// The server's estimate for a drop-off still to do (the next one, and
+  /// the later ones whose load is on the truck). Defaults to the app's
   /// track repository (as the home trip card reads it); nothing is shown
   /// without one or offline.
   final TripStopTrackReader? trackOf;
@@ -120,9 +121,12 @@ class _TripModeScreenState extends State<TripModeScreen> {
 
   TripPlan? _plan;
 
-  /// The next drop-off's track and the delivery it was read for.
-  DeliveryTrack? _nextTrack;
-  String? _nextTrackFor;
+  /// The tracks of the drop-offs still to do, by delivery id: the next
+  /// stop's distance and time, the later stops' arrival windows.
+  Map<String, DeliveryTrack> _stopTracks = const {};
+
+  /// The most drop-offs one load of the page asks the server about.
+  static const _maxStopTracks = 6;
   bool _loading = false;
   bool _loadFailed = false;
   String? _planTripId;
@@ -234,7 +238,7 @@ class _TripModeScreenState extends State<TripModeScreen> {
         _plan = plan;
         _loading = false;
       });
-      unawaited(_readNextTrack(plan));
+      unawaited(_readStopTracks(plan));
     } on Object catch (e) {
       debugPrint('[LiveTrip] trip plan unreadable: $e');
       if (!mounted || _planTripId != tripId) return;
@@ -245,27 +249,44 @@ class _TripModeScreenState extends State<TripModeScreen> {
     }
   }
 
-  /// The server's distance left and arrival window for the next stop when
-  /// it is a drop-off (one request, as the home trip card makes). The page
-  /// never waits for it: offline or without an estimate the stop shows its
-  /// cargo alone.
-  Future<void> _readNextTrack(TripPlan plan) async {
+  /// The server's estimates for the drop-offs still to do: the next stop
+  /// when it is a drop-off (its distance left and time), and each later
+  /// drop-off whose load is already on the truck (its arrival window; a
+  /// load not picked up has no estimate yet). One request per delivery,
+  /// all at once, at most [_maxStopTracks], once per load of the plan: no
+  /// polling. The page never waits for them: offline or without an
+  /// estimate a stop shows its cargo alone.
+  Future<void> _readStopTracks(TripPlan plan) async {
     final next = plan.next;
-    if (next == null || next.kind != TripStopKind.dropoff) return;
-    final deliveryId = next.delivery.deliveryId;
-    DeliveryTrack? track;
-    try {
-      final read = widget.trackOf ?? _trackFromRepository;
-      track = await read(deliveryId);
-    } on Object catch (e) {
-      debugPrint('[LiveTrip] next stop estimate unreadable: $e');
-      return;
-    }
-    if (!mounted || track == null) return;
-    setState(() {
-      _nextTrack = track;
-      _nextTrackFor = deliveryId;
-    });
+    final ids = <String>[
+      for (final stop in plan.stops)
+        if (stop.kind == TripStopKind.dropoff &&
+            !stop.isDone &&
+            (identical(stop, next) ||
+                stop.delivery.status == DeliveryStatus.pickedUp ||
+                stop.delivery.status == DeliveryStatus.inTransit))
+          stop.delivery.deliveryId,
+    ].take(_maxStopTracks).toList();
+    if (ids.isEmpty) return;
+    final read = widget.trackOf ?? _trackFromRepository;
+    final tracks = await Future.wait([
+      for (final id in ids)
+        () async {
+          try {
+            return await read(id);
+          } on Object catch (e) {
+            debugPrint('[LiveTrip] stop estimate unreadable: $e');
+            return null;
+          }
+        }(),
+    ]);
+    if (!mounted || !identical(_plan, plan)) return;
+    final found = <String, DeliveryTrack>{
+      for (final (i, track) in tracks.indexed)
+        if (track != null) ids[i]: track,
+    };
+    if (found.isEmpty) return;
+    setState(() => _stopTracks = found);
   }
 
   Future<DeliveryTrack?> _trackFromRepository(String deliveryId) async {
@@ -395,9 +416,8 @@ class _TripModeScreenState extends State<TripModeScreen> {
     final status = _shownStatus;
     final next = plan?.next;
     // The server's estimate belongs to the stop it was read for.
-    final nextTrack = next != null && next.delivery.deliveryId == _nextTrackFor
-        ? _nextTrack
-        : null;
+    final nextTrack =
+        next == null ? null : _stopTracks[next.delivery.deliveryId];
 
     // The Trucker · Trip mode board (TruckerTripModeM): one white page.
     // The trip, its sharing on a sand card with the one orange action
@@ -468,7 +488,7 @@ class _TripModeScreenState extends State<TripModeScreen> {
                           _StopList(
                             plan: plan,
                             clock: clock,
-                            nextTrack: nextTrack,
+                            tracks: _stopTracks,
                           ),
                           if (plan.pay != null) ...[
                             const SizedBox(height: 16),
@@ -1129,14 +1149,15 @@ class _StopList extends StatelessWidget {
   const _StopList({
     required this.plan,
     required this.clock,
-    required this.nextTrack,
+    required this.tracks,
   });
 
   final TripPlan plan;
   final ClockFormat clock;
 
-  /// The next drop-off's track, for "Next · about 12:35".
-  final DeliveryTrack? nextTrack;
+  /// The tracks of the drop-offs still to do, by delivery id: "Next · about
+  /// 12:35" on the next stop, the arrival window on the later ones.
+  final Map<String, DeliveryTrack> tracks;
 
   @override
   Widget build(BuildContext context) {
@@ -1168,7 +1189,9 @@ class _StopList extends StatelessWidget {
                     : stops[i + 1].isDone
                         ? _StopLine.done
                         : null,
-            eta: identical(stop, next) ? nextTrack?.eta : null,
+            eta: stop.kind == TripStopKind.dropoff && !stop.isDone
+                ? tracks[stop.delivery.deliveryId]?.eta
+                : null,
             clock: clock,
           ),
       ],
@@ -1199,7 +1222,9 @@ class _StopRow extends StatelessWidget {
   /// The line down to the next row; none under a stop still to do.
   final _StopLine? lineBelow;
 
-  /// The server's arrival window, on the next stop only.
+  /// The server's arrival window of a drop-off still to do: its start on
+  /// the next stop ("Next · about 12:35"), the whole window on a later one
+  /// ("13:20-14:00").
   final TrackEta? eta;
   final ClockFormat clock;
 
@@ -1233,6 +1258,11 @@ class _StopRow extends StatelessWidget {
     } else {
       detail = _cargo(stop, l10n);
     }
+    // The board: a later drop-off shows when the truck should get there,
+    // in place of its cargo (the pickup's row already names it).
+    final window = !isNext && !stop.isDone && eta != null
+        ? clock.window(eta.from, eta.to)
+        : null;
 
     final Widget marker;
     if (stop.isDone) {
@@ -1313,7 +1343,22 @@ class _StopRow extends StatelessWidget {
                       note: note,
                       fontSize: 13,
                     ),
-                  if (detail != null && detail.isNotEmpty) ...[
+                  if (window != null) ...[
+                    const SizedBox(height: 2),
+                    ClockText(
+                      window,
+                      key: Key(
+                        'trip_mode_stop_window_${stop.delivery.deliveryId}',
+                      ),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.slate,
+                      ),
+                    ),
+                  ],
+                  if (window == null &&
+                      detail != null &&
+                      detail.isNotEmpty) ...[
                     const SizedBox(height: 2),
                     Text(
                       detail,
