@@ -254,6 +254,9 @@ class TrackMapPainter extends CustomPainter {
               for (final stop in track.otherStops) stop.point,
             ],
       size,
+      // The road ahead leaves the truck and the drop-off clear of the
+      // controls floating over the map's edges.
+      padding: aheadOnly ? 48 : 28,
     );
     if (projection == null) {
       _labels = const [];

@@ -4,8 +4,9 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/farmer_trip_screen.dart';
-import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
+import 'package:wereda_connect/features/live_trip/presentation/widgets/live_trip_parts.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/on_the_road_card.dart';
+import 'package:wereda_connect/features/live_trip/presentation/widgets/track_map.dart';
 
 import '../../live_trip_harness.dart';
 
@@ -56,8 +57,17 @@ void main() {
     expect(find.byType(OnTheRoadCard), findsOneWidget);
     expect(find.text('Your Wheat is on the road'), findsOneWidget);
     expect(find.textContaining('Selam Traders'), findsOneWidget);
-    expect(find.textContaining('Checked in '), findsOneWidget);
-    expect(find.textContaining('Arrives '), findsOneWidget);
+    // Farmer home board: a sand card with the status pill, the ribbon,
+    // the buyer with the window and the age of the last check-in.
+    expect(find.text('On the road'), findsOneWidget);
+    expect(find.byType(RouteRibbon), findsOneWidget);
+    expect(find.textContaining('min ago'), findsOneWidget);
+    expect(
+      find.textContaining('Arrives ', findRichText: true),
+      findsOneWidget,
+    );
+    // The farmer's card carries no map: that is the buyer's.
+    expect(find.byType(TrackMap), findsNothing);
     verify(
       () => deps.deliveryRepository.getDeliveriesByUser(
         farmerId,
@@ -116,8 +126,9 @@ void main() {
   }
 
   testWidgets(
-      'buyer: the board\'s card, crop and kg from the row, the pickup place '
-      'in the From line, no status pill', (tester) async {
+      'buyer: the board\'s card, the map with Open map, crop and kg from '
+      'the row, the farmer with the pickup place, no status pill',
+      (tester) async {
     await pumpBuyerCard(
       tester,
       liveDelivery()
@@ -129,10 +140,16 @@ void main() {
     // The row wins over the order read (the order says 2,000 kg of wheat).
     expect(find.text('Teff · 1,500 kg'), findsOneWidget);
     expect(
-      find.text('From Almaz Bekele, Meki · Dawit Tesfaye'),
+      find.text('Almaz Bekele, Meki · Dawit Tesfaye'),
       findsOneWidget,
     );
-    expect(find.byType(DeliveryCropTile), findsOneWidget);
+    // Buyer deliveries board (page M): the card's top is the map, with
+    // how current the check-in is and "Open map" over it.
+    expect(find.byType(TrackMap), findsOneWidget);
+    expect(find.text('Open map'), findsOneWidget);
+    expect(find.textContaining('Checked in '), findsOneWidget);
+    expect(find.text('Arriving'), findsOneWidget);
+    expect(find.byType(RouteRibbon), findsNothing);
     expect(find.text('On the road'), findsNothing);
   });
 
@@ -141,6 +158,6 @@ void main() {
     await pumpBuyerCard(tester, liveDelivery());
 
     expect(find.text('Wheat · 2,000 kg'), findsOneWidget);
-    expect(find.text('From Almaz Bekele · Dawit Tesfaye'), findsOneWidget);
+    expect(find.text('Almaz Bekele · Dawit Tesfaye'), findsOneWidget);
   });
 }

@@ -234,7 +234,7 @@ void main() {
         delivery: liveDelivery(status: DeliveryStatus.pending),
       );
       expect(
-        find.text("The map appears when the driver scans the farmer's QR."),
+        find.text("The map appears once the driver scans the farmer's QR."),
         findsOneWidget,
       );
       expect(find.byType(TrackMap), findsNothing);
@@ -295,7 +295,7 @@ void main() {
       tracks.track = arrivingTrack();
       await pumpView(tester);
       expect(find.text('Dawit Tesfaye is about 10 min away'), findsOneWidget);
-      expect(find.text('Before you scan'), findsOneWidget);
+      expect(find.text('BEFORE YOU SCAN'), findsOneWidget);
       expect(find.text('Check the crop is dry and clean'), findsOneWidget);
       expect(find.text('Arriving'), findsOneWidget);
 
