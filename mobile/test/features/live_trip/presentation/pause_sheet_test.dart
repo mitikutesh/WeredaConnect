@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/features/live_trip/presentation/widgets/pause_sheet.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 import 'live_trip_ui_fixtures.dart';
 
@@ -96,6 +97,47 @@ void main() {
       await tester.tap(find.byKey(const Key('pause_confirm')));
       await tester.pumpAndSettle();
       expect(results, [PauseChoice.minutes30]);
+    });
+
+    // TruckerPausedM: the chosen row is black with white ink and a filled
+    // radio, the confirm button black, Keep sharing outlined.
+    testWidgets('the chosen row and the confirm button are black',
+        (tester) async {
+      await open(tester, evening);
+
+      Material row(String key) => tester.widget<Material>(
+            find
+                .descendant(
+                  of: find.byKey(Key(key)),
+                  matching: find.byType(Material),
+                )
+                .first,
+          );
+      expect(row('pause_minutes30').color, AppTheme.ink);
+      expect(row('pause_minutes15').color, Colors.transparent);
+
+      await tester.tap(find.byKey(const Key('pause_hour1')));
+      await tester.pumpAndSettle();
+      expect(row('pause_hour1').color, AppTheme.ink);
+      expect(row('pause_minutes30').color, Colors.transparent);
+
+      final confirm = tester.widget<FilledButton>(
+        find.byKey(const Key('pause_confirm')),
+      );
+      expect(
+        confirm.style!.backgroundColor!.resolve(<WidgetState>{}),
+        AppTheme.ink,
+      );
+      expect(
+        tester.widget(find.byKey(const Key('pause_keep'))),
+        isA<OutlinedButton>(),
+      );
+      for (final key in ['pause_confirm', 'pause_keep', 'pause_minutes15']) {
+        expect(
+          tester.getSize(find.byKey(Key(key))).height,
+          greaterThanOrEqualTo(48),
+        );
+      }
     });
 
     testWidgets('in the morning overnight is not offered', (tester) async {

@@ -150,7 +150,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Trip and bookings board: the owner's page is the booked orders.
-    expect(find.text('Booked orders'), findsOneWidget);
+    expect(find.text('BOOKED ORDERS'), findsOneWidget);
     expect(find.textContaining('911000003'), findsNothing);
     expect(
       find.text('Contact opens after payment is held in escrow.'),
@@ -176,7 +176,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // The header reads "Sun 25 Oct · 100 ETB per quintal".
+      // The header reads "Sun 25 Oct · 100 ETB per 100 kg (quintal)".
       expect(find.textContaining('Sun 25 Oct'), findsOneWidget);
       expect(find.textContaining('Oct 24'), findsNothing);
     });
@@ -239,7 +239,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Booked'), findsOneWidget);
-      expect(find.text('30 of 50 quintals · 20 left'), findsOneWidget);
+      // Kilograms lead; the quintals follow in parentheses.
+      expect(find.text('3,000 of 5,000 kg · 2,000 kg left'), findsOneWidget);
+      expect(find.text('(30 of 50 quintals · 20 left)'), findsOneWidget);
       final bar = tester.widget<LinearProgressIndicator>(
         find.byType(LinearProgressIndicator),
       );
@@ -254,7 +256,8 @@ void main() {
       await tester.pumpWidget(buildScreen(_trip()));
       await tester.pumpAndSettle();
 
-      expect(find.text('0 of 50 quintals · 50 left'), findsOneWidget);
+      expect(find.text('0 of 5,000 kg · 5,000 kg left'), findsOneWidget);
+      expect(find.text('(0 of 50 quintals · 50 left)'), findsOneWidget);
       final bar = tester.widget<LinearProgressIndicator>(
         find.byType(LinearProgressIndicator),
       );

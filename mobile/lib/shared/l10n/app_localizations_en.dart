@@ -4941,6 +4941,92 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get invalidCapacityKg => 'Capacity must be between 10 and 100,000 kg';
+
+  @override
+  String get capacityKg => 'Capacity (kg)';
+
+  @override
+  String get pricePer100Kg => 'Price per 100 kg (ETB)';
+
+  @override
+  String get perQuintalInParens => '(per quintal)';
+
+  @override
+  String get quintalInParens => '(quintal)';
+
+  @override
+  String tripPricePer100KgValue(String price) {
+    return '$price ETB per 100 kg';
+  }
+
+  @override
+  String get etbPer100KgShort => 'ETB/100 kg';
+
+  @override
+  String tripKgOfKg(String amount, String capacity) {
+    return '$amount of $capacity kg';
+  }
+
+  @override
+  String tripKgLeft(String left) {
+    return '$left kg left';
+  }
+
+  @override
+  String tripKgBooked(String booked, String capacity) {
+    return '$booked of $capacity kg booked';
+  }
+
+  @override
+  String tripKgFree(String kg) {
+    return '$kg kg free';
+  }
+
+  @override
+  String get tripYourTurnNote =>
+      'It is your turn to answer. After you accept, contact opens.';
+
+  @override
+  String get tripOpenLink => 'Open';
+
+  @override
+  String get tripModeCheckInSends => 'Sends where you are now.';
+
+  @override
+  String tripModeNextDueBy(String time) {
+    return 'Next check-in is due by $time.';
+  }
+
+  @override
+  String tripModeAboutTime(String time) {
+    return 'about $time';
+  }
+
+  @override
+  String tripModeAboutKm(String km) {
+    return 'about $km km';
+  }
+
+  @override
+  String get qrFailedTitle => 'The scan did not work';
+
+  @override
+  String get qrFailedNothingLost => 'Nothing was lost.';
+
+  @override
+  String get qrFailedBackToTrip => 'Back to trip';
+
+  @override
+  String get qrFailedOfflineNote => 'Scanning also works without network.';
+
+  @override
+  String get qrFailedPickupScan => 'Pickup scan';
+
+  @override
+  String get qrFailedDeliveryScan => 'Delivery scan';
+
+  @override
   String get tripBookedTermsNote =>
       'Booked trips keep their date, price and route.';
 

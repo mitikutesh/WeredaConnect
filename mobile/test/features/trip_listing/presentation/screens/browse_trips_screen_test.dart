@@ -14,7 +14,9 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_card.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
@@ -217,6 +219,106 @@ void main() {
       ).captured.single as CancelTrip;
       expect(sent.tripId, 't1');
       expect(sent.truckerId, 'trucker-001');
+    });
+
+    // Design canvas page M: the My Crops language on My Trips.
+    testWidgets(
+        'trucker: the status pills narrow the list, the first card '
+        'leads', (tester) async {
+      tester.view.physicalSize = const Size(500, 1800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final trips = [
+        openTrip('t1', 'Meki'),
+        openTrip('t2', 'Ziway', inDays: 3),
+        openTrip('t3', 'Adama')..status = TripStatus.inTransit,
+        openTrip('t4', 'Mojo')..status = TripStatus.delivered,
+      ];
+      when(() => tripListingBloc.state).thenReturn(TripsLoaded(trips: trips));
+      when(() => tripListingBloc.stream)
+          .thenAnswer((_) => Stream.value(TripsLoaded(trips: trips)));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('my_trips_status_switch')), findsOneWidget);
+      expect(find.text('Open · 2'), findsOneWidget);
+      expect(find.text('In Transit · 1'), findsOneWidget);
+      // All by default: nothing the trucker had on the list is hidden.
+      expect(find.byType(TripCard), findsNWidgets(4));
+      final cards = tester.widgetList<TripCard>(find.byType(TripCard)).toList();
+      expect(cards.first.lead, isTrue);
+      expect(cards.skip(1).every((c) => !c.lead), isTrue);
+
+      await tester.tap(find.text('In Transit · 1'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TripCard), findsOneWidget);
+      expect(find.text('Adama → Addis Ababa'), findsOneWidget);
+
+      await tester.tap(find.text('Open · 2'));
+      await tester.pumpAndSettle();
+      expect(find.byType(TripCard), findsNWidgets(2));
+      // The pills only narrow the view: nothing new is asked of the bloc.
+      verifyNever(
+        () => tripListingBloc.add(any(that: isA<FilterTrips>())),
+      );
+    });
+
+    testWidgets('buyer: every open trip, in the buyer colour, no status pills',
+        (tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'buyer-001',
+          tokens: _testTokens,
+          role: UserRole.buyer,
+          userName: 'Selam Traders',
+          woreda: 'Merkato',
+        ),
+      );
+      final trips = [
+        openTrip('t1', 'Meki')
+          ..bookedQuintals = 30
+          ..remainingQuintals = 120,
+        openTrip('t2', 'Ziway'),
+      ];
+      when(() => tripListingBloc.state).thenReturn(TripsLoaded(trips: trips));
+      when(() => tripListingBloc.stream)
+          .thenAnswer((_) => Stream.value(TripsLoaded(trips: trips)));
+
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<AuthBloc>.value(value: authBloc),
+            BlocProvider<TripListingBloc>.value(value: tripListingBloc),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(role: UserRole.buyer),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const Scaffold(body: BrowseTripsScreen()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Every trucker's trips, none filtered away.
+      expect(find.byType(TripCard), findsNWidgets(2));
+      expect(find.byKey(const Key('my_trips_status_switch')), findsNothing);
+      // The load bar and the price take the viewer's colour (buyer green).
+      final bars = tester.widgetList<LinearProgressIndicator>(
+        find.byType(LinearProgressIndicator),
+      );
+      for (final bar in bars) {
+        expect(
+          (bar.valueColor! as AlwaysStoppedAnimation<Color>).value,
+          RoleColors.buyer.primary,
+        );
+      }
+      expect(
+        find.text('3,000 of 15,000 kg booked (30 of 150 quintals)'),
+        findsOneWidget,
+      );
+      expect(find.text('15,000 kg free (150 quintals)'), findsOneWidget);
     });
 
     testWidgets('buyer: Trips header, every open trip, no Cancel Trip',

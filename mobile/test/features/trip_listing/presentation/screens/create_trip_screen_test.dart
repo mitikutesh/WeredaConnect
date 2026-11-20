@@ -106,8 +106,10 @@ void main() {
         find.text('Buyers can book until 24 h before you leave.'),
         findsOneWidget,
       );
-      expect(find.text('Capacity (quintals)'), findsOneWidget);
-      expect(find.text('Price per Quintal (ETB)'), findsOneWidget);
+      // Kilograms lead (design canvas page M); the quintals follow, muted.
+      expect(find.text('Capacity (kg)'), findsOneWidget);
+      expect(find.text('Price per 100 kg (ETB)'), findsOneWidget);
+      expect(find.text('(per quintal)'), findsOneWidget);
       expect(find.text('Vehicle Plate'), findsOneWidget);
       expect(find.text('Vehicle Description'), findsOneWidget);
       expect(find.text('Save'), findsOneWidget);
@@ -165,7 +167,7 @@ void main() {
         isA<SemanticsNode>().having(
           (n) => n.getSemanticsData().label,
           'label',
-          contains('Capacity (quintals)'),
+          contains('Capacity (kg)'),
         ),
       );
       handle.dispose();
@@ -391,9 +393,10 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
+      // One kilogram over the 100,000 kg (1000 quintals) the server takes.
       await tester.enterText(
         find.byKey(const Key('create_trip_capacity')),
-        '9999',
+        '100001',
       );
       await tester.enterText(
         find.byKey(const Key('create_trip_price')),
@@ -404,9 +407,158 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.text('Capacity must be between 0.1 and 1000 quintals'),
+        find.text('Capacity must be between 10 and 100,000 kg'),
         findsOneWidget,
       );
+      verifyNever(() => tripListingBloc.add(any(that: isA<CreateTrip>())));
+    });
+
+    testWidgets('a capacity under 10 kg (0.1 quintal) is refused',
+        (tester) async {
+      useTallPhone(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('create_trip_capacity')),
+        '9',
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Capacity must be between 10 and 100,000 kg'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the quintals follow the kilograms typed', (tester) async {
+      useTallPhone(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('create_trip_capacity_quintals')),
+        findsNothing,
+      );
+      await tester.enterText(
+        find.byKey(const Key('create_trip_capacity')),
+        '5000',
+      );
+      await tester.pump();
+      expect(find.text('(50 quintals)'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('create_trip_capacity')),
+        '250',
+      );
+      await tester.pump();
+      expect(find.text('(2.5 quintals)'), findsOneWidget);
+    });
+
+    testWidgets('kilograms typed are saved as quintals, the price unchanged',
+        (tester) async {
+      useTallPhone(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('create_trip_from')),
+          matching: find.byType(TextFormField),
+        ),
+        'Meki',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('create_trip_to')),
+          matching: find.byType(TextFormField),
+        ),
+        'Addis Ababa',
+      );
+      await tester.tap(find.text('Select departure date'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('create_trip_capacity')),
+        '5000',
+      );
+      await tester.enterText(
+        find.byKey(const Key('create_trip_price')),
+        '150',
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final event = verify(
+        () => tripListingBloc.add(captureAny(that: isA<CreateTrip>())),
+      ).captured.single as CreateTrip;
+      // The wire and the trip row keep quintals (trip-listing-api.md).
+      expect(event.capacity, 50);
+      expect(event.pricePerQuintal, 150);
+    });
+
+    testWidgets('Repeat trip shows the stored quintals as kilograms',
+        (tester) async {
+      useTallPhone(tester);
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<AuthBloc>.value(value: authBloc),
+            BlocProvider<TripListingBloc>.value(value: tripListingBloc),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: CreateTripScreen(
+              truckerName: 'Test Trucker',
+              truckerPhone: '+251911000000',
+              capacity: 47.5,
+              pricePerQuintal: 150,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final capacity = tester.widget<TextFormField>(
+        find.byKey(const Key('create_trip_capacity')),
+      );
+      expect(capacity.controller!.text, '4750');
+      expect(find.text('(47.5 quintals)'), findsOneWidget);
+      final price = tester.widget<TextFormField>(
+        find.byKey(const Key('create_trip_price')),
+      );
+      expect(price.controller!.text, '150');
+    });
+  });
+
+  group('capacity in kilograms', () {
+    test('reads whole kilograms, with or without grouping', () {
+      expect(tripCapacityKgFromText('5000'), 5000);
+      expect(tripCapacityKgFromText('5,000'), 5000);
+      expect(tripCapacityKgFromText(' 12 500 '), 12500);
+      expect(tripCapacityKgFromText(''), isNull);
+      expect(tripCapacityKgFromText('12.5'), isNull);
+      expect(tripCapacityKgFromText('abc'), isNull);
+    });
+
+    test('the limits are the 0.1 to 1000 quintals the server checks', () {
+      expect(tripCapacityQuintalsFromKg(minTripCapacityKg), 0.1);
+      expect(tripCapacityQuintalsFromKg(maxTripCapacityKg), 1000);
+      expect(isValidTripCapacityKg(9), isFalse);
+      expect(isValidTripCapacityKg(10), isTrue);
+      expect(isValidTripCapacityKg(100000), isTrue);
+      expect(isValidTripCapacityKg(100001), isFalse);
+    });
+
+    test('kilograms convert to quintals and back', () {
+      expect(tripCapacityQuintalsFromKg(5000), 50);
+      expect(tripCapacityQuintalsFromKg(250), 2.5);
+      expect(tripCapacityKgText(50), '5000');
+      expect(tripCapacityKgText(0.1), '10');
+      expect(tripCapacityKgText(47.55), '4755');
     });
   });
 
