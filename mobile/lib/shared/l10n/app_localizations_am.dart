@@ -2556,6 +2556,9 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get oneQuintalInParens => '(1 ኩንታል)';
+
+  @override
   String orderQuantityExceedsStock(String available) {
     return 'የሚገኘው $available ኪ.ግ ብቻ ነው። ያነሰ መጠን ያስገቡ።';
   }

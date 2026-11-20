@@ -2629,6 +2629,9 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get oneQuintalInParens => '(1 quintal)';
+
+  @override
   String orderQuantityExceedsStock(String available) {
     return 'Only $available kg available. Enter a smaller quantity.';
   }

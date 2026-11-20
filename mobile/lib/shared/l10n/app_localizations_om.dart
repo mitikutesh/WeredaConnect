@@ -2648,6 +2648,9 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get oneQuintalInParens => '(kuntaala 1)';
+
+  @override
   String orderQuantityExceedsStock(String available) {
     return 'Kan jiru kg $available qofa. Baay\'ina xiqqaa galchi.';
   }

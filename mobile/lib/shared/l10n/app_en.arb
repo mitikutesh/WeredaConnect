@@ -3274,6 +3274,8 @@
   "@quintalEquivalent": { "description": "Helper showing the quintal equivalent of a kg quantity", "placeholders": { "count": { "type": "String" } } },
   "quintalsInParens": "({count} quintals)",
   "@quintalsInParens": {"description": "Design canvas page M (specs/design-canvas): kilograms lead everywhere and the quintals follow in parentheses, in smaller muted text (\"2,800 kg left (28 quintals)\"). am and om machine drafted, native review owed.", "placeholders": {"count": {"type": "String"}}},
+  "oneQuintalInParens": "(1 quintal)",
+  "@oneQuintalInParens": {"description": "Exactly 100 kg: the singular of quintalsInParens. am and om machine drafted, native review owed."},
   "orderQuantityExceedsStock": "Only {available} kg available. Enter a smaller quantity.",
   "@orderQuantityExceedsStock": { "description": "Error under the order quantity field when the buyer asks for more kg than the listing has", "placeholders": { "available": { "type": "String" } } },
   "orderQuantityAvailable": "{available} kg available",

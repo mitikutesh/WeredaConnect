@@ -399,7 +399,14 @@ class DeliveryDetailScreen extends StatelessWidget {
               openDropoffQr(context, delivery, userId: currentUserId),
           icon: const Icon(Icons.qr_code_2),
           label: Text(l10n.deliveryShowDropoffQr),
-          style: _primaryStyle,
+          // Picked up: "Mark In Transit" is the page's one orange action,
+          // so the code is the black second button under it.
+          style: delivery.status == DeliveryStatus.pickedUp
+              ? _primaryStyle.copyWith(
+                  backgroundColor: const WidgetStatePropertyAll(AppTheme.ink),
+                  foregroundColor: const WidgetStatePropertyAll(Colors.white),
+                )
+              : _primaryStyle,
         ),
       );
     }

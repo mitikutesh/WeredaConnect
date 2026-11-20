@@ -61,6 +61,8 @@ void main() {
     test('whole and part quintals, grouped', () {
       expect(quintalsInParensText(2800, en), '(28 quintals)');
       expect(quintalsInParensText(50, en), '(0.5 quintals)');
+      // Exactly one: the singular.
+      expect(quintalsInParensText(100, en), '(1 quintal)');
       expect(quintalsInParensText(250000, en), '(2,500 quintals)');
     });
 

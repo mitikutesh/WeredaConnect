@@ -118,6 +118,12 @@ class _RateCounterpartiesSectionState extends State<RateCounterpartiesSection> {
       );
     }
 
+    // Buyer delivered board (page M): rating is the black second button,
+    // a 54 px pill with white ink.
+    final rateStyle = FilledButton.styleFrom(
+      backgroundColor: AppTheme.ink,
+      foregroundColor: Colors.white,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -126,7 +132,8 @@ class _RateCounterpartiesSectionState extends State<RateCounterpartiesSection> {
         if (!_farmerRated &&
             widget.farmerId.isNotEmpty &&
             widget.farmerName != deletedUserSentinel) ...[
-          OutlinedButton.icon(
+          FilledButton.icon(
+            style: rateStyle,
             onPressed: () => _rate(
               widget.farmerId,
               'farmer',
@@ -140,7 +147,8 @@ class _RateCounterpartiesSectionState extends State<RateCounterpartiesSection> {
         if (_hasTrucker &&
             !_truckerRated &&
             widget.truckerName != deletedUserSentinel) ...[
-          OutlinedButton.icon(
+          FilledButton.icon(
+            style: rateStyle,
             onPressed: () => _rate(
               widget.truckerId!,
               'trucker',

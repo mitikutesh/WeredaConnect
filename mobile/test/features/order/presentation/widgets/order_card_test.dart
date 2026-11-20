@@ -165,7 +165,7 @@ void main() {
       expect(find.text('5,000 ETB'), findsOneWidget);
       // Kilograms lead, the quintals follow in parentheses (page M).
       expect(
-        find.text('${l10n.cropTypeWheat} · 100 kg (1\u00A0quintals)'),
+        find.text('${l10n.cropTypeWheat} · 100 kg (1\u00A0quintal)'),
         findsOneWidget,
       );
       // The other party stands alone on its line (the date moved under the

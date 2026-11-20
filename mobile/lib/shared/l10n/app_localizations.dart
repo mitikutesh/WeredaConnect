@@ -4840,6 +4840,12 @@ abstract class AppLocalizations {
   /// **'({count} quintals)'**
   String quintalsInParens(String count);
 
+  /// Exactly 100 kg: the singular of quintalsInParens. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'(1 quintal)'**
+  String get oneQuintalInParens;
+
   /// Error under the order quantity field when the buyer asks for more kg than the listing has
   ///
   /// In en, this message translates to:

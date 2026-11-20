@@ -53,5 +53,7 @@ String kgQuantityText(num kg, AppLocalizations l10n) =>
 /// ([isRealKgQuantity]), so nothing trails a [noValueMark].
 String quintalsInParensText(num kg, AppLocalizations l10n) =>
     isRealKgQuantity(kg)
-        ? l10n.quintalsInParens(_kgFormat.format(kg / kgPerQuintal))
+        ? (kg == kgPerQuintal
+            ? l10n.oneQuintalInParens
+            : l10n.quintalsInParens(_kgFormat.format(kg / kgPerQuintal)))
         : '';
