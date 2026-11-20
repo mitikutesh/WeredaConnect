@@ -182,7 +182,7 @@ class _DropoffCheckInCardState extends State<DropoffCheckInCard> {
                 style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
             ),
@@ -202,8 +202,7 @@ class _DropoffCheckInCardState extends State<DropoffCheckInCard> {
                     fontSize: 13,
                     height: 1.5,
                     fontWeight: note.strong ? FontWeight.w700 : FontWeight.w400,
-                    color:
-                        note.strong ? AppTheme.actionInk : AppTheme.mutedSteel,
+                    color: note.strong ? AppTheme.orangeInk : AppTheme.slate,
                   ),
                 ),
               ),
@@ -244,7 +243,7 @@ class _DropoffCheckInCardState extends State<DropoffCheckInCard> {
                   key: const Key('dropoff_check_in_photo_hint'),
                   style: const TextStyle(
                     fontSize: 12,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
               ],
@@ -490,13 +489,13 @@ class _TruckerRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final (background, foreground) = switch (state.tone) {
-      _Tone.done => (AppTheme.fieldGreenTint, AppTheme.fieldGreen),
+      _Tone.done => (context.roleColors.tint, context.roleColors.primary),
       _Tone.late => (
           AppTheme.statusErrorContainer,
           AppTheme.onStatusErrorContainer
         ),
-      _Tone.waiting => (AppTheme.actionCream, AppTheme.money),
-      _Tone.idle => (AppTheme.segmentTrack, AppTheme.mutedSteel),
+      _Tone.waiting => (AppTheme.orangeTint, context.roleColors.primary),
+      _Tone.idle => (AppTheme.segmentTrack, AppTheme.slate),
     };
     return Row(
       key: const Key('dropoff_check_in_row'),
@@ -518,7 +517,7 @@ class _TruckerRow extends StatelessWidget {
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
         ),
@@ -531,8 +530,7 @@ class _TruckerRow extends StatelessWidget {
               fontSize: 12,
               fontWeight:
                   state.tone == _Tone.idle ? FontWeight.w500 : FontWeight.w700,
-              color:
-                  state.tone == _Tone.idle ? AppTheme.mutedSteel : foreground,
+              color: state.tone == _Tone.idle ? AppTheme.slate : foreground,
             ),
           ),
         ),

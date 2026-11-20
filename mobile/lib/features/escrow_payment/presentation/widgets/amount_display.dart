@@ -29,7 +29,7 @@ class AmountDisplay extends StatelessWidget {
       fontSize: large ? 24 : 16,
       fontWeight: FontWeight.w800,
       letterSpacing: large ? -0.5 : -0.2,
-      color: color ?? AppTheme.soilDark,
+      color: color ?? AppTheme.ink,
     );
     return Text(
       l10n.etbCurrency(formatEtbAmount(amount)),

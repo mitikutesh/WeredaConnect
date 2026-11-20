@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
 import 'package:wereda_connect/features/live_trip/domain/track_freshness.dart';
 import 'package:wereda_connect/features/live_trip/presentation/map/track_map_painter.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/track_map.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 import '../../../../helpers/tolerant_golden_comparator.dart';
 import '../../live_trip_fixtures.dart';
@@ -109,6 +111,82 @@ void main() {
       );
     });
   }
+
+  // Canvas page M: the trail and the pickup pin are the signed-in role's
+  // colour, read from the theme. Without one (the goldens above) they are
+  // the brand's ink; a style passed in wins over both.
+  group('the map takes the role\'s colours from the theme', () {
+    Future<TrackMapPainter> pumpThemed(
+      WidgetTester tester,
+      ThemeData theme, {
+      TrackMapStyle? style,
+    }) async {
+      tester.view.physicalSize = _size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        Theme(
+          data: theme,
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: TrackMap(
+              track: corridorTrack(),
+              now: at(9, 0),
+              places: corridorPlaces,
+              style: style,
+            ),
+          ),
+        ),
+      );
+      return tester
+          .widget<CustomPaint>(
+            find.descendant(
+              of: find.byType(TrackMap),
+              matching: find.byType(CustomPaint),
+            ),
+          )
+          .painter! as TrackMapPainter;
+    }
+
+    for (final role in UserRole.values) {
+      testWidgets('${role.name}: trail and pin in the role colour',
+          (tester) async {
+        final colors = RoleColors.forRole(role);
+        final painter = await pumpThemed(tester, AppTheme.light(role: role));
+        expect(painter.style, TrackMapStyle.forRole(colors));
+        expect(painter.style.trail, colors.primary);
+        expect(painter.style.pin, colors.primary);
+        // The halo and the paused truck keep their own colours: they are
+        // not "you".
+        expect(painter.style.halo, const TrackMapStyle().halo);
+        expect(painter.style.truckMuted, const TrackMapStyle().truckMuted);
+      });
+    }
+
+    testWidgets('no role: the brand colours, the default style\'s ink',
+        (tester) async {
+      final painter = await pumpThemed(tester, AppTheme.light());
+      expect(painter.style, TrackMapStyle.forRole(RoleColors.brand));
+    });
+
+    testWidgets('a style passed in wins over the theme', (tester) async {
+      const style = TrackMapStyle(trail: Color(0xFF123456));
+      final painter = await pumpThemed(
+        tester,
+        AppTheme.light(role: UserRole.farmer),
+        style: style,
+      );
+      expect(painter.style, style);
+    });
+
+    test('the three roles draw three different trails', () {
+      final trails = {
+        for (final role in UserRole.values)
+          TrackMapStyle.forRole(RoleColors.forRole(role)).trail,
+      };
+      expect(trails, hasLength(3));
+    });
+  });
 
   testWidgets('the truck\'s town is labelled first', (tester) async {
     final painter = await pumpMap(tester, corridorTrack(), at(9, 0));

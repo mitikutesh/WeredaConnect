@@ -18,6 +18,9 @@ import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_event.
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/conversation_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -160,6 +163,26 @@ void main() {
 
     expect(find.text(note), findsNothing);
     expect(find.byType(TextField), findsOneWidget);
+    // The header is in the page: no app bar, the round back button, and
+    // Call as the black round button.
+    expect(find.byType(AppBar), findsNothing);
+    expect(find.byType(FwBackButton), findsOneWidget);
+    final call = tester.widget<FwSquareButton>(
+      find.ancestor(
+        of: find.byIcon(Icons.call_outlined),
+        matching: find.byType(FwSquareButton),
+      ),
+    );
+    expect(call.background, AppTheme.ink);
+    // The one orange action is Send.
+    final send = tester.widget<IconButton>(
+      find.ancestor(
+        of: find.byIcon(Icons.send),
+        matching: find.bySubtype<IconButton>(),
+      ),
+    );
+    expect(send.style?.backgroundColor?.resolve(const {}), AppTheme.orange);
+
     await tester.tap(find.byIcon(Icons.call_outlined));
     await tester.pumpAndSettle();
     expect(find.text('+251911000002'), findsOneWidget);

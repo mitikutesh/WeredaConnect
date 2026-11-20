@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +11,7 @@ import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
@@ -17,11 +20,16 @@ import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escr
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/pending_intent_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
 class MockEscrowBloc extends Mock implements EscrowBloc {}
 
 class MockAuthBloc extends Mock implements AuthBloc {}
+
+class MockEscrowRepository extends Mock implements BaseEscrowRepository {}
 
 class FakeEscrowEvent extends Fake implements EscrowEvent {}
 
@@ -127,10 +135,123 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
-      expect(
-        find.byIcon(Icons.account_balance_wallet_outlined),
-        findsOneWidget,
+      // The role's large line drawing and the words; no summary of nothing.
+      expect(find.byType(RoleSketch), findsWidgets);
+      expect(find.text('No payments yet.'), findsOneWidget);
+      expect(find.byKey(const Key('payments_summary_card')), findsNothing);
+    });
+
+    testWidgets('page header in the page, no app bar', (tester) async {
+      when(() => escrowBloc.state)
+          .thenReturn(const PaymentHistoryLoaded(payments: []));
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AppBar), findsNothing);
+      expect(find.byType(FwPageHeader), findsOneWidget);
+      expect(find.text('My Payments'), findsOneWidget);
+    });
+
+    testWidgets(
+        'the summary is the raised card: held in the role colour, released',
+        (tester) async {
+      final payments = [
+        _makePayment(),
+        _makePayment(paymentId: 'esc-002'),
+        _makePayment(paymentId: 'esc-003', status: PaymentStatus.completed),
+        _makePayment(paymentId: 'esc-004', status: PaymentStatus.refunded),
+      ];
+      when(() => escrowBloc.state)
+          .thenReturn(PaymentHistoryLoaded(payments: payments));
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<EscrowBloc>.value(value: escrowBloc),
+            BlocProvider<AuthBloc>.value(value: authBloc),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(role: UserRole.farmer),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: const PaymentHistoryScreen(),
+          ),
+        ),
       );
+      await tester.pumpAndSettle();
+
+      final card = tester.widget<FwCard>(
+        find.byKey(const Key('payments_summary_card')),
+      );
+      expect(card.raised, isTrue);
+      // The farmer's own leg: two held, one completed; the refund in neither.
+      final held = tester.widget<Text>(
+        find.byKey(const Key('payments_summary_held')),
+      );
+      expect(held.data, '29,250 ETB');
+      expect(held.style?.color, RoleColors.farmer.primary);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('payments_summary_released')))
+            .data,
+        '14,625 ETB',
+      );
+    });
+
+    testWidgets(
+        'a reload under a filter brings the summary up to date: the totals '
+        'are read unfiltered again', (tester) async {
+      // The form opened with one hold. Under the Released filter the list
+      // reloads after that hold was paid out.
+      final released = _makePayment(status: PaymentStatus.released);
+      final repository = MockEscrowRepository();
+      when(() => escrowBloc.repository).thenReturn(repository);
+      when(
+        () => repository.getHistory(
+          userId: 'farmer-001',
+          roleFilter: 'farmer',
+        ),
+      ).thenAnswer((_) async => [released]);
+      final states = StreamController<EscrowState>.broadcast();
+      addTearDown(states.close);
+      when(() => escrowBloc.state)
+          .thenReturn(PaymentHistoryLoaded(payments: [_makePayment()]));
+      when(() => escrowBloc.stream).thenAnswer((_) => states.stream);
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+      String text(String key) =>
+          tester.widget<Text>(find.byKey(Key(key))).data!;
+      expect(text('payments_summary_held'), '14,625 ETB');
+      expect(text('payments_summary_released'), '0 ETB');
+      // No filter: the bloc's own payments are the totals, nothing is read.
+      verifyNever(
+        () => repository.getHistory(
+          userId: any(named: 'userId'),
+          roleFilter: any(named: 'roleFilter'),
+        ),
+      );
+
+      final filtered = PaymentHistoryLoaded(
+        payments: [released],
+        statusFilter: 'released',
+        roleFilter: 'farmer',
+      );
+      when(() => escrowBloc.state).thenReturn(filtered);
+      states.add(filtered);
+      await tester.pumpAndSettle();
+
+      expect(text('payments_summary_held'), '0 ETB');
+      expect(text('payments_summary_released'), '14,625 ETB');
+      verify(
+        () => repository.getHistory(userId: 'farmer-001', roleFilter: 'farmer'),
+      ).called(1);
     });
 
     testWidgets('shows payment cards when history loaded',

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
@@ -23,16 +25,19 @@ import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.d
 import 'package:wereda_connect/features/live_trip/domain/track_freshness.dart';
 import 'package:wereda_connect/features/live_trip/presentation/live_trip_data.dart';
 import 'package:wereda_connect/features/live_trip/presentation/live_trip_text.dart';
+import 'package:wereda_connect/features/live_trip/presentation/map/track_map_painter.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/trip_log_screen.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/live_trip_parts.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/track_builder.dart';
+import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
 import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparties_section.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/dashed_border.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
-import 'package:wereda_connect/shared/widgets/wc_card.dart';
 
 /// The buyer's live trip of one delivery (LT-11, specs/features/live-trip.md
 /// section 4; the Buyer · Live trip, Arriving and Delivered boards): the map
@@ -43,8 +48,10 @@ import 'package:wereda_connect/shared/widgets/wc_card.dart';
 /// trip summary, the escrow timeline, Report a problem while the 48 h window
 /// lasts, and Rate Farmer and Rate Trucker.
 ///
-/// As on the boards there is no app bar: on the road the back button and
-/// the crop pill float over the map, otherwise they head the page.
+/// As on the boards (design canvas page M) there is no app bar: on the road
+/// the back button, the crop pill and "Whole route" float over the map and
+/// the details sit on a paper sheet with the map's legend; otherwise the
+/// back button heads the page.
 class LiveTripScreen extends StatelessWidget {
   const LiveTripScreen({
     required this.delivery,
@@ -64,7 +71,7 @@ class LiveTripScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.chalkBackground,
+      backgroundColor: AppTheme.ground,
       body: SafeArea(
         child: Column(
           children: [
@@ -120,6 +127,17 @@ class _LiveTripViewState extends State<LiveTripView> {
   /// The truck on the driver card, for the buyer only.
   String? _vehicle;
   bool _nearby = false;
+
+  /// What the buyer chose with "Whole route" over the map; null until
+  /// then. A phone starts on the truck and the road ahead, the wide web
+  /// map on the whole route.
+  bool? _wholeRouteChoice;
+
+  /// How far the web pane's map is zoomed in: steps of [_zoomStep] over
+  /// the framed view, 0 to [_maxZoomSteps].
+  int _zoomSteps = 0;
+  static const _zoomStep = 1.5;
+  static const _maxZoomSteps = 4;
   bool _escrowRequested = false;
   bool _reloadRequested = false;
   List<Place> _places = const [];
@@ -140,6 +158,7 @@ class _LiveTripViewState extends State<LiveTripView> {
       _escrow = null;
       _vehicle = null;
       _nearby = false;
+      _wholeRouteChoice = null;
       _escrowRequested = false;
       _reloadRequested = false;
       _loadAll();
@@ -260,19 +279,24 @@ class _LiveTripViewState extends State<LiveTripView> {
         return LayoutBuilder(
           builder: (context, constraints) {
             final wide = constraints.maxWidth >= _wideWidth;
-            return RefreshIndicator(
-              onRefresh: view.refresh,
-              child: ListView(
-                // Embedded beside the deliveries list, the pane's cards line
-                // up with the list's edge, as on the board.
-                padding: (hero && !wide) || (wide && widget.leading == null)
-                    ? const EdgeInsets.only(bottom: 32)
-                    : const EdgeInsets.fromLTRB(20, 0, 20, 32),
-                children: _content(
-                  context,
-                  view,
-                  wide: wide,
-                  twoColumns: constraints.maxWidth >= _twoColumnWidth,
+            return ColoredBox(
+              // Under the sheet the page is the sheet's paper, to the
+              // bottom of the screen.
+              color: hero && !wide ? AppTheme.paper : AppTheme.ground,
+              child: RefreshIndicator(
+                onRefresh: view.refresh,
+                child: ListView(
+                  // Embedded beside the deliveries list, the pane's cards line
+                  // up with the list's edge, as on the board.
+                  padding: (hero && !wide) || (wide && widget.leading == null)
+                      ? const EdgeInsets.only(bottom: 32)
+                      : const EdgeInsets.fromLTRB(20, 0, 20, 32),
+                  children: _content(
+                    context,
+                    view,
+                    wide: wide,
+                    twoColumns: constraints.maxWidth >= _twoColumnWidth,
+                  ),
                 ),
               ),
             );
@@ -319,13 +343,29 @@ class _LiveTripViewState extends State<LiveTripView> {
     final onRoad = track != null && trackFollowsTruck(track);
     final arriving = onRoad && isArriving(track, nearbyNotified: _nearby);
     final status = _statusOf(l10n, track, view.now);
-    // Beside the check-ins (the Web board) the column is narrow: the board's
-    // smaller avatar and padding leave room for the driver's name.
+    final wholeRoute = _wholeRouteChoice ?? wide;
+    final focus =
+        wholeRoute ? TrackMapFocus.wholeRoute : TrackMapFocus.roadAhead;
+    // A new frame starts from its own fit: the zoom goes back to none.
+    void toggleRoute() => setState(() {
+          _wholeRouteChoice = !wholeRoute;
+          _zoomSteps = 0;
+        });
+    final statusPill = _StatusPill(
+      label: status.label,
+      quiet: status.kind == StatusKind.neutral,
+      web: wide,
+    );
+    // The driver: on a phone a sand card with Message and Call under their
+    // round buttons; on the web board a white row with square buttons.
     final driver = Container(
-      padding: EdgeInsets.all(twoColumns ? 10 : 14),
+      padding: wide
+          ? const EdgeInsets.all(12)
+          : const EdgeInsets.fromLTRB(14, 12, 12, 12),
       decoration: BoxDecoration(
-        color: AppTheme.chalkBackground,
-        borderRadius: BorderRadius.circular(18),
+        color: wide ? AppTheme.surfaceWhite : AppTheme.sand,
+        borderRadius: BorderRadius.circular(wide ? 16 : 24),
+        border: wide ? Border.all(color: AppTheme.line) : null,
       ),
       child: PartyContactTile(
         name: _delivery.truckerName,
@@ -335,9 +375,14 @@ class _LiveTripViewState extends State<LiveTripView> {
         order: _order,
         subtitle: _vehicle,
         role: UserRole.trucker,
-        avatarSize: twoColumns ? 36 : 46,
+        avatarSize: wide ? 42 : 46,
+        look: wide ? PartyContactLook.icons : PartyContactLook.circles,
       ),
     );
+    final band = onRoad ? trackFreshness(track, view.now) : null;
+    final rhythm = band == null ||
+        band == TrackFreshness.fresh ||
+        band == TrackFreshness.normal;
     final details = <Widget>[
       if (arriving)
         _ArrivingPanel(
@@ -353,22 +398,36 @@ class _LiveTripViewState extends State<LiveTripView> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: ArrivalWindowBlock(track: track, now: view.now)),
+              Expanded(
+                child: ArrivalWindowBlock(
+                  track: track,
+                  now: view.now,
+                  web: wide,
+                ),
+              ),
               const SizedBox(width: 12),
-              StatusChip(label: status.label, kind: status.kind),
+              statusPill,
             ],
           )
         else
           _Header(delivery: _delivery, order: _order),
         const SizedBox(height: 16),
-        TripProgress(delivery: _delivery),
-        const SizedBox(height: 16),
-        _infoNote(context, track, view.now),
+        TripProgress(delivery: _delivery, web: wide),
+        // The web board says where the money is under the driver; a late,
+        // paused or scans only truck still explains itself here.
+        if (!wide || !rhythm) ...[
+          const SizedBox(height: 16),
+          _infoNote(context, track, view.now),
+        ],
       ],
       const SizedBox(height: 16),
       driver,
-      if (onRoad) ...[
-        const SizedBox(height: 8),
+      if (onRoad && wide && !arriving) ...[
+        const SizedBox(height: 14),
+        _EscrowRow(order: _order, delivery: _delivery),
+      ],
+      if (onRoad && (!wide || arriving)) ...[
+        const SizedBox(height: 16),
         _TripLogLink(
           count: trackCheckIns(track).length,
           onTap: () => Navigator.of(context).push(
@@ -388,10 +447,7 @@ class _LiveTripViewState extends State<LiveTripView> {
     ];
     if (!onRoad) {
       return [
-        LiveTripTopRow(
-          leading: widget.leading,
-          trailing: StatusChip(label: status.label, kind: status.kind),
-        ),
+        LiveTripTopRow(leading: widget.leading, trailing: statusPill),
         ...trackReadNotice(context, view),
         _WaitingCard(loading: view.loading),
         const SizedBox(height: 16),
@@ -399,8 +455,9 @@ class _LiveTripViewState extends State<LiveTripView> {
       ];
     }
     if (wide) {
-      // The Buyer · Live deliveries board: the map in a bordered card, the
-      // details and the check-ins in two cards under it.
+      // The Web deliveries board: the map in a bordered card with the
+      // one-line check-in chip and the whole route control, the arrival
+      // card and the check-ins in two white cards under it.
       return [
         // A pushed screen on a wide window still needs its back button.
         if (widget.leading != null)
@@ -410,7 +467,7 @@ class _LiveTripViewState extends State<LiveTripView> {
         Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: AppTheme.whisperBorder),
+            border: Border.all(color: AppTheme.line),
           ),
           child: LiveTripMap(
             track: track,
@@ -419,39 +476,75 @@ class _LiveTripViewState extends State<LiveTripView> {
             height: 340,
             borderRadius: 22,
             chipTop: 16,
+            chipOneLine: true,
+            // The web board keeps the one-line chip at the top left.
+            chipBesideTruck: false,
+            focus: focus,
+            zoom: math.pow(_zoomStep, _zoomSteps).toDouble(),
+            overlay: [
+              // The board's three square controls, top to bottom: zoom
+              // in, zoom out, the whole route.
+              Positioned(
+                right: 16,
+                top: 16,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _MapZoomButton(
+                      key: const Key('live_trip_zoom_in'),
+                      icon: Icons.add,
+                      label: l10n.liveTripZoomIn,
+                      onTap: _zoomSteps >= _maxZoomSteps
+                          ? null
+                          : () => setState(() => _zoomSteps++),
+                    ),
+                    const SizedBox(height: 8),
+                    _MapZoomButton(
+                      key: const Key('live_trip_zoom_out'),
+                      icon: Icons.remove,
+                      label: l10n.liveTripZoomOut,
+                      onTap: _zoomSteps <= 0
+                          ? null
+                          : () => setState(() => _zoomSteps--),
+                    ),
+                    const SizedBox(height: 8),
+                    _WholeRouteButton(
+                      selected: wholeRoute,
+                      iconOnly: true,
+                      squared: true,
+                      onTap: toggleRoute,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 20),
         if (twoColumns)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: WcCard(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _WebCard(
                     children: [...trackReadNotice(context, view), ...details],
                   ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _CheckInsCard(
-                  delivery: _delivery,
-                  track: track,
-                  places: _places,
+                const SizedBox(width: 20),
+                Expanded(
+                  child: _CheckInsCard(
+                    delivery: _delivery,
+                    track: track,
+                    places: _places,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           )
         else ...[
-          WcCard(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [...trackReadNotice(context, view), ...details],
-            ),
+          _WebCard(
+            children: [...trackReadNotice(context, view), ...details],
           ),
           const SizedBox(height: 20),
           _CheckInsCard(delivery: _delivery, track: track, places: _places),
@@ -470,43 +563,83 @@ class _LiveTripViewState extends State<LiveTripView> {
         height: arriving ? 330 : 440,
         borderRadius: 0,
         chipTop: 76,
+        // The sheet below rises over the map's foot.
+        chipBottom: _Sheet.overlap,
+        // Arriving: the last kilometres (the Truck arriving board).
+        focus: arriving ? TrackMapFocus.roadAhead : focus,
         overlay: [
           Positioned(
             left: 20,
             right: 20,
             top: 20,
-            child: Row(
-              children: [
-                widget.leading ?? const SizedBox(width: 44),
-                Expanded(
-                  child: Center(
-                    child: Container(
-                      height: 36,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      decoration: BoxDecoration(
-                        color: AppTheme.surfaceWhite,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        crop,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.soilDark,
-                        ),
-                      ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Back, the crop, "Whole route". When the three do not fit
+                // (Amharic words, a small phone, large text) the control
+                // drops its icon first and its words last, so the crop
+                // stays readable.
+                final scaler = MediaQuery.textScalerOf(context);
+                double width(String text) {
+                  final painter = TextPainter(
+                    text: TextSpan(
+                      text: text,
+                      style: DefaultTextStyle.of(context).style.merge(
+                            const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 44),
-              ],
+                    textDirection: Directionality.of(context),
+                    textScaler: scaler,
+                    maxLines: 1,
+                  )..layout();
+                  final width = painter.width;
+                  painter.dispose();
+                  return width;
+                }
+
+                final room =
+                    constraints.maxWidth - 48 - 12 - (width(crop) + 52);
+                final words = width(l10n.liveTripWholeRoute);
+                final showIcon = room >= words + 52;
+                final showWords = room >= words + 26;
+                return Row(
+                  children: [
+                    // Over the map the back button floats on a shadow.
+                    if (widget.leading == null)
+                      const SizedBox(width: 44)
+                    else
+                      const LiveTripBackButton(floating: true),
+                    const SizedBox(width: 6),
+                    Expanded(child: Center(child: _CropPill(label: crop))),
+                    const SizedBox(width: 6),
+                    if (arriving)
+                      const SizedBox(width: 44)
+                    else
+                      _WholeRouteButton(
+                        selected: wholeRoute,
+                        iconOnly: !showWords,
+                        showIcon: showIcon || !showWords,
+                        onTap: toggleRoute,
+                      ),
+                  ],
+                );
+              },
             ),
           ),
         ],
       ),
-      _Sheet(children: [...trackReadNotice(context, view), ...details]),
+      _Sheet(
+        children: [
+          if (!arriving) ...[
+            const LiveTripLegend(),
+            const SizedBox(height: 16),
+          ],
+          ...trackReadNotice(context, view),
+          ...details,
+        ],
+      ),
     ];
   }
 
@@ -596,7 +729,7 @@ class LiveTripTopRow extends StatelessWidget {
   Widget build(BuildContext context) {
     if (leading == null && trailing == null) return const SizedBox(height: 8);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 20, 0, 14),
+      padding: const EdgeInsets.fromLTRB(0, 20, 0, 16),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -613,8 +746,286 @@ class LiveTripTopRow extends StatelessWidget {
   }
 }
 
+/// The trip's status at the end of the arrival row: "On the road" on the
+/// orange tint, [quiet] (paused, scans only, waiting) on the neutral grey.
+/// A stadium on a phone; the [web] board keeps its radius 8 tag.
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({
+    required this.label,
+    required this.quiet,
+    this.web = false,
+  });
+
+  final String label;
+  final bool quiet;
+  final bool web;
+
+  @override
+  Widget build(BuildContext context) {
+    return DotPill(
+      key: const Key('live_trip_status'),
+      label: label,
+      background: quiet ? AppTheme.segmentTrack : AppTheme.orangeTint,
+      foreground: quiet ? AppTheme.inkSoft : AppTheme.orangeInk,
+      height: web ? 28 : 26,
+      radius: web ? 8 : 999,
+      fontWeight: web ? FontWeight.w700 : FontWeight.w800,
+    );
+  }
+}
+
+/// "Wheat · 2,000 kg" over the map: a white pill with the crop's sprout.
+class _CropPill extends StatelessWidget {
+  const _CropPill({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 34),
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+      decoration: const ShapeDecoration(
+        color: AppTheme.surfaceWhite,
+        shape: StadiumBorder(),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const FwSprout(size: 20, color: AppTheme.ink),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.ink,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Whole route" over the map (the Buyer live trip board): shows the whole
+/// route from the pickup; black while it does, and a second tap returns to
+/// the truck and the road ahead. [iconOnly] on a small phone and on the web
+/// board, where it is one of the map's square controls.
+class _WholeRouteButton extends StatelessWidget {
+  const _WholeRouteButton({
+    required this.selected,
+    required this.onTap,
+    this.iconOnly = false,
+    this.showIcon = true,
+    this.squared = false,
+  });
+
+  final bool selected;
+  final VoidCallback onTap;
+  final bool iconOnly;
+
+  /// The target icon before the words; left out when they are long.
+  final bool showIcon;
+  final bool squared;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final background = selected
+        ? AppTheme.ink
+        : (squared ? AppTheme.surfaceWhite : AppTheme.paper);
+    final foreground = selected ? Colors.white : AppTheme.ink;
+    final ShapeBorder shape = squared
+        ? RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+        : const StadiumBorder();
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: l10n.liveTripWholeRoute,
+      hint: selected ? l10n.liveTripNearTruck : null,
+      excludeSemantics: true,
+      child: FwTapTarget(
+        onTap: onTap,
+        child: DecoratedBox(
+          decoration: ShapeDecoration(
+            shape: shape,
+            shadows: liveTripFloatShadow,
+          ),
+          child: Material(
+            key: const Key('live_trip_whole_route'),
+            color: background,
+            shape: shape,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              child: Container(
+                constraints: BoxConstraints(
+                  minHeight: 44,
+                  minWidth: squared ? 40 : 44,
+                ),
+                padding: EdgeInsets.fromLTRB(
+                  iconOnly ? 10 : 12,
+                  4,
+                  iconOnly ? 10 : 14,
+                  4,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (showIcon || iconOnly)
+                      Icon(Icons.my_location, size: 20, color: foreground),
+                    if (!iconOnly) ...[
+                      if (showIcon) const SizedBox(width: 6),
+                      Text(
+                        l10n.liveTripWholeRoute,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: foreground,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Zoom in" or "Zoom out" on the web pane's map (the Web deliveries
+/// board): a white 40 by 44 square with the sign, named for a screen
+/// reader and in a tooltip, reachable with Tab and pressed with Enter or
+/// Space. Greyed and out of the tab order at the end of its range ([onTap]
+/// null).
+class _MapZoomButton extends StatelessWidget {
+  const _MapZoomButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    super.key,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    );
+    return Tooltip(
+      message: label,
+      excludeFromSemantics: true,
+      // Merged with the ink well under it, which brings the tap and the
+      // keyboard focus.
+      child: MergeSemantics(
+        child: Semantics(
+          button: true,
+          enabled: onTap != null,
+          label: label,
+          child: DecoratedBox(
+            decoration: ShapeDecoration(
+              shape: shape,
+              shadows: liveTripFloatShadow,
+            ),
+            child: Material(
+              color: AppTheme.surfaceWhite,
+              shape: shape,
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onTap,
+                child: SizedBox(
+                  width: 40,
+                  height: 44,
+                  child: Icon(
+                    icon,
+                    size: 18,
+                    color: onTap == null ? AppTheme.fieldBorder : AppTheme.ink,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A card of the web deliveries board: white, a hairline edge, radius 22,
+/// padding 20.
+class _WebCard extends StatelessWidget {
+  const _WebCard({required this.children, super.key});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceWhite,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppTheme.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
+    );
+  }
+}
+
+/// Under the driver on the web board: the lock and "91,200 ETB in escrow"
+/// at the start, the "Order Details" link in the role colour at the end.
+class _EscrowRow extends StatelessWidget {
+  const _EscrowRow({required this.order, required this.delivery});
+
+  final Order? order;
+  final Delivery delivery;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final total = order?.orderTotal ?? order?.totalPrice;
+    final orderId = delivery.orderId;
+    return Row(
+      children: [
+        Icon(Icons.lock_outline, size: 16, color: context.roleColors.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            total == null
+                ? l10n.liveTripInEscrow
+                : l10n.liveTripEscrowAmount(l10n.etbCurrency(birrText(total))),
+            key: const Key('live_trip_escrow_row'),
+            style: const TextStyle(fontSize: 13, color: AppTheme.inkSoft),
+          ),
+        ),
+        if (orderId != null && orderId.isNotEmpty)
+          TextButton(
+            key: const Key('live_trip_order_details'),
+            onPressed: () => openOrderDetail(context, orderId),
+            child: Text(l10n.orderDetails),
+          ),
+      ],
+    );
+  }
+}
+
 /// The check-ins beside the details on a wide screen, with who sees the
-/// truck (the Buyer · Live deliveries board).
+/// truck (the Web deliveries board).
 class _CheckInsCard extends StatelessWidget {
   const _CheckInsCard({
     required this.delivery,
@@ -629,59 +1040,58 @@ class _CheckInsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return WcCard(
+    return _WebCard(
       key: const Key('live_trip_check_ins_card'),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const CheckInsTitle(),
-          const SizedBox(height: 10),
-          TripCheckInList(track: track, places: places, compact: true),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.only(top: 10),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: AppTheme.whisperBorder)),
+      children: [
+        const CheckInsTitle(web: true),
+        const SizedBox(height: 10),
+        TripCheckInList(track: track, places: places, compact: true),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.only(top: 10),
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: AppTheme.line)),
+          ),
+          child: Text(
+            l10n.liveTripPrivacyNote(
+              partyDisplayName(delivery.farmerName, l10n),
             ),
-            child: Text(
-              l10n.liveTripPrivacyNote(
-                partyDisplayName(delivery.farmerName, l10n),
-              ),
-              style: const TextStyle(
-                fontSize: 12,
-                height: 1.5,
-                color: AppTheme.mutedSteel,
-              ),
+            style: const TextStyle(
+              fontSize: 12,
+              height: 1.5,
+              color: AppTheme.slate,
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
 
-/// The details on the road: a white sheet with a handle, drawn over the
-/// foot of the map (the Buyer · Live trip and Truck arriving boards).
+/// The details on the road: a paper sheet with a handle, drawn over the
+/// foot of the map (the Buyer live trip and Truck arriving boards).
 class _Sheet extends StatelessWidget {
   const _Sheet({required this.children});
 
   final List<Widget> children;
 
+  /// How far the sheet rises over the map's foot.
+  static const double overlap = 24;
+
   @override
   Widget build(BuildContext context) {
     return Transform.translate(
-      offset: const Offset(0, -24),
+      offset: const Offset(0, -overlap),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
         decoration: const BoxDecoration(
-          color: AppTheme.surfaceWhite,
+          color: AppTheme.paper,
           borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
           boxShadow: [
             BoxShadow(
-              color: Color(0x1415201A),
+              color: AppTheme.shadowSoft,
               blurRadius: 30,
-              offset: Offset(0, -8),
+              offset: Offset(0, -14),
             ),
           ],
         ),
@@ -692,9 +1102,9 @@ class _Sheet extends StatelessWidget {
               child: Container(
                 width: 40,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
+                margin: const EdgeInsets.only(bottom: 10),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFD6D3C8),
+                  color: AppTheme.sketch,
                   borderRadius: BorderRadius.circular(999),
                 ),
               ),
@@ -707,7 +1117,8 @@ class _Sheet extends StatelessWidget {
   }
 }
 
-/// Before pickup (or while the first answer loads): no map yet.
+/// Before pickup (or while the first answer loads): no map yet, said
+/// inside a dashed edge, as everything that waits is.
 class _WaitingCard extends StatelessWidget {
   const _WaitingCard({required this.loading});
 
@@ -716,8 +1127,7 @@ class _WaitingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return WcCard(
-      color: AppTheme.statusNeutralContainer,
+    return DashedBorderBox(
       child: Row(
         children: [
           if (loading)
@@ -727,7 +1137,7 @@ class _WaitingCard extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           else
-            const Icon(Icons.map_outlined, size: 28, color: AppTheme.textMuted),
+            const Icon(Icons.map_outlined, size: 28, color: AppTheme.slate),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -736,17 +1146,18 @@ class _WaitingCard extends StatelessWidget {
                 Text(
                   l10n.liveTripWaitingForPickup,
                   style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   l10n.liveTripMapStartsAtPickup,
                   style: const TextStyle(
-                    fontSize: 13,
-                    color: AppTheme.mutedSteel,
+                    fontSize: 14,
+                    height: 1.35,
+                    color: AppTheme.ink,
                   ),
                 ),
               ],
@@ -781,23 +1192,24 @@ class _Header extends StatelessWidget {
         Text(
           title,
           style: const TextStyle(
-            fontSize: 16,
+            fontSize: 19,
             fontWeight: FontWeight.w800,
-            color: AppTheme.soilDark,
+            letterSpacing: -0.4,
+            color: AppTheme.ink,
           ),
         ),
         if (o != null)
           Text(
             from,
-            style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
+            style: const TextStyle(fontSize: 14, color: AppTheme.slate),
           ),
       ],
     );
   }
 }
 
-/// "Trip log and order" with the check-in count: a plain row with a top
-/// border (the board), not a card.
+/// "Trip log and order" with the check-in count: an outlined pill 50 tall
+/// (the board).
 class _TripLogLink extends StatelessWidget {
   const _TripLogLink({required this.count, required this.onTap});
 
@@ -809,49 +1221,55 @@ class _TripLogLink extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return Semantics(
       button: true,
-      child: InkWell(
-        key: const Key('live_trip_log_link'),
-        onTap: onTap,
-        child: Container(
-          height: 48,
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          decoration: const BoxDecoration(
-            border: Border(top: BorderSide(color: AppTheme.whisperBorder)),
-          ),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.receipt_long_outlined,
-                size: 18,
-                color: AppTheme.soilDark,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  l10n.liveTripTripLogLink,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+      child: Material(
+        color: Colors.transparent,
+        shape: const StadiumBorder(
+          side: BorderSide(color: AppTheme.fieldBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: const Key('live_trip_log_link'),
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 50),
+            padding: const EdgeInsets.fromLTRB(18, 6, 14, 6),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.receipt_long_outlined,
+                  size: 18,
+                  color: AppTheme.ink,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    l10n.liveTripTripLogLink,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.ink,
+                    ),
                   ),
                 ),
-              ),
-              Text(
-                l10n.liveTripCheckIns(count),
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.mutedSteel,
+                const SizedBox(width: 8),
+                Text(
+                  l10n.liveTripCheckIns(count),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.slate,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 4),
-              const Icon(
-                Icons.chevron_right,
-                size: 18,
-                color: AppTheme.mutedSteel,
-              ),
-            ],
+                const SizedBox(width: 4),
+                const Icon(
+                  Icons.chevron_right,
+                  size: 16,
+                  color: AppTheme.slate,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -934,46 +1352,46 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
           alignment: AlignmentDirectional.centerStart,
           child: DotPill(
             label: l10n.liveTripStatusArriving,
-            background: AppTheme.fieldGreenTint,
-            foreground: AppTheme.fieldGreen,
-            dotColor: AppTheme.fieldGreen,
+            background: context.roleColors.tint,
+            foreground: context.roleColors.primary,
+            dotColor: context.roleColors.primary,
           ),
         ),
         const SizedBox(height: 6),
         Text(
           heading,
           style: const TextStyle(
-            fontSize: 24,
+            fontSize: 28,
             fontWeight: FontWeight.w800,
-            letterSpacing: -0.5,
-            height: 1.2,
-            color: AppTheme.soilDark,
+            letterSpacing: -1,
+            height: 1.05,
+            color: AppTheme.ink,
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Text(
           km == null
               ? checkedIn
               : '$checkedIn · ${l10n.liveTripKmFromDropoff(kmText(km))}',
-          style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: AppTheme.slate,
+          ),
         ),
         const SizedBox(height: 16),
         Container(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
           decoration: BoxDecoration(
-            color: AppTheme.chalkBackground,
-            borderRadius: BorderRadius.circular(18),
+            color: AppTheme.sand,
+            borderRadius: BorderRadius.circular(24),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                l10n.liveTripBeforeYouScan,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.soilDark,
-                ),
+                l10n.liveTripBeforeYouScan.toUpperCase(),
+                style: FwText.sectionLabel.copyWith(color: AppTheme.inkSoft),
               ),
               for (var i = 0; i < items.length; i++)
                 InkWell(
@@ -982,8 +1400,8 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
                         ? _checked.remove(i)
                         : _checked.add(i),
                   ),
-                  child: SizedBox(
-                    height: 44,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 44),
                     child: Row(
                       children: [
                         SizedBox(
@@ -996,7 +1414,7 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
                                   ? _checked.add(i)
                                   : _checked.remove(i),
                             ),
-                            activeColor: AppTheme.fieldGreen,
+                            activeColor: context.roleColors.primary,
                             materialTapTargetSize:
                                 MaterialTapTargetSize.shrinkWrap,
                             visualDensity: VisualDensity.compact,
@@ -1009,7 +1427,7 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w500,
-                              color: AppTheme.soilDark,
+                              color: AppTheme.ink,
                             ),
                           ),
                         ),
@@ -1028,46 +1446,45 @@ class _ArrivingPanelState extends State<_ArrivingPanel> {
           plain: true,
         ),
         const SizedBox(height: 16),
+        // The one orange action, with a black Call beside it once the
+        // order's contact rules allow it (never before).
         Row(
           children: [
             Expanded(
               child: FilledButton.icon(
                 key: const Key('live_trip_scan_qr'),
                 onPressed: _scan,
-                icon: const Icon(Icons.qr_code_scanner, size: 20),
-                label: Text(l10n.liveTripScanDriversQr),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.fieldGreen,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(56),
-                  textStyle: const TextStyle(
-                    fontFamily: AppTheme.fontFamily,
-                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
+                icon: const Icon(Icons.qr_code_scanner, size: 22),
+                label: Text(
+                  l10n.liveTripScanDriversQr,
+                  textAlign: TextAlign.center,
                 ),
               ),
             ),
             if (canCall) ...[
               const SizedBox(width: 10),
-              LiveTripSquareAction(
+              FilledButton.icon(
                 key: const Key('live_trip_arriving_call'),
-                icon: Icons.phone_outlined,
-                semanticLabel: l10n.call,
-                size: 56,
-                background: AppTheme.surfaceWhite,
-                foreground: AppTheme.soilDark,
-                border: const Color(0xFFD6D3C8),
-                onTap: () => showPartyContact(
+                onPressed: () => showPartyContact(
                   context,
                   order: order,
                   partyId: widget.delivery.truckerId,
                   name: widget.delivery.truckerName,
                   roleLabel: l10n.trucker,
+                ),
+                icon: const Icon(Icons.phone_outlined, size: 22),
+                label: Text(l10n.liveTripCall),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.ink,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(0, 54),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 20, 0),
+                  textStyle: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ],
@@ -1131,18 +1548,12 @@ class _DeliveredSummary extends StatelessWidget {
               ),
             ),
             style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.soilDark,
-              backgroundColor: AppTheme.surfaceWhite,
-              side: const BorderSide(color: Color(0xFFD6D3C8)),
-              minimumSize: const Size.fromHeight(44),
+              minimumSize: const Size.fromHeight(48),
               textStyle: const TextStyle(
                 fontFamily: AppTheme.fontFamily,
                 fontFamilyFallback: AppTheme.ethiopicFontFallback,
                 fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                fontWeight: FontWeight.w800,
               ),
             ),
             // A Row of its own, so a long deadline (am, om) wraps instead of
@@ -1177,26 +1588,25 @@ class _DeliveredSummary extends StatelessWidget {
           leading: leading,
           trailing: DotPill(
             label: l10n.liveTripSharingEnded,
-            background: AppTheme.dropoffBlueTint,
-            foreground: AppTheme.dropoffBlue,
+            background: AppTheme.sand,
+            foreground: AppTheme.inkSoft,
             icon: Icons.check,
-            height: 32,
-            radius: 999,
           ),
         ),
         Row(
           children: [
-            // Buyer · Delivered board: a green check beside the title.
+            // Buyer delivered board: a check in the role colour beside
+            // the title.
             if (delivered) ...[
               Container(
                 key: const Key('live_trip_delivered_check'),
-                width: 56,
-                height: 56,
+                width: 52,
+                height: 52,
                 decoration: BoxDecoration(
-                  color: AppTheme.fieldGreen,
-                  borderRadius: BorderRadius.circular(18),
+                  color: context.roleColors.primary,
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(Icons.check, color: Colors.white, size: 30),
+                child: const Icon(Icons.check, color: Colors.white, size: 28),
               ),
               const SizedBox(width: 14),
             ],
@@ -1218,18 +1628,20 @@ class _DeliveredSummary extends StatelessWidget {
                                     : l10n.liveTripEnded,
                           ),
                     style: const TextStyle(
-                      fontSize: 26,
+                      fontSize: 30,
                       fontWeight: FontWeight.w800,
-                      letterSpacing: -0.8,
-                      height: 1.15,
-                      color: AppTheme.soilDark,
+                      letterSpacing: -1,
+                      height: 1.05,
+                      color: AppTheme.ink,
                     ),
                   ),
+                  const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: const TextStyle(
                       fontSize: 13,
-                      color: AppTheme.mutedSteel,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.slate,
                     ),
                   ),
                 ],
@@ -1237,8 +1649,8 @@ class _DeliveredSummary extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 14),
-        WcCard(
+        const SizedBox(height: 18),
+        FwCard.sand(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1254,12 +1666,12 @@ class _DeliveredSummary extends StatelessWidget {
                 ended: true,
               ),
               if (summary != null || duration != null) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Container(
-                  padding: const EdgeInsets.only(top: 12),
+                  padding: const EdgeInsets.only(top: 10),
                   decoration: const BoxDecoration(
                     border: Border(
-                      top: BorderSide(color: AppTheme.whisperBorder),
+                      top: BorderSide(color: AppTheme.sketch),
                     ),
                   ),
                   child: LiveTripStats(
@@ -1290,22 +1702,23 @@ class _DeliveredSummary extends StatelessWidget {
                   '${l10n.liveTripQrScannedAt(clock.time(confirmedAt))} · '
                   '${delivery.gpsDropoff != null ? l10n.liveTripGpsRecorded : '${l10n.deliveryGpsLabel}: ${l10n.deliveryGpsNotCaptured}'}',
                   style: const TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.unselectedNav,
+                    fontSize: 14,
+                    height: 1.35,
+                    color: AppTheme.inkSoft,
                   ),
                 ),
               ],
             ],
           ),
         ),
-        // Buyer · Delivered board: while the money waits out the 48 h
+        // Buyer delivered board: while the money waits out the 48 h
         // window, one card says who confirmed, when the window ends and who
         // is paid what. Any other escrow state keeps the full timeline.
         if (escrow != null &&
             escrow!.status == PaymentStatus.escrowed &&
             delivered &&
             confirmedAt != null) ...[
-          const SizedBox(height: 14),
+          const SizedBox(height: 18),
           _EscrowCard(
             escrow: escrow!,
             order: o,
@@ -1324,30 +1737,22 @@ class _DeliveredSummary extends StatelessWidget {
           ],
         ],
         if (delivered && (delivery.orderId?.isNotEmpty ?? false)) ...[
-          const SizedBox(height: 14),
-          WcCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  l10n.liveTripHowDidItGo,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                RateCounterpartiesSection(
-                  orderId: delivery.orderId!,
-                  buyerId: userId,
-                  farmerId: delivery.farmerId,
-                  farmerName: delivery.farmerName,
-                  truckerId: delivery.truckerId,
-                  truckerName: delivery.truckerName,
-                ),
-              ],
-            ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              const Icon(Icons.star_outline, size: 16, color: AppTheme.slate),
+              const SizedBox(width: 8),
+              Expanded(child: FwSectionLabel(l10n.liveTripHowDidItGo)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          RateCounterpartiesSection(
+            orderId: delivery.orderId!,
+            buyerId: userId,
+            farmerId: delivery.farmerId,
+            farmerName: delivery.farmerName,
+            truckerId: delivery.truckerId,
+            truckerName: delivery.truckerName,
           ),
         ],
       ],
@@ -1397,7 +1802,7 @@ class _EscrowCard extends StatelessWidget {
       String label,
       ClockLabel? when, {
       bool bold = false,
-      Color labelColor = AppTheme.soilDark,
+      Color labelColor = AppTheme.ink,
     }) =>
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 5),
@@ -1416,8 +1821,8 @@ class _EscrowCard extends StatelessWidget {
                 child: Text(
                   label,
                   style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+                    fontSize: 14,
+                    fontWeight: bold ? FontWeight.w800 : FontWeight.w400,
                     color: labelColor,
                   ),
                 ),
@@ -1430,9 +1835,9 @@ class _EscrowCard extends StatelessWidget {
                     when,
                     textAlign: TextAlign.end,
                     style: TextStyle(
-                      fontSize: 13,
-                      color: bold ? AppTheme.soilDark : AppTheme.mutedSteel,
-                      fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+                      fontSize: 14,
+                      color: bold ? context.roleColors.primary : AppTheme.slate,
+                      fontWeight: bold ? FontWeight.w800 : FontWeight.w400,
                     ),
                   ),
                 ),
@@ -1440,28 +1845,33 @@ class _EscrowCard extends StatelessWidget {
             ],
           ),
         );
-    Widget filled(Color color) => Container(
+    Widget filled(Color color, {bool edge = false}) => Container(
           width: 10,
           height: 10,
-          decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: color,
+            border: edge ? Border.all(color: AppTheme.ink, width: 1.5) : null,
+          ),
         );
     final hollow = Container(
       width: 10,
       height: 10,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFFA7ADA9), width: 2),
+        border: Border.all(color: AppTheme.fieldBorder, width: 2),
       ),
     );
-    return WcCard(
+    return FwCard(
       key: const Key('live_trip_escrow_card'),
+      raised: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // A wrap, so a long chip label (Afaan Oromoo) moves under the
           // amount on a small phone.
           Wrap(
-            spacing: 8,
+            spacing: 12,
             runSpacing: 6,
             crossAxisAlignment: WrapCrossAlignment.center,
             alignment: WrapAlignment.spaceBetween,
@@ -1471,29 +1881,39 @@ class _EscrowCard extends StatelessWidget {
                   l10n.etbCurrency(birrText(escrow.amount)),
                 ),
                 style: const TextStyle(
-                  fontSize: 15,
+                  fontSize: 19,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.soilDark,
+                  letterSpacing: -0.4,
+                  color: AppTheme.ink,
                 ),
               ),
-              DotPill(
-                label: l10n.liveTripReleasePending,
-                background: AppTheme.actionCream,
-                foreground: AppTheme.money,
-                height: 24,
-                radius: 6,
-                fontSize: 11,
-              ),
+              DotPill.action(label: l10n.liveTripReleasePending),
             ],
+          ),
+          const SizedBox(height: 10),
+          // The board: say first that the buyer has nothing left to do.
+          ClockText(
+            clock.deadline(
+              windowEnd,
+              date: date,
+              sentence: l10n.liveTripNothingToDoWindow,
+            ),
+            key: const Key('live_trip_nothing_to_do'),
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.4,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.ink,
+            ),
           ),
           const SizedBox(height: 8),
           step(
-            filled(AppTheme.fieldGreen),
+            filled(context.roleColors.primary),
             l10n.liveTripYouConfirmedDelivery,
             ClockLabel.text(clock.dateTime(confirmedAt, date: date)),
           ),
           step(
-            filled(AppTheme.accentSoft),
+            filled(AppTheme.orange, edge: true),
             l10n.liveTripCheckWindowEnds,
             clock.deadline(windowEnd, date: date),
             bold: true,
@@ -1502,10 +1922,10 @@ class _EscrowCard extends StatelessWidget {
             hollow,
             payouts,
             ClockLabel.text(l10n.liveTripLogThen),
-            labelColor: AppTheme.unselectedNav,
+            labelColor: AppTheme.inkSoft,
           ),
           if (report != null) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 14),
             report!,
           ],
         ],

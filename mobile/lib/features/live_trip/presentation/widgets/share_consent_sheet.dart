@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/pause_sheet.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// The trucker's answer on the consent sheet.
 enum ShareConsentChoice { share, scansOnly }
@@ -45,29 +46,29 @@ class ShareConsentSheet extends StatelessWidget {
       canPop: false,
       child: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(22, 12, 22, 24),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SheetHandle(),
               const SizedBox(height: 16),
-              // The board: a cream pin tile, the title, the lede, four
-              // rows with chalk icon tiles, a dark primary button and a
-              // plain "Not now".
+              // The board (TruckerShareConsentM): a black pin tile with the
+              // orange glyph, the title, the lede, four rows on one sand
+              // tile, the orange primary and the outlined "Not now".
               Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: Container(
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: AppTheme.actionCream,
+                    color: AppTheme.ink,
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: const Icon(
                     Icons.place_outlined,
-                    color: AppTheme.money,
-                    size: 26,
+                    color: AppTheme.orange,
+                    size: 24,
                   ),
                 ),
               ),
@@ -75,11 +76,11 @@ class ShareConsentSheet extends StatelessWidget {
               Text(
                 l10n.liveTripConsentTitle,
                 style: const TextStyle(
-                  fontSize: 24,
+                  fontSize: 30,
                   fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
-                  height: 1.2,
-                  color: AppTheme.soilDark,
+                  letterSpacing: -1.05,
+                  height: 1.05,
+                  color: AppTheme.ink,
                 ),
               ),
               const SizedBox(height: 8),
@@ -87,77 +88,65 @@ class ShareConsentSheet extends StatelessWidget {
                 l10n.liveTripConsentLede,
                 style: const TextStyle(
                   fontSize: 14,
-                  height: 1.5,
-                  color: AppTheme.unselectedNav,
+                  height: 1.45,
+                  color: AppTheme.inkSoft,
                 ),
               ),
               const SizedBox(height: 16),
-              _ConsentRow(
-                icon: Icons.visibility_outlined,
-                title: l10n.liveTripConsentWhoTitle,
-                text: l10n.liveTripConsentWhoText,
-              ),
-              _ConsentRow(
-                icon: Icons.schedule,
-                title: l10n.liveTripConsentOftenTitle,
-                text: l10n.liveTripConsentOftenText,
-              ),
-              _ConsentRow(
-                icon: Icons.check,
-                title: l10n.liveTripConsentStopsTitle,
-                text: l10n.liveTripConsentStopsText,
-              ),
-              _ConsentRow(
-                icon: Icons.signal_cellular_alt,
-                title: l10n.liveTripConsentDataTitle,
-                text: l10n.liveTripConsentDataText,
-                last: true,
+              FwCard.sand(
+                child: Column(
+                  children: [
+                    _ConsentRow(
+                      icon: Icons.visibility_outlined,
+                      title: l10n.liveTripConsentWhoTitle,
+                      text: l10n.liveTripConsentWhoText,
+                    ),
+                    _ConsentRow(
+                      icon: Icons.schedule,
+                      title: l10n.liveTripConsentOftenTitle,
+                      text: l10n.liveTripConsentOftenText,
+                    ),
+                    _ConsentRow(
+                      icon: Icons.check,
+                      title: l10n.liveTripConsentStopsTitle,
+                      text: l10n.liveTripConsentStopsText,
+                    ),
+                    _ConsentRow(
+                      icon: Icons.signal_cellular_alt,
+                      title: l10n.liveTripConsentDataTitle,
+                      text: l10n.liveTripConsentDataText,
+                      last: true,
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
               Text(
                 web
                     ? l10n.liveTripConsentWebNote
                     : l10n.liveTripConsentAndroidNote,
-                style:
-                    const TextStyle(fontSize: 12, color: AppTheme.mutedSteel),
+                style: const TextStyle(fontSize: 13, color: AppTheme.slate),
               ),
               const SizedBox(height: 16),
+              // The orange pill: the one action.
               FilledButton(
                 key: const Key('consent_share'),
                 onPressed: () =>
                     Navigator.of(context).pop(ShareConsentChoice.share),
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.soilDark,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(56),
-                  textStyle: const TextStyle(
-                    fontFamily: AppTheme.fontFamily,
-                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
                 child: Text(l10n.liveTripConsentShare),
               ),
-              const SizedBox(height: 6),
-              TextButton(
+              const SizedBox(height: 8),
+              OutlinedButton(
                 key: const Key('consent_scans_only'),
                 onPressed: () =>
                     Navigator.of(context).pop(ShareConsentChoice.scansOnly),
-                style: TextButton.styleFrom(
-                  foregroundColor: AppTheme.unselectedNav,
-                  minimumSize: const Size.fromHeight(44),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
                   textStyle: const TextStyle(
                     fontFamily: AppTheme.fontFamily,
                     fontFamilyFallback: AppTheme.ethiopicFontFallback,
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
                   ),
                 ),
                 child: Text(l10n.liveTripConsentDecline),
@@ -186,7 +175,7 @@ class _ConsentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: last ? 0 : 14),
+      padding: EdgeInsets.only(bottom: last ? 0 : 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -194,10 +183,10 @@ class _ConsentRow extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: AppTheme.chalkBackground,
-              borderRadius: BorderRadius.circular(11),
+              color: AppTheme.paper,
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(icon, size: 20, color: AppTheme.soilDark),
+            child: Icon(icon, size: 18, color: AppTheme.ink),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -207,18 +196,19 @@ class _ConsentRow extends StatelessWidget {
                 Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.15,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   text,
                   style: const TextStyle(
-                    fontSize: 13,
-                    height: 1.4,
-                    color: AppTheme.mutedSteel,
+                    fontSize: 14,
+                    height: 1.35,
+                    color: AppTheme.inkSoft,
                   ),
                 ),
               ],

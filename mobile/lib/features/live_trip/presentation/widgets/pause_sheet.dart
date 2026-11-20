@@ -63,9 +63,10 @@ Future<PauseChoice?> showPauseSheet(
       builder: (_) => PauseSheet(now: now),
     );
 
-/// The pause sheet's content (LT-09; the Trucker · Offline and pause board):
-/// a handle, the title and lede, one bordered row per choice with the time
-/// it comes back on the same line, the note, Pause sharing and Keep sharing.
+/// The pause sheet's content (LT-09; the Trucker · Offline and pause board,
+/// TruckerPausedM): a handle, the title and lede, one row per choice with
+/// the time it comes back on the same line (the chosen one black), the
+/// note, the black Pause sharing and the outlined Keep sharing.
 class PauseSheet extends StatefulWidget {
   const PauseSheet({required this.now, super.key});
 
@@ -97,7 +98,7 @@ class _PauseSheetState extends State<PauseSheet> {
 
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(22, 12, 22, 24),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -107,10 +108,11 @@ class _PauseSheetState extends State<PauseSheet> {
             Text(
               l10n.pauseSheetTitle,
               style: const TextStyle(
-                fontSize: 22,
+                fontSize: 30,
                 fontWeight: FontWeight.w800,
-                letterSpacing: -0.4,
-                color: AppTheme.soilDark,
+                letterSpacing: -1.05,
+                height: 1.05,
+                color: AppTheme.ink,
               ),
             ),
             const SizedBox(height: 6),
@@ -118,8 +120,8 @@ class _PauseSheetState extends State<PauseSheet> {
               l10n.pauseSheetText,
               style: const TextStyle(
                 fontSize: 14,
-                height: 1.5,
-                color: AppTheme.unselectedNav,
+                height: 1.45,
+                color: AppTheme.inkSoft,
               ),
             ),
             const SizedBox(height: 16),
@@ -132,9 +134,9 @@ class _PauseSheetState extends State<PauseSheet> {
                 },
                 child: Column(
                   children: [
-                    // The board: each choice a 52 px row, the chosen one with
-                    // a dark 2 px edge, the time it comes back on the same
-                    // line.
+                    // The board: each choice a 52 px row, the chosen one
+                    // black with white ink, the time it comes back on the
+                    // same line.
                     for (final (i, c) in offered.indexed)
                       Padding(
                         padding: EdgeInsets.only(top: i == 0 ? 0 : 8),
@@ -156,43 +158,30 @@ class _PauseSheetState extends State<PauseSheet> {
             const SizedBox(height: 16),
             Text(
               l10n.pauseSheetNote,
-              style: const TextStyle(fontSize: 12, color: AppTheme.mutedSteel),
+              style: const TextStyle(fontSize: 13, color: AppTheme.slate),
             ),
             const SizedBox(height: 16),
             FilledButton(
               key: const Key('pause_confirm'),
               onPressed: () => Navigator.of(context).pop(_choice),
+              // Black, not orange: pausing is not what the page asks for.
               style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.soilDark,
+                backgroundColor: AppTheme.ink,
                 foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(56),
-                textStyle: const TextStyle(
-                  fontFamily: AppTheme.fontFamily,
-                  fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
               ),
               child: Text(l10n.pauseSheetConfirm),
             ),
-            const SizedBox(height: 6),
-            TextButton(
+            const SizedBox(height: 12),
+            OutlinedButton(
               key: const Key('pause_keep'),
               onPressed: () => Navigator.of(context).pop(),
-              style: TextButton.styleFrom(
-                foregroundColor: AppTheme.unselectedNav,
-                minimumSize: const Size.fromHeight(44),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
                 textStyle: const TextStyle(
                   fontFamily: AppTheme.fontFamily,
                   fontFamilyFallback: AppTheme.ethiopicFontFallback,
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
               child: Text(l10n.pauseSheetKeep),
@@ -204,7 +193,9 @@ class _PauseSheetState extends State<PauseSheet> {
   }
 }
 
-/// One pause choice: a radio and its label in a bordered row.
+/// One pause choice: a radio and its label in a bordered row; the chosen
+/// one is black with white ink (and its radio filled), so colour is not the
+/// only sign.
 class _ChoiceRow extends StatelessWidget {
   const _ChoiceRow({
     required this.choice,
@@ -222,12 +213,11 @@ class _ChoiceRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppTheme.surfaceWhite,
+      color: selected ? AppTheme.ink : Colors.transparent,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: selected ? AppTheme.soilDark : AppTheme.whisperBorder,
-          width: selected ? 2 : 1,
+          color: selected ? AppTheme.ink : AppTheme.fieldBorder,
         ),
       ),
       clipBehavior: Clip.antiAlias,
@@ -235,7 +225,7 @@ class _ChoiceRow extends StatelessWidget {
         onTap: onTap,
         child: Container(
           constraints: const BoxConstraints(minHeight: 52),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
               SizedBox(
@@ -243,7 +233,9 @@ class _ChoiceRow extends StatelessWidget {
                 height: 20,
                 child: Radio<PauseChoice>(
                   value: choice,
-                  activeColor: AppTheme.soilDark,
+                  fillColor: WidgetStateProperty.all(
+                    selected ? Colors.white : AppTheme.inkSoft,
+                  ),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   visualDensity: VisualDensity.compact,
                 ),
@@ -254,8 +246,8 @@ class _ChoiceRow extends StatelessWidget {
                   label,
                   style: TextStyle(
                     fontSize: 15,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                    color: AppTheme.soilDark,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected ? Colors.white : AppTheme.inkSoft,
                   ),
                 ),
               ),
@@ -278,7 +270,7 @@ class SheetHandle extends StatelessWidget {
         width: 40,
         height: 4,
         decoration: BoxDecoration(
-          color: const Color(0xFFD6D3C8),
+          color: AppTheme.sketch,
           borderRadius: BorderRadius.circular(999),
         ),
       ),

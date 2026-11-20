@@ -1,5 +1,6 @@
 import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Birr the way the Fieldway boards write it: grouped thousands and no
@@ -44,3 +45,36 @@ String etbAmountText(num amount, AppLocalizations l10n) =>
 /// real order never reads "0 kg".
 String kgQuantityText(num kg, AppLocalizations l10n) =>
     isRealKgQuantity(kg) ? l10n.quantityKg(_kgFormat.format(kg)) : noValueMark;
+
+/// "(28 quintals)" for [kg] kilograms: the boards lead with kilograms and
+/// put the quintals after them in parentheses, smaller and muted (design
+/// canvas page M). Part of a quintal keeps up to two decimals ("(0.5
+/// quintals)"). Empty for a quantity that cannot be real
+/// ([isRealKgQuantity]), so nothing trails a [noValueMark].
+String quintalsInParensText(num kg, AppLocalizations l10n) =>
+    isRealKgQuantity(kg) ? quintalsCountInParens(kg / kgPerQuintal, l10n) : '';
+
+/// A quintal amount beside its kilograms: grouped thousands and up to two
+/// decimals ("1.25", "2,500"), so 125 kg never reads "1.3 quintals". The
+/// one format for every quintal figure that follows a kilogram figure.
+String quintalsNumberText(num quintals) => _kgFormat.format(quintals);
+
+/// "(28 quintals)" for [quintals] as stored (a listing's stock, a trip's
+/// capacity), "(1 quintal)" for exactly one and "(0 quintals)" for none.
+String quintalsCountInParens(num quintals, AppLocalizations l10n) =>
+    quintals == 1
+        ? l10n.oneQuintalInParens
+        : l10n.quintalsInParens(quintalsNumberText(quintals));
+
+/// "(12.5 of 50 quintals)" for stored quintal amounts, in the format of
+/// [quintalsNumberText].
+String quintalsOfInParensText(num part, num total, AppLocalizations l10n) =>
+    l10n.quintalsOfInParens(
+      quintalsNumberText(part),
+      quintalsNumberText(total),
+    );
+
+/// The room left on a trip, in kilograms: "1,500 kg", and "0 kg" for a
+/// full trip (never the [noValueMark]: no room is a real answer).
+String kgRoomText(num kg, AppLocalizations l10n) =>
+    kg.isFinite && kg <= 0 ? l10n.quantityKg('0') : kgQuantityText(kg, l10n);

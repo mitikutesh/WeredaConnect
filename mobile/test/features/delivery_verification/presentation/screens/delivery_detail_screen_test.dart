@@ -11,6 +11,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 class MockDeliveryBloc extends Mock implements DeliveryBloc {}
 
@@ -144,6 +145,24 @@ void main() {
       expect(find.text('Tadesse Worku'), findsOneWidget);
       expect(find.text('Buyer'), findsOneWidget);
       expect(find.text('Mekonnen Tadesse'), findsOneWidget);
+    });
+
+    testWidgets(
+        'each party wears its own role colour, whoever is looking (trucker)',
+        (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          delivery: _makeDelivery(),
+          currentUserId: 'trucker-001',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      Color iconColour(IconData icon) =>
+          tester.widget<Icon>(find.byIcon(icon)).color!;
+      expect(iconColour(Icons.agriculture), RoleColors.farmer.primary);
+      expect(iconColour(Icons.local_shipping), RoleColors.trucker.primary);
+      expect(iconColour(Icons.store), RoleColors.buyer.primary);
     });
 
     testWidgets('renders status timeline steps', (tester) async {

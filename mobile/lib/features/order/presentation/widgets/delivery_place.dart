@@ -256,7 +256,7 @@ class _DeliveryPlaceCardState extends State<DeliveryPlaceCard> {
             child: Icon(
               Icons.flag_outlined,
               size: 22,
-              color: AppTheme.dropoffBlue,
+              color: AppTheme.dropoffSlate,
             ),
           ),
           const SizedBox(width: 12),
@@ -273,13 +273,13 @@ class _DeliveryPlaceCardState extends State<DeliveryPlaceCard> {
                       ? const TextStyle(
                           fontSize: 14,
                           height: 1.4,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         )
                       : const TextStyle(
                           fontSize: 15,
                           height: 1.4,
                           fontWeight: FontWeight.w700,
-                          color: AppTheme.soilDark,
+                          color: AppTheme.ink,
                         ),
                 ),
               ],

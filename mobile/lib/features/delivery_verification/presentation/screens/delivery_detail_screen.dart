@@ -399,7 +399,14 @@ class DeliveryDetailScreen extends StatelessWidget {
               openDropoffQr(context, delivery, userId: currentUserId),
           icon: const Icon(Icons.qr_code_2),
           label: Text(l10n.deliveryShowDropoffQr),
-          style: _primaryStyle,
+          // Picked up: "Mark In Transit" is the page's one orange action,
+          // so the code is the black second button under it.
+          style: delivery.status == DeliveryStatus.pickedUp
+              ? _primaryStyle.copyWith(
+                  backgroundColor: const WidgetStatePropertyAll(AppTheme.ink),
+                  foregroundColor: const WidgetStatePropertyAll(Colors.white),
+                )
+              : _primaryStyle,
         ),
       );
     }
@@ -591,6 +598,9 @@ class DeliveryDetailScreen extends StatelessWidget {
               child: Text(l10n.cancel),
             ),
             FilledButton(
+              // Beside Cancel, not stacked under it: the theme's button is
+              // full width.
+              style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
               onPressed: () {
                 Navigator.of(dialogContext).pop();
                 context.read<DeliveryBloc>().add(
@@ -700,7 +710,7 @@ class _DeliveryHeader extends StatelessWidget {
 const TextStyle _cardTitle = TextStyle(
   fontSize: 15,
   fontWeight: FontWeight.w800,
-  color: AppTheme.soilDark,
+  color: AppTheme.ink,
 );
 
 /// The delivery's four steps as the boards draw a timeline: short bars,
@@ -775,15 +785,15 @@ class _StepBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bar = done
-        ? AppTheme.fieldGreen
+        ? context.roleColors.primary
         : current
-            ? AppTheme.accentSoft
-            : AppTheme.whisperBorder;
+            ? AppTheme.orange
+            : AppTheme.line;
     final ink = current
-        ? AppTheme.money
+        ? context.roleColors.primary
         : done
-            ? AppTheme.soilDark
-            : AppTheme.mutedSteel;
+            ? AppTheme.ink
+            : AppTheme.slate;
     return Semantics(
       selected: current,
       child: Column(
@@ -837,8 +847,9 @@ class _PartiesCard extends StatelessWidget {
           const SizedBox(height: 12),
           _PartyRow(
             icon: Icons.agriculture,
-            background: AppTheme.fieldGreenTint,
-            foreground: AppTheme.fieldGreen,
+            // Each party in its own role colour, as on order detail.
+            background: RoleColors.farmer.tint,
+            foreground: RoleColors.farmer.primary,
             label: l10n.deliveryFarmer,
             name: partyDisplayName(delivery.farmerName, l10n),
           ),
@@ -846,8 +857,8 @@ class _PartiesCard extends StatelessWidget {
             const SizedBox(height: 10),
             _PartyRow(
               icon: Icons.local_shipping,
-              background: AppTheme.actionCream,
-              foreground: AppTheme.money,
+              background: RoleColors.trucker.tint,
+              foreground: RoleColors.trucker.primary,
               label: l10n.deliveryTrucker,
               name: partyDisplayName(delivery.truckerName, l10n),
             ),
@@ -855,8 +866,8 @@ class _PartiesCard extends StatelessWidget {
           const SizedBox(height: 10),
           _PartyRow(
             icon: Icons.store,
-            background: AppTheme.dropoffBlueTint,
-            foreground: AppTheme.dropoffBlue,
+            background: RoleColors.buyer.tint,
+            foreground: RoleColors.buyer.primary,
             label: l10n.deliveryBuyer,
             name: partyDisplayName(delivery.buyerName, l10n),
           ),
@@ -904,14 +915,14 @@ class _PartyRow extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
               Text(
                 label,
                 style: const TextStyle(
                   fontSize: 12,
-                  color: AppTheme.mutedSteel,
+                  color: AppTheme.slate,
                 ),
               ),
             ],
@@ -955,7 +966,7 @@ class _StageCard extends StatelessWidget {
           style: const TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w500,
-            color: AppTheme.mutedSteel,
+            color: AppTheme.slate,
           ),
         ),
       );
@@ -1169,7 +1180,7 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
       label: Text(l10n.escrowPayForDelivery),
       // The money button is soil dark, as on the Telebirr payment board.
       style: DeliveryDetailScreen._primaryStyle.copyWith(
-        backgroundColor: const WidgetStatePropertyAll(AppTheme.soilDark),
+        backgroundColor: const WidgetStatePropertyAll(AppTheme.ink),
         foregroundColor: const WidgetStatePropertyAll(Colors.white),
       ),
     );
@@ -1339,7 +1350,7 @@ class _InfoRow extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.only(top: 2),
-          child: Icon(icon, size: 18, color: AppTheme.mutedSteel),
+          child: Icon(icon, size: 18, color: AppTheme.slate),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -1350,7 +1361,7 @@ class _InfoRow extends StatelessWidget {
                 label,
                 style: const TextStyle(
                   fontSize: 12,
-                  color: AppTheme.mutedSteel,
+                  color: AppTheme.slate,
                 ),
               ),
               Text(
@@ -1358,7 +1369,7 @@ class _InfoRow extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
             ],

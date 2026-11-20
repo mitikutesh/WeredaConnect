@@ -294,6 +294,51 @@ class AppLocalizationsEn extends AppLocalizations {
   String get forgotPassword => 'Forgot Password?';
 
   @override
+  String get loginYourRole => 'Your role';
+
+  @override
+  String get loginAsFarmer => 'Login as Farmer';
+
+  @override
+  String get loginAsTrucker => 'Login as Trucker';
+
+  @override
+  String get loginAsBuyer => 'Login as Buyer';
+
+  @override
+  String get loginTaglineFarmer => 'Sell your harvest and follow every order';
+
+  @override
+  String get loginTaglineTrucker => 'Fill your truck and get paid on delivery';
+
+  @override
+  String get loginTaglineBuyer => 'Find crops and transport in one place';
+
+  @override
+  String get orderCheckoutApproveNote =>
+      'You need to approve the payment in Telebirr. Then the money is held in escrow until you confirm delivery.';
+
+  @override
+  String get paymentNotPaidPill => 'Not paid';
+
+  @override
+  String get paymentFailedTitle => 'Payment did not go through';
+
+  @override
+  String get paymentFailedBody =>
+      'No money was taken from your Telebirr account, and your order is still saved.';
+
+  @override
+  String get paymentTryAgain => 'Try payment again';
+
+  @override
+  String get paymentOfflineBody =>
+      'Payment needs a connection. Your order is saved on this phone.';
+
+  @override
+  String get paymentBackToOrder => 'Back to order';
+
+  @override
   String get getStarted => 'Get Started';
 
   @override
@@ -475,9 +520,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get selectCropType => 'Select Crop Type';
 
   @override
-  String get quantityInQuintals => 'Quantity (quintals)';
-
-  @override
   String get priceInBirr => 'Price (ETB/kg)';
 
   @override
@@ -603,11 +645,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get myTrips => 'My Trips';
 
   @override
-  String listsTripBooked(String booked, String capacity) {
-    return '$booked of $capacity quintals booked';
-  }
-
-  @override
   String get listsRouteFrom => 'From';
 
   @override
@@ -634,12 +671,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get departureDate => 'Departure Date';
-
-  @override
-  String get capacity => 'Capacity (quintals)';
-
-  @override
-  String get pricePerQuintal => 'Price per Quintal (ETB)';
 
   @override
   String get tripStatusOpen => 'Open';
@@ -688,10 +719,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get capacityRequired => 'Capacity is required';
-
-  @override
-  String get invalidCapacity =>
-      'Capacity must be between 0.1 and 1000 quintals';
 
   @override
   String get invalidPrice => 'Price must be between 0.01 and 10000 ETB';
@@ -2166,7 +2193,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get splashSubtitle =>
-      'One platform for farmers, truckers, and buyers — with secure escrow.';
+      'One platform for farmers, truckers, and buyers, with secure escrow.';
 
   @override
   String get orderFunded => 'Funded';
@@ -2577,6 +2604,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String quintalEquivalent(String count) {
     return '= $count quintals';
   }
+
+  @override
+  String quintalsInParens(String count) {
+    return '($count quintals)';
+  }
+
+  @override
+  String get oneQuintalInParens => '(1 quintal)';
 
   @override
   String orderQuantityExceedsStock(String available) {
@@ -3615,11 +3650,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tripNoBookings => 'No orders booked yet';
 
   @override
-  String tripRemainingCapacity(String quintals) {
-    return '$quintals quintals free';
-  }
-
-  @override
   String get chooseTrip => 'Choose a truck';
 
   @override
@@ -4204,7 +4234,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get liveTripMapStartsAtPickup =>
-      'The map appears when the driver scans the farmer\'s QR.';
+      'The map appears once the driver scans the farmer\'s QR.';
 
   @override
   String liveTripDurationMinutes(int minutes) {
@@ -4272,6 +4302,105 @@ class AppLocalizationsEn extends AppLocalizations {
   String liveTripKmToGo(String km) {
     return 'About $km km to go, from the last check-in';
   }
+
+  @override
+  String get liveTripWholeRoute => 'Whole route';
+
+  @override
+  String get liveTripNearTruck => 'Near the truck';
+
+  @override
+  String get liveTripZoomIn => 'Zoom in';
+
+  @override
+  String get liveTripZoomOut => 'Zoom out';
+
+  @override
+  String get liveTripViewPhoto => 'View photo';
+
+  @override
+  String get liveTripLegendLabel => 'Map legend';
+
+  @override
+  String get liveTripLegendDriven => 'Driven';
+
+  @override
+  String get liveTripLegendAhead => 'Road ahead';
+
+  @override
+  String get liveTripLegendTruck => 'Truck is about here';
+
+  @override
+  String get liveTripCall => 'Call';
+
+  @override
+  String liveTripNothingToDoWindow(String time) {
+    return 'Nothing for you to do. The payment is released when the check window ends, $time, unless you report a problem.';
+  }
+
+  @override
+  String liveTripFarmerNothingToDo(String buyer) {
+    return 'Nothing for you to do now. $buyer must confirm delivery. Then the 48 h check window runs and the money is paid out to you.';
+  }
+
+  @override
+  String liveTripFarmerNothingToDoWindow(String time) {
+    return 'Nothing for you to do. You are paid when the check window ends, $time, unless the buyer reports a problem.';
+  }
+
+  @override
+  String liveTripNextScanAt(String place) {
+    return 'Next: you scan the driver\'s QR at $place.';
+  }
+
+  @override
+  String get liveTripNextScan =>
+      'Next: you scan the driver\'s QR when the truck arrives.';
+
+  @override
+  String liveTripQuintalsCount(String count) {
+    return '$count quintals';
+  }
+
+  @override
+  String get delivOpenMap => 'Open map';
+
+  @override
+  String get delivOpen => 'Open';
+
+  @override
+  String delivNothingToDoReleased(String time) {
+    return 'Nothing for you to do. The payment is released after $time unless you report a problem.';
+  }
+
+  @override
+  String delivNothingToDoPaid(String time) {
+    return 'Nothing for you to do. You are paid after $time unless the buyer reports a problem.';
+  }
+
+  @override
+  String get delivEmptyTitle => 'Nothing on the road yet';
+
+  @override
+  String get delivEmptyBodyBuyer =>
+      'When a driver picks up one of your orders, you can follow the truck here.';
+
+  @override
+  String get delivEmptyBodyFarmer =>
+      'When a driver picks up one of your crops, you can follow the truck here.';
+
+  @override
+  String get delivEmptyBodyTrucker =>
+      'When you pick up a load, its delivery shows here.';
+
+  @override
+  String get delivEmptyFindCrops => 'Find crops';
+
+  @override
+  String get delivEmptySeeOrders => 'See my orders';
+
+  @override
+  String get delivEmptySeeTrips => 'See my trips';
 
   @override
   String get liveTripWiderWindow => 'Wider window: no check-in for a while';
@@ -4793,9 +4922,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeTileWaitingForYou => 'waiting for you';
 
   @override
-  String get homeTileHeldForYou => 'held for you';
-
-  @override
   String get homeTileHeldInEscrow => 'held in escrow';
 
   @override
@@ -4841,9 +4967,90 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tripSpaceTitle => 'Space on this trip';
 
   @override
-  String tripLoadedOf(String loaded, String capacity) {
-    return '$loaded of $capacity quintals loaded';
+  String get invalidCapacityKg => 'Capacity must be between 10 and 100,000 kg';
+
+  @override
+  String get capacityKg => 'Capacity (kg)';
+
+  @override
+  String get pricePer100Kg => 'Price per 100 kg (ETB)';
+
+  @override
+  String get perQuintalInParens => '(per quintal)';
+
+  @override
+  String get quintalInParens => '(quintal)';
+
+  @override
+  String tripPricePer100KgValue(String price) {
+    return '$price ETB per 100 kg';
   }
+
+  @override
+  String get etbPer100KgShort => 'ETB/100 kg';
+
+  @override
+  String tripKgOfKg(String amount, String capacity) {
+    return '$amount of $capacity kg';
+  }
+
+  @override
+  String tripKgLeft(String left) {
+    return '$left kg left';
+  }
+
+  @override
+  String tripKgBooked(String booked, String capacity) {
+    return '$booked of $capacity kg booked';
+  }
+
+  @override
+  String tripKgFree(String kg) {
+    return '$kg kg free';
+  }
+
+  @override
+  String get tripYourTurnNote =>
+      'It is your turn to answer. After you accept, contact opens.';
+
+  @override
+  String get tripOpenLink => 'Open';
+
+  @override
+  String get tripModeCheckInSends => 'Sends where you are now.';
+
+  @override
+  String tripModeNextDueBy(String time) {
+    return 'Next check-in is due by $time.';
+  }
+
+  @override
+  String tripModeAboutTime(String time) {
+    return 'about $time';
+  }
+
+  @override
+  String tripModeAboutKm(String km) {
+    return 'about $km km';
+  }
+
+  @override
+  String get qrFailedTitle => 'The scan did not work';
+
+  @override
+  String get qrFailedNothingLost => 'Nothing was lost.';
+
+  @override
+  String get qrFailedBackToTrip => 'Back to trip';
+
+  @override
+  String get qrFailedOfflineNote => 'Scanning also works without network.';
+
+  @override
+  String get qrFailedPickupScan => 'Pickup scan';
+
+  @override
+  String get qrFailedDeliveryScan => 'Delivery scan';
 
   @override
   String get tripBookedTermsNote =>
@@ -4912,6 +5119,12 @@ class AppLocalizationsEn extends AppLocalizations {
       'Payments over 10,000 ETB need Fayda. Smaller ones ask for your password.';
 
   @override
+  String get checkoutConfirmedWithFayda => 'Confirmed with Fayda';
+
+  @override
+  String get checkoutConfirmedWithPassword => 'Confirmed with your password';
+
+  @override
   String myCropsOrderedOf(String ordered, String total) {
     return '$ordered of $total quintals ordered';
   }
@@ -4920,6 +5133,66 @@ class AppLocalizationsEn extends AppLocalizations {
   String myCropsNoOrdersYet(String quantity) {
     return '$quantity quintals, no orders yet';
   }
+
+  @override
+  String get homeWelcomeBack => 'Welcome back,';
+
+  @override
+  String get homeOpen => 'Open';
+
+  @override
+  String get homeTileHeldUntilConfirmed =>
+      'held for you until the buyer confirms delivery';
+
+  @override
+  String homeTripLoadedKg(String loaded, String capacity) {
+    return '$loaded of $capacity kg loaded';
+  }
+
+  @override
+  String quintalsOfInParens(String part, String total) {
+    return '($part of $total quintals)';
+  }
+
+  @override
+  String homePaymentsInEscrow(String amount) {
+    return '$amount ETB in escrow';
+  }
+
+  @override
+  String myCropsOrderedOfKg(String ordered, String total) {
+    return '$ordered of $total kg ordered';
+  }
+
+  @override
+  String get myCropsNoOrdersShort => 'no orders yet';
+
+  @override
+  String get myCropsEmptyTitle => 'No crops listed yet';
+
+  @override
+  String get myCropsEmptyBody =>
+      'List your first crop so buyers can find it and send you orders.';
+
+  @override
+  String get myCropsEmptyAction => 'List a crop';
+
+  @override
+  String get quantityInKg => 'Quantity (kg)';
+
+  @override
+  String get kgUnit => 'kg';
+
+  @override
+  String quintalsShortInParens(String count) {
+    return '($count q)';
+  }
+
+  @override
+  String get quantityKgTooSmall => 'Enter at least 1 kg.';
+
+  @override
+  String get quantityKgTooLarge => 'Enter at most 1,000,000 kg.';
 
   @override
   String get createTripBookingCutoffNote =>
@@ -5128,6 +5401,118 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String marketQuintalsLeft(String quantity) {
     return '$quantity quintals left';
+  }
+
+  @override
+  String get actionOpen => 'Open';
+
+  @override
+  String commitmentAnswerDue(String time) {
+    return 'Answer due $time';
+  }
+
+  @override
+  String get commitmentTheFarmer => 'the farmer';
+
+  @override
+  String get commitmentTheTrucker => 'the trucker';
+
+  @override
+  String commitmentWhoFarmer(String name) {
+    return '$name, the farmer,';
+  }
+
+  @override
+  String commitmentWhoTrucker(String name) {
+    return '$name, the trucker,';
+  }
+
+  @override
+  String commitmentBuyerWaitingOnBy(String who, String time) {
+    return 'Now waiting for $who to answer by $time. You do not need to do anything.';
+  }
+
+  @override
+  String commitmentBuyerWaitingOn(String who) {
+    return 'Now waiting for $who to answer. You do not need to do anything.';
+  }
+
+  @override
+  String get commitmentThenTruckerAsked =>
+      'When the farmer accepts, the trucker is asked next.';
+
+  @override
+  String get commitmentContactOpensOnTruckerAccept =>
+      'When the trucker accepts, contact opens here.';
+
+  @override
+  String commitmentYourTurnBy(String time) {
+    return 'It is your turn: accept or reject by $time.';
+  }
+
+  @override
+  String get commitmentYourTurn => 'It is your turn: accept or reject.';
+
+  @override
+  String get commitmentFarmerAcceptThenTrucker =>
+      'When you accept, the trucker is asked next and the buyer\'s payment stays in escrow.';
+
+  @override
+  String get commitmentFarmerAcceptEscrowStays =>
+      'When you accept, the buyer\'s payment stays in escrow.';
+
+  @override
+  String get rejectConfirmTitle => 'Reject this order?';
+
+  @override
+  String get rejectConfirmBody =>
+      'The buyer is told you cannot fill this order, and their payment is refunded from escrow.';
+
+  @override
+  String rejectConfirmReason(String reason) {
+    return 'Reason: $reason';
+  }
+
+  @override
+  String get rejectConfirmYes => 'Yes, reject order';
+
+  @override
+  String get rejectConfirmKeep => 'Keep order';
+
+  @override
+  String get contactMessageLabel => 'Message';
+
+  @override
+  String placeOrderFitsTripKg(String quantity) {
+    return 'fits this trip, $quantity left';
+  }
+
+  @override
+  String placeOrderExceedsTripKg(String quantity) {
+    return 'more than this trip has room for, $quantity left';
+  }
+
+  @override
+  String pricePerQuintalInParens(String price) {
+    return '($price/quintal)';
+  }
+
+  @override
+  String transportPricePerKgAndQuintal(String perKg, String perQuintal) {
+    return '$perKg ETB per kg ($perQuintal per quintal)';
+  }
+
+  @override
+  String get quantityNeededKg => 'Quantity needed (kg)';
+
+  @override
+  String marketKgLeft(String quantity) {
+    return '$quantity left';
+  }
+
+  @override
+  String marketKgRoom(String quantity) {
+    return '$quantity room';
   }
 
   @override

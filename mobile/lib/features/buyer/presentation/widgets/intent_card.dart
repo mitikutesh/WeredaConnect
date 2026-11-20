@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/models/buyer_intent.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/buyer/domain/new_matches.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
-/// Compact card for displaying a buyer intent on the home screen.
-///
-/// Shows crop icon, summary (crop, quantity, budget, destination),
-/// match count, and a green dot badge for new matches. When [onDelete] /
+/// A buyer's request on Find Crops, My Requests, in the Market board's card
+/// language (design canvas page M): raised on paper, the crop tile, "Wheat ·
+/// 2,000 kg" with the quintals after it small, the budget and the place,
+/// then the match count and the new matches as pills. When [onDelete] /
 /// [onFulfill] are provided, a trailing menu exposes those actions so stale
 /// or satisfied requests don't keep generating badges and alerts forever.
 class IntentCard extends StatelessWidget {
@@ -34,165 +37,138 @@ class IntentCard extends StatelessWidget {
     final newCount = newMatchCount(intent);
     final hasNew = newCount > 0;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppTheme.surfaceWhite,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.borderLight),
+    final kg = intent.quantityNeeded * kgPerQuintal;
+    final quintals = quintalsInParensText(kg, l10n);
+
+    return FwCard(
+      raised: true,
+      onTap: onTap,
+      padding: const EdgeInsets.fromLTRB(16, 14, 6, 14),
+      child: Row(
+        children: [
+          // The boards' crop tile: the crop's glyph in its colours.
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: cropTileColors(intent.cropType).background,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: CropGlyph(
+              cropKey: intent.cropType,
+              size: 22,
+              color: cropTileColors(intent.cropType).foreground,
+            ),
           ),
-          child: Row(
-            children: [
-              // The boards' crop tile: the sprout in the crop's colours.
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: cropTileColors(intent.cropType).background,
-                  borderRadius: BorderRadius.circular(14),
+          const SizedBox(width: 12),
+          // Intent summary
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // "Wheat · 2,000 kg" with "(20 quintals)" after, small.
+                Text.rich(
+                  TextSpan(
+                    text: '${cropType.displayName(l10n)} · '
+                        '${kgQuantityText(kg, l10n)}',
+                    children: [
+                      if (quintals.isNotEmpty)
+                        TextSpan(
+                          text: ' ${quintals.replaceAll(' ', '\u00A0')}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0,
+                            color: AppTheme.slate,
+                          ),
+                        ),
+                    ],
+                  ),
+                  style: FwText.cardTitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                child: FwSprout(
-                  color: cropTileColors(intent.cropType).foreground,
+                const SizedBox(height: 2),
+                Text(
+                  // 0 budget = optional max price left empty.
+                  '${intent.maxPricePerKg > 0 ? '≤${intent.maxPricePerKg.toStringAsFixed(0)} ${l10n.etbPerKg}' : l10n.anyPrice} → ${intent.deliveryWoreda}',
+                  style: FwText.body,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              const SizedBox(width: 12),
-              // Intent summary
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 8),
+                // The matches as the Market's pills: how many, and how
+                // many are new since the buyer last looked.
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
                   children: [
-                    Text(
-                      '${cropType.displayName(l10n)} · ${intent.quantityNeeded.toStringAsFixed(0)} ${l10n.quintals}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textDark,
+                    if (intent.matchCount > 0) ...[
+                      FwPill(label: l10n.matchesFound(intent.matchCount)),
+                      if (hasNew)
+                        FwPill(
+                          label: l10n.newMatchesCount(newCount),
+                          background: AppTheme.orangeTint,
+                          foreground: AppTheme.orangeInk,
+                        ),
+                    ] else
+                      FwPill(
+                        label: l10n.noMatchesYet,
+                        background: AppTheme.sand,
+                        foreground: AppTheme.inkSoft,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      // 0 budget = optional max price left empty.
-                      '${intent.maxPricePerKg > 0 ? '≤${intent.maxPricePerKg.toStringAsFixed(0)} ${l10n.etbPerKg}' : l10n.anyPrice} → ${intent.deliveryWoreda}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.textMuted,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
                   ],
                 ),
+              ],
+            ),
+          ),
+          if (onDelete != null || onFulfill != null)
+            PopupMenuButton<_IntentAction>(
+              icon: const Icon(
+                Icons.more_vert,
+                size: 20,
+                color: AppTheme.slate,
               ),
-              const SizedBox(width: 8),
-              // Match count + new-matches badge
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (intent.matchCount > 0) ...[
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
+              padding: EdgeInsets.zero,
+              onSelected: (action) => switch (action) {
+                _IntentAction.fulfill => onFulfill?.call(),
+                _IntentAction.delete => onDelete?.call(),
+              },
+              itemBuilder: (context) => [
+                if (onFulfill != null)
+                  PopupMenuItem(
+                    value: _IntentAction.fulfill,
+                    child: Row(
                       children: [
-                        if (hasNew)
-                          Container(
-                            width: 8,
-                            height: 8,
-                            margin: const EdgeInsets.only(right: 4),
-                            decoration: const BoxDecoration(
-                              color: AppTheme.statusSuccess,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
+                        const Icon(Icons.check_circle_outline, size: 18),
+                        const SizedBox(width: 8),
+                        Text(l10n.markFulfilled),
+                      ],
+                    ),
+                  ),
+                if (onDelete != null)
+                  PopupMenuItem(
+                    value: _IntentAction.delete,
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.delete_outline,
+                          size: 18,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                        const SizedBox(width: 8),
                         Text(
-                          l10n.matchesFound(intent.matchCount),
+                          l10n.deleteRequest,
                           style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: hasNew
-                                ? AppTheme.statusSuccess
-                                : AppTheme.textMuted,
+                            color: Theme.of(context).colorScheme.error,
                           ),
                         ),
                       ],
                     ),
-                    if (hasNew)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(
-                          l10n.newMatchesCount(newCount),
-                          style: const TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.statusSuccess,
-                          ),
-                        ),
-                      ),
-                  ] else
-                    Text(
-                      l10n.noMatchesYet,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppTheme.textMuted,
-                      ),
-                    ),
-                ],
-              ),
-              if (onDelete != null || onFulfill != null)
-                PopupMenuButton<_IntentAction>(
-                  icon: const Icon(
-                    Icons.more_vert,
-                    size: 20,
-                    color: AppTheme.textMuted,
                   ),
-                  padding: EdgeInsets.zero,
-                  onSelected: (action) => switch (action) {
-                    _IntentAction.fulfill => onFulfill?.call(),
-                    _IntentAction.delete => onDelete?.call(),
-                  },
-                  itemBuilder: (context) => [
-                    if (onFulfill != null)
-                      PopupMenuItem(
-                        value: _IntentAction.fulfill,
-                        child: Row(
-                          children: [
-                            const Icon(Icons.check_circle_outline, size: 18),
-                            const SizedBox(width: 8),
-                            Text(l10n.markFulfilled),
-                          ],
-                        ),
-                      ),
-                    if (onDelete != null)
-                      PopupMenuItem(
-                        value: _IntentAction.delete,
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.delete_outline,
-                              size: 18,
-                              color: Theme.of(context).colorScheme.error,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              l10n.deleteRequest,
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.error,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-            ],
-          ),
-        ),
+              ],
+            ),
+        ],
       ),
     );
   }

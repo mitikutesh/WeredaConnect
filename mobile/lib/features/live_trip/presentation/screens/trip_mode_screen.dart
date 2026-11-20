@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
@@ -20,9 +22,12 @@ import 'package:wereda_connect/features/delivery_verification/presentation/hando
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/delivery_card.dart';
 import 'package:wereda_connect/features/live_trip/data/trip_plan_loader.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
+import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
+import 'package:wereda_connect/features/live_trip/domain/repositories/base_track_repository.dart';
 import 'package:wereda_connect/features/live_trip/domain/sharing_state.dart';
 import 'package:wereda_connect/features/live_trip/domain/trip_plan.dart';
 import 'package:wereda_connect/features/live_trip/presentation/check_in_engine_of.dart';
+import 'package:wereda_connect/features/live_trip/presentation/live_trip_text.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/live_trip_parts.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/pause_sheet.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -39,11 +44,18 @@ typedef TripStopAction = Future<void> Function(
   Delivery delivery,
 );
 
-/// Trip mode (LT-09, live-trip.md section 4; the Trucker · Trip mode board):
-/// the trucker's own screen for the one trip the phone shares for. A dark
-/// header holds the trip (day, orders, load, route) and the sharing card
-/// with the last and next check-in, Pause and Check in now; the light page
-/// under it the next stop with I've arrived, the stop list with names (the
+/// Reads the track of one delivery (the server's distance left and arrival
+/// window for the next drop-off); null when it cannot be read.
+typedef TripStopTrackReader = Future<DeliveryTrack?> Function(
+  String deliveryId,
+);
+
+/// Trip mode (LT-09, live-trip.md section 4; the Trucker · Trip mode board,
+/// TruckerTripModeM): the trucker's own screen for the one trip the phone
+/// shares for. One white page: the trip (day, orders, load in kilograms,
+/// route), the sand sharing card with the last and next check-in, Pause and
+/// the orange Check in now with when the next one is due; the raised next
+/// stop with Call, I've arrived and the QR; the stop list with names (the
 /// trucker is a party to every order), the pay for the trip, and while
 /// offline how many check-ins wait on the phone. Every time is on the
 /// viewer's clock (LT-03).
@@ -65,7 +77,14 @@ class TripModeScreen extends StatefulWidget {
     this.now,
     this.onScanPickup,
     this.onShowDropoffQr,
+    this.trackOf,
   });
+
+  /// The server's estimate for a drop-off still to do (the next one, and
+  /// the later ones whose load is on the truck). Defaults to the app's
+  /// track repository (as the home trip card reads it); nothing is shown
+  /// without one or offline.
+  final TripStopTrackReader? trackOf;
 
   /// The trip to show; defaults to the one the engine shares for.
   final String? tripId;
@@ -101,6 +120,13 @@ class _TripModeScreenState extends State<TripModeScreen> {
   bool _offline = false;
 
   TripPlan? _plan;
+
+  /// The tracks of the drop-offs still to do, by delivery id: the next
+  /// stop's distance and time, the later stops' arrival windows.
+  Map<String, DeliveryTrack> _stopTracks = const {};
+
+  /// The most drop-offs one load of the page asks the server about.
+  static const _maxStopTracks = 6;
   bool _loading = false;
   bool _loadFailed = false;
   String? _planTripId;
@@ -212,6 +238,7 @@ class _TripModeScreenState extends State<TripModeScreen> {
         _plan = plan;
         _loading = false;
       });
+      unawaited(_readStopTracks(plan));
     } on Object catch (e) {
       debugPrint('[LiveTrip] trip plan unreadable: $e');
       if (!mounted || _planTripId != tripId) return;
@@ -220,6 +247,59 @@ class _TripModeScreenState extends State<TripModeScreen> {
         _loadFailed = true;
       });
     }
+  }
+
+  /// The server's estimates for the drop-offs still to do: the next stop
+  /// when it is a drop-off (its distance left and time), and each later
+  /// drop-off whose load is already on the truck (its arrival window; a
+  /// load not picked up has no estimate yet). One request per delivery,
+  /// all at once, at most [_maxStopTracks], once per load of the plan: no
+  /// polling. The page never waits for them: offline or without an
+  /// estimate a stop shows its cargo alone.
+  Future<void> _readStopTracks(TripPlan plan) async {
+    final next = plan.next;
+    final ids = <String>[
+      for (final stop in plan.stops)
+        if (stop.kind == TripStopKind.dropoff &&
+            !stop.isDone &&
+            (identical(stop, next) ||
+                stop.delivery.status == DeliveryStatus.pickedUp ||
+                stop.delivery.status == DeliveryStatus.inTransit))
+          stop.delivery.deliveryId,
+    ].take(_maxStopTracks).toList();
+    if (ids.isEmpty) return;
+    final read = widget.trackOf ?? _trackFromRepository;
+    final tracks = await Future.wait([
+      for (final id in ids)
+        () async {
+          try {
+            return await read(id);
+          } on Object catch (e) {
+            debugPrint('[LiveTrip] stop estimate unreadable: $e');
+            return null;
+          }
+        }(),
+    ]);
+    if (!mounted || !identical(_plan, plan)) return;
+    final found = <String, DeliveryTrack>{
+      for (final (i, track) in tracks.indexed)
+        if (track != null) ids[i]: track,
+    };
+    if (found.isEmpty) return;
+    setState(() => _stopTracks = found);
+  }
+
+  Future<DeliveryTrack?> _trackFromRepository(String deliveryId) async {
+    final userId = _engine?.userId;
+    if (userId == null) return null;
+    final BaseTrackRepository repository;
+    try {
+      repository = context.read<BaseTrackRepository>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+    final result = await repository.fetchTrack(deliveryId, userId: userId);
+    return result.track;
   }
 
   Future<void> _refresh() async {
@@ -334,101 +414,89 @@ class _TripModeScreenState extends State<TripModeScreen> {
     final plan = _plan;
     final hasTrip = _shownTripId != null;
     final status = _shownStatus;
+    final next = plan?.next;
+    // The server's estimate belongs to the stop it was read for.
+    final nextTrack =
+        next == null ? null : _stopTracks[next.delivery.deliveryId];
 
-    // The Trucker · Trip mode board: the trip and its sharing on a dark
-    // header the full width, the stops below on the light page whose top
-    // corners round over the dark ground.
+    // The Trucker · Trip mode board (TruckerTripModeM): one white page.
+    // The trip, its sharing on a sand card with the one orange action
+    // (Check in now), the next stop raised, the stops and the pay.
     return Scaffold(
-      backgroundColor: AppTheme.soilDark,
+      backgroundColor: AppTheme.ground,
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: _refresh,
           child: ListView(
             padding: EdgeInsets.zero,
             children: [
-              Container(
-                color: AppTheme.soilDark,
-                child: FwContentWidth(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 50),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _TripHeader(plan: plan),
-                        const SizedBox(height: 16),
-                        _SharingCard(
-                          status: status,
-                          clock: clock,
-                          busy: _busy,
-                          onPause: _pause,
-                          onResume: _resume,
-                          onCheckIn: () => _checkIn(arrived: false),
-                          onShare: _share,
-                          onStop: _stop,
-                        ),
-                        if (_offline) ...[
-                          const SizedBox(height: 16),
-                          _OfflineCheckIns(unsent: status.unsent),
-                        ],
+              FwContentWidth(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _TripHeader(plan: plan),
+                      const SizedBox(height: 16),
+                      _SharingCard(
+                        status: status,
+                        clock: clock,
+                        busy: _busy,
+                        onPause: _pause,
+                        onResume: _resume,
+                        onCheckIn: () => _checkIn(arrived: false),
+                        onShare: _share,
+                        onStop: _stop,
+                      ),
+                      if (_offline) ...[
+                        const SizedBox(height: 12),
+                        _OfflineCheckIns(unsent: status.unsent),
                       ],
-                    ),
-                  ),
-                ),
-              ),
-              Transform.translate(
-                offset: const Offset(0, -28),
-                child: Container(
-                  constraints: const BoxConstraints(minHeight: 400),
-                  decoration: const BoxDecoration(
-                    color: AppTheme.chalkBackground,
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(28),
-                    ),
-                  ),
-                  child: FwContentWidth(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (hasTrip) ...[
-                            if (_loading && plan == null)
-                              const Padding(
-                                padding: EdgeInsets.all(24),
-                                child:
-                                    Center(child: CircularProgressIndicator()),
-                              )
-                            else if (_loadFailed && plan == null)
-                              _LoadFailed(onRetry: _reload)
-                            else if (plan != null) ...[
-                              if (plan.next != null) ...[
-                                _NextStopCard(
-                                  stop: plan.next!,
-                                  place: _stopPlace(
-                                    plan.next!,
-                                    plan.trip?.toWoreda,
-                                    context,
-                                  ),
-                                  viewerId: _engine?.userId ?? '',
-                                  canCheckIn: status.mode == SharingMode.live ||
-                                      status.mode == SharingMode.paused,
-                                  busy: _busy,
-                                  onArrived: () => _checkIn(arrived: true),
-                                  onScanPickup: _scanPickup,
-                                  onShowDropoffQr: _showDropoffQr,
-                                ),
-                                const SizedBox(height: 14),
-                              ],
-                              _StopList(plan: plan, clock: clock),
-                              if (plan.pay != null) ...[
-                                const SizedBox(height: 14),
-                                _PayRow(pay: plan.pay!),
-                              ],
-                            ],
+                      if (hasTrip) ...[
+                        if (_loading && plan == null)
+                          const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Center(child: CircularProgressIndicator()),
+                          )
+                        else if (_loadFailed && plan == null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 16),
+                            child: _LoadFailed(onRetry: _reload),
+                          )
+                        else if (plan != null) ...[
+                          if (next != null) ...[
+                            const SizedBox(height: 16),
+                            _NextStopCard(
+                              stop: next,
+                              place: _stopPlace(
+                                next,
+                                plan.trip?.toWoreda,
+                                context,
+                              ),
+                              viewerId: _engine?.userId ?? '',
+                              canCheckIn: status.mode == SharingMode.live ||
+                                  status.mode == SharingMode.paused,
+                              busy: _busy,
+                              track: nextTrack,
+                              clock: clock,
+                              onArrived: () => _checkIn(arrived: true),
+                              onScanPickup: _scanPickup,
+                              onShowDropoffQr: _showDropoffQr,
+                            ),
+                          ],
+                          const SizedBox(height: 18),
+                          _StopList(
+                            plan: plan,
+                            clock: clock,
+                            tracks: _stopTracks,
+                          ),
+                          if (plan.pay != null) ...[
+                            const SizedBox(height: 16),
+                            _PayRow(pay: plan.pay!),
                           ],
                         ],
-                      ),
-                    ),
+                      ],
+                    ],
                   ),
                 ),
               ),
@@ -440,9 +508,13 @@ class _TripModeScreenState extends State<TripModeScreen> {
   }
 }
 
-/// The back button beside "Meki → Addis Ababa" with the day, the number of
-/// orders and the load (the board's header); the screen's name until the
-/// trip is read.
+/// Whole kilograms of a load kept in quintals, with grouped thousands.
+String _kgOfQuintals(double quintals) =>
+    NumberFormat('#,##0').format((quintals * kgPerQuintal).round());
+
+/// The round back button beside the day, the number of orders and the load
+/// (kilograms first, the quintals after in parentheses) over "Meki → Addis
+/// Ababa" (the board's header); the screen's name until the trip is read.
 class _TripHeader extends StatelessWidget {
   const _TripHeader({required this.plan});
 
@@ -453,6 +525,7 @@ class _TripHeader extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final trip = plan?.trip;
     String? sub;
+    String? quintals;
     String title = l10n.tripModeTitle;
     if (trip != null) {
       final departure = dayInEthiopia(trip.departureDate);
@@ -461,24 +534,35 @@ class _TripHeader extends StatelessWidget {
           ? l10n.homeToday
           : formatMonthDay(departure);
       final capacity = trip.capacity;
-      final loaded = (capacity - tripRoomLeft(trip)).clamp(0, capacity);
+      final loaded =
+          (capacity - tripRoomLeft(trip)).clamp(0, capacity).toDouble();
       sub = [
         day,
         l10n.tripModeOrders(plan!.orderCount),
         if (capacity > 0)
-          l10n.tripLoadedOf(
-            formatQuintals(loaded.toDouble()),
-            formatQuintals(capacity),
-          ),
+          l10n.tripKgOfKg(_kgOfQuintals(loaded), _kgOfQuintals(capacity)),
       ].join(' · ');
+      if (capacity > 0) {
+        quintals = '(${l10n.detailBookedOf(
+          quintalsNumberText(loaded),
+          quintalsNumberText(capacity),
+        )})';
+      }
       title = '${trip.fromWoreda} → ${trip.toWoreda}';
     }
     return Row(
       children: [
-        const LiveTripBackButton(
-          background: AppTheme.soilCard,
-          foreground: Colors.white,
-          border: AppTheme.soilCard,
+        // The board's round Back on paper (the live trip parts' own back
+        // button is a square over a map).
+        FwSquareButton(
+          key: const Key('live_trip_back'),
+          semanticLabel: l10n.back,
+          onTap: () => Navigator.of(context).maybePop(),
+          child: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            size: 20,
+            color: AppTheme.ink,
+          ),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -487,26 +571,27 @@ class _TripHeader extends StatelessWidget {
             children: [
               if (sub != null)
                 Text(
-                  sub,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  quintals == null ? sub : '$sub $quintals',
+                  key: const Key('trip_mode_header_load'),
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.soilMuted,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.slate,
                   ),
                 ),
+              const SizedBox(height: 2),
               Semantics(
                 header: true,
                 child: Text(
                   title,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 24,
+                    fontSize: 28,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: -0.7,
-                    height: 1.15,
-                    color: Colors.white,
+                    letterSpacing: -1,
+                    height: 1.05,
+                    color: AppTheme.ink,
                   ),
                 ),
               ),
@@ -519,7 +604,8 @@ class _TripHeader extends StatelessWidget {
 }
 
 /// Sharing state with the last and next check-in, and the actions for it
-/// (the board's card set into the dark header).
+/// (the board's sand card). Check in now is the page's one orange action;
+/// Pause and Resume are outlined pills; the live dot is the role's colour.
 class _SharingCard extends StatelessWidget {
   const _SharingCard({
     required this.status,
@@ -541,18 +627,29 @@ class _SharingCard extends StatelessWidget {
   final VoidCallback onShare;
   final VoidCallback onStop;
 
-  static const _onDark = Colors.white;
-  static const _onDarkMuted = AppTheme.soilMuted;
+  static const _buttonText = TextStyle(
+    fontFamily: AppTheme.fontFamily,
+    fontFamilyFallback: AppTheme.ethiopicFontFallback,
+    fontSize: 13,
+    fontWeight: FontWeight.w700,
+  );
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final role = context.roleColors.primary;
     const titleStyle = TextStyle(
       fontSize: 15,
-      fontWeight: FontWeight.w700,
-      color: _onDark,
+      fontWeight: FontWeight.w800,
+      letterSpacing: -0.15,
+      color: AppTheme.ink,
     );
-    const smallStyle = TextStyle(fontSize: 12, color: _onDarkMuted);
+    const subStyle = TextStyle(fontSize: 14, color: AppTheme.inkSoft);
+    const smallStyle = TextStyle(
+      fontSize: 13,
+      height: 1.35,
+      color: AppTheme.inkSoft,
+    );
 
     Widget header({
       required Widget leading,
@@ -570,7 +667,7 @@ class _SharingCard extends StatelessWidget {
                 children: [
                   Text(title, style: titleStyle),
                   const SizedBox(height: 2),
-                  Text(subtitle, style: smallStyle),
+                  Text(subtitle, style: subStyle),
                 ],
               ),
             ),
@@ -579,28 +676,22 @@ class _SharingCard extends StatelessWidget {
         );
 
     final privacy = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(Icons.visibility_outlined, size: 16, color: _onDarkMuted),
+        const Padding(
+          padding: EdgeInsets.only(top: 1),
+          child: Icon(
+            Icons.visibility_outlined,
+            size: 15,
+            color: AppTheme.inkSoft,
+          ),
+        ),
         const SizedBox(width: 8),
         Expanded(child: Text(l10n.tripModePrivacy, style: smallStyle)),
       ],
     );
 
-    ButtonStyle gold() => FilledButton.styleFrom(
-          backgroundColor: AppTheme.accentSoft,
-          foregroundColor: AppTheme.soilDark,
-          minimumSize: const Size.fromHeight(44),
-          textStyle: const TextStyle(
-            fontFamily: AppTheme.fontFamily,
-            fontFamilyFallback: AppTheme.ethiopicFontFallback,
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-          ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        );
-
+    // The one orange action of the page (the theme's pill), 48 tall here.
     final checkIn = FilledButton.icon(
       key: const Key('trip_mode_check_in'),
       onPressed: busy ? null : onCheckIn,
@@ -608,14 +699,30 @@ class _SharingCard extends StatelessWidget {
           ? const SizedBox(
               width: 18,
               height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppTheme.ink,
+              ),
             )
           : const Icon(Icons.my_location, size: 18),
       label: Text(l10n.tripModeCheckInNow),
-      style: gold(),
+      style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
     );
 
-    OutlinedButton darkButton(
+    // What the button does, and when the next one is due: the engine's own
+    // next cadence fix ([CheckInStatus.nextCheckInAt]), never a made-up
+    // time. While paused or before a first schedule only the first part.
+    final next = status.mode == SharingMode.live ? status.nextCheckInAt : null;
+    final checkInNote = Text(
+      [
+        l10n.tripModeCheckInSends,
+        if (next != null) l10n.tripModeNextDueBy(clock.time(next)),
+      ].join(' '),
+      key: const Key('trip_mode_check_in_note'),
+      style: const TextStyle(fontSize: 13, color: AppTheme.slate),
+    );
+
+    OutlinedButton pillButton(
       Key key,
       IconData icon,
       String label,
@@ -624,25 +731,15 @@ class _SharingCard extends StatelessWidget {
         OutlinedButton.icon(
           key: key,
           onPressed: busy ? null : onTap,
-          icon: Icon(icon, size: 16),
+          icon: Icon(icon, size: 14),
           label: Text(label),
           style: OutlinedButton.styleFrom(
-            // The theme's outlined buttons are white; this one sits on the
-            // dark card.
             backgroundColor: Colors.transparent,
-            foregroundColor: _onDark,
-            side: const BorderSide(color: Color(0xFF4A5A52)),
+            foregroundColor: AppTheme.ink,
+            side: const BorderSide(color: AppTheme.ink),
             minimumSize: const Size(48, 44),
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            textStyle: const TextStyle(
-              fontFamily: AppTheme.fontFamily,
-              fontFamilyFallback: AppTheme.ethiopicFontFallback,
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            padding: const EdgeInsetsDirectional.only(start: 12, end: 16),
+            textStyle: _buttonText,
           ),
         );
 
@@ -653,37 +750,29 @@ class _SharingCard extends StatelessWidget {
       icon: const Icon(Icons.location_off_outlined, size: 18),
       label: Text(l10n.tripModeStopSharing),
       style: TextButton.styleFrom(
-        foregroundColor: _onDarkMuted,
-        minimumSize: const Size.fromHeight(44),
-        textStyle: const TextStyle(
-          fontFamily: AppTheme.fontFamily,
-          fontFamilyFallback: AppTheme.ethiopicFontFallback,
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-        ),
+        foregroundColor: AppTheme.inkSoft,
+        minimumSize: const Size.fromHeight(48),
+        textStyle: _buttonText,
       ),
     );
 
-    // The live dot with its halo.
-    const liveDot = SizedBox(
-      width: 22,
-      height: 22,
+    // The live dot with its halo, in the role's colour.
+    final liveDot = SizedBox(
+      width: 20,
+      height: 20,
       child: Stack(
         alignment: Alignment.center,
         children: [
           DecoratedBox(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Color(0x408FC5A4),
+              color: role.withValues(alpha: 0.2),
             ),
-            child: SizedBox(width: 22, height: 22),
+            child: const SizedBox(width: 20, height: 20),
           ),
           DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppTheme.soilGreen,
-            ),
-            child: SizedBox(width: 12, height: 12),
+            decoration: BoxDecoration(shape: BoxShape.circle, color: role),
+            child: const SizedBox(width: 12, height: 12),
           ),
         ],
       ),
@@ -695,42 +784,44 @@ class _SharingCard extends StatelessWidget {
             leading: liveDot,
             title: l10n.tripModeSharingLive,
             subtitle: _lastAndNext(l10n),
-            action: darkButton(
+            action: pillButton(
               const Key('trip_mode_pause'),
               Icons.pause,
               l10n.tripModePause,
               onPause,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           privacy,
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           checkIn,
-          const SizedBox(height: 4),
+          const SizedBox(height: 10),
+          checkInNote,
           stop,
         ],
       SharingMode.paused => [
           header(
-            leading: const Icon(Icons.pause_circle, color: _onDarkMuted),
+            leading: const Icon(Icons.pause_circle, color: AppTheme.inkSoft),
             title: l10n.tripModePausedTitle,
             subtitle: l10n.tripModePausedUntil(clock.time(status.pausedUntil!)),
-            action: darkButton(
+            action: pillButton(
               const Key('trip_mode_resume'),
               Icons.play_arrow,
               l10n.tripModeResume,
               onResume,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           privacy,
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           checkIn,
-          const SizedBox(height: 4),
+          const SizedBox(height: 10),
+          checkInNote,
           stop,
         ],
       SharingMode.declined => [
           header(
-            leading: const Icon(Icons.qr_code_2, color: _onDarkMuted),
+            leading: const Icon(Icons.qr_code_2, color: AppTheme.inkSoft),
             title: l10n.tripModeScansOnlyTitle,
             subtitle: l10n.tripModeScansOnlyText,
           ),
@@ -740,14 +831,16 @@ class _SharingCard extends StatelessWidget {
             onPressed: busy ? null : onShare,
             icon: const Icon(Icons.share_location, size: 18),
             label: Text(l10n.liveTripConsentShare),
-            style: gold(),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
           ),
         ],
       SharingMode.ended => [
           header(
             leading: Icon(
               status.stopped ? Icons.location_off_outlined : Icons.check_circle,
-              color: _onDarkMuted,
+              color: AppTheme.inkSoft,
             ),
             title: status.stopped
                 ? l10n.tripModeStoppedTitle
@@ -759,8 +852,10 @@ class _SharingCard extends StatelessWidget {
         ],
       SharingMode.off => [
           header(
-            leading:
-                const Icon(Icons.local_shipping_outlined, color: _onDarkMuted),
+            leading: const Icon(
+              Icons.local_shipping_outlined,
+              color: AppTheme.inkSoft,
+            ),
             title: l10n.tripModeTitle,
             // A trip opened from the home card that shares nothing yet.
             subtitle: status.tripId != null
@@ -772,10 +867,10 @@ class _SharingCard extends StatelessWidget {
 
     return Container(
       key: Key('trip_mode_sharing_${status.mode.name}'),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       decoration: BoxDecoration(
-        color: AppTheme.soilCard,
-        borderRadius: BorderRadius.circular(18),
+        color: AppTheme.sand,
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -834,9 +929,11 @@ String _stopName(TripStop stop, String? place, AppLocalizations l10n) =>
         ].join(', '),
     };
 
-/// The next stop with I've arrived, and the QR scan at a pickup or the
-/// drop-off QR for the buyer (T-3); a call button for the stop's party once
-/// the order's contact is open (the board's card).
+/// The next stop on the raised card, with I've arrived (outlined) and the
+/// QR scan at a pickup or the drop-off QR for the buyer (T-3) in black; a
+/// Call pill for the stop's party once the order's contact is open. When
+/// the server has an estimate for a drop-off ([track]), the distance left
+/// and the arrival time follow the cargo, the time in the role's colour.
 class _NextStopCard extends StatelessWidget {
   const _NextStopCard({
     required this.stop,
@@ -844,6 +941,8 @@ class _NextStopCard extends StatelessWidget {
     required this.viewerId,
     required this.canCheckIn,
     required this.busy,
+    required this.track,
+    required this.clock,
     required this.onArrived,
     required this.onScanPickup,
     required this.onShowDropoffQr,
@@ -854,9 +953,21 @@ class _NextStopCard extends StatelessWidget {
   final String viewerId;
   final bool canCheckIn;
   final bool busy;
+
+  /// The next drop-off's track (the server's distance left and arrival
+  /// window); null at a pickup, offline, or when the server has none.
+  final DeliveryTrack? track;
+  final ClockFormat clock;
   final VoidCallback onArrived;
   final void Function(Delivery delivery) onScanPickup;
   final void Function(Delivery delivery) onShowDropoffQr;
+
+  static const _actionText = TextStyle(
+    fontFamily: AppTheme.fontFamily,
+    fontFamilyFallback: AppTheme.ethiopicFontFallback,
+    fontSize: 15,
+    fontWeight: FontWeight.w800,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -868,22 +979,17 @@ class _NextStopCard extends StatelessWidget {
     final partyName =
         pickup ? stop.delivery.farmerName : stop.delivery.buyerName;
     final canCall = order != null && canContactParty(order, viewerId, partyId);
+    final km = track?.remainingKm;
+    final eta = track?.eta;
+    final facts = [
+      if (cargo != null) cargo,
+      if (km != null) l10n.tripModeAboutKm(kmText(km)),
+    ];
 
-    return Container(
+    return FwCard(
       key: const Key('trip_mode_next_stop'),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceWhite,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.whisperBorder),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F15201A),
-            blurRadius: 18,
-            offset: Offset(0, 6),
-          ),
-        ],
-      ),
+      raised: true,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -899,20 +1005,16 @@ class _NextStopCard extends StatelessWidget {
                               ? l10n.tripModeNextPickup
                               : l10n.tripModeNextDropoff)
                           .toUpperCase(),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.9,
-                        color: AppTheme.money,
-                      ),
+                      style: FwText.sectionLabel,
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 3),
                     Text(
                       _stopName(stop, place, l10n),
                       style: const TextStyle(
-                        fontSize: 18,
+                        fontSize: 19,
                         fontWeight: FontWeight.w800,
-                        color: AppTheme.soilDark,
+                        letterSpacing: -0.4,
+                        color: AppTheme.ink,
                       ),
                     ),
                     // LT-12: the buyer's landmark, where the town says too
@@ -923,32 +1025,63 @@ class _NextStopCard extends StatelessWidget {
                         note: note,
                         fontSize: 14,
                       ),
-                    if (cargo != null)
-                      Text(
-                        cargo,
+                    if (facts.isNotEmpty || eta != null) ...[
+                      const SizedBox(height: 3),
+                      // "Maize · 1,000 kg · about 16 km · 12:35": the time
+                      // split out, bold, in the role's colour.
+                      Text.rich(
+                        TextSpan(
+                          text: eta == null
+                              ? facts.join(' · ')
+                              : [...facts, ''].join(' · '),
+                          children: [
+                            if (eta != null)
+                              TextSpan(
+                                text: clock.time(eta.from),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: context.roleColors.primary,
+                                ),
+                              ),
+                          ],
+                        ),
+                        key: const Key('trip_mode_next_facts'),
                         style: const TextStyle(
-                          fontSize: 13,
-                          color: AppTheme.mutedSteel,
+                          fontSize: 14,
+                          color: AppTheme.slate,
                         ),
                       ),
+                    ],
                   ],
                 ),
               ),
               if (canCall) ...[
                 const SizedBox(width: 10),
-                LiveTripSquareAction(
+                OutlinedButton.icon(
                   key: const Key('trip_mode_call'),
-                  icon: Icons.phone_outlined,
-                  semanticLabel: l10n.call,
-                  background: AppTheme.surfaceWhite,
-                  foreground: AppTheme.soilDark,
-                  border: AppTheme.whisperBorder,
-                  onTap: () => showPartyContact(
+                  onPressed: () => showPartyContact(
                     context,
                     order: order,
                     partyId: partyId,
                     name: partyName,
                     roleLabel: pickup ? l10n.farmer : l10n.buyer,
+                  ),
+                  icon: const Icon(Icons.phone_outlined, size: 18),
+                  // A screen reader hears who is called.
+                  label: Text(
+                    l10n.call,
+                    semanticsLabel: l10n.detailCallParty(
+                      partyDisplayName(partyName, l10n),
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(48, 48),
+                    padding:
+                        const EdgeInsetsDirectional.only(start: 12, end: 16),
+                    textStyle: _actionText.copyWith(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ],
@@ -963,25 +1096,21 @@ class _NextStopCard extends StatelessWidget {
                     key: const Key('trip_mode_arrived'),
                     onPressed: busy ? null : onArrived,
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.soilDark,
-                      side: const BorderSide(color: Color(0xFFD6D3C8)),
-                      minimumSize: const Size.fromHeight(48),
-                      textStyle: const TextStyle(
-                        fontFamily: AppTheme.fontFamily,
-                        fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
+                      minimumSize: const Size.fromHeight(54),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      textStyle: _actionText,
                     ),
-                    child: Text(l10n.tripModeArrived),
+                    child: Text(
+                      l10n.tripModeArrived,
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
               ],
               Expanded(
+                // Black with white ink: the second strongest button; the
+                // orange stays with Check in now.
                 child: FilledButton.icon(
                   key: Key(pickup ? 'trip_mode_scan' : 'trip_mode_dropoff_qr'),
                   onPressed: () => pickup
@@ -993,20 +1122,14 @@ class _NextStopCard extends StatelessWidget {
                   ),
                   label: Text(
                     pickup ? l10n.deliveryScanQr : l10n.deliveryShowDropoffQr,
+                    textAlign: TextAlign.center,
                   ),
                   style: FilledButton.styleFrom(
-                    backgroundColor: AppTheme.soilDark,
+                    backgroundColor: AppTheme.ink,
                     foregroundColor: Colors.white,
-                    minimumSize: const Size.fromHeight(48),
-                    textStyle: const TextStyle(
-                      fontFamily: AppTheme.fontFamily,
-                      fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
+                    minimumSize: const Size.fromHeight(54),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: _actionText,
                   ),
                 ),
               ),
@@ -1019,13 +1142,22 @@ class _NextStopCard extends StatelessWidget {
 }
 
 /// The pickups and drop-offs of the trip on one line (the board): done
-/// ones ticked in green, the next one gold, the rest hollow, the line
-/// green along the done stops, gold up to the next and dashed beyond.
+/// ones ticked on black, the next one in the role's colour, the rest a
+/// dashed ring; the line is black along the done stops and the role's
+/// colour up to the next one.
 class _StopList extends StatelessWidget {
-  const _StopList({required this.plan, required this.clock});
+  const _StopList({
+    required this.plan,
+    required this.clock,
+    required this.tracks,
+  });
 
   final TripPlan plan;
   final ClockFormat clock;
+
+  /// The tracks of the drop-offs still to do, by delivery id: "Next · about
+  /// 12:35" on the next stop, the arrival window on the later ones.
+  final Map<String, DeliveryTrack> tracks;
 
   @override
   Widget build(BuildContext context) {
@@ -1036,30 +1168,30 @@ class _StopList extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Semantics(
-          header: true,
-          child: Text(
-            l10n.tripModeStops,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.soilDark,
-            ),
-          ),
+        Row(
+          children: [
+            const Icon(Icons.route_outlined, size: 16, color: AppTheme.slate),
+            const SizedBox(width: 8),
+            Expanded(child: FwSectionLabel(l10n.tripModeStops)),
+          ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         for (final (i, stop) in stops.indexed)
           _StopRow(
             stop: stop,
             place: _stopPlace(stop, plan.trip?.toWoreda, context),
             isNext: identical(stop, next),
-            lineBelow: i == stops.length - 1
+            last: i == stops.length - 1,
+            lineBelow: i == stops.length - 1 || !stop.isDone
                 ? null
-                : stop.isDone
-                    ? (identical(stops[i + 1], next)
-                        ? _StopLine.gold
-                        : _StopLine.green)
-                    : _StopLine.dashed,
+                : identical(stops[i + 1], next)
+                    ? _StopLine.toNext
+                    : stops[i + 1].isDone
+                        ? _StopLine.done
+                        : null,
+            eta: stop.kind == TripStopKind.dropoff && !stop.isDone
+                ? tracks[stop.delivery.deliveryId]?.eta
+                : null,
             clock: clock,
           ),
       ],
@@ -1067,37 +1199,52 @@ class _StopList extends StatelessWidget {
   }
 }
 
-enum _StopLine { green, gold, dashed }
+/// The line under a done stop: black to another done stop, the role's
+/// colour to the next stop.
+enum _StopLine { done, toNext }
 
 class _StopRow extends StatelessWidget {
   const _StopRow({
     required this.stop,
     required this.place,
     required this.isNext,
+    required this.last,
     required this.lineBelow,
+    required this.eta,
     required this.clock,
   });
 
   final TripStop stop;
   final String? place;
   final bool isNext;
+  final bool last;
 
-  /// The line down to the next row; none under the last stop.
+  /// The line down to the next row; none under a stop still to do.
   final _StopLine? lineBelow;
+
+  /// The server's arrival window of a drop-off still to do: its start on
+  /// the next stop ("Next · about 12:35"), the whole window on a later one
+  /// ("13:20-14:00").
+  final TrackEta? eta;
   final ClockFormat clock;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final role = context.roleColors.primary;
     final name = _stopName(stop, place, l10n);
     final title = stop.kind == TripStopKind.pickup
         ? l10n.tripModeStopPickup(name)
         : l10n.tripModeStopDropoff(name);
 
     final doneAt = stop.doneAt;
+    final eta = this.eta;
     final String? detail;
     if (isNext) {
-      detail = l10n.tripModeNextLabel;
+      detail = eta == null
+          ? l10n.tripModeNextLabel
+          : '${l10n.tripModeNextLabel} · '
+              '${l10n.tripModeAboutTime(clock.time(eta.from))}';
     } else if (stop.isDone && stop.kind == TripStopKind.pickup) {
       detail = [
         _cargo(stop, l10n),
@@ -1111,6 +1258,11 @@ class _StopRow extends StatelessWidget {
     } else {
       detail = _cargo(stop, l10n);
     }
+    // The board: a later drop-off shows when the truck should get there,
+    // in place of its cargo (the pickup's row already names it).
+    final window = !isNext && !stop.isDone && eta != null
+        ? clock.window(eta.from, eta.to)
+        : null;
 
     final Widget marker;
     if (stop.isDone) {
@@ -1119,37 +1271,30 @@ class _StopRow extends StatelessWidget {
         height: 22,
         decoration: const BoxDecoration(
           shape: BoxShape.circle,
-          color: AppTheme.fieldGreen,
+          color: AppTheme.ink,
         ),
-        child: const Icon(Icons.check, size: 14, color: Colors.white),
+        child: const Icon(Icons.check, size: 13, color: Colors.white),
       );
     } else if (isNext) {
       marker = Container(
         width: 22,
         height: 22,
         alignment: Alignment.center,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          color: AppTheme.accentSoft,
-        ),
+        decoration: BoxDecoration(shape: BoxShape.circle, color: role),
         child: Container(
           width: 8,
           height: 8,
           decoration: const BoxDecoration(
             shape: BoxShape.circle,
-            color: AppTheme.soilDark,
+            color: Colors.white,
           ),
         ),
       );
     } else {
-      marker = Container(
+      marker = const SizedBox(
         width: 22,
         height: 22,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: AppTheme.surfaceWhite,
-          border: Border.all(color: const Color(0xFFA7ADA9), width: 2),
-        ),
+        child: CustomPaint(painter: _DashedRingPainter()),
       );
     }
 
@@ -1166,17 +1311,10 @@ class _StopRow extends StatelessWidget {
                 if (line != null)
                   Expanded(
                     child: Center(
-                      child: line == _StopLine.dashed
-                          ? const CustomPaint(
-                              size: Size(2, double.infinity),
-                              painter: _StopDashPainter(),
-                            )
-                          : Container(
-                              width: 2,
-                              color: line == _StopLine.gold
-                                  ? AppTheme.accentSoft
-                                  : AppTheme.fieldGreen,
-                            ),
+                      child: Container(
+                        width: 2,
+                        color: line == _StopLine.toNext ? role : AppTheme.ink,
+                      ),
                     ),
                   ),
               ],
@@ -1185,8 +1323,8 @@ class _StopRow extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Container(
-              constraints: BoxConstraints(minHeight: line == null ? 40 : 56),
-              padding: EdgeInsets.only(bottom: line == null ? 0 : 10),
+              constraints: BoxConstraints(minHeight: last ? 40 : 50),
+              padding: EdgeInsets.only(bottom: last ? 0 : 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1195,7 +1333,7 @@ class _StopRow extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: isNext ? FontWeight.w800 : FontWeight.w700,
-                      color: AppTheme.soilDark,
+                      color: AppTheme.ink,
                     ),
                   ),
                   // LT-12: the buyer's landmark under a drop-off still to do.
@@ -1203,16 +1341,31 @@ class _StopRow extends StatelessWidget {
                     _DropoffNoteLine(
                       key: const Key('trip_mode_dropoff_note'),
                       note: note,
-                      fontSize: 12,
+                      fontSize: 13,
                     ),
-                  if (detail != null && detail.isNotEmpty) ...[
+                  if (window != null) ...[
+                    const SizedBox(height: 2),
+                    ClockText(
+                      window,
+                      key: Key(
+                        'trip_mode_stop_window_${stop.delivery.deliveryId}',
+                      ),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.slate,
+                      ),
+                    ),
+                  ],
+                  if (window == null &&
+                      detail != null &&
+                      detail.isNotEmpty) ...[
                     const SizedBox(height: 2),
                     Text(
                       detail,
                       style: TextStyle(
-                        fontSize: 12,
-                        color: isNext ? AppTheme.money : AppTheme.mutedSteel,
-                        fontWeight: isNext ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: 13,
+                        color: isNext ? role : AppTheme.slate,
+                        fontWeight: isNext ? FontWeight.w800 : FontWeight.w400,
                       ),
                     ),
                   ],
@@ -1251,7 +1404,7 @@ class _DropoffNoteLine extends StatelessWidget {
             child: Icon(
               Icons.place_outlined,
               size: fontSize + 2,
-              color: AppTheme.dropoffBlue,
+              color: AppTheme.inkSoft,
             ),
           ),
           const SizedBox(width: 4),
@@ -1261,7 +1414,7 @@ class _DropoffNoteLine extends StatelessWidget {
               style: TextStyle(
                 fontSize: fontSize,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.dropoffBlue,
+                color: AppTheme.inkSoft,
               ),
             ),
           ),
@@ -1271,21 +1424,21 @@ class _DropoffNoteLine extends StatelessWidget {
   }
 }
 
-/// The dashed line under the next stop (the road still ahead).
-class _StopDashPainter extends CustomPainter {
-  const _StopDashPainter();
+/// A stop still to do after the next one: a dashed ring (the board).
+class _DashedRingPainter extends CustomPainter {
+  const _DashedRingPainter();
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFFC9C6BB)
-      ..strokeWidth = 2;
-    for (var y = 0.0; y < size.height; y += 8) {
-      canvas.drawLine(
-        Offset(size.width / 2, y),
-        Offset(size.width / 2, (y + 4).clamp(0, size.height)),
-        paint,
-      );
+      ..color = AppTheme.fieldBorder
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    final rect = (Offset.zero & size).deflate(0.75);
+    const dashes = 10;
+    const sweep = 2 * math.pi / dashes;
+    for (var i = 0; i < dashes; i++) {
+      canvas.drawArc(rect, i * sweep, sweep * 0.55, false, paint);
     }
   }
 
@@ -1293,7 +1446,8 @@ class _StopDashPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-/// The trucker's pay for the trip (the board's cream card).
+/// The trucker's pay for the trip (the board's outlined row), the amount
+/// in the role's colour.
 class _PayRow extends StatelessWidget {
   const _PayRow({required this.pay});
 
@@ -1304,10 +1458,10 @@ class _PayRow extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return Container(
       key: const Key('trip_mode_pay'),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: AppTheme.actionCream,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppTheme.fieldBorder),
       ),
       child: Row(
         children: [
@@ -1318,19 +1472,16 @@ class _PayRow extends StatelessWidget {
                 Text(
                   l10n.tripModePayTitle,
                   style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.15,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   l10n.tripModePayNote,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.actionInk,
-                  ),
+                  style: const TextStyle(fontSize: 14, color: AppTheme.slate),
                 ),
               ],
             ),
@@ -1338,10 +1489,11 @@ class _PayRow extends StatelessWidget {
           const SizedBox(width: 12),
           Text(
             l10n.etbCurrency(NumberFormat('#,##0').format(pay)),
-            style: const TextStyle(
-              fontSize: 18,
+            style: TextStyle(
+              fontSize: 19,
               fontWeight: FontWeight.w800,
-              color: AppTheme.soilDark,
+              letterSpacing: -0.4,
+              color: context.roleColors.primary,
             ),
           ),
         ],
@@ -1350,8 +1502,8 @@ class _PayRow extends StatelessWidget {
   }
 }
 
-/// Offline: how many check-ins wait on the phone (the engine's count), the
-/// board's cream card in the dark header.
+/// Offline: how many check-ins wait on the phone (the engine's count), on
+/// the orange tint (the Trucker · Offline and pause board).
 class _OfflineCheckIns extends StatelessWidget {
   const _OfflineCheckIns({required this.unsent});
 
@@ -1362,17 +1514,17 @@ class _OfflineCheckIns extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return Container(
       key: const Key('trip_mode_offline'),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       decoration: BoxDecoration(
-        color: AppTheme.actionCream,
-        borderRadius: BorderRadius.circular(18),
+        color: AppTheme.orangeTint,
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Padding(
             padding: EdgeInsets.only(top: 1),
-            child: Icon(Icons.cloud_off, size: 22, color: AppTheme.actionInk),
+            child: Icon(Icons.cloud_off, size: 22, color: AppTheme.orangeInk),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1384,16 +1536,16 @@ class _OfflineCheckIns extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   l10n.tripModeOfflineWaiting(unsent),
                   style: const TextStyle(
-                    fontSize: 13,
-                    height: 1.45,
-                    color: AppTheme.actionInk,
+                    fontSize: 14,
+                    height: 1.4,
+                    color: AppTheme.orangeInk,
                   ),
                 ),
               ],

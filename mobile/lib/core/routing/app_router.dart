@@ -54,13 +54,16 @@ String? webRedirect(AuthState authState, String location) {
   if (authState is! AuthAuthenticated) {
     return isAuthRoute ? null : '/login';
   }
-  if (isAuthRoute) return '/';
+  final landing = landingRouteForRole(authState.role);
+  if (isAuthRoute) return landing;
   // Only a plain id: an encoded slash or dot segment never reaches a path.
   if (location.startsWith(orderDetailRoutePrefix) &&
       isPlainEntityId(location.substring(orderDetailRoutePrefix.length))) {
     return null;
   }
-  if (!webRoutesForRole(authState.role).contains(location)) return '/';
+  // A role without a Home (the buyer) lands on its first tab, also from
+  // `/`, where every sign-in and old bookmark arrives.
+  if (!webRoutesForRole(authState.role).contains(location)) return landing;
   return null;
 }
 

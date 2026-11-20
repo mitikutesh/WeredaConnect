@@ -37,12 +37,12 @@ class PendingIntentCard extends StatelessWidget {
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                color: AppTheme.actionCream,
+                color: AppTheme.orangeTint,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.sync,
-                color: AppTheme.money,
+                color: context.roleColors.primary,
                 size: 20,
               ),
             ),

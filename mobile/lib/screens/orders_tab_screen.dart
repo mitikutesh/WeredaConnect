@@ -13,6 +13,7 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_detail_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/action_needed_list.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -22,11 +23,18 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/account_menu.dart';
 import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
-/// Orders tab: a sibling of the My Crops board. Page header (person ·
-/// place, "Orders", profile square), the status filter as the Market's pill
-/// chips, then one [OrderCard] per order, in the phone-width column at
-/// every window size.
+/// Orders tab (design canvas page M; no board of its own, a sibling of
+/// the Market and My Crops boards). Page header (person · place, the 42 px
+/// "Orders" with the role's sketch, bell and account), the status filter as
+/// the Market's pills, then one [OrderCard] per order with the first one
+/// raised, in the phone-width column at every window size.
+///
+/// The buyer has no Home tab: what waits for the buyer (pay now, pay
+/// again, decide on transport, check in at the farm, confirm a delivery)
+/// leads the list here as Action needed cards ([ActionNeededList]), most
+/// urgent first. The farmer and the trucker read theirs on Home.
 ///
 /// Reads from OrderBloc (provided at app root) via LoadUserOrders; the
 /// server scopes the list to the caller (buyer, farmer or trucker).
@@ -63,6 +71,13 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
   /// The list last loaded, shown during [_cardAction].
   OrdersLoaded? _lastLoaded;
 
+  /// Counts the order reloads: the buyer's Action needed cards read again
+  /// with the list.
+  int _reloads = 0;
+
+  /// How many Action needed cards the buyer's list leads with.
+  static const int _buyerActionCards = 3;
+
   @override
   void initState() {
     super.initState();
@@ -77,6 +92,11 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     final authState = context.read<AuthBloc>().state;
     if (authState is AuthAuthenticated) return authState.userId;
     return null;
+  }
+
+  UserRole? _role() {
+    final authState = context.read<AuthBloc>().state;
+    return authState is AuthAuthenticated ? authState.role : null;
   }
 
   bool _isFarmer() {
@@ -177,6 +197,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     // resetting to "All".
     _applyFilter(_selectedStatus);
     _loadHeldOrders();
+    setState(() => _reloads++);
   }
 
   Widget _buildHeader(AppLocalizations l10n) {
@@ -188,6 +209,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
         _isBuyer() ? l10n.trackYourOrders : l10n.manageOrders,
       ),
       title: l10n.orders,
+      sketchRole: authState is AuthAuthenticated ? authState.role : null,
       trailing: const HeaderActions(),
     );
     // A tab child draws under the status bar; a pushed screen has SafeArea.
@@ -205,7 +227,7 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                   child: const Icon(
                     Icons.arrow_back,
                     size: 20,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -240,11 +262,8 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
-            Icons.receipt_long_outlined,
-            size: 56,
-            color: AppTheme.mutedSteel,
-          ),
+          // The one large drawing an empty state may carry.
+          if (_role() case final role?) RoleSketch.emptyState(role: role),
           const SizedBox(height: 16),
           Text(l10n.noOrders, style: FwText.cardTitle),
           const SizedBox(height: 4),
@@ -304,12 +323,18 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
 
     final isFarmer = _isFarmer();
     final isTrucker = _isTrucker();
+    // The buyer's Action needed cards lead the unfiltered list (the buyer
+    // has no Home tab to read them on).
+    final userId = _getUserId() ?? '';
+    final lead =
+        _isBuyer() && _selectedStatus == null && userId.isNotEmpty ? 1 : 0;
     return RefreshIndicator(
       // Preserve the active status tab (not reset to "All"), and hold
       // the refresh spinner until the reload actually finishes.
       onRefresh: () async {
         _applyFilter(_selectedStatus);
         _loadHeldOrders();
+        setState(() => _reloads++);
         await context.read<OrderBloc>().stream.firstWhere(
               (s) => s is OrdersLoaded || s is OrderError,
             );
@@ -321,13 +346,32 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
           20,
           Breakpoints.fabClearance,
         ),
-        itemCount: loaded.orders.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemCount: loaded.orders.length + lead,
+        // No gap under the lead when nothing waits (it draws nothing).
+        separatorBuilder: (_, index) => SizedBox(height: index < lead ? 0 : 12),
         itemBuilder: (context, index) {
-          final order = loaded.orders[index];
-          final userId = _getUserId() ?? '';
+          if (index < lead) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ActionNeededList(
+                key: ValueKey('orders_action_needed_$_reloads'),
+                userId: userId,
+                role: UserRole.buyer,
+                maxItems: _buyerActionCards,
+                // The buyer may have paid or confirmed: read the list again.
+                onRefresh: () {
+                  _applyFilter(_selectedStatus);
+                  _loadHeldOrders();
+                },
+              ),
+            );
+          }
+          final order = loaded.orders[index - lead];
           return OrderCard(
             order: order,
+            // The list leads with its first order, unless the buyer's
+            // Action needed cards already do.
+            raised: index == 0,
             isFarmerView: isFarmer,
             isTruckerView: isTrucker,
             // A cached `held` row is stale once the order moved on.
@@ -357,7 +401,14 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
                       warning: l10n.farmerRejectRefundNote,
                       reasons: farmerDeclineReasons,
                     );
-                    if (reason == null || bloc.isClosed) return;
+                    if (reason == null || !context.mounted) return;
+                    // FarmerRejectConfirmM: nothing is rejected before
+                    // the farmer confirms.
+                    final confirmed = await showRejectOrderConfirmSheet(
+                      context,
+                      reason: declineReasonLabel(l10n, reason),
+                    );
+                    if (!confirmed || bloc.isClosed) return;
                     _cardAction = true;
                     bloc.add(
                       RejectOrder(

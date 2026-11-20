@@ -114,11 +114,7 @@ class RoutePreviewCard extends StatelessWidget {
 
     return Container(
       clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.whisperBorder),
-      ),
+      decoration: _previewCardDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -137,16 +133,17 @@ class RoutePreviewCard extends StatelessWidget {
                     textDirection: Directionality.of(context),
                     fromLabel: fromLabel ?? fromName,
                     toLabel: toLabel ?? toName,
+                    accent: context.roleColors.primary,
                   ),
                 ),
               ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
             child: Text(
               footer ?? l10n.createTripRouteDistance(km),
-              style: const TextStyle(fontSize: 12, color: AppTheme.mutedSteel),
+              style: const TextStyle(fontSize: 13, color: AppTheme.slate),
             ),
           ),
         ],
@@ -164,6 +161,7 @@ class _RoutePreviewPainter extends CustomPainter {
     required this.textDirection,
     required this.fromLabel,
     required this.toLabel,
+    required this.accent,
   });
 
   final Place from;
@@ -174,8 +172,11 @@ class _RoutePreviewPainter extends CustomPainter {
   final String fromLabel;
   final String toLabel;
 
-  static const _townDot = Color(0xFFA7ADA9);
-  static const _destination = Color(0xFF2E4C7D);
+  /// The role's colour: the start of the person's own route.
+  final Color accent;
+
+  /// The destination: the black dot, as in the To field.
+  static const _destination = AppTheme.ink;
 
   /// An equirectangular projection fitting [from] and [to] into [size]
   /// with [padding] pixels free; at least 20 km shows in each direction.
@@ -198,14 +199,14 @@ class _RoutePreviewPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = _ground);
+    canvas.drawRect(Offset.zero & size, Paint()..color = AppTheme.mapGround);
     final project = _fit(size);
     final a = project(from);
     final b = project(to);
 
     // Dashed straight line: the road is unknown, the direction is not.
     final line = Paint()
-      ..color = AppTheme.soilDark.withValues(alpha: 0.45)
+      ..color = AppTheme.ink.withValues(alpha: 0.55)
       ..strokeWidth = 2.5;
     final total = (b - a).distance;
     if (total > 0) {
@@ -216,7 +217,7 @@ class _RoutePreviewPainter extends CustomPainter {
     }
 
     for (final town in towns) {
-      canvas.drawCircle(project(town), 3.5, Paint()..color = _townDot);
+      _paintTownDot(canvas, project(town));
     }
 
     canvas
@@ -225,7 +226,7 @@ class _RoutePreviewPainter extends CustomPainter {
         a,
         8,
         Paint()
-          ..color = AppTheme.fieldGreen
+          ..color = accent
           ..style = PaintingStyle.stroke
           ..strokeWidth = 3.5,
       )
@@ -248,7 +249,6 @@ class _RoutePreviewPainter extends CustomPainter {
       b + const Offset(-12, -22),
       textDirection: textDirection,
       alignEnd: true,
-      color: _destination,
     );
     if (toRect != null) placed.add(toRect);
     for (final town in towns) {
@@ -269,13 +269,41 @@ class _RoutePreviewPainter extends CustomPainter {
   bool shouldRepaint(_RoutePreviewPainter old) =>
       old.from.id != from.id ||
       old.to.id != to.id ||
+      old.accent != accent ||
       old.languageCode != languageCode ||
       old.towns.length != towns.length ||
       old.fromLabel != fromLabel ||
       old.toLabel != toLabel;
 }
 
-const Color _ground = Color(0xFFE9E7DE);
+/// Both preview cards: the raised paper card of page M (radius 28, the soft
+/// shadow, the quiet edge).
+final BoxDecoration _previewCardDecoration = BoxDecoration(
+  color: AppTheme.paper,
+  borderRadius: BorderRadius.circular(28),
+  border: Border.all(color: AppTheme.line),
+  boxShadow: [
+    BoxShadow(
+      color: AppTheme.ink.withValues(alpha: 0.14),
+      blurRadius: 30,
+      offset: const Offset(0, 14),
+    ),
+  ],
+);
+
+/// A town on the way: a white dot with a slate edge (the board).
+void _paintTownDot(Canvas canvas, Offset at) {
+  canvas
+    ..drawCircle(at, 3.5, Paint()..color = Colors.white)
+    ..drawCircle(
+      at,
+      3.5,
+      Paint()
+        ..color = AppTheme.slate
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+}
 
 /// A small haloed label on the drawing, kept on the canvas when its place
 /// sits near an edge. Returns where it was drawn, or null when it would
@@ -287,15 +315,16 @@ Rect? _paintLabel(
   Offset at, {
   required TextDirection textDirection,
   bool alignEnd = false,
-  Color color = AppTheme.unselectedNav,
+  Color color = AppTheme.ink,
   List<Rect> avoid = const [],
 }) {
   TextPainter build(Paint? outline) => TextPainter(
         text: TextSpan(
           text: text,
           style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
+            fontFamily: AppTheme.fontFamily,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
             color: outline == null ? color : null,
             foreground: outline,
             fontFamilyFallback: AppTheme.ethiopicFontFallback,
@@ -308,7 +337,7 @@ Rect? _paintLabel(
     Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3
-      ..color = _ground,
+      ..color = AppTheme.mapGround,
   );
   final fill = build(null);
   final wanted = alignEnd ? at - Offset(fill.width, 0) : at;
@@ -360,6 +389,7 @@ class PlacePreviewCard extends StatelessWidget {
     this.excludeId,
     this.footer,
     this.height = 128,
+    this.footerPadding = const EdgeInsets.fromLTRB(14, 12, 14, 12),
     super.key,
   });
 
@@ -375,17 +405,16 @@ class PlacePreviewCard extends StatelessWidget {
   final Widget? footer;
   final double height;
 
+  /// The room around [footer]; tighter when it ends in a 44 px link.
+  final EdgeInsetsGeometry footerPadding;
+
   @override
   Widget build(BuildContext context) {
     final languageCode = Localizations.localeOf(context).languageCode;
     final towns = townsAround(lat, lng, places, excludeId: excludeId);
     return Container(
       clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.whisperBorder),
-      ),
+      decoration: _previewCardDecoration,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -395,24 +424,25 @@ class PlacePreviewCard extends StatelessWidget {
             child: ExcludeSemantics(
               child: SizedBox(
                 height: height,
-                child: CustomPaint(
-                  painter: _PlacePreviewPainter(
-                    lat: lat,
-                    lng: lng,
-                    label: label,
-                    towns: towns,
-                    languageCode: languageCode,
-                    textDirection: Directionality.of(context),
+                // Clipped: a town near the edge must not spill its dot
+                // into the footer.
+                child: ClipRect(
+                  child: CustomPaint(
+                    painter: _PlacePreviewPainter(
+                      lat: lat,
+                      lng: lng,
+                      label: label,
+                      towns: towns,
+                      languageCode: languageCode,
+                      textDirection: Directionality.of(context),
+                      accent: context.roleColors.primary,
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-          if (footer != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-              child: footer,
-            ),
+          if (footer != null) Padding(padding: footerPadding, child: footer),
         ],
       ),
     );
@@ -427,6 +457,7 @@ class _PlacePreviewPainter extends CustomPainter {
     required this.towns,
     required this.languageCode,
     required this.textDirection,
+    required this.accent,
   });
 
   final double lat;
@@ -435,13 +466,14 @@ class _PlacePreviewPainter extends CustomPainter {
   final List<Place> towns;
   final String languageCode;
   final TextDirection textDirection;
+  final Color accent;
 
   /// Kilometres shown across the card's width.
   static const double _spanKm = 60;
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = _ground);
+    canvas.drawRect(Offset.zero & size, Paint()..color = AppTheme.mapGround);
     final cos = math.cos(lat * math.pi / 180);
     final scale = size.width / _spanKm;
     Offset project(double pLat, double pLng) => Offset(
@@ -449,7 +481,7 @@ class _PlacePreviewPainter extends CustomPainter {
           size.height / 2 - (pLat - lat) * _kmPerDegree * scale,
         );
 
-    // Soft field and water shapes, as on the board: a hint of land, no map.
+    // Two pale shapes, as the roads on the board: a hint of land, no map.
     canvas
       ..drawOval(
         Rect.fromCenter(
@@ -457,7 +489,7 @@ class _PlacePreviewPainter extends CustomPainter {
           width: size.width * 0.46,
           height: size.height * 0.54,
         ),
-        Paint()..color = const Color(0xFFDCE5D2),
+        Paint()..color = AppTheme.mapRoad,
       )
       ..drawOval(
         Rect.fromCenter(
@@ -465,12 +497,12 @@ class _PlacePreviewPainter extends CustomPainter {
           width: size.width * 0.24,
           height: size.height * 0.26,
         ),
-        Paint()..color = const Color(0xFFCFDDE3),
+        Paint()..color = AppTheme.mapRoad,
       );
 
     for (final town in towns) {
       final p = project(town.lat!, town.lng!);
-      canvas.drawCircle(p, 4, Paint()..color = const Color(0xFF7A827D));
+      _paintTownDot(canvas, p);
       _paintLabel(
         canvas,
         size,
@@ -485,14 +517,14 @@ class _PlacePreviewPainter extends CustomPainter {
       ..drawCircle(
         here,
         18,
-        Paint()..color = AppTheme.fieldGreen.withValues(alpha: 0.14),
+        Paint()..color = accent.withValues(alpha: 0.14),
       )
       ..drawCircle(here, 8, Paint()..color = Colors.white)
       ..drawCircle(
         here,
         8,
         Paint()
-          ..color = AppTheme.fieldGreen
+          ..color = accent
           ..style = PaintingStyle.stroke
           ..strokeWidth = 4,
       );
@@ -508,6 +540,7 @@ class _PlacePreviewPainter extends CustomPainter {
   @override
   bool shouldRepaint(_PlacePreviewPainter old) =>
       old.lat != lat ||
+      old.accent != accent ||
       old.lng != lng ||
       old.label != label ||
       old.languageCode != languageCode ||

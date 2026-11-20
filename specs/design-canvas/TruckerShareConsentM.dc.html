@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Share trip location</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&amp;family=Noto+Sans+Ethiopic:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#2B62C4}a:hover{color:#1F4A96}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; background: #FFFFFF; color: #1A1516; font-family: 'Bricolage Grotesque', 'Noto Sans Ethiopic', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+  <div aria-hidden="true" style="padding: 30px 20px 0; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 28px; background: #F5F3F1; box-shadow: 0 14px 30px rgba(26,21,22,0.14); border: 1px solid #DDD5CE">
+      <div style="width: 48px; height: 48px; border-radius: 14px; background: #E4ECFA; color: #2B62C4; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="26" height="26" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></div>
+      <div style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 19px; font-weight: 800; letter-spacing: -0.02em">Pickup confirmed · 08:05</span><span style="font-size: 14px; color: #5C5450">Wheat · 2,000 kg from Almaz Bekele</span></div>
+    </div>
+    <div style="font-size: 13px; color: #5C5450; padding: 0 4px">QR verified · GPS 0.8 km from the farm · photo saved</div>
+  </div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(26,21,22,0.55)"></div>
+
+  <section role="dialog" aria-modal="true" aria-labelledby="share-title" style="margin-top: auto; position: relative; background: #FFFFFF; color: #1A1516; border-radius: 28px 28px 0 0; padding: 12px 20px 24px; display: flex; flex-direction: column; gap: 16px">
+    <div aria-hidden="true" style="width: 40px; height: 4px; border-radius: 999px; background: #C9BDB5; align-self: center"></div>
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div style="width: 48px; height: 48px; border-radius: 14px; background: #1A1516; color: #F0873A; display: flex; align-items: center; justify-content: center"><svg width="24" height="24" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"></path><circle cx="12" cy="9.5" r="2.5"></circle></svg></div>
+      <h1 id="share-title" style="margin: 0; font-size: 30px; line-height: 1.05; font-weight: 800; letter-spacing: -0.035em">Share where the truck is?</h1>
+      <p style="margin: 0; font-size: 14px; line-height: 1.45; color: #4A4340">Buyers and farmers who can see the truck worry less and call you less while you drive.</p>
+    </div>
+
+    <ul style="list-style: none; margin: 0; padding: 16px; border-radius: 24px; background: #E4D5C7; display: flex; flex-direction: column; gap: 12px">
+      <li style="display: flex; gap: 12px; align-items: flex-start"><span style="width: 36px; height: 36px; border-radius: 14px; background: #F5F3F1; color: #1A1516; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></span><span><span style="display: block; font-size: 15px; font-weight: 800; letter-spacing: -0.01em">Who sees it</span><span style="display: block; font-size: 14px; line-height: 1.35; color: #4A4340">The buyer and farmer of each order on this trip, only for their part.</span></span></li>
+      <li style="display: flex; gap: 12px; align-items: flex-start"><span style="width: 36px; height: 36px; border-radius: 14px; background: #F5F3F1; color: #1A1516; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg></span><span><span style="display: block; font-size: 15px; font-weight: 800; letter-spacing: -0.01em">How often</span><span style="display: block; font-size: 14px; line-height: 1.35; color: #4A4340">About once an hour and at each scan. Every 15 min near a drop-off.</span></span></li>
+      <li style="display: flex; gap: 12px; align-items: flex-start"><span style="width: 36px; height: 36px; border-radius: 14px; background: #F5F3F1; color: #1A1516; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span><span><span style="display: block; font-size: 15px; font-weight: 800; letter-spacing: -0.01em">When it stops</span><span style="display: block; font-size: 14px; line-height: 1.35; color: #4A4340">By itself when your last drop-off is confirmed. Pause any time.</span></span></li>
+      <li style="display: flex; gap: 12px; align-items: flex-start"><span style="width: 36px; height: 36px; border-radius: 14px; background: #F5F3F1; color: #1A1516; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M8.5 16.5a5 5 0 0 1 7 0"></path><path d="M5 12.5a10 10 0 0 1 4-2.3"></path><path d="M15 10.2a10 10 0 0 1 4 2.3"></path></svg></span><span><span style="display: block; font-size: 15px; font-weight: 800; letter-spacing: -0.01em">No network?</span><span style="display: block; font-size: 14px; line-height: 1.35; color: #4A4340">Check-ins wait on the phone and send later. About 3 KB a day.</span></span></li>
+    </ul>
+
+    <p style="margin: 0; font-size: 13px; color: #5C5450">Android shows a notification while sharing is on.</p>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <a href="TruckerTripModeM.dc.html" style="height: 54px; border-radius: 999px; background: #F0873A; color: #1A1516; text-decoration: none; font-size: 16px; font-weight: 800; display: flex; align-items: center; justify-content: center">Share trip location</a>
+      <a href="TruckerTripModeM.dc.html" style="height: 46px; border-radius: 999px; border: 1px solid #8E857E; color: #1A1516; text-decoration: none; font-size: 14px; font-weight: 700; display: flex; align-items: center; justify-content: center">Not now, scans only</a>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844}}">
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+
+
+</body></html>

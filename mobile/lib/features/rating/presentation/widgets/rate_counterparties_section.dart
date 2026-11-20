@@ -93,7 +93,6 @@ class _RateCounterpartiesSectionState extends State<RateCounterpartiesSection> {
   Widget build(BuildContext context) {
     if (_loading) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
 
     // Everything already rated → confirmation line.
     if (_farmerRated && (!_hasTrucker || _truckerRated)) {
@@ -105,11 +104,26 @@ class _RateCounterpartiesSectionState extends State<RateCounterpartiesSection> {
             size: 18,
           ),
           const SizedBox(width: 8),
-          Text(l10n.alreadyRated, style: theme.textTheme.bodyMedium),
+          Expanded(
+            child: Text(
+              l10n.alreadyRated,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.ink,
+              ),
+            ),
+          ),
         ],
       );
     }
 
+    // Buyer delivered board (page M): rating is the black second button,
+    // a 54 px pill with white ink.
+    final rateStyle = FilledButton.styleFrom(
+      backgroundColor: AppTheme.ink,
+      foregroundColor: Colors.white,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -118,7 +132,8 @@ class _RateCounterpartiesSectionState extends State<RateCounterpartiesSection> {
         if (!_farmerRated &&
             widget.farmerId.isNotEmpty &&
             widget.farmerName != deletedUserSentinel) ...[
-          OutlinedButton.icon(
+          FilledButton.icon(
+            style: rateStyle,
             onPressed: () => _rate(
               widget.farmerId,
               'farmer',
@@ -126,16 +141,14 @@ class _RateCounterpartiesSectionState extends State<RateCounterpartiesSection> {
             ),
             icon: const Icon(Icons.star_outline),
             label: Text(l10n.rateFarmer),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
           ),
           const SizedBox(height: 12),
         ],
         if (_hasTrucker &&
             !_truckerRated &&
             widget.truckerName != deletedUserSentinel) ...[
-          OutlinedButton.icon(
+          FilledButton.icon(
+            style: rateStyle,
             onPressed: () => _rate(
               widget.truckerId!,
               'trucker',
@@ -143,9 +156,6 @@ class _RateCounterpartiesSectionState extends State<RateCounterpartiesSection> {
             ),
             icon: const Icon(Icons.star_outline),
             label: Text(l10n.rateTrucker),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
           ),
           const SizedBox(height: 12),
         ],

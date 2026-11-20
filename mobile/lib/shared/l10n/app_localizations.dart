@@ -640,6 +640,90 @@ abstract class AppLocalizations {
   /// **'Forgot Password?'**
   String get forgotPassword;
 
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Screen reader name of the Farmer, Trucker, Buyer switch; the switch only dresses the screen
+  ///
+  /// In en, this message translates to:
+  /// **'Your role'**
+  String get loginYourRole;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Login button while the Farmer look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Login as Farmer'**
+  String get loginAsFarmer;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Login button while the Trucker look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Login as Trucker'**
+  String get loginAsTrucker;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Login button while the Buyer look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Login as Buyer'**
+  String get loginAsBuyer;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Line above the welcome title while the Farmer look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Sell your harvest and follow every order'**
+  String get loginTaglineFarmer;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Line above the welcome title while the Trucker look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Fill your truck and get paid on delivery'**
+  String get loginTaglineTrucker;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Line above the welcome title while the Buyer look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Find crops and transport in one place'**
+  String get loginTaglineBuyer;
+
+  /// Design canvas page M, Telebirr payment. am and om machine drafted, native review owed. Status card while the app waits for the buyer to approve in Telebirr
+  ///
+  /// In en, this message translates to:
+  /// **'You need to approve the payment in Telebirr. Then the money is held in escrow until you confirm delivery.'**
+  String get orderCheckoutApproveNote;
+
+  /// Design canvas page M, payment failed state. am and om machine drafted, native review owed. Pill above the title
+  ///
+  /// In en, this message translates to:
+  /// **'Not paid'**
+  String get paymentNotPaidPill;
+
+  /// Design canvas page M, payment failed state. am and om machine drafted, native review owed. Title
+  ///
+  /// In en, this message translates to:
+  /// **'Payment did not go through'**
+  String get paymentFailedTitle;
+
+  /// Design canvas page M, payment failed state. am and om machine drafted, native review owed. Explanation under the title
+  ///
+  /// In en, this message translates to:
+  /// **'No money was taken from your Telebirr account, and your order is still saved.'**
+  String get paymentFailedBody;
+
+  /// Design canvas page M, payment failed state. am and om machine drafted, native review owed. Main button: start the payment again
+  ///
+  /// In en, this message translates to:
+  /// **'Try payment again'**
+  String get paymentTryAgain;
+
+  /// Design canvas page M, payment offline state. am and om machine drafted, native review owed. Explanation under the title No internet connection
+  ///
+  /// In en, this message translates to:
+  /// **'Payment needs a connection. Your order is saved on this phone.'**
+  String get paymentOfflineBody;
+
+  /// Design canvas page M, payment offline state. am and om machine drafted, native review owed. Second button: leave the payment and show the order
+  ///
+  /// In en, this message translates to:
+  /// **'Back to order'**
+  String get paymentBackToOrder;
+
   /// Get started button
   ///
   /// In en, this message translates to:
@@ -952,12 +1036,6 @@ abstract class AppLocalizations {
   /// **'Select Crop Type'**
   String get selectCropType;
 
-  /// Quantity input label in quintals
-  ///
-  /// In en, this message translates to:
-  /// **'Quantity (quintals)'**
-  String get quantityInQuintals;
-
   /// Price input label in Ethiopian Birr per kg
   ///
   /// In en, this message translates to:
@@ -1192,12 +1270,6 @@ abstract class AppLocalizations {
   /// **'My Trips'**
   String get myTrips;
 
-  /// Trip card load bar: paid quintals out of the truck's capacity
-  ///
-  /// In en, this message translates to:
-  /// **'{booked} of {capacity} quintals booked'**
-  String listsTripBooked(String booked, String capacity);
-
   /// Short hint of the origin field in the trips route filter
   ///
   /// In en, this message translates to:
@@ -1251,18 +1323,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Departure Date'**
   String get departureDate;
-
-  /// Label for truck capacity input in quintals
-  ///
-  /// In en, this message translates to:
-  /// **'Capacity (quintals)'**
-  String get capacity;
-
-  /// Label for price per quintal input in Ethiopian Birr
-  ///
-  /// In en, this message translates to:
-  /// **'Price per Quintal (ETB)'**
-  String get pricePerQuintal;
 
   /// Trip status label when trip is open for booking
   ///
@@ -1359,12 +1419,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Capacity is required'**
   String get capacityRequired;
-
-  /// Validation error for out-of-range capacity value
-  ///
-  /// In en, this message translates to:
-  /// **'Capacity must be between 0.1 and 1000 quintals'**
-  String get invalidCapacity;
 
   /// Validation error for out-of-range price value
   ///
@@ -4033,7 +4087,7 @@ abstract class AppLocalizations {
   /// Subtitle on splash/landing screen
   ///
   /// In en, this message translates to:
-  /// **'One platform for farmers, truckers, and buyers — with secure escrow.'**
+  /// **'One platform for farmers, truckers, and buyers, with secure escrow.'**
   String get splashSubtitle;
 
   /// Order status label for funded/paid orders
@@ -4749,6 +4803,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'= {count} quintals'**
   String quintalEquivalent(String count);
+
+  /// Design canvas page M (specs/design-canvas): kilograms lead everywhere and the quintals follow in parentheses, in smaller muted text ("2,800 kg left (28 quintals)"). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'({count} quintals)'**
+  String quintalsInParens(String count);
+
+  /// Exactly 100 kg: the singular of quintalsInParens. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'(1 quintal)'**
+  String get oneQuintalInParens;
 
   /// Error under the order quantity field when the buyer asks for more kg than the listing has
   ///
@@ -6448,12 +6514,6 @@ abstract class AppLocalizations {
   /// **'No orders booked yet'**
   String get tripNoBookings;
 
-  /// Room left on a trip
-  ///
-  /// In en, this message translates to:
-  /// **'{quintals} quintals free'**
-  String tripRemainingCapacity(String quintals);
-
   /// Match results: sheet title to pick one of several suggested trips
   ///
   /// In en, this message translates to:
@@ -7411,7 +7471,7 @@ abstract class AppLocalizations {
   /// LT-11 live trip (specs/features/live-trip.md section 4). Before pickup there is no map: it starts at the pickup scan
   ///
   /// In en, this message translates to:
-  /// **'The map appears when the driver scans the farmer\'s QR.'**
+  /// **'The map appears once the driver scans the farmer\'s QR.'**
   String get liveTripMapStartsAtPickup;
 
   /// LT-11 live trip (specs/features/live-trip.md section 4). A duration under an hour, used inside other live trip messages
@@ -7515,6 +7575,168 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'About {km} km to go, from the last check-in'**
   String liveTripKmToGo(String km);
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip: the control over the map that shows the whole route from the pickup; am and om words from the LiveTripAm and LiveTripOm boards
+  ///
+  /// In en, this message translates to:
+  /// **'Whole route'**
+  String get liveTripWholeRoute;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip: screen reader hint of the whole route control when the whole route is shown: tapping returns to the truck and the road ahead. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Near the truck'**
+  String get liveTripNearTruck;
+
+  /// Design canvas page M (specs/design-canvas). Web deliveries pane: the name of the plus button that magnifies the map (screen reader label and tooltip). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom in'**
+  String get liveTripZoomIn;
+
+  /// Design canvas page M (specs/design-canvas). Web deliveries pane: the name of the minus button that shows more of the map (screen reader label and tooltip). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom out'**
+  String get liveTripZoomOut;
+
+  /// Design canvas page M (specs/design-canvas). Buyer trip log, pickup proof: the link that opens the pickup photo larger. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'View photo'**
+  String get liveTripViewPhoto;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip: screen reader label of the map legend. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Map legend'**
+  String get liveTripLegendLabel;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip, map legend: the solid trail. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Driven'**
+  String get liveTripLegendDriven;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip, map legend: the dashed estimate to the drop-off. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Road ahead'**
+  String get liveTripLegendAhead;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip, map legend: the halo around the last check-in. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Truck is about here'**
+  String get liveTripLegendTruck;
+
+  /// Design canvas page M (specs/design-canvas). Live trip: the label under the Call button of a party; am and om words from the LiveTripAm and LiveTripOm boards
+  ///
+  /// In en, this message translates to:
+  /// **'Call'**
+  String get liveTripCall;
+
+  /// Design canvas page M (specs/design-canvas). Buyer delivered: under the escrow amount; {time} is the end of the 48 h check window with its date. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do. The payment is released when the check window ends, {time}, unless you report a problem.'**
+  String liveTripNothingToDoWindow(String time);
+
+  /// Design canvas page M (specs/design-canvas). Farmer order on the road: under the payment steps. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do now. {buyer} must confirm delivery. Then the 48 h check window runs and the money is paid out to you.'**
+  String liveTripFarmerNothingToDo(String buyer);
+
+  /// Design canvas page M (specs/design-canvas). Farmer, after the buyer confirmed delivery: under the payment steps and on the delivered card. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do. You are paid when the check window ends, {time}, unless the buyer reports a problem.'**
+  String liveTripFarmerNothingToDoWindow(String time);
+
+  /// Design canvas page M (specs/design-canvas). Buyer trip log, under the price total: the buyer's next step; {place} is the drop-off landmark. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Next: you scan the driver\'s QR at {place}.'**
+  String liveTripNextScanAt(String place);
+
+  /// Design canvas page M (specs/design-canvas). Buyer trip log, under the price total, when the drop-off has no landmark. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Next: you scan the driver\'s QR when the truck arrives.'**
+  String get liveTripNextScan;
+
+  /// Design canvas page M (specs/design-canvas). Buyer trip log, the transport line: the quintals inside the parentheses, before the rate. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} quintals'**
+  String liveTripQuintalsCount(String count);
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the on the road card: the pill over the map. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Open map'**
+  String get delivOpenMap;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the delivered card: opens the delivery. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get delivOpen;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the buyer's delivered card inside the 48 h window; {time} is its end. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do. The payment is released after {time} unless you report a problem.'**
+  String delivNothingToDoReleased(String time);
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the farmer's and the trucker's delivered card inside the 48 h window; {time} is its end. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do. You are paid after {time} unless the buyer reports a problem.'**
+  String delivNothingToDoPaid(String time);
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, empty state title (BuyerDeliveriesEmpty board). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing on the road yet'**
+  String get delivEmptyTitle;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the buyer's empty state. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When a driver picks up one of your orders, you can follow the truck here.'**
+  String get delivEmptyBodyBuyer;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the farmer's empty state. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When a driver picks up one of your crops, you can follow the truck here.'**
+  String get delivEmptyBodyFarmer;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the trucker's empty state. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When you pick up a load, its delivery shows here.'**
+  String get delivEmptyBodyTrucker;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the buyer's empty state: goes to the Market tab
+  ///
+  /// In en, this message translates to:
+  /// **'Find crops'**
+  String get delivEmptyFindCrops;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, empty state: goes to the Orders tab. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'See my orders'**
+  String get delivEmptySeeOrders;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the trucker's empty state: goes to the My Trips tab. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'See my trips'**
+  String get delivEmptySeeTrips;
 
   /// LT-11 live trip (specs/features/live-trip.md section 4). Under the arrival window when the last check-in is late
   ///
@@ -8297,12 +8519,6 @@ abstract class AppLocalizations {
   /// **'waiting for you'**
   String get homeTileWaitingForYou;
 
-  /// Fieldway design alignment (specs/design-canvas). Farmer home Escrow tile: line under the amount (the farmer's crop money in escrow)
-  ///
-  /// In en, this message translates to:
-  /// **'held for you'**
-  String get homeTileHeldForYou;
-
   /// Fieldway design alignment (specs/design-canvas). Buyer home Escrow tile: line under the amount (the buyer's money in escrow)
   ///
   /// In en, this message translates to:
@@ -8375,11 +8591,143 @@ abstract class AppLocalizations {
   /// **'Space on this trip'**
   String get tripSpaceTitle;
 
-  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card: booked quintals out of the truck's capacity; numbers
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: the capacity typed in kilograms is outside the limits (the same limits as 0.1 to 1000 quintals)
   ///
   /// In en, this message translates to:
-  /// **'{loaded} of {capacity} quintals loaded'**
-  String tripLoadedOf(String loaded, String capacity);
+  /// **'Capacity must be between 10 and 100,000 kg'**
+  String get invalidCapacityKg;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: label of the capacity field, entered in kilograms
+  ///
+  /// In en, this message translates to:
+  /// **'Capacity (kg)'**
+  String get capacityKg;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: label of the price field; 100 kg is one quintal
+  ///
+  /// In en, this message translates to:
+  /// **'Price per 100 kg (ETB)'**
+  String get pricePer100Kg;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: small muted line under the price field
+  ///
+  /// In en, this message translates to:
+  /// **'(per quintal)'**
+  String get perQuintalInParens;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail: small muted word after a price per 100 kg
+  ///
+  /// In en, this message translates to:
+  /// **'(quintal)'**
+  String get quintalInParens;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail and trip card: the trip's price
+  ///
+  /// In en, this message translates to:
+  /// **'{price} ETB per 100 kg'**
+  String tripPricePer100KgValue(String price);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip card: the unit after the price number
+  ///
+  /// In en, this message translates to:
+  /// **'ETB/100 kg'**
+  String get etbPer100KgShort;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail and trip mode: kilograms booked or loaded out of the truck's capacity; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} of {capacity} kg'**
+  String tripKgOfKg(String amount, String capacity);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail: room left on the truck in kilograms; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{left} kg left'**
+  String tripKgLeft(String left);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip card: kilograms booked out of the capacity; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{booked} of {capacity} kg booked'**
+  String tripKgBooked(String booked, String capacity);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip card and trip tile: room left on a trip in kilograms; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{kg} kg free'**
+  String tripKgFree(String kg);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail: above Accept transport on the booking that waits for the trucker
+  ///
+  /// In en, this message translates to:
+  /// **'It is your turn to answer. After you accept, contact opens.'**
+  String get tripYourTurnNote;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail: the link at the end of the pickup scan note
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get tripOpenLink;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip mode: under Check in now, what the button does
+  ///
+  /// In en, this message translates to:
+  /// **'Sends where you are now.'**
+  String get tripModeCheckInSends;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip mode: under Check in now, when the next check-in is due (a clock time)
+  ///
+  /// In en, this message translates to:
+  /// **'Next check-in is due by {time}.'**
+  String tripModeNextDueBy(String time);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip mode: the estimated arrival at the next stop (a clock time)
+  ///
+  /// In en, this message translates to:
+  /// **'about {time}'**
+  String tripModeAboutTime(String time);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip mode: the distance left to the next stop; a number
+  ///
+  /// In en, this message translates to:
+  /// **'about {km} km'**
+  String tripModeAboutKm(String km);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: title
+  ///
+  /// In en, this message translates to:
+  /// **'The scan did not work'**
+  String get qrFailedTitle;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: after the reason
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing was lost.'**
+  String get qrFailedNothingLost;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: the trucker leaves the scan
+  ///
+  /// In en, this message translates to:
+  /// **'Back to trip'**
+  String get qrFailedBackToTrip;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: note under the actions
+  ///
+  /// In en, this message translates to:
+  /// **'Scanning also works without network.'**
+  String get qrFailedOfflineNote;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: line beside Back at a pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup scan'**
+  String get qrFailedPickupScan;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: line beside Back at a delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery scan'**
+  String get qrFailedDeliveryScan;
 
   /// Fieldway design alignment (specs/design-canvas). Trip detail: under the capacity once paid orders are booked (trip-listing-api 2.0.0 freezes them)
   ///
@@ -8483,6 +8831,18 @@ abstract class AppLocalizations {
   /// **'Payments over 10,000 ETB need Fayda. Smaller ones ask for your password.'**
   String get checkoutConfirmItsYouNote;
 
+  /// Design canvas page M, PaymentM. Pill on the checkout's Confirm it's you card once the buyer confirmed for this payment. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed with Fayda'**
+  String get checkoutConfirmedWithFayda;
+
+  /// Design canvas page M, PaymentM. Pill on the checkout's Confirm it's you card once the buyer confirmed for this payment. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed with your password'**
+  String get checkoutConfirmedWithPassword;
+
   /// Fieldway design alignment (specs/design-canvas). My Crops card: paid orders out of the listing's quintals; numbers
   ///
   /// In en, this message translates to:
@@ -8494,6 +8854,102 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{quantity} quintals, no orders yet'**
   String myCropsNoOrdersYet(String quantity);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Farmer home header: the small line over the person's first name
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome back,'**
+  String get homeWelcomeBack;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Home cards: the pill or link that opens the card's page (a verb)
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get homeOpen;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Farmer home Escrow tile: the line under the amount
+  ///
+  /// In en, this message translates to:
+  /// **'held for you until the buyer confirms delivery'**
+  String get homeTileHeldUntilConfirmed;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Trucker home trip card: booked kilograms out of the truck's capacity; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{loaded} of {capacity} kg loaded'**
+  String homeTripLoadedKg(String loaded, String capacity);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. After a kilogram share, the same share in quintals, small and muted; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'({part} of {total} quintals)'**
+  String quintalsOfInParens(String part, String total);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Trucker home Payments row: the transport pay held in escrow; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} ETB in escrow'**
+  String homePaymentsInEscrow(String amount);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops card: paid orders out of the listing's kilograms; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{ordered} of {total} kg ordered'**
+  String myCropsOrderedOfKg(String ordered, String total);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops card: after the listing's kilograms, nobody has paid an order on it
+  ///
+  /// In en, this message translates to:
+  /// **'no orders yet'**
+  String get myCropsNoOrdersShort;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops with no listing: the title under the drawing
+  ///
+  /// In en, this message translates to:
+  /// **'No crops listed yet'**
+  String get myCropsEmptyTitle;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops with no listing: the line under the title
+  ///
+  /// In en, this message translates to:
+  /// **'List your first crop so buyers can find it and send you orders.'**
+  String get myCropsEmptyBody;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops with no listing: the orange button that opens Create listing
+  ///
+  /// In en, this message translates to:
+  /// **'List a crop'**
+  String get myCropsEmptyAction;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Create and edit listing: the quantity field's label, kilograms
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity (kg)'**
+  String get quantityInKg;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. The kilogram unit after a number field
+  ///
+  /// In en, this message translates to:
+  /// **'kg'**
+  String get kgUnit;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Create and edit listing: the typed kilograms in quintals, short, beside the unit; a number
+  ///
+  /// In en, this message translates to:
+  /// **'({count} q)'**
+  String quintalsShortInParens(String count);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Create and edit listing: the quantity is under one kilogram
+  ///
+  /// In en, this message translates to:
+  /// **'Enter at least 1 kg.'**
+  String get quantityKgTooSmall;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Create and edit listing: the quantity is over the server's limit (10,000 quintals)
+  ///
+  /// In en, this message translates to:
+  /// **'Enter at most 1,000,000 kg.'**
+  String get quantityKgTooLarge;
 
   /// Fieldway design alignment (specs/design-canvas). Create trip: under the departure date; the server refuses new orders on a trip leaving within 24 hours (ESC-15/17)
   ///
@@ -8794,6 +9250,168 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{quantity} quintals left'**
   String marketQuintalsLeft(String quantity);
+
+  /// Action needed card (Home, and the buyer's Orders tab): the black pill that opens the waiting order. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get actionOpen;
+
+  /// Order detail, Who has agreed: the pill on another party's row while their answer is awaited; {time} is a clock time, with the day when not today. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Answer due {time}'**
+  String commitmentAnswerDue(String time);
+
+  /// Order detail: names the farmer inside the buyer's waiting note when the farmer has no shown name. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'the farmer'**
+  String get commitmentTheFarmer;
+
+  /// Order detail: names the trucker inside the buyer's waiting note when the trucker has no shown name. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'the trucker'**
+  String get commitmentTheTrucker;
+
+  /// Order detail: names the farmer inside the buyer's waiting note ("Now waiting for Almaz Bekele, the farmer, to answer"). Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{name}, the farmer,'**
+  String commitmentWhoFarmer(String name);
+
+  /// Order detail: names the trucker inside the buyer's waiting note ("Now waiting for Dawit Tesfaye, the trucker, to answer"). Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{name}, the trucker,'**
+  String commitmentWhoTrucker(String name);
+
+  /// Order detail, buyer: who the paid order waits for and by when; the buyer has nothing to do. {who} is the party with their role. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Now waiting for {who} to answer by {time}. You do not need to do anything.'**
+  String commitmentBuyerWaitingOnBy(String who, String time);
+
+  /// Order detail, buyer: who the paid order waits for, when the order carries no deadline; the buyer has nothing to do. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Now waiting for {who} to answer. You do not need to do anything.'**
+  String commitmentBuyerWaitingOn(String who);
+
+  /// Order detail, buyer: follows the waiting note while the farmer decides on an order with transport. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When the farmer accepts, the trucker is asked next.'**
+  String get commitmentThenTruckerAsked;
+
+  /// Order detail, buyer: follows the waiting note while the trucker decides. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When the trucker accepts, contact opens here.'**
+  String get commitmentContactOpensOnTruckerAccept;
+
+  /// Order detail, farmer answering a new order: under the farmer's own row; {time} is a clock time, with the day when not today. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'It is your turn: accept or reject by {time}.'**
+  String commitmentYourTurnBy(String time);
+
+  /// Order detail, farmer answering a new order that carries no deadline: under the farmer's own row. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'It is your turn: accept or reject.'**
+  String get commitmentYourTurn;
+
+  /// Order detail, farmer answering a new order with transport: what accepting does, after the your-turn sentence. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When you accept, the trucker is asked next and the buyer\'s payment stays in escrow.'**
+  String get commitmentFarmerAcceptThenTrucker;
+
+  /// Order detail, farmer answering a new order the buyer collects: what accepting does, after the your-turn sentence. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When you accept, the buyer\'s payment stays in escrow.'**
+  String get commitmentFarmerAcceptEscrowStays;
+
+  /// Farmer's confirm step before rejecting an order: the sheet's title. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Reject this order?'**
+  String get rejectConfirmTitle;
+
+  /// Farmer's confirm step before rejecting an order: what rejecting means for the buyer and their money. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer is told you cannot fill this order, and their payment is refunded from escrow.'**
+  String get rejectConfirmBody;
+
+  /// Farmer's confirm step before rejecting an order: the reason the farmer just picked. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Reason: {reason}'**
+  String rejectConfirmReason(String reason);
+
+  /// Farmer's confirm step before rejecting an order: the red destructive button. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Yes, reject order'**
+  String get rejectConfirmYes;
+
+  /// Farmer's confirm step before rejecting an order: the way back, nothing is rejected. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep order'**
+  String get rejectConfirmKeep;
+
+  /// Order detail contact row: the label under the round Message button. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Message'**
+  String get contactMessageLabel;
+
+  /// Place order, under the quantity: the chosen trip has room for it; {quantity} is the room left as a formatted kg amount with its unit, the quintals follow in parentheses. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'fits this trip, {quantity} left'**
+  String placeOrderFitsTripKg(String quantity);
+
+  /// Place order, under the quantity: the chosen trip has no room for it; {quantity} is the room left as a formatted kg amount with its unit, the quintals follow in parentheses. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'more than this trip has room for, {quantity} left'**
+  String placeOrderExceedsTripKg(String quantity);
+
+  /// Suggested transport card: the trip's price per quintal in birr, in parentheses under the price per kg ("1.50 ETB/kg (150/quintal)"). Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'({price}/quintal)'**
+  String pricePerQuintalInParens(String price);
+
+  /// Place Order transport row: the trip's price per kg first, the price per quintal in parentheses ("1.50 ETB per kg (150 per quintal)"). Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{perKg} ETB per kg ({perQuintal} per quintal)'**
+  String transportPricePerKgAndQuintal(String perKg, String perQuintal);
+
+  /// Create buying intent: label of the quantity field; the buyer types kilograms, the app stores quintals. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity needed (kg)'**
+  String get quantityNeededKg;
+
+  /// Find Crops card title after the crop: what the listing still has, in kilograms ("2,800 kg left"); {quantity} is a formatted kg amount with its unit. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{quantity} left'**
+  String marketKgLeft(String quantity);
+
+  /// Find Crops transport pill and suggested transport line: the room left on the trip in kilograms ("1,800 kg room"); {quantity} is a formatted kg amount with its unit. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{quantity} room'**
+  String marketKgRoom(String quantity);
 
   /// Fieldway design alignment (specs/design-canvas). Find Crops: the header button that shows or hides the search box and the price range
   ///

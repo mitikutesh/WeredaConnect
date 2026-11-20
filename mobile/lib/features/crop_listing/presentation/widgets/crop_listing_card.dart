@@ -134,7 +134,7 @@ class _StatusChip extends StatelessWidget {
           AppTheme.statusWarning,
           l10n.listingStatusReserved
         ),
-      ListingStatus.draft => (AppTheme.textMuted, l10n.listingStatusDraft),
+      ListingStatus.draft => (AppTheme.slate, l10n.listingStatusDraft),
       ListingStatus.sold => (AppTheme.statusInfo, l10n.listingStatusSold),
       ListingStatus.expired => (
           AppTheme.statusError,

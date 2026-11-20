@@ -91,6 +91,7 @@ void main() {
   Future<void> pump(
     WidgetTester tester, {
     Future<void> Function(BuildContext, Delivery)? onScan,
+    String? note,
   }) async {
     await tester.pumpWidget(
       MultiBlocProvider(
@@ -103,7 +104,11 @@ void main() {
           supportedLocales: AppLocalizations.supportedLocales,
           locale: const Locale('en'),
           home: Scaffold(
-            body: TripPickupScans(trip: _trip(), onScanPickup: onScan),
+            body: TripPickupScans(
+              trip: _trip(),
+              note: note,
+              onScanPickup: onScan,
+            ),
           ),
         ),
       ),
@@ -148,12 +153,49 @@ void main() {
     ).called(2);
   });
 
+  // TripDetailM: the black note with "Open" at its end.
+  testWidgets('one waiting pickup: the note with Open at its end',
+      (tester) async {
+    signIn('trucker-001', UserRole.trucker);
+    when(
+      () => repository.getDeliveriesByTrip('trip-001', userId: 'trucker-001'),
+    ).thenAnswer((_) async => [_delivery('d-1')]);
+    final scanned = <String>[];
+
+    await pump(
+      tester,
+      note: l10n.tripScanAtPickupNote,
+      onScan: (_, d) async => scanned.add(d.deliveryId),
+    );
+
+    expect(find.text(l10n.tripScanAtPickupNote), findsOneWidget);
+    expect(find.text(l10n.tripOpenLink), findsOneWidget);
+    final open = find.byKey(const Key('trip_scan_pickup_d-1'));
+    expect(tester.getSize(open).height, greaterThanOrEqualTo(56));
+    expect(tester.getSize(open).width, greaterThanOrEqualTo(48));
+    await tester.tap(open);
+    await tester.pumpAndSettle();
+    expect(scanned, ['d-1']);
+  });
+
+  testWidgets('the note alone while no pickup waits', (tester) async {
+    signIn('trucker-001', UserRole.trucker);
+    when(
+      () => repository.getDeliveriesByTrip('trip-001', userId: 'trucker-001'),
+    ).thenAnswer((_) async => []);
+
+    await pump(tester, note: l10n.tripScanAtPickupNote);
+
+    expect(find.text(l10n.tripScanAtPickupNote), findsOneWidget);
+    expect(find.text(l10n.tripOpenLink), findsNothing);
+  });
+
   testWidgets('nothing for anyone but the trip owner', (tester) async {
     signIn('buyer-001', UserRole.buyer);
 
     await pump(tester);
 
-    expect(find.byType(FilledButton), findsNothing);
+    expect(find.byKey(const Key('trip_pickup_note')), findsNothing);
     verifyNever(
       () => repository.getDeliveriesByTrip(any(), userId: any(named: 'userId')),
     );
@@ -167,6 +209,6 @@ void main() {
 
     await pump(tester);
 
-    expect(find.byType(FilledButton), findsNothing);
+    expect(find.byKey(const Key('trip_pickup_note')), findsNothing);
   });
 }

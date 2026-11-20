@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/database/schemas/order.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/features/delivery_verification/data/verification_type.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_scan_screen.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_timeline.dart';
 import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
 import 'package:wereda_connect/features/live_trip/domain/models/track_result.dart';
+import 'package:wereda_connect/features/live_trip/presentation/map/track_map_painter.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/live_trip_screen.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/live_trip_parts.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/trip_log_screen.dart';
@@ -222,6 +226,139 @@ void main() {
     });
   });
 
+  // Design canvas page M, the Buyer live trip board.
+  group('page M', () {
+    // The control's words (the test font is too wide for them to show
+    // beside the crop pill; its screen reader label always carries them).
+    Finder semanticsLabelled(String label) => find.byWidgetPredicate(
+          (w) => w is Semantics && w.properties.label == label,
+        );
+
+    testWidgets('the legend says what the map draws', (tester) async {
+      await pumpView(tester);
+      final legend = find.byKey(const Key('live_trip_legend'));
+      expect(legend, findsOneWidget);
+      for (final word in ['Driven', 'Road ahead', 'Truck is about here']) {
+        expect(
+          find.descendant(of: legend, matching: find.text(word)),
+          findsOneWidget,
+        );
+      }
+    });
+
+    testWidgets('Whole route shows the whole route, and back', (tester) async {
+      await pumpView(tester);
+      TrackMap map() => tester.widget<TrackMap>(find.byType(TrackMap));
+      final control = find.byKey(const Key('live_trip_whole_route'));
+      expect(semanticsLabelled('Whole route'), findsOneWidget);
+      // A phone starts on the truck and the road ahead.
+      expect(map().focus, TrackMapFocus.roadAhead);
+
+      await tester.tap(control);
+      await tester.pump();
+      expect(map().focus, TrackMapFocus.wholeRoute);
+
+      await tester.tap(control);
+      await tester.pump();
+      expect(map().focus, TrackMapFocus.roadAhead);
+    });
+
+    testWidgets('arriving: the last kilometres, no Whole route',
+        (tester) async {
+      tracks.track = arrivingTrack();
+      await pumpView(tester);
+      expect(find.byKey(const Key('live_trip_whole_route')), findsNothing);
+      expect(find.byKey(const Key('live_trip_legend')), findsNothing);
+      expect(
+        tester.widget<TrackMap>(find.byType(TrackMap)).focus,
+        TrackMapFocus.roadAhead,
+      );
+    });
+
+    testWidgets('the current step is orange with a black edge', (tester) async {
+      await pumpView(tester);
+      final bar = tester.widget<Container>(
+        find.byKey(const Key('trip_progress_current')),
+      );
+      final decoration = bar.decoration! as BoxDecoration;
+      expect(decoration.color, AppTheme.orange);
+      expect(decoration.border, isNotNull);
+    });
+
+    testWidgets('Message and Call for the driver once contact is open',
+        (tester) async {
+      await pumpView(tester);
+      expect(find.text('Message'), findsOneWidget);
+      expect(find.text('Call'), findsOneWidget);
+      expect(
+        find.byKey(const Key('party_message_$truckerId')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('party_call_$truckerId')), findsOneWidget);
+    });
+
+    testWidgets('before the order opens contact there is no Message or Call',
+        (tester) async {
+      deps.order = liveOrder(status: OrderStatus.pendingPayment);
+      await pumpView(tester);
+      expect(find.text('Dawit Tesfaye'), findsOneWidget);
+      expect(find.text('Message'), findsNothing);
+      expect(find.text('Call'), findsNothing);
+    });
+
+    testWidgets('without the order on the device there is no Call either',
+        (tester) async {
+      deps.order = null;
+      tracks.track = arrivingTrack();
+      await pumpView(tester);
+      expect(find.text("Scan driver's QR"), findsOneWidget);
+      expect(find.byKey(const Key('live_trip_arriving_call')), findsNothing);
+      expect(find.text('Call'), findsNothing);
+    });
+
+    testWidgets('arriving: Call beside Scan once contact is open',
+        (tester) async {
+      tracks.track = arrivingTrack();
+      await pumpView(tester);
+      expect(find.byKey(const Key('live_trip_arriving_call')), findsOneWidget);
+    });
+
+    testWidgets('delivered: nothing for the buyer to do', (tester) async {
+      deps.escrow = heldEscrow();
+      tracks.track = DeliveryTrack.fromJson(endedTrackJson());
+      await pumpView(
+        tester,
+        delivery: liveDelivery(
+          status: DeliveryStatus.delivered,
+          confirmedAt: at(11, 2),
+        ),
+        clock: () => at(12, 0),
+      );
+      expect(
+        find.text(
+          'Nothing for you to do. The payment is released when the check '
+          'window ends, Oct 29 14:02, unless you report a problem.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('om: Karaa guutuu agarsiisi, Ergaa, Bilbili', (tester) async {
+      await pumpView(tester, locale: const Locale('om'));
+      expect(semanticsLabelled('Karaa guutuu agarsiisi'), findsOneWidget);
+      expect(find.text('Ergaa'), findsOneWidget);
+      expect(find.text('Bilbili'), findsOneWidget);
+    });
+
+    testWidgets('am: the board\'s words for the route, Message and Call',
+        (tester) async {
+      await pumpView(tester, locale: const Locale('am'));
+      expect(semanticsLabelled('ሙሉ መንገዱን አሳይ'), findsOneWidget);
+      expect(find.text('መልእክት'), findsOneWidget);
+      expect(find.text('ይደውሉ'), findsOneWidget);
+    });
+  });
+
   group('before pickup', () {
     testWidgets('the map starts at pickup: no map, no trail', (tester) async {
       tracks.track = DeliveryTrack(
@@ -234,7 +371,7 @@ void main() {
         delivery: liveDelivery(status: DeliveryStatus.pending),
       );
       expect(
-        find.text("The map appears when the driver scans the farmer's QR."),
+        find.text("The map appears once the driver scans the farmer's QR."),
         findsOneWidget,
       );
       expect(find.byType(TrackMap), findsNothing);
@@ -289,13 +426,163 @@ void main() {
     );
   });
 
+  // Buyer · Live deliveries board (web): zoom in and zoom out over the
+  // pane's map, above the whole route control.
+  group('wide: zoom buttons', () {
+    Future<void> pumpWide(WidgetTester tester) async {
+      await pumpView(tester);
+      tester.view.physicalSize = const Size(900, 1800);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    double zoomOf(WidgetTester tester) =>
+        tester.widget<TrackMap>(find.byType(TrackMap)).zoom;
+    final zoomIn = find.byKey(const Key('live_trip_zoom_in'));
+    final zoomOut = find.byKey(const Key('live_trip_zoom_out'));
+
+    testWidgets('a phone has none', (tester) async {
+      await pumpView(tester);
+      expect(zoomIn, findsNothing);
+      expect(zoomOut, findsNothing);
+      expect(zoomOf(tester), 1);
+    });
+
+    testWidgets('in, out and back, within the range', (tester) async {
+      await pumpWide(tester);
+      expect(zoomOf(tester), 1);
+      // The three square controls in the board's order, top to bottom.
+      final whole = find.byKey(const Key('live_trip_whole_route'));
+      expect(
+        tester.getTopLeft(zoomIn).dy,
+        lessThan(tester.getTopLeft(zoomOut).dy),
+      );
+      expect(
+        tester.getTopLeft(zoomOut).dy,
+        lessThan(tester.getTopLeft(whole).dy),
+      );
+
+      await tester.tap(zoomIn);
+      await tester.pump();
+      expect(zoomOf(tester), 1.5);
+      await tester.tap(zoomIn);
+      await tester.pump();
+      expect(zoomOf(tester), 2.25);
+      await tester.tap(zoomOut);
+      await tester.pump();
+      expect(zoomOf(tester), 1.5);
+
+      // Four steps in and no further.
+      for (var i = 0; i < 6; i++) {
+        await tester.tap(zoomIn);
+        await tester.pump();
+      }
+      expect(zoomOf(tester), closeTo(5.0625, 1e-9));
+      // All the way out and no further.
+      for (var i = 0; i < 6; i++) {
+        await tester.tap(zoomOut);
+        await tester.pump();
+      }
+      expect(zoomOf(tester), 1);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('named for a screen reader, off at the end of the range',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpWide(tester);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Zoom in')),
+        matchesSemantics(
+          label: 'Zoom in',
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          isFocusable: true,
+          hasTapAction: true,
+          hasFocusAction: true,
+        ),
+      );
+      // Nothing to zoom out of yet.
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Zoom out')),
+        matchesSemantics(
+          label: 'Zoom out',
+          isButton: true,
+          hasEnabledState: true,
+        ),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('reachable and pressed from the keyboard', (tester) async {
+      await pumpWide(tester);
+      final focus = Focus.of(
+        tester.element(
+          find.descendant(of: zoomIn, matching: find.byType(SizedBox)).first,
+        ),
+      );
+      focus.requestFocus();
+      await tester.pump();
+      expect(focus.hasPrimaryFocus, isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(zoomOf(tester), 1.5);
+    });
+
+    testWidgets('a new frame starts unzoomed', (tester) async {
+      await pumpWide(tester);
+      await tester.tap(zoomIn);
+      await tester.pump();
+      expect(zoomOf(tester), 1.5);
+      await tester.tap(find.byKey(const Key('live_trip_whole_route')));
+      await tester.pump();
+      expect(zoomOf(tester), 1);
+    });
+
+    testWidgets('the wide chip stays at the map\'s top left', (tester) async {
+      await pumpWide(tester);
+      final map = tester.getTopLeft(find.byType(LiveTripMap));
+      final chip = tester.getTopLeft(find.byType(CheckInChip));
+      expect(chip - map, const Offset(12, 16));
+    });
+  });
+
+  // Buyer live trip board: on a phone the chip sits beside the truck.
+  testWidgets('phone: the check-in chip sits beside the truck', (tester) async {
+    await pumpView(tester);
+    final map = tester.getRect(find.byType(LiveTripMap));
+    final chip = tester.getRect(find.byType(CheckInChip));
+    final painter = tester
+        .widget<CustomPaint>(
+          find.descendant(
+            of: find.byType(TrackMap),
+            matching: find.byType(CustomPaint),
+          ),
+        )
+        .painter! as TrackMapPainter;
+    final truck = TrackMapFrame.of(
+          track: painter.track,
+          now: painter.now,
+          size: map.size,
+          focus: painter.focus,
+        )!
+            .truck! +
+        map.topLeft;
+    final square = Rect.fromCircle(center: truck, radius: 15);
+    expect(chip.overlaps(square), isFalse);
+    expect(chip.inflate(8.5).overlaps(square), isTrue);
+    // Under the back button, the crop pill and "Whole route".
+    expect(chip.top - map.top, greaterThanOrEqualTo(76));
+  });
+
   group('arriving', () {
     testWidgets('within 5 km: the checklist and Scan driver\'s QR',
         (tester) async {
       tracks.track = arrivingTrack();
       await pumpView(tester);
       expect(find.text('Dawit Tesfaye is about 10 min away'), findsOneWidget);
-      expect(find.text('Before you scan'), findsOneWidget);
+      expect(find.text('BEFORE YOU SCAN'), findsOneWidget);
       expect(find.text('Check the crop is dry and clean'), findsOneWidget);
       expect(find.text('Arriving'), findsOneWidget);
 

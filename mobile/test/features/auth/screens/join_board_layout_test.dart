@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wereda_connect/core/config/environment.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -28,8 +29,8 @@ class MockAuthBloc extends Mock implements AuthBloc {}
 
 class FakeAuthEvent extends Fake implements AuthEvent {}
 
-/// The Join boards (specs/design-canvas/android: Welcome, RegisterRole,
-/// RegisterOtp) are one composition at every width: the phone column,
+/// The Join boards (specs/design-canvas: WelcomeM, RegisterRoleM,
+/// RegisterOtpM) are one composition at every width: the phone column,
 /// centred on a wide window, with no app bar and the action at the foot.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -96,8 +97,8 @@ void main() {
       expect(find.text('Works without network'), findsOneWidget);
       expect(find.byType(LanguageSegmentedPicker), findsOneWidget);
       expect(find.text("Don't have an account? Register"), findsOneWidget);
-      // No agriculture hero, no bar, no guest link: the board has none.
-      expect(find.byIcon(Icons.agriculture), findsNothing);
+      // The brand tile; no bar, no guest link: the board has none.
+      expect(find.byIcon(Icons.agriculture), findsOneWidget);
       expect(find.byType(AppBar), findsNothing);
       expect(find.text('Explore as Guest'), findsNothing);
     });
@@ -110,7 +111,6 @@ void main() {
 
       // One composition: the same pieces as on the phone, no hero panel.
       expect(find.text('Welcome to WeredaConnect'), findsOneWidget);
-      expect(find.byIcon(Icons.agriculture), findsNothing);
       expect(find.byType(Card), findsNothing);
 
       final picker = tester.getRect(find.byType(LanguageSegmentedPicker));
@@ -119,20 +119,20 @@ void main() {
       expect((picker.left - (1280 - picker.right)).abs(), lessThan(2));
     });
 
-    testWidgets('Register sits under the form card at the foot',
-        (tester) async {
+    testWidgets('Register sits under the form at the foot', (tester) async {
       useWindow(tester, const Size(390, 844));
       await tester.pumpWidget(app(const LoginScreen()));
       await tester.pumpAndSettle();
 
-      final login =
-          tester.getRect(find.widgetWithText(ElevatedButton, 'Login'));
+      final login = tester
+          .getRect(find.widgetWithText(ElevatedButton, 'Login as Farmer'));
       final register = tester.getRect(
         find.widgetWithText(OutlinedButton, "Don't have an account? Register"),
       );
       expect(register.top, greaterThan(login.bottom));
-      expect(register.height, 48);
-      expect(login.height, 52);
+      // Both are 54 tall pills: the orange action, the outlined Register.
+      expect(register.height, 54);
+      expect(login.height, 54);
     });
   });
 
@@ -150,18 +150,67 @@ void main() {
       // The language switch stays reachable.
       expect(find.byIcon(Icons.language), findsOneWidget);
 
-      // The dark Continue button, 56 tall, at the foot.
+      // The orange Continue pill (the theme's button, no local style), 54
+      // tall, at the foot.
       final button = find.widgetWithText(FilledButton, 'Continue');
       expect(button, findsOneWidget);
-      expect(tester.getSize(button).height, 56);
-      final style = tester.widget<FilledButton>(button).style!;
-      expect(
-        style.backgroundColor!.resolve({}),
-        AppTheme.soilDark,
-      );
+      expect(tester.getSize(button).height, 54);
+      expect(tester.widget<FilledButton>(button).style, isNull);
+      // Step 1 of 4: one black segment, three on the track.
+      Color? barColor(int index) => (tester
+              .widget<Container>(find.byKey(ValueKey('join_step_bar_$index')))
+              .decoration! as BoxDecoration)
+          .color;
+      expect(barColor(0), AppTheme.ink);
+      expect(barColor(1), AppTheme.track);
+      expect(barColor(3), AppTheme.track);
       expect(
         tester.getRect(button).bottom,
         greaterThan(tester.getRect(find.text('Select Role')).bottom),
+      );
+    });
+
+    testWidgets(
+        'each role card wears its own colours; the picked one is raised',
+        (tester) async {
+      useWindow(tester, const Size(390, 844));
+      await tester.pumpWidget(app(const RegistrationFlow()));
+      await tester.pumpAndSettle();
+
+      Finder card(UserRole role) =>
+          find.byKey(ValueKey('register_role_${role.name}'));
+      for (final role in UserRole.values) {
+        final widget = tester.widget<JoinChoiceCard>(card(role));
+        expect(widget.iconBackground, RoleColors.forRole(role).tint);
+        expect(widget.selected, isFalse);
+      }
+
+      await tester.tap(card(UserRole.trucker));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<JoinChoiceCard>(card(UserRole.trucker)).selected,
+        isTrue,
+      );
+      // Raised on paper: the picked card's Material is the paper grey.
+      final material = tester.widget<Material>(
+        find
+            .descendant(
+              of: card(UserRole.trucker),
+              matching: find.byType(Material),
+            )
+            .first,
+      );
+      expect(material.color, AppTheme.paper);
+      // The steps now wear the picked role's colours.
+      expect(
+        RoleColors.of(tester.element(find.text('Continue'))).primary,
+        RoleColors.trucker.primary,
+      );
+      // The other cards keep their own tints.
+      expect(
+        tester.widget<JoinChoiceCard>(card(UserRole.buyer)).iconBackground,
+        RoleColors.buyer.tint,
       );
     });
 
@@ -179,7 +228,9 @@ void main() {
 
     testWidgets('the Fayda step keeps its own button at the foot',
         (tester) async {
-      useWindow(tester, const Size(390, 844));
+      // Tall enough for the whole step in the test font (wider than the
+      // app's), so the note is not scrolled under the button.
+      useWindow(tester, const Size(390, 1100));
       await tester.pumpWidget(app(const RegistrationFlow()));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Farmer'));
@@ -240,7 +291,7 @@ void main() {
         ),
       );
       expect(verify.top, greaterThan(note.bottom));
-      expect(verify.height, 56);
+      expect(verify.height, 54);
       // At the foot of an 844 tall screen.
       expect(verify.bottom, greaterThan(780));
     });

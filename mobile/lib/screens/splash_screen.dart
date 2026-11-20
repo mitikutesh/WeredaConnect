@@ -9,9 +9,9 @@ import 'package:wereda_connect/shared/widgets/join_chrome.dart';
 
 /// Branded splash/landing screen shown on first launch.
 ///
-/// Fieldway: the chalk ground, the green wordmark tile from the Welcome
-/// board, the headline and subtitle in soil dark and muted steel, and a
-/// "Get started" button at the foot (52 tall, radius 16).
+/// The brand before sign-in (design canvas page M): a white ground, the
+/// black brand tile, the headline in black and the subtitle in slate, the
+/// language pills, and the orange "Get started" pill at the foot.
 class SplashScreen extends StatelessWidget {
   const SplashScreen({required this.onGetStarted, super.key});
 
@@ -26,7 +26,7 @@ class SplashScreen extends StatelessWidget {
     final languages = context.watch<LanguageProvider?>();
 
     return Scaffold(
-      backgroundColor: AppTheme.chalkBackground,
+      backgroundColor: AppTheme.ground,
       body: SafeArea(
         child: FwContentWidth(
           maxWidth: 480,
@@ -42,13 +42,13 @@ class SplashScreen extends StatelessWidget {
                       width: 40,
                       height: 40,
                       decoration: BoxDecoration(
-                        color: AppTheme.fieldGreen,
-                        borderRadius: BorderRadius.circular(12),
+                        color: AppTheme.ink,
+                        borderRadius: BorderRadius.circular(14),
                       ),
                       child: const Icon(
-                        Icons.route,
+                        Icons.agriculture,
                         color: Colors.white,
-                        size: 22,
+                        size: 25,
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -58,7 +58,7 @@ class SplashScreen extends StatelessWidget {
                         fontSize: 17,
                         fontWeight: FontWeight.w800,
                         letterSpacing: -0.3,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                   ],
@@ -70,11 +70,11 @@ class SplashScreen extends StatelessWidget {
                 Text(
                   l10n?.splashHeadline ?? 'Grow it. Move it.\nBuy it. Done.',
                   style: const TextStyle(
-                    fontSize: 36,
+                    fontSize: 42,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                     height: 1.1,
-                    letterSpacing: -1,
+                    letterSpacing: -1.4,
                   ),
                 ),
 
@@ -87,7 +87,7 @@ class SplashScreen extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                     height: 1.5,
                   ),
                 ),
@@ -101,7 +101,7 @@ class SplashScreen extends StatelessWidget {
 
             // ── Bottom CTA ─────────────────────────────────────────────
             footer: SizedBox(
-              height: 52,
+              // The orange pill, 54 tall (the theme's button).
               child: FilledButton.icon(
                 onPressed: onGetStarted,
                 iconAlignment: IconAlignment.end,
@@ -116,7 +116,7 @@ class SplashScreen extends StatelessWidget {
   }
 }
 
-/// The first screen's language choice (BUG-40): one button per language,
+/// The first screen's language choice (BUG-40): one pill per language,
 /// each named in its own script so it reads without knowing another. The
 /// pick applies at once and is kept as this device's language.
 class _LanguageChoice extends StatelessWidget {
@@ -130,14 +130,13 @@ class _LanguageChoice extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Padding(
-          padding: EdgeInsets.only(top: 12),
-          child: Icon(Icons.language, size: 22, color: AppTheme.mutedSteel),
+          padding: EdgeInsets.only(top: 13),
+          child: Icon(Icons.language, size: 22, color: AppTheme.slate),
         ),
         const SizedBox(width: 10),
         Expanded(
           child: Wrap(
             spacing: 8,
-            runSpacing: 8,
             children: [
               for (final entry in languages.availableLanguages)
                 _LanguageButton(
@@ -173,22 +172,21 @@ class _LanguageButton extends StatelessWidget {
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size(48, 48),
-          backgroundColor:
-              selected ? AppTheme.fieldGreenTint : AppTheme.surfaceWhite,
-          foregroundColor: AppTheme.soilDark,
+          // A 44 tall pill in a 48 tall hit area, the picked one black.
+          minimumSize: const Size(48, 44),
+          tapTargetSize: MaterialTapTargetSize.padded,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          backgroundColor: selected ? AppTheme.ink : Colors.transparent,
+          foregroundColor: selected ? Colors.white : AppTheme.inkSoft,
           side: BorderSide(
-            color: selected ? AppTheme.fieldGreen : AppTheme.borderLight,
-            width: selected ? 2 : 1,
+            color: selected ? AppTheme.ink : AppTheme.fieldBorder,
           ),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          textStyle: const TextStyle(
+          shape: const StadiumBorder(),
+          textStyle: TextStyle(
             fontFamily: AppTheme.fontFamily,
             fontFamilyFallback: AppTheme.ethiopicFontFallback,
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
+            fontSize: 14,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
           ),
         ),
         child: Text(name),

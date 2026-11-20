@@ -21,6 +21,7 @@ import 'package:wereda_connect/features/rating/domain/repositories/base_rating_r
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
@@ -175,7 +176,7 @@ void main() {
         'farmer-001',
       );
 
-      expect(find.text(en.commitmentTitle), findsOneWidget);
+      expect(find.text(en.commitmentTitle.toUpperCase()), findsOneWidget);
       expect(find.text(en.acceptOrder), findsOneWidget);
       expect(find.text(en.rejectOrder), findsOneWidget);
       expect(find.textContaining('Please answer by'), findsOneWidget);
@@ -211,11 +212,131 @@ void main() {
       await tester.tap(find.text(en.declineReasonPrice));
       await tester.pumpAndSettle();
 
+      // FarmerRejectConfirmM: the confirm step says what rejecting means
+      // for the buyer's money and names the reason; nothing is sent yet.
+      expect(find.text(en.rejectConfirmTitle), findsOneWidget);
+      expect(find.text(en.rejectConfirmBody), findsOneWidget);
+      expect(
+        find.text(en.rejectConfirmReason(en.declineReasonPrice)),
+        findsOneWidget,
+      );
+      verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+      // The destructive pill: red with white ink.
+      final yes = tester.widget<FilledButton>(
+        find.byKey(const Key('reject_confirm_yes')),
+      );
+      expect(
+        yes.style!.backgroundColor!.resolve({}),
+        AppTheme.statusError,
+      );
+      expect(yes.style!.foregroundColor!.resolve({}), Colors.white);
+
+      await tester.tap(find.text(en.rejectConfirmYes));
+      await tester.pumpAndSettle();
+
       final sent = verify(
         () => orderBloc.add(captureAny(that: isA<RejectOrder>())),
       ).captured.single as RejectOrder;
       expect(sent.declineReason, 'price');
       expect(sent.farmerId, 'farmer-001');
+      expect(find.text(en.rejectConfirmTitle), findsNothing);
+    });
+
+    // FarmerRejectConfirmM: the way back. "Keep order", or a dismiss of the
+    // confirm step, rejects nothing and leaves the answer buttons.
+    for (final (name, leave) in <(String, Future<void> Function(WidgetTester))>[
+      (
+        'Keep order',
+        (tester) => tester.tap(find.text(en.rejectConfirmKeep)),
+      ),
+      ('a dismiss', (tester) => tester.tapAt(const Offset(10, 10))),
+    ]) {
+      testWidgets('$name on the confirm step rejects nothing', (tester) async {
+        await show(
+          tester,
+          _order(OrderStatus.funded),
+          UserRole.farmer,
+          'farmer-001',
+        );
+        await tester.ensureVisible(find.text(en.rejectOrder));
+        await tester.tap(find.text(en.rejectOrder));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(en.declineReasonDate));
+        await tester.pumpAndSettle();
+        expect(find.text(en.rejectConfirmTitle), findsOneWidget);
+
+        await leave(tester);
+        await tester.pumpAndSettle();
+
+        expect(find.text(en.rejectConfirmTitle), findsNothing);
+        verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+        expect(find.text(en.acceptOrder), findsOneWidget);
+        expect(find.text(en.rejectOrder), findsOneWidget);
+      });
+    }
+
+    // FarmerOrderRequestM: under the farmer's own row, what is asked of
+    // them and by when, and what accepting does.
+    testWidgets('reads that it is their turn, and what accepting does',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      final note = find.byKey(const Key('commitment_your_turn_note'));
+      expect(note, findsOneWidget);
+      final text = tester.widget<Text>(
+        find.descendant(of: note, matching: find.byType(Text)).first,
+      );
+      final said = text.textSpan!.toPlainText();
+      expect(said, startsWith('It is your turn: accept or reject by '));
+      expect(said, endsWith(en.commitmentFarmerAcceptThenTrucker));
+      // The farmer's own row says it waits for them; the orange Accept
+      // leads the foot, over Reject.
+      expect(find.text(en.commitmentWaiting), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text(en.acceptOrder)).dy,
+        lessThan(tester.getTopLeft(find.text(en.rejectOrder)).dy),
+      );
+    });
+
+    testWidgets('a self-pickup order: accepting keeps the money in escrow',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded)
+          ..tripId = null
+          ..truckerId = null
+          ..truckerName = null
+          ..fulfillment = 'buyer_pickup'
+          ..truckerResponse = null,
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      expect(
+        find.textContaining(en.commitmentFarmerAcceptEscrowStays),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(en.commitmentFarmerAcceptThenTrucker),
+        findsNothing,
+      );
+    });
+
+    testWidgets('no turn note once the farmer has answered', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending'),
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      expect(find.byKey(const Key('commitment_your_turn_note')), findsNothing);
+      expect(find.byKey(const Key('commitment_waiting_on_note')), findsNothing);
     });
 
     testWidgets('dismissing the reasons rejects nothing', (tester) async {
@@ -244,7 +365,8 @@ void main() {
 
       expect(find.text(en.acceptOrder), findsNothing);
       expect(find.text(en.rejectOrder), findsNothing);
-      expect(find.textContaining('Waiting, answer due'), findsOneWidget);
+      // The trucker's row: the orange pill with when the answer is due.
+      expect(find.textContaining('Answer due '), findsOneWidget);
     });
 
     testWidgets('cancels without penalty after the transport fell through',
@@ -411,11 +533,122 @@ void main() {
     });
   });
 
+  // BuyerOrderDetailM: the buyer reads who the paid order waits for and
+  // that there is nothing for them to do; the farmer and the trucker do not.
+  group('buyer waiting note', () {
+    String said(WidgetTester tester) {
+      final note = find.byKey(const Key('commitment_waiting_on_note'));
+      expect(note, findsOneWidget);
+      return tester
+          .widget<Text>(
+            find.descendant(of: note, matching: find.byType(Text)).first,
+          )
+          .textSpan!
+          .toPlainText();
+    }
+
+    testWidgets(
+        'while the farmer decides: the farmer, by when, then the '
+        'trucker', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      final text = said(tester);
+      expect(
+        text,
+        startsWith('Now waiting for Farmer Fikru, the farmer, to answer by '),
+      );
+      expect(text, contains('You do not need to do anything.'));
+      expect(text, endsWith(en.commitmentThenTruckerAsked));
+      // Why it cannot be cancelled yet stays under it.
+      expect(find.text(en.commitmentBuyerWaitingNote), findsOneWidget);
+    });
+
+    testWidgets(
+        'while the trucker decides: the trucker, by when, then '
+        'contact opens', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending'),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      final text = said(tester);
+      expect(
+        text,
+        startsWith(
+          'Now waiting for Trucker Tesfaye, the trucker, to answer by ',
+        ),
+      );
+      expect(text, contains('You do not need to do anything.'));
+      expect(text, endsWith(en.commitmentContactOpensOnTruckerAccept));
+      // The farmer's answer is a pill, the trucker's the deadline pill.
+      // (The timeline has an "Accepted" step too.)
+      expect(find.text(en.commitmentAccepted), findsWidgets);
+      expect(find.textContaining('Answer due '), findsOneWidget);
+    });
+
+    testWidgets('a trucker without a name reads as "the trucker"',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending')
+          ..truckerName = '',
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      expect(
+        said(tester),
+        startsWith('Now waiting for the trucker to answer by '),
+      );
+    });
+
+    testWidgets('gone once everyone has agreed', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.accepted, farmer: 'accepted', trucker: 'accepted'),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      expect(find.byKey(const Key('commitment_waiting_on_note')), findsNothing);
+    });
+
+    for (final (role, userId) in [
+      (UserRole.farmer, 'farmer-001'),
+      (UserRole.trucker, 'trucker-001'),
+    ]) {
+      testWidgets('not shown to the ${role.name}', (tester) async {
+        await show(
+          tester,
+          _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending'),
+          role,
+          userId,
+        );
+
+        expect(
+          find.byKey(const Key('commitment_waiting_on_note')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('commitment_your_turn_note')),
+          findsNothing,
+        );
+      });
+    }
+  });
+
   // BUG-L5: the timeline said a step's state with a 4 px colour bar only.
   group('timeline step icons', () {
     Finder inTimeline(Finder matching) => find.descendant(
           of: find.ancestor(
-            of: find.text(en.orderTimeline),
+            of: find.text(en.orderTimeline.toUpperCase()),
             matching: find.byType(FwCard),
           ),
           matching: matching,
@@ -570,7 +803,7 @@ void main() {
       // (Tikimt 17, Onkoloolessa in Afaan Oromoo) first.
       const time = 'Onkoloolessa 17 (Onk 27) 5:00 ganama';
       expect(
-        find.text(withSmall24h(om.commitmentWaitingUntil(time), time, '11:00')),
+        find.text(withSmall24h(om.commitmentAnswerDue(time), time, '11:00')),
         findsOneWidget,
       );
     });

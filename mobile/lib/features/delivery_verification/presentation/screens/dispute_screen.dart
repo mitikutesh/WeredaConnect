@@ -246,7 +246,7 @@ class _DisputeScreenState extends State<DisputeScreen> {
                             style: const TextStyle(
                               fontSize: 13,
                               height: 1.5,
-                              color: AppTheme.mutedSteel,
+                              color: AppTheme.slate,
                             ),
                           ),
                         ],

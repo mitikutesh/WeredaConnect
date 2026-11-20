@@ -137,7 +137,7 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
                 style: const TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.soilDark,
+                  color: AppTheme.ink,
                 ),
               ),
             ),
@@ -171,8 +171,7 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
                     fontSize: 13,
                     height: 1.5,
                     fontWeight: note.strong ? FontWeight.w700 : FontWeight.w400,
-                    color:
-                        note.strong ? AppTheme.actionInk : AppTheme.mutedSteel,
+                    color: note.strong ? AppTheme.orangeInk : AppTheme.slate,
                   ),
                 ),
               ),
@@ -186,10 +185,10 @@ class _PickupCheckInCardState extends State<PickupCheckInCard> {
                   sentence: l10n.checkInOpensAt,
                 ),
                 key: const Key('check_in_opens_at'),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: AppTheme.money,
+                  color: context.roleColors.primary,
                 ),
               ),
             ],
@@ -405,13 +404,13 @@ class _CheckInRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (background, foreground) = switch (state.tone) {
-      _Tone.done => (AppTheme.fieldGreenTint, AppTheme.fieldGreen),
+      _Tone.done => (context.roleColors.tint, context.roleColors.primary),
       _Tone.late => (
           AppTheme.statusErrorContainer,
           AppTheme.onStatusErrorContainer
         ),
-      _Tone.waiting => (AppTheme.actionCream, AppTheme.money),
-      _Tone.idle => (AppTheme.segmentTrack, AppTheme.mutedSteel),
+      _Tone.waiting => (AppTheme.orangeTint, context.roleColors.primary),
+      _Tone.idle => (AppTheme.segmentTrack, AppTheme.slate),
     };
     return Row(
       children: [
@@ -432,7 +431,7 @@ class _CheckInRow extends StatelessWidget {
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: AppTheme.soilDark,
+              color: AppTheme.ink,
             ),
           ),
         ),
@@ -445,8 +444,7 @@ class _CheckInRow extends StatelessWidget {
               fontSize: 12,
               fontWeight:
                   state.tone == _Tone.idle ? FontWeight.w500 : FontWeight.w700,
-              color:
-                  state.tone == _Tone.idle ? AppTheme.mutedSteel : foreground,
+              color: state.tone == _Tone.idle ? AppTheme.slate : foreground,
             ),
           ),
         ),

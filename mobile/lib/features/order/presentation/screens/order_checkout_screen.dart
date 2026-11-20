@@ -11,6 +11,7 @@ import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/telebirr_launcher.dart';
@@ -28,6 +29,10 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// The live Telebirr checkout of a `payment_submitted` order (ESC-44).
+///
+/// The PaymentM board, with its two full states: PaymentFailedM when the
+/// order's payment failed, PaymentOfflineM when the step needs a network
+/// the device does not have.
 ///
 /// Opens Telebirr (Android: on its own, once per page; web: only from a tap
 /// on a real link, since browsers block pop-ups after a network wait), then
@@ -54,22 +59,39 @@ class OrderCheckoutScreen extends StatefulWidget {
   final Stream<void>? connectivityRestored;
   final WidgetBuilder? verificationScreen;
 
+  /// Test seam: whether the device has a network, as it changes. Null
+  /// reads the app's [ConnectivityMonitor] (mobile; web has none and is
+  /// taken to be online until a request fails).
+  final Stream<bool>? online;
+
   /// The order detail is the page under this one, so closing returns to the
   /// order. False when the buyer came straight from Place order: Done on a
   /// paid order then opens the order's detail in this screen's place
   /// (BUG-21).
   final bool fromOrderDetail;
 
+  /// How the buyer confirmed it is them on the page before this one (the
+  /// password or Fayda prompt of the first submit); null when they were
+  /// not asked.
+  final StepUpMethod? confirmedWith;
+
+  /// Test seam: the bus a step-up confirmed elsewhere (the background
+  /// prompt of a queued payment) is heard on. Null is the app's.
+  final SecurityEvents? securityEvents;
+
   const OrderCheckoutScreen({
     required this.order,
     this.autoOpen = true,
     this.fromOrderDetail = true,
+    this.confirmedWith,
+    this.securityEvents,
     this.bloc,
     this.launcher,
     this.returnLinks,
     this.isWeb,
     this.connectivityRestored,
     this.verificationScreen,
+    this.online,
     super.key,
   });
 
@@ -96,6 +118,18 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
   bool _announcedPaid = false;
   StreamSubscription<Uri>? _linkSub;
   StreamSubscription<void>? _connectivitySub;
+  StreamSubscription<bool>? _onlineSub;
+  StreamSubscription<void>? _stepUpSub;
+
+  /// How the buyer confirmed it is them for this payment, once they did:
+  /// the board's "Confirmed with Fayda" pill. Never named before, and gone
+  /// again when a queued payment asks once more.
+  StepUpMethod? _confirmedWith;
+
+  /// The device has no network (as far as it can tell). Only decides which
+  /// state is drawn while a payment waits on the phone; nothing is sent or
+  /// held back because of it.
+  bool _deviceOffline = false;
 
   @override
   void initState() {
@@ -105,6 +139,18 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
     _bloc = widget.bloc ?? _createBloc();
     WidgetsBinding.instance.addObserver(this);
     TelebirrReturnWatchers.add();
+    _confirmedWith = widget.confirmedWith;
+    final securityEvents = widget.securityEvents ?? SecurityEvents.instance;
+    // Also a prompt this screen did not open (the shell's, for a queued
+    // payment) while the checkout shows, but only while this payment waits
+    // for one: a prompt for another order or a dispute names nothing here.
+    _stepUpSub = securityEvents.onStepUpCompleted.listen((_) {
+      final method = securityEvents.lastStepUpMethod;
+      final waiting = _bloc.state;
+      if (!mounted || method == null) return;
+      if (waiting is! CheckoutWaitingToSend || !waiting.stepUpPending) return;
+      setState(() => _confirmedWith = method);
+    });
     _linkSub = (widget.returnLinks ?? _appReturnLinks()).listen(
       (uri) {
         if (isTelebirrReturnLink(uri)) _trigger(refreshNow: true);
@@ -120,8 +166,28 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
       },
       onError: (Object _) {},
     );
+    _onlineSub = (widget.online ?? _networkState()).listen(
+      (online) {
+        if (mounted && _deviceOffline == online) {
+          setState(() => _deviceOffline = !online);
+        }
+      },
+      onError: (Object _) {},
+    );
     _bloc.add(CheckoutStarted(autoOpen: widget.autoOpen));
     _trigger();
+  }
+
+  /// Mobile: the network state now, then each change. Web has no monitor.
+  Stream<bool> _networkState() async* {
+    final monitor = _read<ConnectivityMonitor>();
+    if (monitor == null) return;
+    try {
+      yield await monitor.isConnected();
+    } on Object {
+      // Unknown: taken to be online; a failed request says otherwise.
+    }
+    yield* monitor.onConnectivityChanged.map(monitor.isConnectedFromResults);
   }
 
   OrderCheckoutBloc _createBloc() {
@@ -173,6 +239,8 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
     _expiryTimer?.cancel();
     unawaited(_linkSub?.cancel());
     unawaited(_connectivitySub?.cancel());
+    unawaited(_onlineSub?.cancel());
+    unawaited(_stepUpSub?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     TelebirrReturnWatchers.remove();
     if (_ownsBloc) unawaited(_bloc.close());
@@ -227,6 +295,12 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
   }
 
   void _onState(BuildContext context, OrderCheckoutState state) {
+    // The queued payment asks again: the earlier confirmation is spent.
+    if (state is CheckoutWaitingToSend &&
+        state.stepUpPending &&
+        _confirmedWith != null) {
+      setState(() => _confirmedWith = null);
+    }
     if (state.polls) {
       // Reading again after a pause (a request, a stop the KYC resubmit
       // woke up): start the schedule over.
@@ -276,13 +350,16 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
   }
 
   Future<void> _confirmItsYou({required bool withFayda}) async {
+    final securityEvents = widget.securityEvents;
+    // A completed prompt reports its method on the bus ([_stepUpSub]).
     if (withFayda) {
       await showFaydaStepUpDialog(
         context,
+        securityEvents: securityEvents,
         verificationScreen: widget.verificationScreen,
       );
     } else {
-      await showStepUpDialog(context);
+      await showStepUpDialog(context, securityEvents: securityEvents);
     }
     if (mounted) _trigger(refreshNow: true);
   }
@@ -303,6 +380,50 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
     );
   }
 
+  /// Leave the payment for the order: back to its detail when that is the
+  /// page underneath, else the detail in this screen's place.
+  void _backToOrder() {
+    if (widget.fromOrderDetail) {
+      Navigator.of(context).pop();
+    } else {
+      replaceWithOrderDetail(context, widget.order.orderId);
+    }
+  }
+
+  /// The full state that takes the page instead of the cards, if any:
+  /// - the order's payment failed (PaymentFailedM): pay again or later
+  /// - the checkout request did not reach the server, or the payment still
+  ///   waits on a phone with no network (PaymentOfflineM)
+  Widget? _fullState(OrderCheckoutState state, AppLocalizations l10n) {
+    if (state is CheckoutStopped &&
+        state.issue == CheckoutIssue.paymentFailed) {
+      return PaymentStateView.failed(
+        l10n: l10n,
+        onTryAgain: _payAgain,
+        onPayLater: () => Navigator.of(context).pop(),
+      );
+    }
+    if (state is CheckoutProblem && state.issue == CheckoutIssue.offline) {
+      return PaymentStateView.offline(
+        l10n: l10n,
+        onTryAgain: _requestOpen,
+        onBackToOrder: _backToOrder,
+      );
+    }
+    // A queued payment that asks for a step-up keeps its card: the buyer
+    // has something to do there that needs no network to start.
+    if (state is CheckoutWaitingToSend &&
+        _deviceOffline &&
+        !state.stepUpPending) {
+      return PaymentStateView.offline(
+        l10n: l10n,
+        onTryAgain: () => _trigger(refreshNow: true),
+        onBackToOrder: _backToOrder,
+      );
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -310,80 +431,91 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
       value: _bloc,
       child: BlocConsumer<OrderCheckoutBloc, OrderCheckoutState>(
         listener: _onState,
-        builder: (context, state) => Scaffold(
-          body: SafeArea(
-            bottom: false,
-            child: SingleChildScrollView(
-              child: FwContentWidth(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // The board closes the payment with an X, not Back.
-                    FwDetailHeader(
-                      title: l10n.orderCheckoutTitle,
-                      onBack: () => Navigator.of(context).pop(),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          PaymentAmountCard(
-                            amount: state is CheckoutAwaitingPayment
-                                ? state.amount
-                                : (widget.order.orderTotal ??
-                                    widget.order.totalPrice),
-                            detail: paymentAmountDetail(widget.order, l10n),
-                          ),
-                          const SizedBox(height: 14),
-                          // Telebirr payment board: how the payment asks the
-                          // buyer to confirm it is them, before it asks.
-                          if (state is! CheckoutPaid) ...[
-                            const ConfirmItsYouCard(),
-                            const SizedBox(height: 14),
-                          ],
-                          _statusCard(context, state, l10n),
-                        ],
-                      ),
-                    ),
-                  ],
+        builder: (context, state) {
+          final fullState = _fullState(state, l10n);
+          if (fullState != null) {
+            return Scaffold(body: SafeArea(child: fullState));
+          }
+          return _page(context, state, l10n);
+        },
+      ),
+    );
+  }
+
+  Widget _page(
+    BuildContext context,
+    OrderCheckoutState state,
+    AppLocalizations l10n,
+  ) {
+    return Scaffold(
+      body: SafeArea(
+        bottom: false,
+        child: SingleChildScrollView(
+          child: FwContentWidth(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // The board closes the payment with an X, not Back.
+                PaymentHeader(
+                  title: l10n.orderCheckoutTitle,
+                  onClose: () => Navigator.of(context).pop(),
                 ),
-              ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      PaymentAmountCard(
+                        amount: state is CheckoutAwaitingPayment
+                            ? state.amount
+                            : (widget.order.orderTotal ??
+                                widget.order.totalPrice),
+                        detail: paymentAmountDetail(widget.order, l10n),
+                      ),
+                      const SizedBox(height: 18),
+                      // Telebirr payment board: how the payment asks the
+                      // buyer to confirm it is them, before it asks.
+                      if (state is! CheckoutPaid) ...[
+                        ConfirmItsYouCard(confirmedWith: _confirmedWith),
+                        const SizedBox(height: 18),
+                      ],
+                      _statusCard(context, state, l10n),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-          bottomNavigationBar: FwBottomActions(
-            children: [
-              if (state is CheckoutAwaitingPayment) ...[
-                _OpenTelebirrButton(
-                  url: state.toPayUrl,
-                  isWeb: _isWeb,
-                  label: l10n.escrowOpenPaymentAgain,
-                  onOpen: () => _openAgain(state.toPayUrl),
-                ),
-                const SizedBox(height: 6),
-              ],
-              TextButton(
-                onPressed: () {
-                  if (state is CheckoutPaid && !widget.fromOrderDetail) {
-                    replaceWithOrderDetail(context, widget.order.orderId);
-                  } else {
-                    Navigator.of(context).pop();
-                  }
-                },
-                style: TextButton.styleFrom(
-                  minimumSize: const Size.fromHeight(44),
-                  foregroundColor: AppTheme.unselectedNav,
-                ),
-                child: Text(
-                  state is CheckoutPaid || state is CheckoutStopped
-                      ? l10n.done
-                      : l10n.payLater,
-                ),
-              ),
-              if (state is! CheckoutPaid) FwActionNote(l10n.escrowErrorOffline),
-            ],
-          ),
         ),
+      ),
+      bottomNavigationBar: FwBottomActions(
+        children: [
+          if (state is CheckoutAwaitingPayment) ...[
+            _OpenTelebirrButton(
+              url: state.toPayUrl,
+              isWeb: _isWeb,
+              label: l10n.escrowOpenPaymentAgain,
+              onOpen: () => _openAgain(state.toPayUrl),
+            ),
+            const SizedBox(height: 8),
+          ],
+          OutlinedButton(
+            onPressed: () {
+              if (state is CheckoutPaid && !widget.fromOrderDetail) {
+                replaceWithOrderDetail(context, widget.order.orderId);
+              } else {
+                Navigator.of(context).pop();
+              }
+            },
+            style: paymentSecondaryButtonStyle(),
+            child: Text(
+              state is CheckoutPaid || state is CheckoutStopped
+                  ? l10n.done
+                  : l10n.payLater,
+            ),
+          ),
+          if (state is! CheckoutPaid) FwActionNote(l10n.escrowErrorOffline),
+        ],
       ),
     );
   }
@@ -400,9 +532,12 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
       style: paymentCardButtonStyle(),
       child: Text(l10n.orderCheckoutCheckAgain),
     );
+    // The card's own main action: a black pill, the second strongest
+    // button (the orange one is the page's).
     final actionStyle = FilledButton.styleFrom(
       minimumSize: const Size.fromHeight(44),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      backgroundColor: AppTheme.ink,
+      foregroundColor: Colors.white,
       textStyle: const TextStyle(
         fontFamily: AppTheme.fontFamily,
         fontFamilyFallback: AppTheme.ethiopicFontFallback,
@@ -443,6 +578,15 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
           text: l10n.escrowAwaitingPayment,
           busy: true,
           children: [
+            // What the buyer has to do, and what happens to the money.
+            Text(
+              l10n.orderCheckoutApproveNote,
+              style: const TextStyle(
+                fontSize: 14,
+                height: 1.45,
+                color: AppTheme.ink,
+              ),
+            ),
             ClockText(
               clockFormatOf(context).deadline(
                 state.payableUntil,
@@ -511,7 +655,7 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
   static const TextStyle _noteStyle = TextStyle(
     fontSize: 13,
     height: 1.4,
-    color: AppTheme.mutedSteel,
+    color: AppTheme.slate,
   );
 }
 
@@ -542,16 +686,7 @@ class _OpenTelebirrButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = FilledButton.styleFrom(
-      backgroundColor: AppTheme.soilDark,
-      minimumSize: const Size.fromHeight(56),
-      textStyle: const TextStyle(
-        fontFamily: AppTheme.fontFamily,
-        fontFamilyFallback: AppTheme.ethiopicFontFallback,
-        fontSize: 16,
-        fontWeight: FontWeight.w800,
-      ),
-    );
+    // The page's one orange action (the theme's button).
     final uri = Uri.tryParse(url);
     if (isWeb && uri != null) {
       return Link(
@@ -559,14 +694,12 @@ class _OpenTelebirrButton extends StatelessWidget {
         target: LinkTarget.blank,
         builder: (context, followLink) => FilledButton(
           onPressed: followLink,
-          style: style,
           child: Text(label),
         ),
       );
     }
     return FilledButton(
       onPressed: onOpen,
-      style: style,
       child: Text(label),
     );
   }

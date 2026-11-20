@@ -1,1 +1,394 @@
-{"v":3,"createdOnFiles":{"v":1,"at":"2026-10-27T12:00:00Z"},"title":"WeredaConnect Live Trip","launch":{"view":"canvas"},"pages":[],"boards":{"Main.dc.html":{"x":0,"y":0,"w":1280,"h":900,"title":"Live trip · foundations"},"system/HowItWorks.dc.html":{"x":1360,"y":0,"w":1440,"h":960,"title":"How a check-in travels"},"android/BuyerDeliveries.dc.html":{"x":0,"y":1360,"w":390,"h":844,"title":"Buyer · Deliveries tab","is_interactive":true},"android/BuyerLiveTrip.dc.html":{"x":470,"y":1360,"w":390,"h":844,"title":"Buyer · Live trip","is_interactive":true},"android/BuyerTripLog.dc.html":{"x":940,"y":1360,"w":390,"h":1480,"title":"Buyer · Trip log and order","is_interactive":true},"android/BuyerArriving.dc.html":{"x":1410,"y":1360,"w":390,"h":844,"title":"Buyer · Truck arriving","is_interactive":true},"android/BuyerDelivered.dc.html":{"x":1880,"y":1360,"w":390,"h":844,"title":"Buyer · Delivered","is_interactive":true},"android/TruckerTripMode.dc.html":{"x":0,"y":3240,"w":390,"h":844,"title":"Trucker · Trip mode","is_interactive":true},"android/TruckerShareConsent.dc.html":{"x":470,"y":3240,"w":390,"h":844,"title":"Trucker · Share location after pickup","is_interactive":true},"android/TruckerPaused.dc.html":{"x":940,"y":3240,"w":390,"h":844,"title":"Trucker · Offline and pause","is_interactive":true},"android/FarmerJourney.dc.html":{"x":1410,"y":3240,"w":390,"h":844,"title":"Farmer · Order on the road"},"web/LiveDeliveries.dc.html":{"x":0,"y":4580,"w":1440,"h":1000,"title":"Web · Buyer deliveries","expand":"fill"},"web/AdminTripEvidence.dc.html":{"x":1520,"y":4580,"w":1440,"h":1000,"title":"Web · Admin dispute evidence","expand":"fill"},"android/Welcome.dc.html":{"x":0,"y":6080,"w":390,"h":844,"title":"Join · Welcome and login","is_interactive":true},"android/RegisterRole.dc.html":{"x":470,"y":6080,"w":390,"h":844,"title":"Join · Select role","is_interactive":true},"android/RegisterFayda.dc.html":{"x":940,"y":6080,"w":390,"h":844,"title":"Join · Fayda verification","is_interactive":true},"android/RegisterRoleDetails.dc.html":{"x":1410,"y":6080,"w":390,"h":844,"title":"Join · Trucker license","is_interactive":true},"android/RegisterPersonal.dc.html":{"x":1880,"y":6080,"w":390,"h":920,"title":"Join · Personal info","is_interactive":true},"android/RegisterOtp.dc.html":{"x":2350,"y":6080,"w":390,"h":844,"title":"Join · Confirm phone","is_interactive":true},"android/FarmerHome.dc.html":{"x":0,"y":7500,"w":390,"h":844,"title":"Farmer · Home","is_interactive":true},"android/CreateCropListing.dc.html":{"x":470,"y":7500,"w":390,"h":900,"title":"Farmer · Create crop listing","is_interactive":true},"android/MyCrops.dc.html":{"x":940,"y":7500,"w":390,"h":844,"title":"Farmer · My crops","is_interactive":true},"android/FarmerOrderRequest.dc.html":{"x":1410,"y":7500,"w":390,"h":844,"title":"Farmer · Answer a new order","is_interactive":true},"android/TruckerHome.dc.html":{"x":0,"y":8900,"w":390,"h":844,"title":"Trucker · Home","is_interactive":true},"android/CreateTrip.dc.html":{"x":470,"y":8900,"w":390,"h":920,"title":"Trucker · Create trip","is_interactive":true},"android/TripDetail.dc.html":{"x":940,"y":8900,"w":390,"h":1000,"title":"Trucker · Trip and bookings","is_interactive":true},"android/Market.dc.html":{"x":0,"y":10400,"w":390,"h":844,"title":"Buyer · Find crops","is_interactive":true},"android/CreateIntent.dc.html":{"x":470,"y":10400,"w":390,"h":900,"title":"Buyer · New buying intent","is_interactive":true},"android/CropDetail.dc.html":{"x":940,"y":10400,"w":390,"h":1080,"title":"Buyer · Crop detail and transport","is_interactive":true},"android/PlaceOrder.dc.html":{"x":1410,"y":10400,"w":390,"h":844,"title":"Buyer · Place order","is_interactive":true},"android/Payment.dc.html":{"x":1880,"y":10400,"w":390,"h":844,"title":"Buyer · Telebirr payment","is_interactive":true},"android/BuyerOrderDetail.dc.html":{"x":2350,"y":10400,"w":390,"h":844,"title":"Buyer · Order detail","is_interactive":true},"system/EthiopianClock.dc.html":{"x":2880,"y":0,"w":1440,"h":960,"title":"Ethiopian clock"},"android/BuyerLiveTripAm.dc.html":{"x":0,"y":11980,"w":390,"h":844,"title":"Live trip · Amharic, Ethiopian clock","is_interactive":true},"android/BuyerLiveTripOm.dc.html":{"x":470,"y":11980,"w":390,"h":844,"title":"Live trip · Afaan Oromo, Ethiopian clock","is_interactive":true}},"order":["Main.dc.html","system/HowItWorks.dc.html","android/BuyerDeliveries.dc.html","android/BuyerLiveTrip.dc.html","android/BuyerTripLog.dc.html","android/BuyerArriving.dc.html","android/BuyerDelivered.dc.html","android/TruckerTripMode.dc.html","android/TruckerShareConsent.dc.html","android/TruckerPaused.dc.html","android/FarmerJourney.dc.html","web/LiveDeliveries.dc.html","web/AdminTripEvidence.dc.html","android/Welcome.dc.html","android/RegisterRole.dc.html","android/RegisterFayda.dc.html","android/RegisterRoleDetails.dc.html","android/RegisterPersonal.dc.html","android/RegisterOtp.dc.html","android/FarmerHome.dc.html","android/CreateCropListing.dc.html","android/MyCrops.dc.html","android/FarmerOrderRequest.dc.html","android/TruckerHome.dc.html","android/CreateTrip.dc.html","android/TripDetail.dc.html","android/Market.dc.html","android/CreateIntent.dc.html","android/CropDetail.dc.html","android/PlaceOrder.dc.html","android/Payment.dc.html","android/BuyerOrderDetail.dc.html","system/EthiopianClock.dc.html","android/BuyerLiveTripAm.dc.html","android/BuyerLiveTripOm.dc.html"],"notes":{"t0":{"x":0,"y":-300,"text":"Live trip · system","kind":"title1","maxW":4320},"t1":{"x":0,"y":1100,"text":"Android · Buyer","kind":"title1","maxW":2270},"t2":{"x":0,"y":2980,"text":"Android · Trucker and farmer","kind":"title1","maxW":1800},"t3":{"x":0,"y":4320,"text":"Web · Buyer and admin","kind":"title1","maxW":2960},"t4":{"x":0,"y":5820,"text":"Android · Join","kind":"title1","maxW":2740},"t5":{"x":0,"y":7240,"text":"Android · Farmer lists and answers","kind":"title1","maxW":1800},"t6":{"x":0,"y":8640,"text":"Android · Trucker trips","kind":"title1","maxW":1330},"t7":{"x":0,"y":10140,"text":"Android · Buyer buys","kind":"title1","maxW":2740},"t8":{"x":0,"y":11720,"text":"Android · Amharic and Afaan Oromo","kind":"title1","maxW":1800}},"designSystems":[]}
+{
+ "v": 3,
+ "title": "WeredaConnect · White, role colours (page M)",
+ "launch": {
+  "view": "canvas"
+ },
+ "pages": [],
+ "boards": {
+  "MainM.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 1880,
+   "h": 1120,
+   "title": "Colour identity"
+  },
+  "FoundationsM.dc.html": {
+   "x": 0,
+   "y": 1540,
+   "w": 1280,
+   "h": 900,
+   "title": "Live trip · foundations"
+  },
+  "CheckInFlowM.dc.html": {
+   "x": 1360,
+   "y": 1540,
+   "w": 1440,
+   "h": 960,
+   "title": "How a check-in travels"
+  },
+  "EthiopianClockM.dc.html": {
+   "x": 2880,
+   "y": 1540,
+   "w": 1440,
+   "h": 960,
+   "title": "Ethiopian clock"
+  },
+  "WebDeliveriesM.dc.html": {
+   "x": 4400,
+   "y": 1540,
+   "w": 1440,
+   "h": 1000,
+   "title": "Web · Buyer deliveries"
+  },
+  "AdminDisputeM.dc.html": {
+   "x": 5920,
+   "y": 1540,
+   "w": 1440,
+   "h": 1000,
+   "title": "Web · Admin dispute evidence"
+  },
+  "WelcomeM.dc.html": {
+   "x": 0,
+   "y": 2960,
+   "w": 390,
+   "h": 844,
+   "title": "Join · Welcome and login",
+   "is_interactive": true
+  },
+  "RegisterRoleM.dc.html": {
+   "x": 470,
+   "y": 2960,
+   "w": 390,
+   "h": 844,
+   "title": "Join · Select role"
+  },
+  "RegisterFaydaM.dc.html": {
+   "x": 940,
+   "y": 2960,
+   "w": 390,
+   "h": 844,
+   "title": "Join · Fayda verification"
+  },
+  "RegisterRoleDetailsM.dc.html": {
+   "x": 1410,
+   "y": 2960,
+   "w": 390,
+   "h": 844,
+   "title": "Join · Trucker license"
+  },
+  "RegisterPersonalM.dc.html": {
+   "x": 1880,
+   "y": 2960,
+   "w": 390,
+   "h": 920,
+   "title": "Join · Personal info"
+  },
+  "RegisterOtpM.dc.html": {
+   "x": 2350,
+   "y": 2960,
+   "w": 390,
+   "h": 844,
+   "title": "Join · Confirm phone"
+  },
+  "FarmerHomeM.dc.html": {
+   "x": 0,
+   "y": 4300,
+   "w": 390,
+   "h": 844,
+   "title": "Farmer · Home"
+  },
+  "CreateCropListingM.dc.html": {
+   "x": 470,
+   "y": 4300,
+   "w": 390,
+   "h": 900,
+   "title": "Farmer · Create crop listing"
+  },
+  "MyCropsM.dc.html": {
+   "x": 940,
+   "y": 4300,
+   "w": 390,
+   "h": 844,
+   "title": "Farmer · My crops"
+  },
+  "FarmerOrderRequestM.dc.html": {
+   "x": 1410,
+   "y": 4300,
+   "w": 390,
+   "h": 844,
+   "title": "Farmer · Answer a new order"
+  },
+  "FarmerJourneyM.dc.html": {
+   "x": 1880,
+   "y": 4300,
+   "w": 390,
+   "h": 884,
+   "title": "Farmer · Order on the road"
+  },
+  "TruckerHomeM.dc.html": {
+   "x": 0,
+   "y": 5620,
+   "w": 390,
+   "h": 844,
+   "title": "Trucker · Home"
+  },
+  "CreateTripM.dc.html": {
+   "x": 470,
+   "y": 5620,
+   "w": 390,
+   "h": 920,
+   "title": "Trucker · Create trip"
+  },
+  "TripDetailM.dc.html": {
+   "x": 940,
+   "y": 5620,
+   "w": 390,
+   "h": 1130,
+   "title": "Trucker · Trip and bookings"
+  },
+  "TruckerTripModeM.dc.html": {
+   "x": 1410,
+   "y": 5620,
+   "w": 390,
+   "h": 860,
+   "title": "Trucker · Trip mode"
+  },
+  "TruckerShareConsentM.dc.html": {
+   "x": 1880,
+   "y": 5620,
+   "w": 390,
+   "h": 844,
+   "title": "Trucker · Share location after pickup"
+  },
+  "TruckerPausedM.dc.html": {
+   "x": 2350,
+   "y": 5620,
+   "w": 390,
+   "h": 844,
+   "title": "Trucker · Offline and pause"
+  },
+  "MarketM.dc.html": {
+   "x": 0,
+   "y": 7180,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · Find crops"
+  },
+  "CreateIntentM.dc.html": {
+   "x": 470,
+   "y": 7180,
+   "w": 390,
+   "h": 900,
+   "title": "Buyer · New buying intent"
+  },
+  "CropDetailM.dc.html": {
+   "x": 940,
+   "y": 7180,
+   "w": 390,
+   "h": 1080,
+   "title": "Buyer · Crop detail and transport"
+  },
+  "PlaceOrderM.dc.html": {
+   "x": 1410,
+   "y": 7180,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · Place order"
+  },
+  "PaymentM.dc.html": {
+   "x": 1880,
+   "y": 7180,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · Telebirr payment"
+  },
+  "BuyerOrderDetailM.dc.html": {
+   "x": 2350,
+   "y": 7180,
+   "w": 390,
+   "h": 900,
+   "title": "Buyer · Order detail"
+  },
+  "BuyerDeliveriesM.dc.html": {
+   "x": 0,
+   "y": 8680,
+   "w": 390,
+   "h": 884,
+   "title": "Buyer · Deliveries tab"
+  },
+  "BuyerLiveTripM.dc.html": {
+   "x": 470,
+   "y": 8680,
+   "w": 390,
+   "h": 944,
+   "title": "Buyer · Live trip"
+  },
+  "BuyerTripLogM.dc.html": {
+   "x": 940,
+   "y": 8680,
+   "w": 390,
+   "h": 1620,
+   "title": "Buyer · Trip log and order"
+  },
+  "BuyerArrivingM.dc.html": {
+   "x": 1410,
+   "y": 8680,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · Truck arriving"
+  },
+  "BuyerDeliveredM.dc.html": {
+   "x": 1880,
+   "y": 8680,
+   "w": 390,
+   "h": 864,
+   "title": "Buyer · Delivered"
+  },
+  "LiveTripAmM.dc.html": {
+   "x": 2350,
+   "y": 8680,
+   "w": 390,
+   "h": 904,
+   "title": "Live trip · Amharic, Ethiopian clock"
+  },
+  "LiveTripOmM.dc.html": {
+   "x": 2820,
+   "y": 8680,
+   "w": 390,
+   "h": 904,
+   "title": "Live trip · Afaan Oromo, Ethiopian clock"
+  },
+  "FarmerEmptyCropsM.dc.html": {
+   "x": 2350,
+   "y": 4300,
+   "w": 390,
+   "h": 844,
+   "title": "Farmer · No crops yet"
+  },
+  "FarmerRejectConfirmM.dc.html": {
+   "x": 2820,
+   "y": 4300,
+   "w": 390,
+   "h": 844,
+   "title": "Farmer · Confirm reject"
+  },
+  "TruckerQrFailedM.dc.html": {
+   "x": 2820,
+   "y": 5620,
+   "w": 390,
+   "h": 844,
+   "title": "Trucker · QR scan failed"
+  },
+  "PaymentFailedM.dc.html": {
+   "x": 2820,
+   "y": 7180,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · Payment failed"
+  },
+  "PaymentOfflineM.dc.html": {
+   "x": 3290,
+   "y": 7180,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · Payment, no network"
+  },
+  "BuyerDeliveriesEmptyM.dc.html": {
+   "x": 3290,
+   "y": 8680,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · No deliveries yet"
+  }
+ },
+ "order": [
+  "MainM.dc.html",
+  "FoundationsM.dc.html",
+  "CheckInFlowM.dc.html",
+  "EthiopianClockM.dc.html",
+  "WebDeliveriesM.dc.html",
+  "AdminDisputeM.dc.html",
+  "WelcomeM.dc.html",
+  "RegisterRoleM.dc.html",
+  "RegisterFaydaM.dc.html",
+  "RegisterRoleDetailsM.dc.html",
+  "RegisterPersonalM.dc.html",
+  "RegisterOtpM.dc.html",
+  "FarmerHomeM.dc.html",
+  "CreateCropListingM.dc.html",
+  "MyCropsM.dc.html",
+  "FarmerOrderRequestM.dc.html",
+  "FarmerJourneyM.dc.html",
+  "TruckerHomeM.dc.html",
+  "CreateTripM.dc.html",
+  "TripDetailM.dc.html",
+  "TruckerTripModeM.dc.html",
+  "TruckerShareConsentM.dc.html",
+  "TruckerPausedM.dc.html",
+  "MarketM.dc.html",
+  "CreateIntentM.dc.html",
+  "CropDetailM.dc.html",
+  "PlaceOrderM.dc.html",
+  "PaymentM.dc.html",
+  "BuyerOrderDetailM.dc.html",
+  "BuyerDeliveriesM.dc.html",
+  "BuyerLiveTripM.dc.html",
+  "BuyerTripLogM.dc.html",
+  "BuyerArrivingM.dc.html",
+  "BuyerDeliveredM.dc.html",
+  "LiveTripAmM.dc.html",
+  "LiveTripOmM.dc.html",
+  "FarmerEmptyCropsM.dc.html",
+  "FarmerRejectConfirmM.dc.html",
+  "TruckerQrFailedM.dc.html",
+  "PaymentFailedM.dc.html",
+  "PaymentOfflineM.dc.html",
+  "BuyerDeliveriesEmptyM.dc.html"
+ ],
+ "notes": {
+  "row0_m": {
+   "x": 0,
+   "y": 1300,
+   "text": "Foundations and web",
+   "kind": "title1",
+   "maxW": 7360
+  },
+  "row1_m": {
+   "x": 0,
+   "y": 2720,
+   "text": "Join",
+   "kind": "title1",
+   "maxW": 2740
+  },
+  "row2_m": {
+   "x": 0,
+   "y": 4060,
+   "text": "Farmer",
+   "kind": "title1",
+   "maxW": 3210
+  },
+  "row3_m": {
+   "x": 0,
+   "y": 5380,
+   "text": "Trucker",
+   "kind": "title1",
+   "maxW": 3210
+  },
+  "row4_m": {
+   "x": 0,
+   "y": 6940,
+   "text": "Buyer · market and orders",
+   "kind": "title1",
+   "maxW": 3680
+  },
+  "row5_m": {
+   "x": 0,
+   "y": 8440,
+   "text": "Buyer · live trip",
+   "kind": "title1",
+   "maxW": 3680
+  }
+ },
+ "sketchRules": "Sketch rules\n\n1. Decoration only. Never carries information, hidden from screen readers.\n2. One sketch per screen: the header sketch, kept in the right 35% of the header. Hide it if the title is long.\n3. The larger branch drawing is for empty states only (for example \"No deliveries yet\"). Never behind cards or near the bottom bar.\n4. No text on top of a sketch.\n5. Hidden in large-text and reduced-effects modes."
+}

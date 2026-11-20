@@ -28,8 +28,8 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 // by Home and the other tab headers (Deliveries, Market, Orders, Payments,
 // My Trips) so every header carries the same bell.
 
-/// The bell in a tab header's white square, for the signed-in user: the
-/// boards put it at the top right of every tab.
+/// The bell in a tab header's round paper button, for the signed-in user:
+/// the boards put it at the top right of every tab.
 class HeaderBell extends StatelessWidget {
   const HeaderBell({super.key});
 
@@ -53,7 +53,7 @@ class HeaderBell extends StatelessWidget {
   }
 }
 
-/// Notification bell icon with dynamic red dot indicator.
+/// Notification bell icon with an orange dot when something is new.
 ///
 /// Lists the user's inbox (ESC-21, `GET /notifications`: every order,
 /// delivery and money event of the user's orders) on mobile and web, and on
@@ -65,14 +65,15 @@ class NotificationBell extends StatefulWidget {
   final AppLocalizations l10n;
   final bool isOnline;
 
-  /// The bell's colour: dark in the light header's square, pale on the
-  /// trucker's dark header.
+  /// The bell's colour: black on the round paper button, pale on a black
+  /// header.
   final Color iconColor;
 
-  /// The ring around the unread dot: the bell's own background.
-  final Color ringColor;
+  /// The ring around the unread dot: the bell's own background. The paper
+  /// grey in the round button when null.
+  final Color? ringColor;
 
-  /// In a white [FwSquareButton] (the Farmer · Home board); else a quiet
+  /// In the 44 px round paper button (the Farmer home board); else a quiet
   /// icon button.
   final bool square;
 
@@ -80,8 +81,8 @@ class NotificationBell extends StatefulWidget {
     required this.userId,
     required this.l10n,
     this.isOnline = true,
-    this.iconColor = AppTheme.soilDark,
-    this.ringColor = AppTheme.surfaceWhite,
+    this.iconColor = AppTheme.ink,
+    this.ringColor,
     this.square = false,
     super.key,
   });
@@ -294,8 +295,9 @@ class _NotificationBellState extends State<NotificationBell> {
       // Over the shell's bar and create button, not under them.
       useRootNavigator: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
+      backgroundColor: AppTheme.ground,
       builder: (_) {
         return SyncStatusSheet(
           isOnline: widget.isOnline,
@@ -320,16 +322,25 @@ class _NotificationBellState extends State<NotificationBell> {
               color: widget.iconColor,
             ),
             if (_hasUnread)
+              // The board's dot: 8 px of orange in a 2 px ring of the
+              // button's own ground, at the bell's top right.
               Positioned(
-                right: -1,
-                top: -1,
+                right: -2,
+                top: -3,
                 child: Container(
-                  width: 10,
-                  height: 10,
+                  key: const Key('notification_bell_dot'),
+                  width: 12,
+                  height: 12,
                   decoration: BoxDecoration(
-                    color: AppTheme.accentGold,
+                    color: AppTheme.orange,
                     shape: BoxShape.circle,
-                    border: Border.all(color: widget.ringColor, width: 2),
+                    border: Border.all(
+                      color: widget.ringColor ??
+                          (widget.square
+                              ? AppTheme.paper
+                              : AppTheme.surfaceWhite),
+                      width: 2,
+                    ),
                   ),
                 ),
               ),
@@ -364,8 +375,9 @@ class _NotificationBellState extends State<NotificationBell> {
       // Over the shell's bar and create button, not under them.
       useRootNavigator: true,
       isScrollControlled: true,
+      backgroundColor: AppTheme.ground,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (sheetContext) {
         // A phone opens it low and swipes it up. A desktop browser opens it
@@ -390,61 +402,51 @@ class _NotificationBellState extends State<NotificationBell> {
                   children: [
                     // Drag handle + title
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
+                      padding: const EdgeInsets.fromLTRB(20, 12, 12, 4),
                       child: Column(
                         children: [
-                          Container(
-                            width: 40,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: AppTheme.textMuted.withAlpha(60),
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
+                          const _SheetHandle(),
+                          const SizedBox(height: 12),
                           Row(
                             children: [
-                              Text(
-                                widget.l10n.notifications,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppTheme.textDark,
+                              Flexible(
+                                child: Semantics(
+                                  header: true,
+                                  child: Text(
+                                    widget.l10n.notifications,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: _sheetTitle,
+                                  ),
                                 ),
                               ),
-                              const Spacer(),
                               if (visible.isNotEmpty) ...[
-                                GestureDetector(
-                                  onTap: () {
+                                const SizedBox(width: 10),
+                                FwPill(
+                                  label: '${visible.length}',
+                                  background: AppTheme.sand,
+                                  foreground: AppTheme.inkSoft,
+                                ),
+                                const Spacer(),
+                                TextButton(
+                                  onPressed: () {
                                     _clearAllNotifications();
                                     setSheetState(() {});
                                     Navigator.of(sheetContext).pop();
                                   },
-                                  child: Text(
-                                    widget.l10n.clearAll,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.statusError,
-                                    ),
+                                  style: TextButton.styleFrom(
+                                    foregroundColor: AppTheme.statusError,
+                                    minimumSize: const Size(48, 48),
                                   ),
+                                  child: Text(widget.l10n.clearAll),
                                 ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  '${visible.length}',
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.textMuted,
-                                  ),
-                                ),
-                              ],
+                              ] else
+                                const SizedBox(height: 48),
                             ],
                           ),
                         ],
                       ),
                     ),
-                    const Divider(height: 1),
                     // Notification list
                     Expanded(
                       child: visible.isEmpty
@@ -452,26 +454,38 @@ class _NotificationBellState extends State<NotificationBell> {
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(
+                                  const Icon(
                                     Icons.notifications_none,
-                                    size: 48,
-                                    color: AppTheme.textMuted.withAlpha(80),
+                                    size: 40,
+                                    color: AppTheme.sketch,
                                   ),
                                   const SizedBox(height: 12),
-                                  Text(
-                                    widget.l10n.noNotificationsYet,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.textMuted,
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 24,
+                                    ),
+                                    child: Text(
+                                      widget.l10n.noNotificationsYet,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppTheme.ink,
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  Text(
-                                    widget.l10n.noNotificationsDescription,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: AppTheme.textMuted.withAlpha(160),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 24,
+                                    ),
+                                    child: Text(
+                                      widget.l10n.noNotificationsDescription,
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: AppTheme.slate,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -511,7 +525,7 @@ class _NotificationBellState extends State<NotificationBell> {
                                       padding: const EdgeInsets.only(right: 20),
                                       decoration: BoxDecoration(
                                         color: AppTheme.statusError,
-                                        borderRadius: BorderRadius.circular(18),
+                                        borderRadius: BorderRadius.circular(24),
                                       ),
                                       child: const Icon(
                                         Icons.delete_outline,
@@ -594,92 +608,125 @@ class _NotifCard extends StatelessWidget {
             ? l10n.hoursAgo(timeDiff.inHours)
             : l10n.daysAgo(timeDiff.inDays);
 
-    return Material(
-      color: AppTheme.surfaceWhite,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: AppTheme.whisperBorder),
+    // A paper card, radius 24. The icon sits in a circle on its state's
+    // tint; an unseen entry has a bolder title and the orange dot.
+    return FwCard(
+      padding: const EdgeInsets.all(14),
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: item.color.withAlpha(28),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(item.icon, size: 20, color: item.color),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: item.color.withAlpha(20),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(item.icon, size: 20, color: item.color),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      item.title,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight:
-                            item.unread ? FontWeight.w800 : FontWeight.w600,
-                        color: AppTheme.textDark,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      item.subtitle,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.textMuted,
-                      ),
-                      maxLines: item.action == _NotifAction.openOrder ? 3 : 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (item.detail != null) ...[
-                      const SizedBox(height: 2),
-                      ClockText(
-                        item.detail!,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.textDark,
+                    Flexible(
+                      child: Text(
+                        item.title,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight:
+                              item.unread ? FontWeight.w800 : FontWeight.w700,
+                          letterSpacing: -0.15,
+                          color: AppTheme.ink,
                         ),
-                        maxLines: 2,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (item.unread) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: AppTheme.orange,
+                          shape: BoxShape.circle,
+                        ),
                       ),
                     ],
                   ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                timeLabel,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: AppTheme.textMuted,
+                const SizedBox(height: 2),
+                Text(
+                  item.subtitle,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.35,
+                    color: AppTheme.slate,
+                  ),
+                  maxLines: item.action == _NotifAction.openOrder ? 3 : 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.chevron_right,
-                size: 18,
-                color: AppTheme.textMuted.withAlpha(120),
-              ),
-            ],
+                if (item.detail != null) ...[
+                  const SizedBox(height: 3),
+                  ClockText(
+                    item.detail!,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.ink,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
           ),
-        ),
+          const SizedBox(width: 8),
+          Text(
+            timeLabel,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.slate,
+            ),
+          ),
+          const SizedBox(width: 2),
+          const Icon(Icons.chevron_right, size: 18, color: AppTheme.slate),
+        ],
       ),
     );
   }
 }
+
+/// A sheet's drag handle, as the boards draw it: 40 by 4, rounded.
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 40,
+      height: 4,
+      decoration: BoxDecoration(
+        color: AppTheme.sketch,
+        borderRadius: BorderRadius.circular(999),
+      ),
+    );
+  }
+}
+
+/// A sheet's title (the boards' "Pause sharing?").
+const TextStyle _sheetTitle = TextStyle(
+  fontSize: 26,
+  fontWeight: FontWeight.w800,
+  letterSpacing: -0.9,
+  height: 1.1,
+  color: AppTheme.ink,
+);
 
 /// The line the sync sheet shows under its header after a sync run; null
 /// when the run says nothing new.
@@ -807,7 +854,7 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
     if (mounted && retried > 0) {
       await _syncNow();
     } else if (mounted) {
-      // Refresh counts — failed ops may have been cleared
+      // Refresh counts: failed ops may have been cleared
       _loadCounts();
     }
   }
@@ -827,7 +874,7 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
       statusText = l10n.syncInProgress;
     } else if (!widget.isOnline) {
       statusIcon = Icons.cloud_off;
-      statusColor = AppTheme.textMuted;
+      statusColor = AppTheme.slate;
       statusText = l10n.offlineModeIndicator;
     } else if (_failedCount > 0) {
       statusIcon = Icons.error_outline;
@@ -845,19 +892,11 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Drag handle
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppTheme.textMuted.withAlpha(60),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+            const _SheetHandle(),
             const SizedBox(height: 20),
             // Status icon (animated when syncing)
             _isSyncing
@@ -878,41 +917,47 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
             const SizedBox(height: 10),
             Text(
               statusText,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: statusColor,
-              ),
+              textAlign: TextAlign.center,
+              style: _sheetTitle.copyWith(fontSize: 22, letterSpacing: -0.5),
             ),
             if (_lastStatusMessage != null &&
                 _lastStatusMessage != statusText) ...[
               const SizedBox(height: 4),
               Text(
                 _lastStatusMessage!,
+                textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.textMuted,
+                  fontSize: 14,
+                  color: AppTheme.slate,
                 ),
               ),
             ],
             const SizedBox(height: 20),
-            // Pending operations row
-            _SyncInfoRow(
-              icon: Icons.cloud_upload_outlined,
-              label: l10n.syncPending,
-              value: '$_pendingCount',
-              color: _pendingCount > 0
-                  ? AppTheme.statusWarning
-                  : AppTheme.textMuted,
-            ),
-            const SizedBox(height: 10),
-            // Failed operations row
-            _SyncInfoRow(
-              icon: Icons.error_outline,
-              label: l10n.syncFailed,
-              value: '$_failedCount',
-              color:
-                  _failedCount > 0 ? AppTheme.statusError : AppTheme.textMuted,
+            // The two counts, on one sand tile.
+            FwCard.sand(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Column(
+                children: [
+                  _SyncInfoRow(
+                    icon: Icons.cloud_upload_outlined,
+                    label: l10n.syncPending,
+                    value: '$_pendingCount',
+                    color: _pendingCount > 0
+                        ? AppTheme.statusWarning
+                        : AppTheme.slate,
+                  ),
+                  const SizedBox(height: 10),
+                  // Failed operations row
+                  _SyncInfoRow(
+                    icon: Icons.error_outline,
+                    label: l10n.syncFailed,
+                    value: '$_failedCount',
+                    color: _failedCount > 0
+                        ? AppTheme.statusError
+                        : AppTheme.slate,
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 20),
             // Action buttons
@@ -927,19 +972,11 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
                           height: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            color: AppTheme.ink,
                           ),
                         )
                       : const Icon(Icons.refresh, size: 20),
                   label: Text(_isSyncing ? l10n.syncInProgress : l10n.retry),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.statusError,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                  ),
                 ),
               )
             else if (_pendingCount > 0 && widget.isOnline)
@@ -953,20 +990,12 @@ class _SyncStatusSheetState extends State<SyncStatusSheet> {
                           height: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            color: Colors.white,
+                            color: AppTheme.ink,
                           ),
                         )
                       : const Icon(Icons.sync, size: 20),
                   label: Text(
                     _isSyncing ? l10n.syncInProgress : l10n.syncNow,
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryGreen,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
-                    ),
                   ),
                 ),
               ),
@@ -998,27 +1027,23 @@ class _SyncInfoRow extends StatelessWidget {
       children: [
         Icon(icon, size: 20, color: color),
         const SizedBox(width: 10),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 14,
-            color: AppTheme.textDark,
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.inkSoft,
+            ),
           ),
         ),
-        const Spacer(),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: color.withAlpha(20),
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
+        const SizedBox(width: 10),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w800,
+            color: color == AppTheme.slate ? AppTheme.ink : color,
           ),
         ),
       ],

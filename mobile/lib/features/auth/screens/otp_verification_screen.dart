@@ -15,7 +15,6 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/join_chrome.dart';
-import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 
 /// Confirms the SMS OTP sent after registration (or after a login for an
 /// account whose phone was never confirmed). The RegisterOtp board: square
@@ -182,8 +181,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     final phone = groupPhoneForDisplay(widget.phoneNumber);
     final sentence = l10n.otpSentTo(phone);
     final at = sentence.indexOf(phone);
-    const bold =
-        TextStyle(fontWeight: FontWeight.w700, color: AppTheme.soilDark);
+    const bold = TextStyle(fontWeight: FontWeight.w700, color: AppTheme.ink);
     if (at < 0) return Text(sentence, style: joinSubtitleStyle);
     return Text.rich(
       TextSpan(
@@ -204,7 +202,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     return BlocListener<AuthBloc, AuthState>(
       listener: _onAuthState,
       child: Scaffold(
-        backgroundColor: AppTheme.chalkBackground,
+        backgroundColor: AppTheme.ground,
         body: SafeArea(
           child: FwContentWidth(
             maxWidth: 480,
@@ -212,6 +210,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
               builder: (context, state) {
                 final isLoading = state is AuthLoading;
                 return JoinPage(
+                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
                   body: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -219,12 +218,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                         alignment: AlignmentDirectional.centerStart,
                         child: JoinBackButton(),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 22),
                       const Align(
                         alignment: AlignmentDirectional.centerStart,
                         child: JoinIconTile(icon: Icons.smartphone),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 16),
                       Semantics(
                         header: true,
                         child: Text(
@@ -234,8 +233,20 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                       ),
                       const SizedBox(height: 8),
                       _sentTo(l10n),
-                      const SizedBox(height: 26),
-                      Text(l10n.enterOtp, style: LabeledField.labelStyle),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          const ExcludeSemantics(
+                            child: Icon(
+                              Icons.sms_outlined,
+                              size: 16,
+                              color: AppTheme.slate,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(child: FwSectionLabel(l10n.enterOtp)),
+                        ],
+                      ),
                       const SizedBox(height: 10),
                       // One box per digit over the real field, which keeps
                       // the keyboard, paste and SMS autofill.
@@ -311,7 +322,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                                     ),
                                     style: const TextStyle(
                                       fontSize: 13,
-                                      color: AppTheme.mutedSteel,
+                                      color: AppTheme.slate,
                                     ),
                                   ),
                           ),
@@ -326,8 +337,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                               minimumSize: const Size(0, 36),
                               // A 36 tall link in a 48 by 48 hit area.
                               tapTargetSize: MaterialTapTargetSize.padded,
-                              foregroundColor: AppTheme.fieldGreen,
-                              disabledForegroundColor: AppTheme.mutedSteel,
+                              foregroundColor: context.roleColors.primary,
+                              disabledForegroundColor: AppTheme.inkSoft,
                             ),
                             child: Text(
                               _secondsLeft > 0
@@ -341,12 +352,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 14),
                       JoinNote.plain(text: l10n.otpFaydaNumberNote),
                     ],
                   ),
                   footer: SizedBox(
-                    height: 56,
+                    // The orange pill, 54 tall (the theme's button).
                     child: FilledButton(
                       key: const Key('otp_verify_button'),
                       // Active from the first digit, as on the board; a short
@@ -360,7 +371,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                               height: 20,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: Colors.white,
+                                color: AppTheme.ink,
                               ),
                             )
                           : Text(l10n.verifyOtp),
@@ -376,8 +387,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   }
 }
 
-/// The code as six boxes (Register OTP board): typed digits and the next
-/// box to fill carry a 2 px green border, the rest a thin grey one.
+/// The code as six boxes (RegisterOtpM board) on paper: typed digits and
+/// the next box to fill carry a 2 px black border, the rest a thin one.
 class _CodeBoxes extends StatelessWidget {
   const _CodeBoxes({
     required this.code,
@@ -404,14 +415,14 @@ class _CodeBoxes extends StatelessWidget {
                 return Container(
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: AppTheme.surfaceWhite,
-                    borderRadius: BorderRadius.circular(14),
+                    color: AppTheme.paper,
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(
                       width: error || active ? 2 : 1,
                       color: error
                           ? Theme.of(context).colorScheme.error
                           : active
-                              ? AppTheme.fieldGreen
+                              ? AppTheme.ink
                               : AppTheme.fieldBorder,
                     ),
                   ),
@@ -420,7 +431,7 @@ class _CodeBoxes extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w800,
-                      color: AppTheme.soilDark,
+                      color: AppTheme.ink,
                     ),
                   ),
                 );

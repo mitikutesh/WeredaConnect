@@ -408,7 +408,9 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                           key: const Key('listing_not_sent_pill'),
                           label: l10n.listingNotSentYet,
                           icon: Icons.cloud_upload_outlined,
-                          foreground: AppTheme.actionInk,
+                          // The orange tint, as the same mark on My Crops.
+                          background: AppTheme.orangeTint,
+                          foreground: AppTheme.orangeInk,
                         )
                       else
                         _StatusChip(status: _listing.status),
@@ -423,7 +425,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                         fontSize: 13,
                         height: 1.4,
                         fontWeight: FontWeight.w600,
-                        color: AppTheme.actionInk,
+                        color: AppTheme.orangeInk,
                       ),
                     ),
                   ],
@@ -435,7 +437,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                     const SizedBox(height: 16),
                   ],
                   _HeaderSection(cropType: cropType, listing: _listing),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 16),
 
                   // Who sells it (Crop detail board): name and rating. Not
                   // for a listing without a real name (SIM-33).
@@ -445,7 +447,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                       listing: _listing,
                       showLowLabel: isBuyer,
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                   ],
 
                   // Where it is: the crop and the buyer on one drawing when
@@ -458,34 +460,38 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                   ),
 
                   if (_listing.description.isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    Text(l10n.description, style: _sectionTitle),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 16),
+                    _SectionLabel(
+                      icon: Icons.notes_rounded,
+                      text: l10n.description,
+                    ),
+                    const SizedBox(height: 8),
                     Text(
                       _listing.description,
                       style: const TextStyle(
                         fontSize: 14,
                         height: 1.5,
-                        color: AppTheme.unselectedNav,
+                        color: AppTheme.ink,
                       ),
                     ),
                   ],
 
                   // Suggested transport section (buyer with delivery woreda)
                   if (showTransport) ...[
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     ..._buildTransportSection(context, l10n),
                   ],
 
                   if (isBuyer) ...[
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     // ESC-48: no contact before the money is held. The buyer
                     // reaches the farmer from the order once accepted.
                     Text(
                       l10n.contactAfterEscrowNote,
                       style: const TextStyle(
                         fontSize: 13,
-                        color: AppTheme.mutedSteel,
+                        height: 1.4,
+                        color: AppTheme.slate,
                       ),
                     ),
                     // FUP-67: a buyer reports what no check can catch (a
@@ -514,7 +520,10 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
     AppLocalizations l10n,
   ) {
     return [
-      Text(l10n.suggestedTransport, style: _sectionTitle),
+      _SectionLabel(
+        icon: Icons.local_shipping_outlined,
+        text: l10n.suggestedTransport,
+      ),
       const SizedBox(height: 10),
 
       // Trip cards or loading/empty state
@@ -530,7 +539,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
           child: Center(
             child: Text(
               l10n.noTripsYet,
-              style: const TextStyle(color: AppTheme.mutedSteel),
+              style: const TextStyle(color: AppTheme.slate),
             ),
           ),
         )
@@ -571,25 +580,28 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
               ),
             )),
 
-      // Price for the quantity the buyer needs (Crop detail board).
-      const SizedBox(height: 4),
-      FwCard(
+      // Price for the quantity the buyer needs (CropDetailM board): a flat
+      // sand tile, the total in the role colour.
+      const SizedBox(height: 6),
+      FwCard.sand(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              l10n.detailForQuantity(
-                l10n.quantityKg(wholeNumber(_quantity * 100)),
+            _SectionLabel(
+              icon: Icons.receipt_long_outlined,
+              text: l10n.detailForQuantity(
+                kgQuantityText(_quantity * kgPerQuintal, l10n),
               ),
-              style: _sectionTitle,
+              color: AppTheme.inkSoft,
             ),
-            const SizedBox(height: 11),
+            const SizedBox(height: 10),
             FwMoneyRow(
               label: l10n.cropCostLabel,
               amount: l10n.etbCurrency(formatEtbAmount(_pricing.cropCostEtb)),
             ),
             if (_selectedTrip != null) ...[
-              const SizedBox(height: 9),
+              const SizedBox(height: 8),
               FwMoneyRow(
                 label: l10n.transportCostLabel,
                 amount: l10n.etbCurrency(
@@ -597,16 +609,38 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                 ),
               ),
             ],
-            const SizedBox(height: 9),
+            const SizedBox(height: 8),
             FwMoneyRow(
               label: l10n.commissionLabel,
               amount: l10n.etbCurrency(formatEtbAmount(_commission)),
             ),
-            const SizedBox(height: 9),
-            FwMoneyRow(
-              label: l10n.totalLabel,
-              amount: l10n.etbCurrency(formatEtbAmount(_total)),
-              total: true,
+            const SizedBox(height: 10),
+            const Divider(height: 1, thickness: 1, color: AppTheme.sketch),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    l10n.totalLabel,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.ink,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  l10n.etbCurrency(formatEtbAmount(_total)),
+                  key: const Key('crop_detail_total'),
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.4,
+                    color: context.roleColors.primary,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -636,10 +670,6 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
         FilledButton(
           key: const Key('crop_detail_edit'),
           onPressed: _deleting ? null : _openEdit,
-          style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(56),
-            textStyle: label,
-          ),
           child: Text(l10n.edit),
         ),
         const SizedBox(height: 8),
@@ -648,10 +678,9 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
           onPressed: _deleting ? null : _confirmDelete,
           style: OutlinedButton.styleFrom(
             minimumSize: const Size.fromHeight(48),
+            // An outlined pill in the error colour: edge and label.
             foregroundColor: AppTheme.statusError,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
+            side: const BorderSide(color: AppTheme.statusError),
             textStyle:
                 label.copyWith(fontSize: 14, fontWeight: FontWeight.w700),
           ),
@@ -765,6 +794,8 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
             onPressed: () => Navigator.pop(dialogContext, true),
             style: FilledButton.styleFrom(
               backgroundColor: AppTheme.statusError,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 48),
             ),
             child: Text(l10n.delete),
           ),
@@ -861,15 +892,6 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
             FilledButton(
               key: const Key('crop_detail_place_order'),
               onPressed: () => _openPlaceOrder(trip: _selectedTrip),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(56),
-                textStyle: const TextStyle(
-                  fontFamily: AppTheme.fontFamily,
-                  fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
               child: Text(
                 withTransport ? l10n.placeOrderWithTransport : l10n.placeOrder,
               ),
@@ -881,9 +903,6 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                 onPressed: () => _openPlaceOrder(),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
                   textStyle: const TextStyle(
                     fontFamily: AppTheme.fontFamily,
                     fontFamilyFallback: AppTheme.ethiopicFontFallback,
@@ -912,14 +931,42 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
   }
 }
 
-const TextStyle _sectionTitle = TextStyle(
-  fontSize: 15,
-  fontWeight: FontWeight.w800,
-  color: AppTheme.soilDark,
-);
+/// A section's uppercase label with its small icon before it (CropDetailM
+/// board: Description, Suggested Transport, For 1,500 kg).
+class _SectionLabel extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final Color color;
 
-/// The crop large with how much is left and when it was listed, and the
-/// price large on the right (Buyer · Crop detail board).
+  const _SectionLabel({
+    required this.icon,
+    required this.text,
+    this.color = AppTheme.slate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Semantics(
+            header: true,
+            child: Text(
+              text.toUpperCase(),
+              style: FwText.sectionLabel.copyWith(color: color),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The crop large with how much is left (kilograms first, the quintals
+/// after in parentheses) and when it was listed, and the price large in
+/// the role colour on the right (CropDetailM board).
 class _HeaderSection extends StatelessWidget {
   final CropType cropType;
   final CropListing listing;
@@ -932,6 +979,8 @@ class _HeaderSection extends StatelessWidget {
     final listed = l10n.myCropsListedOn(
       formatMonthDay(dayInEthiopia(listing.createdAt)),
     );
+    final kg = listing.quantity * kgPerQuintal;
+    final quintals = quintalsInParensText(kg, l10n);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -944,21 +993,39 @@ class _HeaderSection extends StatelessWidget {
                 child: Text(
                   cropType.displayName(l10n),
                   style: const TextStyle(
-                    fontSize: 30,
+                    fontSize: 38,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: -0.9,
-                    height: 1.1,
-                    color: AppTheme.soilDark,
+                    letterSpacing: -1.3,
+                    height: 1.05,
+                    color: AppTheme.ink,
                   ),
                 ),
               ),
               const SizedBox(height: 2),
-              Text(
-                '${l10n.detailQuintalsLeft(formatQuintals(listing.quantity))}'
-                ' · $listed',
+              // "2,800 kg left (28 quintals) · listed Mon".
+              Text.rich(
+                key: const Key('crop_detail_quantity_line'),
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: l10n.marketKgLeft(kgQuantityText(kg, l10n)),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.ink,
+                      ),
+                    ),
+                    TextSpan(
+                      text: [
+                        if (quintals.isNotEmpty) ' $quintals',
+                        ' · $listed',
+                      ].join(),
+                    ),
+                  ],
+                ),
                 style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.mutedSteel,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: AppTheme.slate,
                 ),
               ),
             ],
@@ -970,17 +1037,22 @@ class _HeaderSection extends StatelessWidget {
           children: [
             Text(
               formatEtbAmount(listing.pricePerKg),
-              style: const TextStyle(
-                fontSize: 30,
+              style: TextStyle(
+                fontSize: 38,
                 fontWeight: FontWeight.w800,
-                letterSpacing: -0.9,
-                height: 1.1,
-                color: AppTheme.soilDark,
+                letterSpacing: -1.3,
+                height: 1.05,
+                color: context.roleColors.primary,
               ),
             ),
+            const SizedBox(height: 2),
             Text(
               l10n.etbPerKg,
-              style: const TextStyle(fontSize: 12, color: AppTheme.mutedSteel),
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: AppTheme.slate,
+              ),
             ),
           ],
         ),
@@ -1000,23 +1072,23 @@ class _StatusChip extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final (background, foreground, label) = switch (status) {
       ListingStatus.active => (
-          AppTheme.fieldGreenTint,
-          AppTheme.fieldGreen,
+          context.roleColors.tint,
+          context.roleColors.primary,
           l10n.listingStatusActive,
         ),
       ListingStatus.reserved => (
-          AppTheme.actionCream,
-          AppTheme.actionInk,
+          AppTheme.orangeTint,
+          AppTheme.orangeInk,
           l10n.listingStatusReserved,
         ),
       ListingStatus.draft => (
-          AppTheme.segmentTrack,
-          AppTheme.unselectedNav,
+          AppTheme.sand,
+          AppTheme.inkSoft,
           l10n.listingStatusDraft,
         ),
       ListingStatus.sold => (
-          AppTheme.dropoffBlueTint,
-          AppTheme.dropoffBlue,
+          AppTheme.sand,
+          AppTheme.inkSoft,
           l10n.listingStatusSold,
         ),
       ListingStatus.expired => (
@@ -1077,7 +1149,7 @@ class _LocationSection extends StatelessWidget {
           const Icon(
             Icons.location_on_outlined,
             size: 20,
-            color: AppTheme.mutedSteel,
+            color: AppTheme.slate,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -1086,7 +1158,7 @@ class _LocationSection extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             ),
           ),
@@ -1095,7 +1167,7 @@ class _LocationSection extends StatelessWidget {
               '→ $deliverTo',
               style: const TextStyle(
                 fontSize: 13,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ),
         ],
@@ -1148,7 +1220,7 @@ class _FarmerCardState extends State<_FarmerCard> {
         .take(2)
         .map((part) => part.characters.first.toUpperCase())
         .join();
-    const muted = TextStyle(fontSize: 12, color: AppTheme.mutedSteel);
+    const muted = TextStyle(fontSize: 14, color: AppTheme.inkSoft);
     return FutureBuilder<RatingSummary>(
       future: _summaryFuture,
       builder: (context, snapshot) {
@@ -1166,21 +1238,22 @@ class _FarmerCardState extends State<_FarmerCard> {
         final reliability = _reputation.reliabilityPct;
         final asOf = _reputation.asOf;
         final low = widget.showLowLabel && _reputation.isLow;
-        return FwCard(
-          padding: const EdgeInsets.all(14),
+        // CropDetailM board: a flat sand tile, the initials white on black.
+        return FwCard.sand(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Padding(
             padding: EdgeInsets.zero,
             child: Row(
               children: [
                 CircleAvatar(
                   radius: 22,
-                  backgroundColor: const Color(0xFFE3EEE6),
+                  backgroundColor: AppTheme.ink,
                   child: Text(
                     initials,
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 14,
                       fontWeight: FontWeight.w800,
-                      color: AppTheme.fieldGreen,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -1193,8 +1266,9 @@ class _FarmerCardState extends State<_FarmerCard> {
                         name,
                         style: const TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.soilDark,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.15,
+                          color: AppTheme.ink,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -1239,15 +1313,15 @@ class _FarmerCardState extends State<_FarmerCard> {
                       const Icon(
                         Icons.star_rounded,
                         size: 16,
-                        color: AppTheme.money,
+                        color: AppTheme.orange,
                       ),
-                      const SizedBox(width: 3),
+                      const SizedBox(width: 4),
                       Text(
                         average.toStringAsFixed(1),
                         style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.money,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.ink,
                         ),
                       ),
                     ],

@@ -296,6 +296,53 @@ class AppLocalizationsOm extends AppLocalizations {
   String get forgotPassword => 'Jecha Icciitii Irraanfatteettaa?';
 
   @override
+  String get loginYourRole => 'Gahee kee';
+
+  @override
+  String get loginAsFarmer => 'Akka Qotee Bulaatti Seeni';
+
+  @override
+  String get loginAsTrucker => 'Akka Konkolaachisaatti Seeni';
+
+  @override
+  String get loginAsBuyer => 'Akka Bitaatti Seeni';
+
+  @override
+  String get loginTaglineFarmer => 'Oomisha kee gurguri, ajaja hunda hordofi';
+
+  @override
+  String get loginTaglineTrucker =>
+      'Konkolaataa kee guuti, yeroo geessitu kaffaltii kee argadhu';
+
+  @override
+  String get loginTaglineBuyer =>
+      'Midhaanii fi geejjiba bakka tokkotti argadhu';
+
+  @override
+  String get orderCheckoutApproveNote =>
+      'Kaffaltii Telebirr keessatti mirkaneessuu qabdu. Sana booda hanga geessuu mirkaneessitanitti maallaqni Eeskiroo keessatti qabama.';
+
+  @override
+  String get paymentNotPaidPill => 'Hin kaffalamne';
+
+  @override
+  String get paymentFailedTitle => 'Kaffaltiin hin milkoofne';
+
+  @override
+  String get paymentFailedBody =>
+      'Herrega Telebirr keessan irraa maallaqni hin fudhatamne, ajajni keessanis akkuma olkaa\'ametti jira.';
+
+  @override
+  String get paymentTryAgain => 'Kaffaltii irra deebi\'aa yaalaa';
+
+  @override
+  String get paymentOfflineBody =>
+      'Kaffaltiin neetworkii barbaada. Ajajni keessan bilbila kana irratti olkaa\'ameera.';
+
+  @override
+  String get paymentBackToOrder => 'Gara ajajaatti deebi\'i';
+
+  @override
   String get getStarted => 'Jalqabi';
 
   @override
@@ -479,9 +526,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get selectCropType => 'Gosa Midhaan Filadhu';
 
   @override
-  String get quantityInQuintals => 'Hamma (kuntaala)';
-
-  @override
   String get priceInBirr => 'Gatii (Birrii/kg)';
 
   @override
@@ -607,11 +651,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get myTrips => 'Imala Koo';
 
   @override
-  String listsTripBooked(String booked, String capacity) {
-    return 'Kuntaala $capacity keessaa $booked qabameera';
-  }
-
-  @override
   String get listsRouteFrom => 'Irraa';
 
   @override
@@ -638,12 +677,6 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get departureDate => 'Guyyaa Ka\'umsaa';
-
-  @override
-  String get capacity => 'Dandeettii (Kuntaala)';
-
-  @override
-  String get pricePerQuintal => 'Gatii Kuntaala Tokkoo (Birrii)';
 
   @override
   String get tripStatusOpen => 'Banaa';
@@ -692,10 +725,6 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get capacityRequired => 'Dandeettiin barbaachisaadha';
-
-  @override
-  String get invalidCapacity =>
-      'Dandeettiin kuntaala 0.1 hanga 1000 ta\'uu qaba';
 
   @override
   String get invalidPrice =>
@@ -2596,6 +2625,14 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String quintalsInParens(String count) {
+    return '(kuntaala $count)';
+  }
+
+  @override
+  String get oneQuintalInParens => '(kuntaala 1)';
+
+  @override
   String orderQuantityExceedsStock(String available) {
     return 'Kan jiru kg $available qofa. Baay\'ina xiqqaa galchi.';
   }
@@ -3652,11 +3689,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get tripNoBookings => 'Ammallee ajajni qabame hin jiru';
 
   @override
-  String tripRemainingCapacity(String quintals) {
-    return 'Kuntaala $quintals duwwaa';
-  }
-
-  @override
   String get chooseTrip => 'Konkolaataa filadhaa';
 
   @override
@@ -4318,6 +4350,105 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get liveTripWholeRoute => 'Karaa guutuu agarsiisi';
+
+  @override
+  String get liveTripNearTruck => 'Naannoo konkolaataa';
+
+  @override
+  String get liveTripZoomIn => 'Guddisi';
+
+  @override
+  String get liveTripZoomOut => 'Xiqqeessi';
+
+  @override
+  String get liveTripViewPhoto => 'Suuraa ilaali';
+
+  @override
+  String get liveTripLegendLabel => 'Hiika kaartaa';
+
+  @override
+  String get liveTripLegendDriven => 'Kan deemame';
+
+  @override
+  String get liveTripLegendAhead => 'Karaa hafe';
+
+  @override
+  String get liveTripLegendTruck => 'Konkolaataan naannoo kana jira';
+
+  @override
+  String get liveTripCall => 'Bilbili';
+
+  @override
+  String liveTripNothingToDoWindow(String time) {
+    return 'Wanti isin irraa eegamu hin jiru. Yoo rakkoo hin gabaasin, kaffaltiin yeroo mirkaneessaa xumuramu, $time, ni gadhiifama.';
+  }
+
+  @override
+  String liveTripFarmerNothingToDo(String buyer) {
+    return 'Amma wanti isin irraa eegamu hin jiru. $buyer geessuu mirkaneessuu qaba. Sana booda yeroon mirkaneessaa sa\'aatii 48 ni darba, maallaqichis isiniif kaffalama.';
+  }
+
+  @override
+  String liveTripFarmerNothingToDoWindow(String time) {
+    return 'Wanti isin irraa eegamu hin jiru. Yoo bitaan rakkoo hin gabaasin, yeroo mirkaneessaa xumuramu, $time, isiniif kaffalama.';
+  }
+
+  @override
+  String liveTripNextScanAt(String place) {
+    return 'Itti aansee: ${place}tti QR konkolaachisaa iskaan gootu.';
+  }
+
+  @override
+  String get liveTripNextScan =>
+      'Itti aansee: yeroo konkolaataan ga\'u QR konkolaachisaa iskaan gootu.';
+
+  @override
+  String liveTripQuintalsCount(String count) {
+    return 'kuntaala $count';
+  }
+
+  @override
+  String get delivOpenMap => 'Kaartaa bani';
+
+  @override
+  String get delivOpen => 'Bani';
+
+  @override
+  String delivNothingToDoReleased(String time) {
+    return 'Wanti isin irraa eegamu hin jiru. Yoo rakkoo hin gabaasin, kaffaltiin $time booda ni gadhiifama.';
+  }
+
+  @override
+  String delivNothingToDoPaid(String time) {
+    return 'Wanti isin irraa eegamu hin jiru. Yoo bitaan rakkoo hin gabaasin, $time booda isiniif kaffalama.';
+  }
+
+  @override
+  String get delivEmptyTitle => 'Hanga ammaatti wanti karaa irra jiru hin jiru';
+
+  @override
+  String get delivEmptyBodyBuyer =>
+      'Yeroo konkolaachisaan ajaja keessan keessaa tokko fe\'u, konkolaataa sana asitti hordofuu dandeessu.';
+
+  @override
+  String get delivEmptyBodyFarmer =>
+      'Yeroo konkolaachisaan midhaan keessan keessaa tokko fe\'u, konkolaataa sana asitti hordofuu dandeessu.';
+
+  @override
+  String get delivEmptyBodyTrucker =>
+      'Yeroo fe\'umsa fuutan, geessiin isaa asitti mul\'ata.';
+
+  @override
+  String get delivEmptyFindCrops => 'Midhaan barbaadi';
+
+  @override
+  String get delivEmptySeeOrders => 'Ajaja koo ilaali';
+
+  @override
+  String get delivEmptySeeTrips => 'Imala koo ilaali';
+
+  @override
   String get liveTripWiderWindow =>
       'Yeroon bal\'ateera: yeroo muraasaaf gabaasni hin dhufne';
 
@@ -4846,9 +4977,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get homeTileWaitingForYou => 'isin eegaa jira';
 
   @override
-  String get homeTileHeldForYou => 'isiniif qabamee jira';
-
-  @override
   String get homeTileHeldInEscrow => 'eeskiroo keessa qabamee jira';
 
   @override
@@ -4894,9 +5022,92 @@ class AppLocalizationsOm extends AppLocalizations {
   String get tripSpaceTitle => 'Bakka imala kanarra jiru';
 
   @override
-  String tripLoadedOf(String loaded, String capacity) {
-    return 'Kuntaala $capacity keessaa $loaded qabameera';
+  String get invalidCapacityKg =>
+      'Dandeettiin kg 10 hanga 100,000 gidduu ta\'uu qaba';
+
+  @override
+  String get capacityKg => 'Dandeettii (kg)';
+
+  @override
+  String get pricePer100Kg => 'Gatii kg 100 (Birrii)';
+
+  @override
+  String get perQuintalInParens => '(kuntaala tokkoof)';
+
+  @override
+  String get quintalInParens => '(kuntaala)';
+
+  @override
+  String tripPricePer100KgValue(String price) {
+    return 'kg 100f Birrii $price';
   }
+
+  @override
+  String get etbPer100KgShort => 'Birrii/kg 100';
+
+  @override
+  String tripKgOfKg(String amount, String capacity) {
+    return 'kg $capacity keessaa $amount';
+  }
+
+  @override
+  String tripKgLeft(String left) {
+    return 'kg $left hafe';
+  }
+
+  @override
+  String tripKgBooked(String booked, String capacity) {
+    return 'kg $capacity keessaa $booked qabameera';
+  }
+
+  @override
+  String tripKgFree(String kg) {
+    return 'kg $kg duwwaa';
+  }
+
+  @override
+  String get tripYourTurnNote =>
+      'Deebii kennuuf dabareen kan keeti. Erga fudhattee booda quunnamtiin ni banama.';
+
+  @override
+  String get tripOpenLink => 'Bani';
+
+  @override
+  String get tripModeCheckInSends => 'Bakka amma jirtu erga.';
+
+  @override
+  String tripModeNextDueBy(String time) {
+    return 'Gabaasni itti aanu hanga $time tti ergamuu qaba.';
+  }
+
+  @override
+  String tripModeAboutTime(String time) {
+    return 'naannoo $time';
+  }
+
+  @override
+  String tripModeAboutKm(String km) {
+    return 'gara km $km';
+  }
+
+  @override
+  String get qrFailedTitle => 'Iskaaniin hin hojjenne';
+
+  @override
+  String get qrFailedNothingLost => 'Wanti bade hin jiru.';
+
+  @override
+  String get qrFailedBackToTrip => 'Gara imalaatti deebi\'i';
+
+  @override
+  String get qrFailedOfflineNote =>
+      'Iskaan gochuun neetworkii malees ni hojjata.';
+
+  @override
+  String get qrFailedPickupScan => 'Iskaanii fudhachuu';
+
+  @override
+  String get qrFailedDeliveryScan => 'Iskaanii geejjibaa';
 
   @override
   String get tripBookedTermsNote =>
@@ -4966,6 +5177,13 @@ class AppLocalizationsOm extends AppLocalizations {
       'Kaffaltiin Birrii 10,000 ol Fayda barbaada. Kanneen xixiqqoon jecha icciitii keessan gaafatu.';
 
   @override
+  String get checkoutConfirmedWithFayda => 'Faydaan mirkanaa\'eera';
+
+  @override
+  String get checkoutConfirmedWithPassword =>
+      'Jecha icciitii keessaniin mirkanaa\'eera';
+
+  @override
   String myCropsOrderedOf(String ordered, String total) {
     return 'Kuntaala $total keessaa $ordered ajajameera';
   }
@@ -4974,6 +5192,66 @@ class AppLocalizationsOm extends AppLocalizations {
   String myCropsNoOrdersYet(String quantity) {
     return 'Kuntaala $quantity, hanga ammaatti ajajni hin jiru';
   }
+
+  @override
+  String get homeWelcomeBack => 'Baga nagaan dhuftan,';
+
+  @override
+  String get homeOpen => 'Bani';
+
+  @override
+  String get homeTileHeldUntilConfirmed =>
+      'hanga bitaan ga\'uu isaa mirkaneessutti isiniif qabamee jira';
+
+  @override
+  String homeTripLoadedKg(String loaded, String capacity) {
+    return 'kg $capacity keessaa $loaded fe\'ameera';
+  }
+
+  @override
+  String quintalsOfInParens(String part, String total) {
+    return '(kuntaala $total keessaa $part)';
+  }
+
+  @override
+  String homePaymentsInEscrow(String amount) {
+    return 'Birrii $amount eeskiroo keessa';
+  }
+
+  @override
+  String myCropsOrderedOfKg(String ordered, String total) {
+    return 'kg $total keessaa $ordered ajajameera';
+  }
+
+  @override
+  String get myCropsNoOrdersShort => 'hanga ammaatti ajajni hin jiru';
+
+  @override
+  String get myCropsEmptyTitle => 'Midhaan tarreeffame hin jiru';
+
+  @override
+  String get myCropsEmptyBody =>
+      'Bitoonni akka argataniifi ajaja akka isiniif erganiif midhaan keessan isa jalqabaa tarreessaa.';
+
+  @override
+  String get myCropsEmptyAction => 'Midhaan tarreessi';
+
+  @override
+  String get quantityInKg => 'Hamma (kg)';
+
+  @override
+  String get kgUnit => 'kg';
+
+  @override
+  String quintalsShortInParens(String count) {
+    return '(kunt. $count)';
+  }
+
+  @override
+  String get quantityKgTooSmall => 'Yoo xiqqaate kg 1 galchi.';
+
+  @override
+  String get quantityKgTooLarge => 'kg 1,000,000 ol hin galchin.';
 
   @override
   String get createTripBookingCutoffNote =>
@@ -5182,6 +5460,119 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String marketQuintalsLeft(String quantity) {
     return 'kuntaala $quantity hafe';
+  }
+
+  @override
+  String get actionOpen => 'Bani';
+
+  @override
+  String commitmentAnswerDue(String time) {
+    return 'Deebiin hanga $time';
+  }
+
+  @override
+  String get commitmentTheFarmer => 'qonnaan bulaa';
+
+  @override
+  String get commitmentTheTrucker => 'konkolaachisaa';
+
+  @override
+  String commitmentWhoFarmer(String name) {
+    return '$name, qonnaan bulaa,';
+  }
+
+  @override
+  String commitmentWhoTrucker(String name) {
+    return '$name, konkolaachisaa,';
+  }
+
+  @override
+  String commitmentBuyerWaitingOnBy(String who, String time) {
+    return 'Amma $who hanga $time akka deebisu eegamaa jira. Ati homaa gochuu hin qabdu.';
+  }
+
+  @override
+  String commitmentBuyerWaitingOn(String who) {
+    return 'Amma $who akka deebisu eegamaa jira. Ati homaa gochuu hin qabdu.';
+  }
+
+  @override
+  String get commitmentThenTruckerAsked =>
+      'Yeroo qonnaan bulaan fudhatu, itti aansee konkolaachisaan gaafatama.';
+
+  @override
+  String get commitmentContactOpensOnTruckerAccept =>
+      'Yeroo konkolaachisaan fudhatu, quunnamtiin asitti banama.';
+
+  @override
+  String commitmentYourTurnBy(String time) {
+    return 'Dabareen kan kee ti: hanga $time fudhadhu yookaan didi.';
+  }
+
+  @override
+  String get commitmentYourTurn =>
+      'Dabareen kan kee ti: fudhadhu yookaan didi.';
+
+  @override
+  String get commitmentFarmerAcceptThenTrucker =>
+      'Yeroo fudhattu, itti aansee konkolaachisaan gaafatama, kaffaltiin bitaas eeskiroo keessa tura.';
+
+  @override
+  String get commitmentFarmerAcceptEscrowStays =>
+      'Yeroo fudhattu, kaffaltiin bitaa eeskiroo keessa tura.';
+
+  @override
+  String get rejectConfirmTitle => 'Ajaja kana ni diddaa?';
+
+  @override
+  String get rejectConfirmBody =>
+      'Bitaan ajaja kana guutuu akka hin dandeenye itti himama, kaffaltiin isaas eeskiroo irraa deebi\'aaf.';
+
+  @override
+  String rejectConfirmReason(String reason) {
+    return 'Sababa: $reason';
+  }
+
+  @override
+  String get rejectConfirmYes => 'Eeyyee, ajaja didi';
+
+  @override
+  String get rejectConfirmKeep => 'Ajaja tursi';
+
+  @override
+  String get contactMessageLabel => 'Ergaa';
+
+  @override
+  String placeOrderFitsTripKg(String quantity) {
+    return 'imala kana keessa gala, $quantity hafe';
+  }
+
+  @override
+  String placeOrderExceedsTripKg(String quantity) {
+    return 'iddoo imalli kun qabuu ol, $quantity hafe';
+  }
+
+  @override
+  String pricePerQuintalInParens(String price) {
+    return '($price/kuntaala)';
+  }
+
+  @override
+  String transportPricePerKgAndQuintal(String perKg, String perQuintal) {
+    return 'kg tokkoof Birrii $perKg (kuntaala tokkoof $perQuintal)';
+  }
+
+  @override
+  String get quantityNeededKg => 'Baay\'ina barbaadamu (kg)';
+
+  @override
+  String marketKgLeft(String quantity) {
+    return '$quantity hafe';
+  }
+
+  @override
+  String marketKgRoom(String quantity) {
+    return 'bakka $quantity';
   }
 
   @override

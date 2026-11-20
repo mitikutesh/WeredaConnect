@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
 
@@ -55,5 +56,33 @@ void main() {
     final settings = SettingsProvider();
     await settings.initialize();
     expect(settings.clockPreference, ClockPreference.auto);
+  });
+
+  group('last sign-in role (the login screen opens in its colours)', () {
+    test('nothing is remembered before the first sign-in', () async {
+      final settings = SettingsProvider();
+      await settings.initialize();
+      expect(settings.lastSignInRole, isNull);
+    });
+
+    test('a sign-in is saved and read back after a restart', () async {
+      final settings = SettingsProvider();
+      await settings.rememberSignInRole(UserRole.trucker);
+
+      expect(settings.lastSignInRole, UserRole.trucker);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('last_sign_in_role'), 'trucker');
+
+      final restarted = SettingsProvider();
+      await restarted.initialize();
+      expect(restarted.lastSignInRole, UserRole.trucker);
+    });
+
+    test('a stored value that is no role is ignored', () async {
+      SharedPreferences.setMockInitialValues({'last_sign_in_role': 'admin'});
+      final settings = SettingsProvider();
+      await settings.initialize();
+      expect(settings.lastSignInRole, isNull);
+    });
   });
 }

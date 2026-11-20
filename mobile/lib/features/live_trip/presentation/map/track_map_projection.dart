@@ -87,6 +87,29 @@ class TrackProjection {
     );
   }
 
+  /// The same view magnified [factor] times (1 leaves it as fitted; never
+  /// below 1). The view's centre moves towards [around] as it grows, so the
+  /// point keeps its side of the canvas and ends near the middle: the truck
+  /// stays in sight with the road on both sides of it. Without [around] the
+  /// view grows about its own centre.
+  TrackProjection zoomed(double factor, {GeoPoint? around}) {
+    final zoom = math.max(factor, 1.0);
+    if (zoom == 1.0) return this;
+    // The point's offset from the centre shrinks by 1 / zoom on screen.
+    final keep = 1 / (zoom * zoom);
+    return TrackProjection._(
+      size: size,
+      centerLatitude: around == null
+          ? _centerLatitude
+          : around.latitude + (_centerLatitude - around.latitude) * keep,
+      centerLongitude: around == null
+          ? _centerLongitude
+          : around.longitude + (_centerLongitude - around.longitude) * keep,
+      cosLatitude: _cos,
+      scale: _scale * zoom,
+    );
+  }
+
   /// The canvas the projection was fitted to.
   final Size size;
 

@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
@@ -197,8 +199,8 @@ class _MatchResultsBody extends StatelessWidget {
             child: FwInfoNote(
               icon: Icons.cloud_off,
               text: l10n.showingCachedResults,
-              background: AppTheme.actionCream,
-              foreground: AppTheme.actionInk,
+              background: AppTheme.orangeTint,
+              foreground: AppTheme.orangeInk,
             ),
           ),
         // The request this list answers: crop, amount, budget, where to.
@@ -217,14 +219,28 @@ class _MatchResultsBody extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '${cropType.displayName(l10n)} · '
-                        '${intent.quantityNeeded.toStringAsFixed(0)} ${l10n.quintals} · '
-                        '$budget',
+                      // Kilograms lead, the quintals follow small (page M).
+                      Text.rich(
+                        TextSpan(
+                          text: '${cropType.displayName(l10n)} · '
+                              '${kgQuantityText(intent.quantityNeeded * kgPerQuintal, l10n)}',
+                          children: [
+                            TextSpan(
+                              text:
+                                  ' ${quintalsInParensText(intent.quantityNeeded * kgPerQuintal, l10n).replaceAll(' ', '\u00A0')}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: AppTheme.slate,
+                              ),
+                            ),
+                            TextSpan(text: ' · $budget'),
+                          ],
+                        ),
                         style: const TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.soilDark,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.ink,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -232,14 +248,14 @@ class _MatchResultsBody extends StatelessWidget {
                         '${intent.deliveryWoreda} · ${l10n.matchesFound(matches.length)}',
                         style: const TextStyle(
                           fontSize: 12,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         ),
                       ),
                       Text(
                         l10n.syncedAgo(_timeSinceSync()),
                         style: const TextStyle(
                           fontSize: 12,
-                          color: AppTheme.mutedSteel,
+                          color: AppTheme.slate,
                         ),
                       ),
                     ],
@@ -364,7 +380,7 @@ class _EmptyState extends StatelessWidget {
               child: const Icon(
                 Icons.search_off,
                 size: 28,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ),
             const SizedBox(height: 14),
@@ -374,7 +390,7 @@ class _EmptyState extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
             ),
             const SizedBox(height: 20),

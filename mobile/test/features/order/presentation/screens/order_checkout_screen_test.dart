@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -10,13 +11,19 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_checkout_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
+import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/payment_cards.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 
 class _MockEscrow extends Mock implements BaseEscrowRepository {}
+
+class _MockOrderBloc extends Mock implements OrderBloc {}
 
 /// ESC-44: the checkout screen opens Telebirr (Android on its own, web from
 /// a link), reads the order on a backoff while in the foreground and comes
@@ -365,7 +372,8 @@ void main() {
     await leave(tester);
   });
 
-  testWidgets('ESCROW_030 and the order failed meanwhile: Pay again',
+  // PaymentFailedM: the full state, not a line in the status card.
+  testWidgets('ESCROW_030 and the order failed meanwhile: the failed state',
       (tester) async {
     when(() => escrow.openOrderCheckout(orderId)).thenAnswer((_) async {
       serverStatus = OrderStatus.paymentFailed;
@@ -373,13 +381,200 @@ void main() {
     });
     await open(tester);
 
+    expect(find.byKey(const Key('payment_failed_state')), findsOneWidget);
+    expect(find.text('Not paid'), findsOneWidget);
+    expect(find.text('Payment did not go through'), findsOneWidget);
     expect(
       find.text(
-        'This payment could not be confirmed in time. You can pay again.',
+        'No money was taken from your Telebirr account, and your order is '
+        'still saved.',
       ),
       findsOneWidget,
     );
-    expect(find.text('Pay again'), findsOneWidget);
+    // The state replaces the cards; its two actions are the only ones.
+    expect(find.byType(PaymentAmountCard), findsNothing);
+    expect(find.byType(PaymentStatusCard), findsNothing);
+    expect(
+      find.widgetWithText(FilledButton, 'Try payment again'),
+      findsOneWidget,
+    );
+    expect(find.widgetWithText(OutlinedButton, 'Pay Later'), findsOneWidget);
+    // The close button has a name for screen readers.
+    expect(find.bySemanticsLabel('Close'), findsOneWidget);
+    await leave(tester);
+  });
+
+  testWidgets('the failed state: Try payment again opens the payment step',
+      (tester) async {
+    when(() => escrow.openOrderCheckout(orderId)).thenAnswer((_) async {
+      serverStatus = OrderStatus.paymentFailed;
+      return const OrderCheckoutFailed('ESCROW_030', 409, 'not waiting');
+    });
+    final orders = _MockOrderBloc();
+    when(() => orders.state).thenReturn(const OrderInitial());
+    when(() => orders.stream).thenAnswer((_) => const Stream.empty());
+    await tester.pumpWidget(
+      BlocProvider<OrderBloc>.value(
+        value: orders,
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: OrderCheckoutScreen(
+            order: order(),
+            bloc: bloc(),
+            isWeb: false,
+            returnLinks: links.stream,
+            connectivityRestored: network.stream,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.text('Try payment again'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PaymentInstructionsScreen), findsOneWidget);
+    expect(find.byType(OrderCheckoutScreen), findsNothing);
+    await leave(tester);
+  });
+
+  // PaymentOfflineM.
+  group('no network while paying', () {
+    testWidgets('the checkout request did not reach the server',
+        (tester) async {
+      fails('ESCROW_OFFLINE', 0);
+      await open(tester);
+
+      expect(find.byKey(const Key('payment_offline_state')), findsOneWidget);
+      expect(find.text('No network'), findsOneWidget);
+      expect(find.text('No internet connection'), findsOneWidget);
+      expect(
+        find.text(
+          'Payment needs a connection. Your order is saved on this phone.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byType(PaymentStatusCard), findsNothing);
+      expect(
+        find.widgetWithText(OutlinedButton, 'Back to order'),
+        findsOneWidget,
+      );
+
+      // Retry asks for the checkout again; with a network it opens.
+      opens();
+      await tester.tap(find.widgetWithText(FilledButton, 'Retry'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('payment_offline_state')), findsNothing);
+      expect(
+        find.text('Waiting for your Telebirr payment to be confirmed…'),
+        findsOneWidget,
+      );
+      await leave(tester);
+    });
+
+    late StreamController<bool> online;
+    setUp(() => online = StreamController<bool>.broadcast());
+    tearDown(() => online.close());
+
+    Future<void> openQueued(
+      WidgetTester tester, {
+      bool stepUp = false,
+    }) async {
+      if (stepUp) {
+        events
+          ..stepUpDeclined()
+          ..emit(const StepUpRequired());
+      }
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: OrderCheckoutScreen(
+            order: order(),
+            bloc: OrderCheckoutBloc(
+              orderId: orderId,
+              escrow: escrow,
+              readServerOrder: (_) async => null,
+              readLocalOrder: (_) async => order(),
+              securityEvents: events,
+            ),
+            isWeb: false,
+            returnLinks: links.stream,
+            online: online.stream,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    const waitingToSend =
+        'Your payment is waiting to be sent. Telebirr opens once it reaches '
+        'the server.';
+
+    testWidgets('a payment waiting on a phone with no network', (tester) async {
+      await openQueued(tester);
+      // Online as far as the phone knows: the waiting card.
+      expect(find.text(waitingToSend), findsOneWidget);
+
+      online.add(false);
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('payment_offline_state')), findsOneWidget);
+      expect(find.text(waitingToSend), findsNothing);
+
+      // The network is back: the waiting card again, nothing was dropped.
+      online.add(true);
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('payment_offline_state')), findsNothing);
+      expect(find.text(waitingToSend), findsOneWidget);
+      verifyNever(() => escrow.openOrderCheckout(any()));
+      await leave(tester);
+    });
+
+    testWidgets('a queued payment held for a step-up keeps its card offline',
+        (tester) async {
+      await openQueued(tester, stepUp: true);
+      online.add(false);
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('payment_offline_state')), findsNothing);
+      expect(
+        find.widgetWithText(FilledButton, "Confirm it's you"),
+        findsOneWidget,
+      );
+      await leave(tester);
+    });
+  });
+
+  // PaymentM: what the buyer must do, and where the money goes.
+  testWidgets('waiting for Telebirr says to approve there', (tester) async {
+    opens();
+    await open(tester);
+
+    expect(
+      find.text(
+        'You need to approve the payment in Telebirr. Then the money is '
+        'held in escrow until you confirm delivery.',
+      ),
+      findsOneWidget,
+    );
+    // The page's one orange action is the theme's button; Pay Later is the
+    // outlined pill under it.
+    final openButton =
+        find.widgetWithText(FilledButton, 'Open Telebirr payment');
+    expect(tester.widget<FilledButton>(openButton).style, isNull);
+    expect(find.widgetWithText(OutlinedButton, 'Pay Later'), findsOneWidget);
     await leave(tester);
   });
 
@@ -424,6 +619,148 @@ void main() {
     );
     verifyNever(() => escrow.openOrderCheckout(any()));
     await leave(tester);
+  });
+
+  // PaymentM: "Confirmed with Fayda", only once it happened.
+  group('the confirmed-with pill', () {
+    final pill = find.byKey(const Key('checkout_confirmed_with'));
+
+    Future<void> openQueuedForStepUp(
+      WidgetTester tester, {
+      required bool withFayda,
+      StepUpMethod? confirmedWith,
+    }) async {
+      events
+        ..stepUpDeclined()
+        ..emit(StepUpRequired(withFayda: withFayda));
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: OrderCheckoutScreen(
+            order: order(),
+            bloc: OrderCheckoutBloc(
+              orderId: orderId,
+              escrow: escrow,
+              readServerOrder: (_) async => null,
+              readLocalOrder: (_) async => order(),
+              securityEvents: events,
+            ),
+            isWeb: false,
+            returnLinks: links.stream,
+            securityEvents: events,
+            confirmedWith: confirmedWith,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('not shown before anything was confirmed', (tester) async {
+      fails('ESCROW_032', 409);
+      await open(tester);
+
+      expect(pill, findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets('a pending Fayda step-up is not named as confirmed',
+        (tester) async {
+      await openQueuedForStepUp(tester, withFayda: true);
+
+      expect(
+        find.widgetWithText(FilledButton, "Confirm it's you"),
+        findsOneWidget,
+      );
+      expect(pill, findsNothing);
+      await leave(tester);
+    });
+
+    for (final (method, words) in [
+      (StepUpMethod.fayda, 'Confirmed with Fayda'),
+      (StepUpMethod.password, 'Confirmed with your password'),
+    ]) {
+      testWidgets('shown once the step-up completes: $words', (tester) async {
+        await openQueuedForStepUp(
+          tester,
+          withFayda: method == StepUpMethod.fayda,
+        );
+        expect(pill, findsNothing);
+
+        // What a finished prompt reports (this screen's or the shell's).
+        events.stepUpCompleted(method: method);
+        await tester.pump();
+        await tester.pump();
+
+        expect(pill, findsOneWidget);
+        expect(find.text(words), findsOneWidget);
+        await leave(tester);
+      });
+    }
+
+    testWidgets('a prompt for something else names nothing here',
+        (tester) async {
+      // The checkout is not waiting for a confirmation (the server refused
+      // the payment): a step-up the shell finished for another order or a
+      // dispute is not this payment's.
+      fails('ESCROW_032', 409);
+      await open(tester);
+
+      events.stepUpCompleted(method: StepUpMethod.fayda);
+      await tester.pump();
+      await tester.pump();
+
+      expect(pill, findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets('a completion that names no method shows nothing',
+        (tester) async {
+      await openQueuedForStepUp(tester, withFayda: false);
+
+      events.stepUpCompleted();
+      await tester.pump();
+      await tester.pump();
+
+      expect(pill, findsNothing);
+      await leave(tester);
+    });
+
+    testWidgets('carried over from the page before, gone when asked again',
+        (tester) async {
+      fails('ESCROW_032', 409);
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: OrderCheckoutScreen(
+            order: order(),
+            bloc: bloc(),
+            isWeb: false,
+            returnLinks: links.stream,
+            connectivityRestored: network.stream,
+            securityEvents: events,
+            confirmedWith: StepUpMethod.password,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Confirmed with your password'), findsOneWidget);
+      await leave(tester);
+
+      // A queued payment that asks again starts without the pill.
+      await openQueuedForStepUp(
+        tester,
+        withFayda: true,
+        confirmedWith: StepUpMethod.password,
+      );
+      expect(pill, findsNothing);
+      await leave(tester);
+    });
   });
 
   for (final locale in ['am', 'om']) {

@@ -24,6 +24,8 @@ void main() {
     Uint8List? previewBytes,
     Future<String?> Function()? answer,
     bool canCapture = false,
+    double? size,
+    bool showLabel = true,
   }) async {
     loads = [];
     await tester.pumpWidget(
@@ -37,6 +39,8 @@ void main() {
             photoType: PhotoType.dropoff,
             deliveryId: _deliveryId,
             canCapture: canCapture,
+            size: size ?? 120,
+            showLabel: showLabel,
             photoUrlLoader: (deliveryId, type) {
               loads.add((deliveryId, type));
               return (answer ?? () async => null)();
@@ -121,5 +125,65 @@ void main() {
     await pump(tester, canCapture: true);
 
     expect(find.text('Add Photo'), findsOneWidget);
+  });
+
+  // The buyer's trip log shows the pickup photo in an 80 px tile and larger
+  // in its viewer, without the name under it.
+  group('a tile of another size', () {
+    testWidgets('the default is the 120 px tile with its name', (tester) async {
+      await pump(tester);
+      expect(tester.getSize(find.byType(Material).last), const Size(120, 120));
+      expect(find.text('Delivery Photo'), findsOneWidget);
+    });
+
+    testWidgets('a small tile keeps the icon and drops the words',
+        (tester) async {
+      await pump(tester, size: 80, showLabel: false);
+      expect(
+        tester.getSize(find.byType(PhotoEvidenceWidget)),
+        const Size(80, 80),
+      );
+      expect(find.byIcon(Icons.camera_alt_outlined), findsOneWidget);
+      expect(find.byType(Text), findsNothing);
+      // The words stay for a screen reader.
+      expect(
+        tester
+            .widget<Icon>(find.byIcon(Icons.camera_alt_outlined))
+            .semanticLabel,
+        isNotEmpty,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('small and offline: the cloud alone, named', (tester) async {
+      await pump(tester, photoRef: _key, size: 80, showLabel: false);
+      await tester.pump();
+      expect(
+        tester.getSize(find.byType(PhotoEvidenceWidget)),
+        const Size(80, 80),
+      );
+      final cloud = tester.widget<Icon>(find.byIcon(Icons.cloud_off_outlined));
+      expect(cloud.semanticLabel, isNotEmpty);
+      expect(find.byType(Text), findsNothing);
+    });
+
+    testWidgets('a large server photo decodes for its size', (tester) async {
+      await pump(
+        tester,
+        photoRef: _key,
+        size: 300,
+        showLabel: false,
+        answer: () async => 'https://uploads.s3.test/signed-dropoff',
+      );
+      await tester.pump();
+      final image = tester.widget<CachedNetworkImage>(
+        find.byType(CachedNetworkImage),
+      );
+      expect(image.memCacheWidth, 900);
+      expect(
+        tester.getSize(find.byType(PhotoEvidenceWidget)),
+        const Size(300, 300),
+      );
+    });
   });
 }

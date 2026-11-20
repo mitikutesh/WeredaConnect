@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Create crop listing</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&amp;family=Noto+Sans+Ethiopic:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#9A45A0}a:hover{color:#6B2A69}
+</style>
+</helmet>
+<div style="width: 390px; height: 900px; box-sizing: border-box; background: #FFFFFF; color: #1A1516; font-family: 'Bricolage Grotesque', 'Noto Sans Ethiopic', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden; position: relative">
+
+  <header style="position: relative; padding: 26px 20px 0; display: flex; align-items: center; gap: 14px">
+    <a href="FarmerHomeM.dc.html" aria-label="Back" style="width: 44px; height: 44px; border-radius: 999px; background: #F5F3F1; color: #1A1516; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></a>
+    <h1 style="margin: 0; font-size: 30px; line-height: 1.05; font-weight: 800; letter-spacing: -0.035em">Create Listing</h1>
+    <svg data-sketch="farmer" width="66" height="49" sc-camel-view-box="0 0 140 104" fill="none" stroke="#C9BEB5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="position: absolute; pointer-events: none; right: 20px; top: 24px"><path d="M140 4 C 112 14, 78 34, 48 72" stroke-width="3.3"></path><path d="M98 26 C 86 10, 66 6, 50 12 C 56 28, 78 36, 98 26 Z" stroke-width="3.0"></path><path d="M98 26 C 82 20, 66 15, 53 13" stroke-width="2.4"></path><path d="M76 44 C 92 46, 108 60, 110 78 C 92 78, 78 64, 76 44 Z" stroke-width="3.0"></path><path d="M76 44 C 88 54, 100 66, 108 76" stroke-width="2.4"></path><path d="M48 72 L 44 80" stroke-width="2.5"></path><path d="M48 72 L 56 82" stroke-width="2.5"></path><circle cx="42" cy="87" r="6.5" stroke-width="3.0"></circle><circle cx="58" cy="89" r="6.5" stroke-width="3.0"></circle></svg>
+  </header>
+
+  <form style="padding: 20px 20px 128px; display: flex; flex-direction: column; gap: 18px">
+    <fieldset style="margin: 0; padding: 0; border: none; min-width: 0">
+      <legend style="padding: 0; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #5C5450"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v-8"></path><path d="M12 12c0-4 3-7 8-7 0 5-3 8-8 7z"></path><path d="M12 14c0-3-2.5-5.5-7-5.5 0 4 2.5 6 7 5.5z"></path></svg>Select Crop Type</legend>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+        <label style="position: relative; height: 44px; border-radius: 999px; border: 1px solid #8E857E; box-sizing: border-box; color: #4A4340; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 13px; font-weight: 500"><input type="radio" name="crop" style="position: absolute; opacity: 0; width: 1px; height: 1px"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M12 21V3"></path><path d="M12 9c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 9c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path><path d="M12 15c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 15c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path></svg>Teff</label>
+        <label style="position: relative; height: 44px; border-radius: 999px; border: 1px solid #1A1516; box-sizing: border-box; background: #1A1516; color: #FFFFFF; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 700"><input type="radio" name="crop" checked="" style="position: absolute; opacity: 0; width: 1px; height: 1px"><svg width="13" height="13" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M12 21V3"></path><path d="M12 9c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 9c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path><path d="M12 15c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 15c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path></svg>Wheat</label>
+        <label style="position: relative; height: 44px; border-radius: 999px; border: 1px solid #8E857E; box-sizing: border-box; color: #4A4340; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 13px; font-weight: 500"><input type="radio" name="crop" style="position: absolute; opacity: 0; width: 1px; height: 1px"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M12 21V3"></path><path d="M12 9c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 9c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path><path d="M12 15c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 15c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path></svg>Barley</label>
+        <label style="position: relative; height: 44px; border-radius: 999px; border: 1px solid #8E857E; box-sizing: border-box; color: #4A4340; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 13px; font-weight: 500"><input type="radio" name="crop" style="position: absolute; opacity: 0; width: 1px; height: 1px"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M12 21V3"></path><path d="M12 9c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 9c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path><path d="M12 15c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 15c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path></svg>Maize</label>
+        <label style="position: relative; height: 44px; border-radius: 999px; border: 1px solid #8E857E; box-sizing: border-box; color: #4A4340; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 13px; font-weight: 500"><input type="radio" name="crop" style="position: absolute; opacity: 0; width: 1px; height: 1px"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M4 20C4 11 11 4 20 4c0 9-7 16-16 16z"></path><circle cx="9.5" cy="14.5" r="1.4"></circle><circle cx="14.5" cy="9.5" r="1.4"></circle></svg>Chickpea</label>
+        <label style="position: relative; height: 44px; border-radius: 999px; border: 1px solid #8E857E; box-sizing: border-box; color: #4A4340; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 13px; font-weight: 500"><input type="radio" name="crop" style="position: absolute; opacity: 0; width: 1px; height: 1px"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M4 20C4 11 11 4 20 4c0 9-7 16-16 16z"></path><circle cx="9.5" cy="14.5" r="1.4"></circle><circle cx="14.5" cy="9.5" r="1.4"></circle></svg>Lentils</label>
+        <label style="position: relative; height: 44px; border-radius: 999px; border: 1px solid #8E857E; box-sizing: border-box; color: #4A4340; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 13px; font-weight: 500"><input type="radio" name="crop" style="position: absolute; opacity: 0; width: 1px; height: 1px"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M12 21V3"></path><path d="M12 9c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 9c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path><path d="M12 15c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 15c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path></svg>Sorghum</label>
+        <label style="position: relative; height: 44px; border-radius: 999px; border: 1px solid #8E857E; box-sizing: border-box; color: #4A4340; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 13px; font-weight: 500"><input type="radio" name="crop" style="position: absolute; opacity: 0; width: 1px; height: 1px"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><ellipse cx="12" cy="12" rx="6.5" ry="9" transform="rotate(30 12 12)"></ellipse><path d="M15.8 4.8c-3.4 2.4-1 5.2-3.6 7.2s-0.6 4.8-4 7.2"></path></svg>Coffee</label>
+        <label style="position: relative; height: 44px; border-radius: 999px; border: 1px solid #8E857E; box-sizing: border-box; color: #4A4340; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 13px; font-weight: 500"><input type="radio" name="crop" style="position: absolute; opacity: 0; width: 1px; height: 1px"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M4 20C4 11 11 4 20 4c0 9-7 16-16 16z"></path><circle cx="9.5" cy="14.5" r="1.4"></circle><circle cx="14.5" cy="9.5" r="1.4"></circle></svg>Sesame</label>
+      </div>
+    </fieldset>
+
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+      <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #4A4340">Quantity (kg)
+        <span style="height: 52px; padding: 0 14px; box-sizing: border-box; border-radius: 16px; border: 1px solid #8F8780; background: #F5F3F1; display: flex; align-items: center; justify-content: space-between"><input type="text" inputmode="decimal" value="4,000" aria-label="Quantity in kg" style="width: 64px; padding: 0; border: none; background: transparent; font: 800 19px 'Bricolage Grotesque', sans-serif; color: #1A1516; outline: none"><span style="font-size: 13px; font-weight: 500; color: #1A1516; white-space: nowrap">kg <span style="color: #5C5450">(40 q)</span></span></span>
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #4A4340">Price (ETB/kg)
+        <span style="height: 52px; padding: 0 14px; box-sizing: border-box; border-radius: 16px; border: 1px solid #8F8780; background: #F5F3F1; display: flex; align-items: center; justify-content: space-between"><input type="text" inputmode="decimal" value="42" aria-label="Price in ETB per kg" style="width: 60px; padding: 0; border: none; background: transparent; font: 800 19px 'Bricolage Grotesque', sans-serif; color: #1A1516; outline: none"><span style="font-size: 13px; font-weight: 500; color: #5C5450">ETB/kg</span></span>
+      </label>
+    </div>
+
+    <section aria-label="Location" style="display: flex; flex-direction: column; gap: 10px">
+      <span style="display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #5C5450"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"></path><circle cx="12" cy="9.5" r="2.5"></circle></svg>Location</span>
+      <div style="border-radius: 28px; background: #F5F3F1; overflow: hidden; box-shadow: 0 14px 30px rgba(26,21,22,0.14); border: 1px solid #DDD5CE">
+        <svg width="100%" height="116" sc-camel-view-box="0 0 350 116" sc-camel-preserve-aspect-ratio="xMidYMid slice" role="img" aria-label="Your farm near Meki, drawn from the place list on the phone" style="display: block">
+          <rect width="350" height="116" fill="#DCD5C9"></rect>
+          <ellipse cx="250" cy="34" rx="40" ry="16" fill="#EFEBE4"></ellipse>
+          <path d="M-10 96 C 70 78, 150 66, 232 72 C 280 76, 320 90, 360 96" stroke="#EFEBE4" stroke-width="10" fill="none"></path>
+          <g fill="#8E857E"><circle cx="40" cy="26" r="3"></circle><circle cx="300" cy="100" r="3"></circle><circle cx="120" cy="18" r="3"></circle></g>
+          <circle cx="232" cy="72" r="5" fill="#FFFFFF" stroke="#5C5450" stroke-width="3"></circle>
+          <circle cx="160" cy="58" r="22" fill="#9A45A0" fill-opacity="0.12"></circle>
+          <circle cx="160" cy="58" r="8" fill="#FFFFFF" stroke="#9A45A0" stroke-width="4"></circle>
+          <g font-family="'Bricolage Grotesque', sans-serif" font-size="13" font-weight="700" fill="#1A1516" stroke="#DCD5C9" stroke-width="3" paint-order="stroke">
+            <text x="176" y="54">Your farm</text>
+            <text x="244" y="68">Meki</text>
+            <text x="222" y="16">Lake Ziway</text>
+          </g>
+        </svg>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 16px 6px">
+          <span style="display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 999px; background: #F4E6F3; color: #9A45A0; font-size: 12px; font-weight: 800; white-space: nowrap"><svg width="12" height="12" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>GPS Captured · Meki, Oromia</span>
+          <a href="#" style="height: 44px; padding: 0 4px; display: inline-flex; align-items: center; font-size: 14px; font-weight: 800; color: #9A45A0">Change</a>
+        </div>
+      </div>
+      <span style="font-size: 13px; color: #5C5450">No GPS? Pick your wereda from the list instead.</span>
+    </section>
+
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #4A4340">Description
+      <textarea rows="3" style="padding: 12px 14px; box-sizing: border-box; border-radius: 16px; border: 1px solid #8F8780; background: #F5F3F1; font: 500 15px/1.45 'Bricolage Grotesque', sans-serif; color: #1A1516; resize: none">Clean and dry, in 100 kg sacks. Ready from Thursday.</textarea>
+      <span style="font-size: 13px; font-weight: 500; color: #5C5450">No phone numbers: contact opens after payment is held in escrow.</span>
+    </label>
+  </form>
+
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 20px 16px; background: #FFFFFF; border-top: 1px solid #DDD5CE; display: flex; flex-direction: column; gap: 6px">
+    <a href="MyCropsM.dc.html" style="height: 54px; border-radius: 999px; background: #F0873A; color: #1A1516; text-decoration: none; font-size: 16px; font-weight: 800; display: flex; align-items: center; justify-content: center">Save</a>
+    <span style="text-align: center; font-size: 13px; color: #5C5450">Saved on your phone first, sent when you have network.</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+
+
+</body></html>

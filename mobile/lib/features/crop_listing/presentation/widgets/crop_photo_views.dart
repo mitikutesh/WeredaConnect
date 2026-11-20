@@ -9,6 +9,7 @@ import 'package:wereda_connect/features/crop_listing/domain/crop_photos.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_photo_local_image.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// Loads a listing's photos with full-size URLs (see [fetchCropPhotos]).
@@ -86,7 +87,13 @@ class CropPhotoImage extends StatelessWidget {
       label: AppLocalizations.of(context)?.cropPhotoUnavailable,
       child: ColoredBox(
         color: colors.background,
-        child: Center(child: FwSprout(color: colors.foreground, size: 24)),
+        child: Center(
+          child: CropGlyph(
+            cropKey: cropKey,
+            color: colors.foreground,
+            size: 24,
+          ),
+        ),
       ),
     );
   }
@@ -94,7 +101,7 @@ class CropPhotoImage extends StatelessWidget {
 
 /// The marketplace card's photo: the cover thumb in a rounded square, with
 /// the number of photos in the corner when there are more. Listings from
-/// before photos (no photos at all) keep the crop's sprout tile.
+/// before photos (no photos at all) keep the crop's glyph tile.
 class CropPhotoThumb extends StatelessWidget {
   final CropListing listing;
   final double size;
@@ -121,7 +128,11 @@ class CropPhotoThumb extends StatelessWidget {
               ? ColoredBox(
                   color: colors.background,
                   child: Center(
-                    child: FwSprout(color: colors.foreground, size: 24),
+                    child: CropGlyph(
+                      cropKey: listing.cropType,
+                      color: colors.foreground,
+                      size: 24,
+                    ),
                   ),
                 )
               : Stack(
@@ -312,8 +323,8 @@ class _CropPhotoGalleryState extends State<CropPhotoGallery> {
                     height: 6,
                     decoration: BoxDecoration(
                       color: i == _page
-                          ? AppTheme.fieldGreen
-                          : AppTheme.whisperBorder,
+                          ? context.roleColors.primary
+                          : AppTheme.line,
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),

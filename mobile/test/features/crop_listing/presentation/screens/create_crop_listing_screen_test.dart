@@ -21,7 +21,9 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import '../../../../helpers/crop_photo_fixtures.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
@@ -105,12 +107,14 @@ void main() {
       await tester.pumpAndSettle();
 
       // Verify crop type grid is rendered
-      expect(find.text('Select Crop Type'), findsOneWidget);
+      expect(find.text('SELECT CROP TYPE'), findsOneWidget);
 
       // Verify form fields
-      expect(find.text('Quantity (quintals)'), findsOneWidget);
+      // Kilograms are typed (design canvas page M), never quintals.
+      expect(find.text('Quantity (kg)'), findsOneWidget);
+      expect(find.text('Quantity (quintals)'), findsNothing);
       expect(find.text('Price (ETB/kg)'), findsOneWidget);
-      expect(find.text('Location'), findsOneWidget);
+      expect(find.text('LOCATION'), findsOneWidget);
       expect(find.text('Description'), findsOneWidget);
 
       // Verify save button and the offline save note under it
@@ -122,6 +126,20 @@ void main() {
 
       // Verify audio note placeholder
       expect(find.text('Record Audio Note'), findsOneWidget);
+    });
+
+    testWidgets('each crop pill draws its own glyph', (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      for (final crop in ['teff', 'chickpea', 'coffee', 'sesame']) {
+        final glyph = find.descendant(
+          of: find.byKey(Key('create_listing_crop_$crop')),
+          matching: find.byType(CropGlyph),
+        );
+        expect(glyph, findsOneWidget, reason: crop);
+        expect(tester.widget<CropGlyph>(glyph).cropKey, crop);
+      }
     });
 
     testWidgets('shows validation errors on empty submit', (tester) async {
@@ -140,7 +158,7 @@ void main() {
       expect(find.text('Please enter the location'), findsOneWidget);
     });
 
-    // F-3: quantity in quintals, price per kg: the form says the total.
+    // F-3: quantity in kilograms, price per kg: the form says the total.
     testWidgets('shows the total and the price per quintal as typed',
         (tester) async {
       await tester.pumpWidget(buildTestWidget());
@@ -151,7 +169,7 @@ void main() {
 
       await tester.enterText(
         find.byKey(const Key('create_listing_quantity')),
-        '12',
+        '1200',
       );
       await tester.pump();
       // A quantity alone is no total yet.
@@ -162,7 +180,7 @@ void main() {
         '42.5',
       );
       await tester.pump();
-      // 12 quintals x 100 kg x 42.50 ETB/kg.
+      // 1,200 kg (12 quintals) x 42.50 ETB/kg.
       expect(
         tester.widget<Text>(total).data,
         'Total: 51,000 ETB (4,250 ETB per quintal)',
@@ -231,6 +249,114 @@ void main() {
       expect(find.text('GPS unavailable'), findsOneWidget);
       expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
       expect(find.byIcon(Icons.refresh), findsOneWidget);
+    });
+  });
+
+  // CreateCropListingM: the raised location card with "Change".
+  group('Location card', () {
+    final card = find.byKey(const Key('create_listing_location_card'));
+    final change = find.byKey(const Key('create_listing_location_change'));
+    final field = find.byType(PlaceSelector);
+    const meki = Place(id: 'gn-2', en: 'Meki', lat: 8.15, lng: 38.82);
+
+    testWidgets('the card leads; the field stays until a place is picked',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(card, findsOneWidget);
+      expect(field, findsOneWidget);
+      expect(change, findsNothing);
+      // The card is over the field, as on the board.
+      expect(
+        tester.getBottomLeft(card).dy,
+        lessThanOrEqualTo(tester.getTopLeft(field).dy),
+      );
+
+      // Typed text that is not a pick keeps the field (it is checked on
+      // Save).
+      await tester.enterText(
+        find.descendant(of: field, matching: find.byType(TextFormField)),
+        'Meki',
+      );
+      await tester.pump();
+      expect(field, findsOneWidget);
+      expect(change, findsNothing);
+    });
+
+    testWidgets('a picked place closes the field; Change opens it focused',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(of: field, matching: find.byType(TextFormField)),
+        'Meki',
+      );
+      tester.widget<PlaceSelector>(field).onPlaceSelected!(meki);
+      await tester.pumpAndSettle();
+
+      expect(field, findsNothing);
+      expect(find.text('GPS Captured · Meki'), findsOneWidget);
+      expect(change, findsOneWidget);
+      expect(tester.widget<TextButton>(change).child, isA<Text>());
+      expect(find.text('Change'), findsOneWidget);
+      // A real tap target.
+      expect(tester.getSize(change).height, greaterThanOrEqualTo(48));
+      expect(tester.getSize(change).width, greaterThanOrEqualTo(48));
+
+      await tester.ensureVisible(change);
+      await tester.tap(change);
+      await tester.pumpAndSettle();
+
+      expect(field, findsOneWidget);
+      expect(change, findsNothing);
+      final input = tester.widget<EditableText>(
+        find.descendant(of: field, matching: find.byType(EditableText)),
+      );
+      expect(input.focusNode.hasFocus, isTrue);
+      expect(input.controller.text, 'Meki');
+    });
+
+    testWidgets('without any position there is no card, only the field',
+        (tester) async {
+      when(() => mockGpsService.captureCurrentPosition()).thenAnswer(
+        (_) async =>
+            const GpsCaptureResult.unavailable('Location services disabled'),
+      );
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(card, findsNothing);
+      expect(field, findsOneWidget);
+      expect(change, findsNothing);
+    });
+
+    testWidgets('the picked place draws the card when GPS is unavailable',
+        (tester) async {
+      when(() => mockGpsService.captureCurrentPosition()).thenAnswer(
+        (_) async =>
+            const GpsCaptureResult.unavailable('Location services disabled'),
+      );
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(of: field, matching: find.byType(TextFormField)),
+        'Meki',
+      );
+      tester.widget<PlaceSelector>(field).onPlaceSelected!(meki);
+      await tester.pumpAndSettle();
+
+      expect(card, findsOneWidget);
+      expect(field, findsNothing);
+      expect(change, findsOneWidget);
+    });
+
+    testWidgets('Save sits over a hairline', (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      final bar = tester.widget<FwBottomActions>(find.byType(FwBottomActions));
+      expect(bar.hairline, isTrue);
     });
   });
 
@@ -696,6 +822,99 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+  });
+
+  // Design canvas page M: the farmer types kilograms; the listing is still
+  // stored and sent in quintals (crop-listing-api.md), converted at the
+  // form and nowhere else.
+  group('Quantity in kilograms', () {
+    Future<void> fill(WidgetTester tester, String kg) async {
+      await tester.tap(find.byKey(const Key('create_listing_crop_teff')));
+      await addTestPhotos(tester);
+      await tester.enterText(
+        find.byKey(const Key('create_listing_quantity')),
+        kg,
+      );
+      await tester.enterText(
+        find.byKey(const Key('create_listing_price')),
+        '42',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('create_listing_location')),
+          matching: find.byType(TextFormField),
+        ),
+        'Bishoftu',
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> tapSave(WidgetTester tester) async {
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Save'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+    }
+
+    testWidgets('4,000 kg typed is sent as 40 quintals', (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await fill(tester, '4000');
+
+      // The unit, with the same amount in quintals beside it.
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('listing_quantity_unit')))
+            .textSpan!
+            .toPlainText(),
+        'kg (40 q)',
+      );
+      await tapSave(tester);
+
+      final event = verify(() => cropListingBloc.add(captureAny()))
+          .captured
+          .single as CreateCropListing;
+      expect(event.quantity, 40);
+      // The price stays per kg.
+      expect(event.pricePerKg, 42);
+    });
+
+    testWidgets('a part of a quintal keeps its decimals', (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await fill(tester, '1234.56');
+      await tapSave(tester);
+
+      final event = verify(() => cropListingBloc.add(captureAny()))
+          .captured
+          .single as CreateCropListing;
+      expect(event.quantity, 12.3456);
+    });
+
+    testWidgets('under 1 kg (0.01 quintals, the server\'s least) is refused',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await fill(tester, '0.5');
+      await tapSave(tester);
+      await tester.pumpAndSettle();
+
+      verifyNever(() => cropListingBloc.add(any()));
+      expect(find.text('Enter at least 1 kg.'), findsOneWidget);
+    });
+
+    testWidgets('the field takes no more than 1,000,000.00 kg', (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await fill(tester, '1000000.01');
+      await tapSave(tester);
+      await tester.pumpAndSettle();
+
+      verifyNever(() => cropListingBloc.add(any()));
+      expect(find.text('Enter at most 1,000,000 kg.'), findsOneWidget);
     });
   });
 }

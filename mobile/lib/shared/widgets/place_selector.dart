@@ -29,7 +29,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// - Keyboard navigable (up/down/enter to pick, escape to dismiss) and
 ///   accessible (labelled field + results region).
 ///
-/// Pure Flutter — works on mobile and web. The caller owns [controller] so
+/// Pure Flutter: works on mobile and web. The caller owns [controller] so
 /// existing form validators that read `controller.text` keep working unchanged.
 class PlaceSelector extends StatefulWidget {
   const PlaceSelector({
@@ -54,8 +54,13 @@ class PlaceSelector extends StatefulWidget {
     this.showSearchIcon = true,
     this.pickerLook = false,
     this.selectAllOnFocus = false,
+    this.autofocus = false,
     super.key,
   });
+
+  /// Takes the focus as soon as the field is built: for a field a link
+  /// has just opened ("Change" on the listing form's location card).
+  final bool autofocus;
 
   /// Selects the whole text when the field gains focus, for a field that
   /// starts prefilled: typing then replaces the name instead of landing in
@@ -92,14 +97,14 @@ class PlaceSelector extends StatefulWidget {
   final int minQueryLength;
   final int maxResults;
 
-  /// Renders the field in a compact (dense) layout — used for tight filter rows.
+  /// Renders the field in a compact (dense) layout: used for tight filter rows.
   final bool isDense;
 
   /// Overrides the field's content padding. Defaults to a comfortable
   /// H16/V20 (or a compact H12/V10 when [isDense] is true and this is null).
   final EdgeInsetsGeometry? contentPadding;
 
-  /// The Fieldway boards' field: its label sits above it (the caller wraps
+  /// The boards' field: its label sits above it (the caller wraps
   /// it in a `LabeledField`), so no floating label, a 48 tall box with
   /// radius 14 and the hint inside.
   final bool labelAbove;
@@ -272,6 +277,7 @@ class _PlaceSelectorState extends State<PlaceSelector>
               TextFormField(
                 controller: controller,
                 focusNode: focusNode,
+                autofocus: widget.autofocus,
                 enabled: widget.enabled,
                 validator: widget.validator,
                 onChanged: _handleFieldChanged,
@@ -289,19 +295,14 @@ class _PlaceSelectorState extends State<PlaceSelector>
                   suffixIcon: widget.pickerLook
                       ? const Icon(
                           Icons.keyboard_arrow_down,
-                          color: AppTheme.textMuted,
+                          color: AppTheme.slate,
                         )
                       : widget.showSearchIcon
-                          ? const Icon(Icons.search, color: AppTheme.textMuted)
+                          ? const Icon(Icons.search, color: AppTheme.slate)
                           : null,
                   isDense: widget.isDense,
                   // Long validator texts (FUP-49 phone refusal) wrap, not clip.
                   errorMaxLines: 3,
-                  border: widget.isDense || widget.labelAbove
-                      ? OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        )
-                      : null,
                   contentPadding: widget.contentPadding ??
                       (widget.isDense
                           ? const EdgeInsets.symmetric(
@@ -310,8 +311,8 @@ class _PlaceSelectorState extends State<PlaceSelector>
                             )
                           : widget.labelAbove
                               ? const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 14,
+                                  horizontal: 16,
+                                  vertical: 15,
                                 )
                               : const EdgeInsets.symmetric(
                                   horizontal: 16,
@@ -325,7 +326,7 @@ class _PlaceSelectorState extends State<PlaceSelector>
                   child: Text(
                     l10n.placeNoResults,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppTheme.textMuted,
+                          color: AppTheme.slate,
                         ),
                   ),
                 ),
@@ -337,8 +338,15 @@ class _PlaceSelectorState extends State<PlaceSelector>
         return Align(
           alignment: Alignment.topLeft,
           child: Material(
-            elevation: 4,
-            borderRadius: BorderRadius.circular(12),
+            // The suggestion list: white, radius 16, the quiet card edge.
+            elevation: 6,
+            color: AppTheme.ground,
+            shadowColor: Theme.of(context).colorScheme.shadow,
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: AppTheme.line),
+            ),
             child: Semantics(
               container: true,
               label: l10n.placeResultsLabel,
@@ -350,7 +358,7 @@ class _PlaceSelectorState extends State<PlaceSelector>
                   shrinkWrap: true,
                   itemCount: options.length,
                   separatorBuilder: (_, __) =>
-                      const Divider(height: 1, color: AppTheme.borderLight),
+                      const Divider(height: 1, color: AppTheme.line),
                   itemBuilder: (context, index) {
                     final place = options.elementAt(index);
                     final highlighted =
@@ -418,17 +426,15 @@ class _PlaceOptionTile extends StatelessWidget {
       // (up/down + enter).
       canRequestFocus: false,
       child: Container(
-        color: highlighted
-            ? AppTheme.primaryGreen.withValues(alpha: 0.08)
-            : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        color: highlighted ? AppTheme.paper : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Icon(
               Icons.location_on_outlined,
               size: 18,
-              color: AppTheme.textMuted,
+              color: AppTheme.slate,
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -438,13 +444,13 @@ class _PlaceOptionTile extends StatelessWidget {
                   Text(
                     title,
                     style: theme.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   if (subtitle.isNotEmpty)
                     Text(
                       subtitle,
                       style: theme.textTheme.bodySmall
-                          ?.copyWith(color: AppTheme.textMuted),
+                          ?.copyWith(color: AppTheme.slate),
                     ),
                 ],
               ),
@@ -455,7 +461,7 @@ class _PlaceOptionTile extends StatelessWidget {
                 child: Text(
                   locality,
                   style: theme.textTheme.labelSmall
-                      ?.copyWith(color: AppTheme.textMuted),
+                      ?.copyWith(color: AppTheme.slate),
                 ),
               ),
           ],

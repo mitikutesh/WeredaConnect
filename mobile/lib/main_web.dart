@@ -42,6 +42,7 @@ import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart'
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/theme/signed_in_role.dart';
 
 // Web-only repositories (no Isar)
 import 'package:wereda_connect/features/buyer/data/repositories/web_buyer_intent_repository.dart';
@@ -290,6 +291,8 @@ Future<void> main() async {
         ],
         child: Consumer<LanguageProvider>(
           builder: (context, langProvider, child) {
+            // The whole app wears the signed-in role's colours.
+            final role = watchSignedInRole(context);
             return MaterialApp.router(
               title: 'WeredaConnect',
               locale: langProvider.locale,
@@ -304,7 +307,7 @@ Future<void> main() async {
                 Locale('am'),
                 Locale('om'),
               ],
-              theme: AppTheme.light(),
+              theme: AppTheme.light(role: role),
               routerConfig: router,
             );
           },

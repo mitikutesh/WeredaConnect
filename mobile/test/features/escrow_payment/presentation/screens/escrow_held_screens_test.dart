@@ -13,6 +13,7 @@ import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/escrow_status_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class MockEscrowBloc extends Mock implements EscrowBloc {}
@@ -123,7 +124,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('UNDER REVIEW'), findsOneWidget);
+      expect(
+        find.widgetWithText(EscrowStatusBadge, 'Under Review'),
+        findsOneWidget,
+      );
       expect(
         find.text(
           'Payment paused while the platform reviews it. The money stays safe.',
@@ -145,7 +149,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('STATUS UNKNOWN'), findsOneWidget);
+      expect(find.text('Status Unknown'), findsOneWidget);
       expect(find.text('Raise Dispute'), findsNothing);
       expect(find.text('Payment Pending'), findsWidgets);
     });

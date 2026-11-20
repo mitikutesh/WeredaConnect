@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Register: select role</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&amp;family=Noto+Sans+Ethiopic:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1A1516}a:hover{color:#0C0A0A}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; background: #FFFFFF; color: #1A1516; font-family: 'Bricolage Grotesque', 'Noto Sans Ethiopic', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+  <header style="padding: 24px 20px 0; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; align-items: center; gap: 12px">
+      <a href="WelcomeM.dc.html" aria-label="Back" style="width: 44px; height: 44px; border-radius: 999px; background: #F5F3F1; color: #1A1516; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></a>
+      <span style="font-size: 13px; font-weight: 500; color: #5C5450">Step 1 of 4</span>
+    </div>
+    <div aria-hidden="true" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px"><span style="height: 4px; border-radius: 999px; background: #1A1516"></span><span style="height: 4px; border-radius: 999px; background: #D6CBC3"></span><span style="height: 4px; border-radius: 999px; background: #D6CBC3"></span><span style="height: 4px; border-radius: 999px; background: #D6CBC3"></span></div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <h1 style="margin: 0; font-size: 32px; line-height: 1.05; font-weight: 800; letter-spacing: -0.035em">Select Role</h1>
+      <p style="margin: 0; font-size: 14px; color: #5C5450">Choose how you'll use WeredaConnect</p>
+    </div>
+  </header>
+
+  <fieldset style="margin: 20px 20px 0; padding: 0; border: none; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+    <legend style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Role</legend>
+    <label style="cursor: pointer; display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 24px; border: 1px solid #8E857E">
+      <span style="width: 52px; height: 52px; border-radius: 14px; background: #F4E6F3; color: #9A45A0; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="26" height="26" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v-8"></path><path d="M12 12c0-4 3-7 8-7 0 5-3 8-8 7z"></path><path d="M12 14c0-3-2.5-5.5-7-5.5 0 4 2.5 6 7 5.500z"></path></svg></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 17px; font-weight: 800; letter-spacing: -0.01em">Farmer</span><span style="font-size: 14px; line-height: 1.35; color: #5C5450">List crops for sale and find truckers</span></span>
+      <input type="radio" name="role" style="width: 22px; height: 22px; margin: 0; accent-color: #1A1516; flex-shrink: 0">
+    </label>
+    <label style="cursor: pointer; display: flex; align-items: center; gap: 14px; padding: 18px 17px; border-radius: 28px; background: #F5F3F1; box-shadow: 0 14px 30px rgba(26,21,22,0.14); border: 1px solid #DDD5CE">
+      <span style="width: 52px; height: 52px; border-radius: 14px; background: #E4ECFA; color: #2B62C4; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="26" height="26" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v9H3z"></path><path d="M14 10h4l3 3v3h-7"></path><circle cx="7" cy="17.5" r="1.8"></circle><circle cx="17" cy="17.5" r="1.8"></circle></svg></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 19px; font-weight: 800; letter-spacing: -0.02em">Trucker</span><span style="font-size: 14px; line-height: 1.35; color: #5C5450">Offer transport and deliver goods</span></span>
+      <input type="radio" name="role" checked="" style="width: 22px; height: 22px; margin: 0; accent-color: #1A1516; flex-shrink: 0">
+    </label>
+    <label style="cursor: pointer; display: flex; align-items: center; gap: 14px; padding: 16px; border-radius: 24px; border: 1px solid #8E857E">
+      <span style="width: 52px; height: 52px; border-radius: 14px; background: #E3F0EB; color: #18775F; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="26" height="26" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 8h14l-1 12H6z"></path><path d="M9 8V6a3 3 0 0 1 6 0v2"></path></svg></span>
+      <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 17px; font-weight: 800; letter-spacing: -0.01em">Buyer</span><span style="font-size: 14px; line-height: 1.35; color: #5C5450">Browse and purchase crops from farmers</span></span>
+      <input type="radio" name="role" style="width: 22px; height: 22px; margin: 0; accent-color: #1A1516; flex-shrink: 0">
+    </label>
+  </fieldset>
+
+  <p style="margin: 20px 20px 0; padding: 14px 16px; border-radius: 24px; background: #E4D5C7; font-size: 13px; line-height: 1.5; color: #4A4340">Next you verify with Fayda, then add your details. Farmers skip the role details step.</p>
+
+  <div style="margin-top: auto; padding: 0 20px 28px">
+    <a href="RegisterFaydaM.dc.html" style="height: 54px; border-radius: 999px; background: #F0873A; color: #1A1516; text-decoration: none; font-size: 16px; font-weight: 800; display: flex; align-items: center; justify-content: center">Continue</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844}}">
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+
+
+</body></html>

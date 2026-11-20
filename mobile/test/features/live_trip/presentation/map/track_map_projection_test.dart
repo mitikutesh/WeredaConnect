@@ -82,4 +82,35 @@ void main() {
     expect(corner.dx, closeTo(0, 1e-6));
     expect(corner.dy, closeTo(0, 1e-6));
   });
+
+  // Web deliveries board: the zoom buttons magnify the framed view.
+  group('zoomed', () {
+    test('a factor of 1 (or less) is the fitted view', () {
+      final projection = TrackProjection.fit(const [addis, adama], size)!;
+      expect(identical(projection.zoomed(1), projection), isTrue);
+      expect(identical(projection.zoomed(0.5), projection), isTrue);
+    });
+
+    test('magnifies about the centre without a point', () {
+      final projection = TrackProjection.fit(const [addis, adama], size)!;
+      final zoomed = projection.zoomed(2);
+      expect(zoomed.pixelsPerKm, closeTo(projection.pixelsPerKm * 2, 1e-9));
+      final centre = projection.unproject(const Offset(160, 100));
+      final at = zoomed.project(centre);
+      expect(at.dx, closeTo(160, 1e-6));
+      expect(at.dy, closeTo(100, 1e-6));
+    });
+
+    test('the point it zooms about moves towards the middle, never away', () {
+      final projection = TrackProjection.fit(const [addis, adama], size)!;
+      const middle = Offset(160, 100);
+      final before = projection.project(adama) - middle;
+      final after = projection.zoomed(2, around: adama).project(adama) - middle;
+      // Half as far from the middle at twice the size, on the same side.
+      expect(after.dx, closeTo(before.dx / 2, 1e-6));
+      expect(after.dy, closeTo(before.dy / 2, 1e-6));
+      final far = projection.zoomed(4, around: adama).project(adama) - middle;
+      expect(far.distance, lessThan(after.distance));
+    });
+  });
 }

@@ -149,7 +149,7 @@ class InitiatePaymentScreen extends StatelessWidget {
                 children: [
                   FwDetailHeader(title: l10n.escrowPayForDelivery),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -231,7 +231,7 @@ class InitiatePaymentScreen extends StatelessWidget {
             ),
           ),
         ),
-        // Confirm, pinned at the foot (56dp tall, a large touch target).
+        // Confirm, pinned at the foot (54 tall, a large touch target).
         bottomNavigationBar: BlocBuilder<EscrowBloc, EscrowState>(
           builder: (context, state) {
             final isLoading = state is EscrowLoading;
@@ -247,23 +247,13 @@ class InitiatePaymentScreen extends StatelessWidget {
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
+                              AppTheme.ink,
                             ),
                           ),
                         )
                       : const Icon(Icons.check),
+                  // The page's one orange action (the theme's button).
                   label: Text(l10n.escrowConfirmPayment),
-                  style: FilledButton.styleFrom(
-                    // The money button is soil dark, as on the board.
-                    backgroundColor: AppTheme.soilDark,
-                    minimumSize: const Size.fromHeight(56),
-                    textStyle: const TextStyle(
-                      fontFamily: AppTheme.fontFamily,
-                      fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
                 ),
                 FwActionNote(l10n.escrowFundsHeldInfo),
               ],
@@ -317,6 +307,9 @@ class InitiatePaymentScreen extends StatelessWidget {
               child: Text(dl10n.cancel),
             ),
             FilledButton(
+              // Beside Cancel, not stacked under it: the theme's button is
+              // full width.
+              style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
               onPressed: () {
                 Navigator.of(dialogContext).pop();
                 context.read<EscrowBloc>().add(_paymentEvent);

@@ -276,7 +276,7 @@ class _FaydaVerificationViewState extends State<_FaydaVerificationView>
           // The step body carries the title; the board's square back button
           // sits above it instead of an app bar.
           child: Scaffold(
-            backgroundColor: AppTheme.chalkBackground,
+            backgroundColor: AppTheme.ground,
             body: SafeArea(
               child: Column(
                 children: [

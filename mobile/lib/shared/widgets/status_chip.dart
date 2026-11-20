@@ -6,9 +6,9 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 ///
 /// Every status enum (orders, trips, escrow, deliveries) maps onto these
 /// six kinds so users can transfer color-meaning between features:
-/// "in transit" is the same harvest brown on a trip, an order, and a delivery.
-/// Color is never the only signal — every chip carries an icon + label,
-/// and all pairs meet WCAG AA (≥6.3:1, computed in the design brief).
+/// "in transit" is the same orange tint on a trip, an order, and a delivery.
+/// Color is never the only signal: every chip carries an icon and a label,
+/// and all pairs meet WCAG AA.
 enum StatusKind { neutral, success, warning, error, info, transit }
 
 extension StatusKindVisual on StatusKind {
@@ -65,27 +65,29 @@ class StatusChip extends StatelessWidget {
     final bg = kind.background;
 
     return Container(
-      // The boards' status pill: tinted ground, no outline.
+      // The boards' status pill: a stadium on the state's tint, no outline,
+      // 26 tall (32 on a detail page). Large text makes it taller.
+      constraints: BoxConstraints(minHeight: large ? 32 : 26),
       padding: large
-          ? const EdgeInsets.symmetric(horizontal: 14, vertical: 7)
-          : const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          ? const EdgeInsetsDirectional.fromSTEB(10, 5, 14, 5)
+          : const EdgeInsetsDirectional.fromSTEB(8, 3, 10, 3),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(large ? 10 : 8),
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon ?? kind.defaultIcon, size: large ? 20 : 14, color: fg),
-          SizedBox(width: large ? 8 : 4),
+          Icon(icon ?? kind.defaultIcon, size: large ? 18 : 14, color: fg),
+          SizedBox(width: large ? 6 : 4),
           Flexible(
             child: Text(
               label,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: fg,
-                fontSize: large ? 16 : 12,
-                fontWeight: FontWeight.w700,
+                fontSize: large ? 14 : 12,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),
@@ -114,10 +116,10 @@ class LoadErrorChip extends StatelessWidget {
   Widget build(BuildContext context) {
     const kind = StatusKind.error;
     return Container(
-      padding: const EdgeInsetsDirectional.fromSTEB(12, 4, 4, 4),
+      padding: const EdgeInsetsDirectional.fromSTEB(14, 4, 6, 4),
       decoration: BoxDecoration(
         color: kind.background,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(24),
       ),
       // The retry button takes half the row at most: with large text a long
       // label ("Irra Deebi'ii Yaali" at 200%) wraps and leaves the message

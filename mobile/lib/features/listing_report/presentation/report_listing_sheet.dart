@@ -44,7 +44,7 @@ class ReportListingButton extends StatelessWidget {
         icon: const Icon(Icons.flag_outlined, size: 18),
         label: Text(l10n.reportListing),
         style: TextButton.styleFrom(
-          foregroundColor: AppTheme.mutedSteel,
+          foregroundColor: AppTheme.slate,
           minimumSize: const Size(48, 48),
           textStyle: const TextStyle(
             fontFamily: AppTheme.fontFamily,
@@ -172,20 +172,25 @@ class _ReportListingSheetState extends State<ReportListingSheet> {
     final l10n = AppLocalizations.of(context)!;
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(22, 12, 22, 24),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const SheetHandle(),
             const SizedBox(height: 16),
-            Text(
-              l10n.reportListingTitle,
-              style: const TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.4,
-                color: AppTheme.soilDark,
+            Semantics(
+              header: true,
+              child: Text(
+                l10n.reportListingTitle,
+                // The pause sheet's title.
+                style: const TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -1.05,
+                  height: 1.05,
+                  color: AppTheme.ink,
+                ),
               ),
             ),
             const SizedBox(height: 6),
@@ -193,8 +198,8 @@ class _ReportListingSheetState extends State<ReportListingSheet> {
               l10n.reportListingPrivacyNote,
               style: const TextStyle(
                 fontSize: 14,
-                height: 1.5,
-                color: AppTheme.unselectedNav,
+                height: 1.45,
+                color: AppTheme.inkSoft,
               ),
             ),
             const SizedBox(height: 16),
@@ -230,6 +235,7 @@ class _ReportListingSheetState extends State<ReportListingSheet> {
                 key: const Key('report_listing_error'),
                 style: const TextStyle(
                   fontSize: 13,
+                  fontWeight: FontWeight.w700,
                   color: AppTheme.statusError,
                 ),
               ),
@@ -238,19 +244,10 @@ class _ReportListingSheetState extends State<ReportListingSheet> {
             FilledButton(
               key: const Key('report_listing_send'),
               onPressed: _reason == null || _sending ? null : _send,
+              // The sheet's action: the black pill of the pause sheet.
               style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.soilDark,
+                backgroundColor: AppTheme.ink,
                 foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(56),
-                textStyle: const TextStyle(
-                  fontFamily: AppTheme.fontFamily,
-                  fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
               ),
               child: _sending
                   ? const SizedBox(
@@ -263,13 +260,12 @@ class _ReportListingSheetState extends State<ReportListingSheet> {
                     )
                   : Text(l10n.reportListingSend),
             ),
-            const SizedBox(height: 6),
-            TextButton(
+            const SizedBox(height: 12),
+            OutlinedButton(
               key: const Key('report_listing_cancel'),
               onPressed: _sending ? null : () => Navigator.of(context).pop(),
-              style: TextButton.styleFrom(
-                foregroundColor: AppTheme.unselectedNav,
-                minimumSize: const Size.fromHeight(44),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
               ),
               child: Text(l10n.cancel),
             ),
@@ -280,8 +276,8 @@ class _ReportListingSheetState extends State<ReportListingSheet> {
   }
 }
 
-/// One reason: a radio and its label in a bordered row (the pause sheet's
-/// row).
+/// One reason: a radio and its label in a bordered row, black with white
+/// ink when chosen (the pause sheet's row).
 class _ReasonRow extends StatelessWidget {
   const _ReasonRow({
     required this.reason,
@@ -299,12 +295,11 @@ class _ReasonRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: AppTheme.surfaceWhite,
+      color: selected ? AppTheme.ink : Colors.transparent,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: selected ? AppTheme.soilDark : AppTheme.whisperBorder,
-          width: selected ? 2 : 1,
+          color: selected ? AppTheme.ink : AppTheme.fieldBorder,
         ),
       ),
       clipBehavior: Clip.antiAlias,
@@ -312,7 +307,7 @@ class _ReasonRow extends StatelessWidget {
         onTap: onTap,
         child: Container(
           constraints: const BoxConstraints(minHeight: 52),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Row(
             children: [
               SizedBox(
@@ -320,7 +315,12 @@ class _ReasonRow extends StatelessWidget {
                 height: 20,
                 child: Radio<ListingReportReason>(
                   value: reason,
-                  activeColor: AppTheme.soilDark,
+                  // White on the chosen row's black, the field edge else.
+                  fillColor: WidgetStateProperty.resolveWith(
+                    (states) => states.contains(WidgetState.selected)
+                        ? Colors.white
+                        : AppTheme.fieldBorder,
+                  ),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   visualDensity: VisualDensity.compact,
                 ),
@@ -331,8 +331,8 @@ class _ReasonRow extends StatelessWidget {
                   label,
                   style: TextStyle(
                     fontSize: 15,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                    color: AppTheme.soilDark,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    color: selected ? Colors.white : AppTheme.inkSoft,
                   ),
                 ),
               ),

@@ -287,6 +287,50 @@ class AppLocalizationsAm extends AppLocalizations {
   String get forgotPassword => 'የይለፍ ቃል ረሳኽው?';
 
   @override
+  String get loginYourRole => 'የእርስዎ ሚና';
+
+  @override
+  String get loginAsFarmer => 'እንደ ገበሬ ግባ';
+
+  @override
+  String get loginAsTrucker => 'እንደ ሹፌር ግባ';
+
+  @override
+  String get loginAsBuyer => 'እንደ ገዢ ግባ';
+
+  @override
+  String get loginTaglineFarmer => 'ምርትዎን ይሽጡ፣ እያንዳንዱን ትዕዛዝ ይከታተሉ';
+
+  @override
+  String get loginTaglineTrucker => 'መኪናዎን ይሙሉ፣ ሲያደርሱ ክፍያዎን ያግኙ';
+
+  @override
+  String get loginTaglineBuyer => 'ሰብልና ትራንስፖርት በአንድ ቦታ ያግኙ';
+
+  @override
+  String get orderCheckoutApproveNote =>
+      'ክፍያውን በቴሌብር ማጽደቅ አለብዎት። ከዚያ ርክክቡን እስኪያረጋግጡ ድረስ ገንዘቡ በኢስክሮ ይያዛል።';
+
+  @override
+  String get paymentNotPaidPill => 'አልተከፈለም';
+
+  @override
+  String get paymentFailedTitle => 'ክፍያው አልተሳካም';
+
+  @override
+  String get paymentFailedBody =>
+      'ከቴሌብር ሂሳብዎ ምንም ገንዘብ አልተወሰደም፣ ትዕዛዝዎም እንደተቀመጠ ነው።';
+
+  @override
+  String get paymentTryAgain => 'ክፍያውን እንደገና ይሞክሩ';
+
+  @override
+  String get paymentOfflineBody => 'ክፍያ ኔትወርክ ያስፈልገዋል። ትዕዛዝዎ በዚህ ስልክ ላይ ተቀምጧል።';
+
+  @override
+  String get paymentBackToOrder => 'ወደ ትዕዛዙ ተመለስ';
+
+  @override
   String get getStarted => 'ጀምር';
 
   @override
@@ -457,9 +501,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get selectCropType => 'የሰብል ዓይነት ይምረጡ';
 
   @override
-  String get quantityInQuintals => 'መጠን (ኩንታል)';
-
-  @override
   String get priceInBirr => 'ዋጋ (ብር/ኪግ)';
 
   @override
@@ -584,11 +625,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get myTrips => 'የእኔ ጉዞዎች';
 
   @override
-  String listsTripBooked(String booked, String capacity) {
-    return 'ከ$capacity ኩንታል $booked ተይዟል';
-  }
-
-  @override
   String get listsRouteFrom => 'ከ';
 
   @override
@@ -615,12 +651,6 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get departureDate => 'የመነሻ ቀን';
-
-  @override
-  String get capacity => 'አቅም (ኩንታል)';
-
-  @override
-  String get pricePerQuintal => 'በኩንታል ዋጋ (ብር)';
 
   @override
   String get tripStatusOpen => 'ክፍት';
@@ -669,9 +699,6 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get capacityRequired => 'አቅም ያስፈልጋል';
-
-  @override
-  String get invalidCapacity => 'አቅም ከ0.1 እስከ 1000 ኩንታል መሆን አለበት';
 
   @override
   String get invalidPrice => 'ዋጋ ከ0.01 እስከ 10000 ብር መሆን አለበት';
@@ -2217,11 +2244,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get statusPaymentSubmittedInfo =>
-      'ገዢው ክፍያውን ልኳል፤ በማረጋገጥ ላይ ነው። ገንዘቡ ገና በአደራ (ኢስክሮ) አልተረጋገጠም።';
+      'ገዢው ክፍያውን ልኳል፤ በማረጋገጥ ላይ ነው። ገንዘቡ ገና በኢስክሮ አልተረጋገጠም።';
 
   @override
   String get statusFundedInfo =>
-      'ክፍያው ተረጋግጦ በአደራ (ኢስክሮ) በደህና ተይዟል። የታዘዘው መጠን ከገበሬው ዝርዝር ተይዟል።';
+      'ክፍያው ተረጋግጦ በኢስክሮ በደህና ተይዟል። የታዘዘው መጠን ከገበሬው ዝርዝር ተይዟል።';
 
   @override
   String get orderAcceptedInfo => 'ገበሬው ትዕዛዙን ተቀብሎ ሰብሉን ለርክክብ ያዘጋጃል።';
@@ -2238,19 +2265,18 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get statusDisbursingInfo =>
-      'ገንዘቡ ከአደራ (ኢስክሮ) በመውጣት ላይ ነው፤ ለገበሬው እና ካለ ለጭነት መኪና ሹፌሩ እየተከፈለ ነው።';
+      'ገንዘቡ ከኢስክሮ በመውጣት ላይ ነው፤ ለገበሬው እና ካለ ለጭነት መኪና ሹፌሩ እየተከፈለ ነው።';
 
   @override
   String get statusSettledInfo =>
       'ሁሉም ተከፍሏል፤ ገበሬው እና ካለ የጭነት መኪና ሹፌሩ። ትዕዛዙ ተጠናቅቋል።';
 
   @override
-  String get orderCancelledInfo =>
-      'ትዕዛዙ ተሰርዟል። በአደራ (ኢስክሮ) የተያዘ ገንዘብ ካለ ለገዢው ይመለሳል።';
+  String get orderCancelledInfo => 'ትዕዛዙ ተሰርዟል። በኢስክሮ የተያዘ ገንዘብ ካለ ለገዢው ይመለሳል።';
 
   @override
   String get orderRejectedInfo =>
-      'ገበሬው ይህን ትዕዛዝ አልተቀበለም። በአደራ (ኢስክሮ) የተያዘ ገንዘብ ለገዢው ይመለሳል።';
+      'ገበሬው ይህን ትዕዛዝ አልተቀበለም። በኢስክሮ የተያዘ ገንዘብ ለገዢው ይመለሳል።';
 
   @override
   String get statusPaymentFailedInfo =>
@@ -2258,7 +2284,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get statusDisputedInfo =>
-      'ክርክር ቀርቧል። ክርክሩ እስኪፈታ ድረስ ገንዘቡ በአደራ (ኢስክሮ) ተይዞ ይቆያል።';
+      'ክርክር ቀርቧል። ክርክሩ እስኪፈታ ድረስ ገንዘቡ በኢስክሮ ተይዞ ይቆያል።';
 
   @override
   String get statusDisputeResolvedInfo => 'ክርክሩ ተፈቷል፤ ገንዘቡ ላሸነፈው ወገን ተላልፏል።';
@@ -2505,6 +2531,14 @@ class AppLocalizationsAm extends AppLocalizations {
   String quintalEquivalent(String count) {
     return '= $count ኩንታል';
   }
+
+  @override
+  String quintalsInParens(String count) {
+    return '($count ኩንታል)';
+  }
+
+  @override
+  String get oneQuintalInParens => '(1 ኩንታል)';
 
   @override
   String orderQuantityExceedsStock(String available) {
@@ -3509,11 +3543,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get tripNoBookings => 'ገና የተያዘ ትዕዛዝ የለም';
 
   @override
-  String tripRemainingCapacity(String quintals) {
-    return '$quintals ኩንታል ክፍት';
-  }
-
-  @override
   String get chooseTrip => 'የጭነት መኪና ይምረጡ';
 
   @override
@@ -4148,6 +4177,103 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get liveTripWholeRoute => 'ሙሉ መንገዱን አሳይ';
+
+  @override
+  String get liveTripNearTruck => 'መኪናው አካባቢ';
+
+  @override
+  String get liveTripZoomIn => 'አጉላ';
+
+  @override
+  String get liveTripZoomOut => 'አሳንስ';
+
+  @override
+  String get liveTripViewPhoto => 'ፎቶውን ይመልከቱ';
+
+  @override
+  String get liveTripLegendLabel => 'የካርታ መፍቻ';
+
+  @override
+  String get liveTripLegendDriven => 'የተጓዘው';
+
+  @override
+  String get liveTripLegendAhead => 'የቀረው መንገድ';
+
+  @override
+  String get liveTripLegendTruck => 'መኪናው እዚህ አካባቢ ነው';
+
+  @override
+  String get liveTripCall => 'ይደውሉ';
+
+  @override
+  String liveTripNothingToDoWindow(String time) {
+    return 'ምንም ማድረግ አይጠበቅብዎትም። ችግር ካላሳወቁ በስተቀር ክፍያው የማጣሪያ ጊዜው ሲያበቃ፣ $time፣ ይለቀቃል።';
+  }
+
+  @override
+  String liveTripFarmerNothingToDo(String buyer) {
+    return 'አሁን ምንም ማድረግ አይጠበቅብዎትም። $buyer መረከቡን ማረጋገጥ አለበት። ከዚያ የ48 ሰዓት የማጣሪያ ጊዜ ያልፋል፣ ገንዘቡም ለእርስዎ ይከፈላል።';
+  }
+
+  @override
+  String liveTripFarmerNothingToDoWindow(String time) {
+    return 'ምንም ማድረግ አይጠበቅብዎትም። ገዢው ችግር ካላሳወቀ በስተቀር የማጣሪያ ጊዜው ሲያበቃ፣ $time፣ ይከፈልዎታል።';
+  }
+
+  @override
+  String liveTripNextScanAt(String place) {
+    return 'ቀጣይ፦ $place ላይ የሹፌሩን ኪዩአር ይቃኛሉ።';
+  }
+
+  @override
+  String get liveTripNextScan => 'ቀጣይ፦ መኪናው ሲደርስ የሹፌሩን ኪዩአር ይቃኛሉ።';
+
+  @override
+  String liveTripQuintalsCount(String count) {
+    return '$count ኩንታል';
+  }
+
+  @override
+  String get delivOpenMap => 'ካርታ ክፈት';
+
+  @override
+  String get delivOpen => 'ክፈት';
+
+  @override
+  String delivNothingToDoReleased(String time) {
+    return 'ምንም ማድረግ አይጠበቅብዎትም። ችግር ካላሳወቁ በስተቀር ክፍያው ከ$time በኋላ ይለቀቃል።';
+  }
+
+  @override
+  String delivNothingToDoPaid(String time) {
+    return 'ምንም ማድረግ አይጠበቅብዎትም። ገዢው ችግር ካላሳወቀ በስተቀር ከ$time በኋላ ይከፈልዎታል።';
+  }
+
+  @override
+  String get delivEmptyTitle => 'እስካሁን በመንገድ ላይ ያለ ነገር የለም';
+
+  @override
+  String get delivEmptyBodyBuyer =>
+      'ሹፌር ከትዕዛዞችዎ አንዱን ሲያነሳ መኪናውን እዚህ መከታተል ይችላሉ።';
+
+  @override
+  String get delivEmptyBodyFarmer =>
+      'ሹፌር ከሰብሎችዎ አንዱን ሲያነሳ መኪናውን እዚህ መከታተል ይችላሉ።';
+
+  @override
+  String get delivEmptyBodyTrucker => 'ጭነት ሲያነሱ ማድረሻው እዚህ ይታያል።';
+
+  @override
+  String get delivEmptyFindCrops => 'ሰብል ፈልግ';
+
+  @override
+  String get delivEmptySeeOrders => 'ትዕዛዞቼን አሳይ';
+
+  @override
+  String get delivEmptySeeTrips => 'ጉዞዎቼን አሳይ';
+
+  @override
   String get liveTripWiderWindow => 'ሰፊ የጊዜ ክልል፤ ለተወሰነ ጊዜ ሪፖርት አልመጣም';
 
   @override
@@ -4661,9 +4787,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get homeTileWaitingForYou => 'እርስዎን ይጠብቃል';
 
   @override
-  String get homeTileHeldForYou => 'ለእርስዎ ተይዟል';
-
-  @override
   String get homeTileHeldInEscrow => 'በኢስክሮ ተይዟል';
 
   @override
@@ -4709,9 +4832,90 @@ class AppLocalizationsAm extends AppLocalizations {
   String get tripSpaceTitle => 'በዚህ ጉዞ ላይ ያለ ቦታ';
 
   @override
-  String tripLoadedOf(String loaded, String capacity) {
-    return 'ከ$capacity ኩንታል $loaded ተይዟል';
+  String get invalidCapacityKg => 'አቅም ከ10 እስከ 100,000 ኪግ መሆን አለበት';
+
+  @override
+  String get capacityKg => 'አቅም (ኪግ)';
+
+  @override
+  String get pricePer100Kg => 'ዋጋ በ100 ኪግ (ብር)';
+
+  @override
+  String get perQuintalInParens => '(በኩንታል)';
+
+  @override
+  String get quintalInParens => '(ኩንታል)';
+
+  @override
+  String tripPricePer100KgValue(String price) {
+    return 'በ100 ኪግ $price ብር';
   }
+
+  @override
+  String get etbPer100KgShort => 'ብር/100 ኪግ';
+
+  @override
+  String tripKgOfKg(String amount, String capacity) {
+    return 'ከ$capacity ኪግ $amount';
+  }
+
+  @override
+  String tripKgLeft(String left) {
+    return '$left ኪግ ቀርቷል';
+  }
+
+  @override
+  String tripKgBooked(String booked, String capacity) {
+    return 'ከ$capacity ኪግ $booked ተይዟል';
+  }
+
+  @override
+  String tripKgFree(String kg) {
+    return '$kg ኪግ ክፍት';
+  }
+
+  @override
+  String get tripYourTurnNote =>
+      'መልስ የመስጠት ተራው የእርስዎ ነው። ከተቀበሉ በኋላ መገናኛ ይከፈታል።';
+
+  @override
+  String get tripOpenLink => 'ክፈት';
+
+  @override
+  String get tripModeCheckInSends => 'አሁን ያሉበትን ቦታ ይልካል።';
+
+  @override
+  String tripModeNextDueBy(String time) {
+    return 'ቀጣዩ ሪፖርት እስከ $time መላክ አለበት።';
+  }
+
+  @override
+  String tripModeAboutTime(String time) {
+    return '$time ገደማ';
+  }
+
+  @override
+  String tripModeAboutKm(String km) {
+    return '$km ኪ.ሜ ገደማ';
+  }
+
+  @override
+  String get qrFailedTitle => 'ስካኑ አልሰራም';
+
+  @override
+  String get qrFailedNothingLost => 'ምንም አልጠፋም።';
+
+  @override
+  String get qrFailedBackToTrip => 'ወደ ጉዞው ተመለስ';
+
+  @override
+  String get qrFailedOfflineNote => 'ስካን ማድረግ ያለ ኔትወርክም ይሰራል።';
+
+  @override
+  String get qrFailedPickupScan => 'የማንሳት ስካን';
+
+  @override
+  String get qrFailedDeliveryScan => 'የማድረሻ ስካን';
 
   @override
   String get tripBookedTermsNote => 'የተያዙ ጉዞዎች ቀናቸውን፣ ዋጋቸውንና መንገዳቸውን ይይዛሉ።';
@@ -4778,6 +4982,12 @@ class AppLocalizationsAm extends AppLocalizations {
       'ከ10,000 ብር በላይ የሆኑ ክፍያዎች ፋይዳ ያስፈልጋቸዋል። ያነሱት የይለፍ ቃልዎን ይጠይቃሉ።';
 
   @override
+  String get checkoutConfirmedWithFayda => 'በፋይዳ ተረጋግጧል';
+
+  @override
+  String get checkoutConfirmedWithPassword => 'በይለፍ ቃልዎ ተረጋግጧል';
+
+  @override
   String myCropsOrderedOf(String ordered, String total) {
     return 'ከ$total ኩንታል $ordered ታዝዟል';
   }
@@ -4786,6 +4996,65 @@ class AppLocalizationsAm extends AppLocalizations {
   String myCropsNoOrdersYet(String quantity) {
     return '$quantity ኩንታል፣ እስካሁን ትዕዛዝ የለም';
   }
+
+  @override
+  String get homeWelcomeBack => 'እንኳን ደህና መጡ፣';
+
+  @override
+  String get homeOpen => 'ክፈት';
+
+  @override
+  String get homeTileHeldUntilConfirmed => 'ገዢው መድረሱን እስኪያረጋግጥ ለእርስዎ ተይዟል';
+
+  @override
+  String homeTripLoadedKg(String loaded, String capacity) {
+    return 'ከ$capacity ኪግ $loaded ተጭኗል';
+  }
+
+  @override
+  String quintalsOfInParens(String part, String total) {
+    return '(ከ$total ኩንታል $part)';
+  }
+
+  @override
+  String homePaymentsInEscrow(String amount) {
+    return '$amount ብር በኢስክሮ';
+  }
+
+  @override
+  String myCropsOrderedOfKg(String ordered, String total) {
+    return 'ከ$total ኪግ $ordered ታዝዟል';
+  }
+
+  @override
+  String get myCropsNoOrdersShort => 'እስካሁን ትዕዛዝ የለም';
+
+  @override
+  String get myCropsEmptyTitle => 'እስካሁን የተዘረዘረ ሰብል የለም';
+
+  @override
+  String get myCropsEmptyBody =>
+      'ገዢዎች እንዲያገኙት እና ትዕዛዝ እንዲልኩልዎ የመጀመሪያ ሰብልዎን ይዘርዝሩ።';
+
+  @override
+  String get myCropsEmptyAction => 'ሰብል ይዘርዝሩ';
+
+  @override
+  String get quantityInKg => 'መጠን (ኪግ)';
+
+  @override
+  String get kgUnit => 'ኪግ';
+
+  @override
+  String quintalsShortInParens(String count) {
+    return '($count ኩ.)';
+  }
+
+  @override
+  String get quantityKgTooSmall => 'ቢያንስ 1 ኪግ ያስገቡ።';
+
+  @override
+  String get quantityKgTooLarge => 'ከ1,000,000 ኪግ በላይ አያስገቡ።';
 
   @override
   String get createTripBookingCutoffNote =>
@@ -4877,7 +5146,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get detailNoPhoneNumbersNote =>
-      'ስልክ ቁጥር የለም፦ ክፍያ በአደራ ከተያዘ በኋላ ግንኙነት ይከፈታል።';
+      'ስልክ ቁጥር የለም፦ ክፍያ በኢስክሮ ከተያዘ በኋላ ግንኙነት ይከፈታል።';
 
   @override
   String get detailYourFarm => 'እርሻዎ';
@@ -4891,7 +5160,7 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
-  String get detailPaidIntoEscrow => 'በአደራ ተከፍሏል';
+  String get detailPaidIntoEscrow => 'በኢስክሮ ተከፍሏል';
 
   @override
   String get detailPickupLabel => 'መውሰጃ';
@@ -4905,7 +5174,7 @@ class AppLocalizationsAm extends AppLocalizations {
   String get detailBuyerCollects => 'ገዢው ራሱ ይወስዳል';
 
   @override
-  String get detailHeldInEscrow => 'በአደራ ተይዟል';
+  String get detailHeldInEscrow => 'በኢስክሮ ተይዟል';
 
   @override
   String detailPartyPaid(String party) {
@@ -4992,6 +5261,116 @@ class AppLocalizationsAm extends AppLocalizations {
   @override
   String marketQuintalsLeft(String quantity) {
     return '$quantity ኩንታል ቀርቷል';
+  }
+
+  @override
+  String get actionOpen => 'ክፈት';
+
+  @override
+  String commitmentAnswerDue(String time) {
+    return 'መልስ እስከ $time';
+  }
+
+  @override
+  String get commitmentTheFarmer => 'ገበሬው';
+
+  @override
+  String get commitmentTheTrucker => 'የጭነት መኪና ሹፌሩ';
+
+  @override
+  String commitmentWhoFarmer(String name) {
+    return 'ገበሬው $name';
+  }
+
+  @override
+  String commitmentWhoTrucker(String name) {
+    return 'የጭነት መኪና ሹፌሩ $name';
+  }
+
+  @override
+  String commitmentBuyerWaitingOnBy(String who, String time) {
+    return 'አሁን $who እስከ $time እንዲመልሱ እየተጠበቀ ነው። እርስዎ ምንም ማድረግ አያስፈልግዎትም።';
+  }
+
+  @override
+  String commitmentBuyerWaitingOn(String who) {
+    return 'አሁን $who እንዲመልሱ እየተጠበቀ ነው። እርስዎ ምንም ማድረግ አያስፈልግዎትም።';
+  }
+
+  @override
+  String get commitmentThenTruckerAsked => 'ገበሬው ሲቀበል ቀጥሎ የጭነት መኪና ሹፌሩ ይጠየቃል።';
+
+  @override
+  String get commitmentContactOpensOnTruckerAccept =>
+      'የጭነት መኪና ሹፌሩ ሲቀበል መገናኛው እዚህ ይከፈታል።';
+
+  @override
+  String commitmentYourTurnBy(String time) {
+    return 'ተራው የእርስዎ ነው፦ እስከ $time ይቀበሉ ወይም ውድቅ ያድርጉ።';
+  }
+
+  @override
+  String get commitmentYourTurn => 'ተራው የእርስዎ ነው፦ ይቀበሉ ወይም ውድቅ ያድርጉ።';
+
+  @override
+  String get commitmentFarmerAcceptThenTrucker =>
+      'ሲቀበሉ ቀጥሎ የጭነት መኪና ሹፌሩ ይጠየቃል፣ የገዢው ክፍያም በኢስክሮ ይቆያል።';
+
+  @override
+  String get commitmentFarmerAcceptEscrowStays => 'ሲቀበሉ የገዢው ክፍያ በኢስክሮ ይቆያል።';
+
+  @override
+  String get rejectConfirmTitle => 'ይህን ትዕዛዝ ውድቅ ያድርጉ?';
+
+  @override
+  String get rejectConfirmBody =>
+      'ገዢው ይህን ትዕዛዝ ማሟላት እንደማይችሉ ይነገረዋል፣ ክፍያውም ከኢስክሮ ይመለስለታል።';
+
+  @override
+  String rejectConfirmReason(String reason) {
+    return 'ምክንያት፦ $reason';
+  }
+
+  @override
+  String get rejectConfirmYes => 'አዎ፣ ትዕዛዙን ውድቅ አድርግ';
+
+  @override
+  String get rejectConfirmKeep => 'ትዕዛዙን አቆይ';
+
+  @override
+  String get contactMessageLabel => 'መልዕክት';
+
+  @override
+  String placeOrderFitsTripKg(String quantity) {
+    return 'በዚህ ጉዞ ይገባል፣ $quantity ቀርቷል';
+  }
+
+  @override
+  String placeOrderExceedsTripKg(String quantity) {
+    return 'ከዚህ ጉዞ ቦታ በላይ ነው፣ $quantity ቀርቷል';
+  }
+
+  @override
+  String pricePerQuintalInParens(String price) {
+    return '($price/ኩንታል)';
+  }
+
+  @override
+  String transportPricePerKgAndQuintal(String perKg, String perQuintal) {
+    return 'በኪግ $perKg ብር (በኩንታል $perQuintal)';
+  }
+
+  @override
+  String get quantityNeededKg => 'የሚፈለገው መጠን (ኪግ)';
+
+  @override
+  String marketKgLeft(String quantity) {
+    return '$quantity ቀርቷል';
+  }
+
+  @override
+  String marketKgRoom(String quantity) {
+    return '$quantity ቦታ';
   }
 
   @override

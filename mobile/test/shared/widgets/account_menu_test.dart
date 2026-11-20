@@ -9,11 +9,19 @@ import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
+import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
 import 'package:wereda_connect/shared/widgets/account_menu.dart';
@@ -22,19 +30,28 @@ class MockAuthBloc extends Mock implements AuthBloc {}
 
 class MockInboxBloc extends Mock implements InboxBloc {}
 
+class MockDeliveryBloc extends Mock implements DeliveryBloc {}
+
+class MockTripListingBloc extends Mock implements TripListingBloc {}
+
+class FakeTripListingEvent extends Fake implements TripListingEvent {}
+
 const _tokens = AuthTokens(
   accessToken: 'access',
   refreshToken: 'refresh',
   idToken: 'id',
 );
 
-/// The phone's account button: the bar has no slot for Messages, Payments
-/// (Orders for the trucker), Profile or Settings, so the header's round
-/// button lists them, as the web sidebar does.
+/// The phone's account button: the bar has no slot for Messages, Payments,
+/// the farmer's Deliveries, the trucker's Orders, the buyer's Find Trips,
+/// Profile or Settings, so the header's round button lists them, as the
+/// web sidebar does.
 void main() {
   late MockAuthBloc authBloc;
   late MockInboxBloc inboxBloc;
   final en = lookupAppLocalizations(const Locale('en'));
+
+  setUpAll(() => registerFallbackValue(FakeTripListingEvent()));
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -57,7 +74,12 @@ void main() {
     );
   }
 
-  Future<void> pump(WidgetTester tester, Widget child) async {
+  Future<void> pump(
+    WidgetTester tester,
+    Widget child, {
+    // Blocs the page a row opens needs.
+    List<BlocProvider> providers = const [],
+  }) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -71,6 +93,7 @@ void main() {
           providers: [
             BlocProvider<AuthBloc>.value(value: authBloc),
             BlocProvider<InboxBloc>.value(value: inboxBloc),
+            ...providers,
           ],
           child: MaterialApp(
             localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -93,10 +116,11 @@ void main() {
       .map((t) => (t.key! as ValueKey<String>).value)
       .toList();
 
+  // The rows follow sidebarExtrasForRole, in its order.
   for (final (role, extras) in [
-    (UserRole.farmer, ['messages', 'payments']),
-    (UserRole.trucker, ['messages', 'orders']),
-    (UserRole.buyer, ['messages', 'payments']),
+    (UserRole.farmer, ['deliveries', 'messages', 'payments']),
+    (UserRole.trucker, ['payments', 'messages', 'orders']),
+    (UserRole.buyer, ['findTrips', 'messages', 'payments']),
   ]) {
     testWidgets('${role.name}: the sidebar\'s extras, Profile and Settings',
         (tester) async {
@@ -107,6 +131,9 @@ void main() {
       expect(rowIds(tester), [
         for (final id in [...extras, 'profile', 'settings']) 'account_menu_$id',
       ]);
+      expect(extras, [
+        for (final tab in sidebarExtrasForRole(role)) tab.name,
+      ]);
       final roleName = switch (role) {
         UserRole.farmer => en.farmer,
         UserRole.trucker => en.trucker,
@@ -116,6 +143,85 @@ void main() {
       expect(find.text('Meki · $roleName'), findsOneWidget);
     });
   }
+
+  // Deliveries left the farmer's bar (canvas page M): the sheet's first
+  // row opens it as a page with a way back.
+  testWidgets('farmer: the Deliveries row opens the deliveries page',
+      (tester) async {
+    signIn(UserRole.farmer);
+    final deliveryBloc = MockDeliveryBloc();
+    when(() => deliveryBloc.state)
+        .thenReturn(const DeliveriesLoaded(deliveries: []));
+    when(() => deliveryBloc.stream).thenAnswer((_) => const Stream.empty());
+    await pump(
+      tester,
+      const AccountButton(),
+      providers: [BlocProvider<DeliveryBloc>.value(value: deliveryBloc)],
+    );
+    await openSheet(tester);
+
+    final row = find.byKey(const Key('account_menu_deliveries'));
+    expect(
+      find.descendant(of: row, matching: find.text(en.deliveries)),
+      findsOneWidget,
+    );
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+
+    expect(row, findsNothing);
+    expect(find.byType(DeliveriesPage), findsOneWidget);
+    expect(find.byType(DeliveriesTabScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(DeliveriesPage), findsNothing);
+    expect(find.byKey(const Key('account_button')), findsOneWidget);
+  });
+
+  // Hard product rule: a buyer can always browse ALL trips. The buyer has
+  // no Home to link to them, so the sheet's first row does.
+  testWidgets('buyer: the Find Trips row opens every trucker\'s trips',
+      (tester) async {
+    signIn(UserRole.buyer);
+    final tripBloc = MockTripListingBloc();
+    when(() => tripBloc.state).thenReturn(const TripListingInitial());
+    when(() => tripBloc.stream).thenAnswer((_) => const Stream.empty());
+    await pump(
+      tester,
+      const AccountButton(),
+      providers: [BlocProvider<TripListingBloc>.value(value: tripBloc)],
+    );
+    await openSheet(tester);
+
+    final row = find.byKey(const Key('account_menu_findTrips'));
+    expect(
+      find.descendant(of: row, matching: find.text(en.findTrips)),
+      findsOneWidget,
+    );
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+
+    expect(row, findsNothing);
+    expect(find.byType(BrowseTripsScreen), findsOneWidget);
+    // Every trucker's trips, never the buyer's own (they have none).
+    verify(() => tripBloc.add(any(that: isA<LoadOpenTrips>())))
+        .called(greaterThanOrEqualTo(1));
+    verifyNever(() => tripBloc.add(any(that: isA<LoadTrips>())));
+    expect(tester.takeException(), isNull);
+  });
+
+  // Only a buyer browses trips and only a farmer loses Deliveries.
+  testWidgets('farmer and trucker: no Find Trips row', (tester) async {
+    for (final role in [UserRole.farmer, UserRole.trucker]) {
+      signIn(role);
+      await pump(tester, AccountButton(key: ValueKey(role)));
+      await openSheet(tester);
+      expect(find.byKey(const Key('account_menu_findTrips')), findsNothing);
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+    }
+  });
 
   testWidgets('unread messages: a dot on the button, the count on the row',
       (tester) async {

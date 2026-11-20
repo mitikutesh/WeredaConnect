@@ -30,10 +30,11 @@ import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// QR scan screen for pickup and delivery verification.
 ///
-/// Phases: Scanning (the camera in a rounded panel on the soil dark page, as
-/// the Trip detail board's header), Typing (T-1: the nine-digit code typed
-/// when the camera fails, its check digit checked on the phone) and Read
-/// (GPS + photo on the chalk page, Confirm pinned at the foot). The phone
+/// Phases: Scanning (the camera in a rounded panel on a black page), Typing
+/// (T-1: the nine-digit code typed when the camera fails, its check digit
+/// checked on the phone), Read (GPS + photo on the white page, Confirm
+/// pinned at the foot) and Failed (design canvas page M, TruckerQrFailedM:
+/// [QrScanFailedView]). The phone
 /// only reads the QR or checks the code's check digit; the server compares
 /// it with the farmer's nonce once the confirm reaches it, so the copy says
 /// so instead of "verified". A typed code needs a GPS fix.
@@ -96,6 +97,11 @@ class _QrScanScreenState extends State<QrScanScreen> {
   _ScanPhase _phase = _ScanPhase.scanning;
   MobileScannerController? _scannerController;
   String? _errorCode;
+
+  /// Why the server refused the confirm (a code that is not this
+  /// delivery's, a locked code, a code not synced yet), in the viewer's
+  /// language: the failed page shows it instead of a scan failure.
+  String? _serverRefusal;
 
   // Verified phase data
   GpsCaptureResult? _gpsResult;
@@ -258,6 +264,27 @@ class _QrScanScreenState extends State<QrScanScreen> {
     return localizeDeliveryError(l10n, code);
   }
 
+  /// A refusal of the code itself after Confirm: not this delivery's,
+  /// locked, or not on the server yet. Scanning (or typing) again is what
+  /// helps, so these open the failed page. Anything else (the place, the
+  /// network, the session) keeps the confirm page and says why there.
+  /// `DELIVERY_NONCE_PENDING` is a code only while it waits for the
+  /// farmer's or the trucker's QR; its payment check and its wait for the
+  /// pickup keep the confirm page, with the photo and the GPS fix.
+  bool _refusesTheCode(DeliveryError error) {
+    if (_phase != _ScanPhase.verified) return false;
+    if (error.code == DeliveryErrorCode.qrPending) {
+      final message = error.message;
+      return message.startsWith(deliveryPickupCodePendingText) ||
+          message.startsWith(deliveryDropoffCodePendingText);
+    }
+    return const {
+      DeliveryErrorCode.codeMismatch,
+      DeliveryErrorCode.codeLocked,
+      DeliveryErrorCode.codeLockedDropoff,
+    }.contains(error.code);
+  }
+
   void _onBarcodeDetected(BarcodeCapture capture) {
     if (_phase != _ScanPhase.scanning) return;
 
@@ -399,6 +426,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
     setState(() {
       _phase = _ScanPhase.scanning;
       _errorCode = null;
+      _serverRefusal = null;
       _gpsResult = null;
       _isCapturingGps = false;
       _photoRef = null;
@@ -440,6 +468,15 @@ class _QrScanScreenState extends State<QrScanScreen> {
             );
           }
           Navigator.of(context).pop(true);
+        } else if (state is DeliveryError && _refusesTheCode(state)) {
+          // TruckerQrFailedM: the server did not take the code. The same
+          // failed page as a scan the phone refused, with the server's
+          // reason; Try again goes back to the scanner.
+          setState(() {
+            _isConfirming = false;
+            _serverRefusal = _errorText(AppLocalizations.of(context)!, state);
+            _phase = _ScanPhase.invalid;
+          });
         } else if (state is DeliveryError) {
           setState(() => _isConfirming = false);
           ScaffoldMessenger.of(context).showSnackBar(
@@ -454,9 +491,10 @@ class _QrScanScreenState extends State<QrScanScreen> {
       },
       child: Scaffold(
         // The camera sits on the soil dark page; the result pages are chalk.
-        backgroundColor: scanning ? AppTheme.soilDark : null,
+        backgroundColor: scanning ? AppTheme.ink : null,
         body: SafeArea(
-          bottom: scanning,
+          // The camera page and the failed page end with their own actions.
+          bottom: scanning || _phase == _ScanPhase.invalid,
           child: switch (_phase) {
             _ScanPhase.scanning => _buildScanningPhase(l10n),
             _ScanPhase.typing => _buildTypingPhase(l10n),
@@ -506,16 +544,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
                 ),
               ],
             ),
-          _ScanPhase.invalid => FwBottomActions(
-              children: [
-                FilledButton.icon(
-                  onPressed: _resetScanner,
-                  icon: const Icon(Icons.refresh),
-                  label: Text(l10n.deliveryTryAgain),
-                  style: _primaryStyle,
-                ),
-              ],
-            ),
+          _ScanPhase.invalid => null,
         },
       ),
     );
@@ -545,8 +574,8 @@ class _QrScanScreenState extends State<QrScanScreen> {
               button: true,
               label: l10n.deliveryToggleFlash,
               child: Material(
-                color: AppTheme.soilCard,
-                borderRadius: BorderRadius.circular(14),
+                color: AppTheme.inkCard,
+                shape: const CircleBorder(),
                 clipBehavior: Clip.antiAlias,
                 child: InkWell(
                   onTap: () => _scannerController?.toggleTorch(),
@@ -630,7 +659,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
               style: OutlinedButton.styleFrom(
                 backgroundColor: Colors.transparent,
                 foregroundColor: Colors.white,
-                side: const BorderSide(color: Color(0xFF4A5A52)),
+                side: const BorderSide(color: AppTheme.inkMuted),
                 minimumSize: const Size.fromHeight(52),
                 textStyle: const TextStyle(
                   fontFamily: AppTheme.fontFamily,
@@ -678,7 +707,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
                       style: const TextStyle(
                         fontSize: 14,
                         height: 1.45,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -694,7 +723,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
                         fontSize: 24,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 4,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                       decoration: InputDecoration(
                         labelText: l10n.qrTypeCodeLabel,
@@ -736,13 +765,13 @@ class _QrScanScreenState extends State<QrScanScreen> {
                           width: 44,
                           height: 44,
                           decoration: BoxDecoration(
-                            color: AppTheme.fieldGreenTint,
+                            color: context.roleColors.tint,
                             borderRadius: BorderRadius.circular(14),
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.check_circle,
                             size: 24,
-                            color: AppTheme.fieldGreen,
+                            color: context.roleColors.primary,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -751,10 +780,10 @@ class _QrScanScreenState extends State<QrScanScreen> {
                             _typed
                                 ? l10n.deliveryCodeTypedCheckedOnline
                                 : l10n.deliveryQrReadCheckedOnline,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w800,
-                              color: AppTheme.fieldGreen,
+                              color: context.roleColors.primary,
                             ),
                           ),
                         ),
@@ -805,7 +834,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
             ),
           ),
         ],
@@ -816,10 +845,13 @@ class _QrScanScreenState extends State<QrScanScreen> {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 2),
-            child:
-                Icon(Icons.location_on, size: 18, color: AppTheme.fieldGreen),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(
+              Icons.location_on,
+              size: 18,
+              color: context.roleColors.primary,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -831,14 +863,14 @@ class _QrScanScreenState extends State<QrScanScreen> {
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 Text(
                   l10n.deliveryGpsAccuracy(gps.accuracy!.toStringAsFixed(0)),
                   style: const TextStyle(
                     fontSize: 12,
-                    color: AppTheme.mutedSteel,
+                    color: AppTheme.slate,
                   ),
                 ),
               ],
@@ -859,7 +891,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
         const Icon(
           Icons.warning_amber,
           size: 18,
-          color: AppTheme.actionInk,
+          color: AppTheme.orangeInk,
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -868,7 +900,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: AppTheme.actionInk,
+              color: AppTheme.orangeInk,
             ),
           ),
         ),
@@ -902,64 +934,194 @@ class _QrScanScreenState extends State<QrScanScreen> {
     };
   }
 
-  /// The code failed: why, with Try Again at the foot.
+  /// The scan failed (TruckerQrFailedM): what went wrong, that nothing was
+  /// lost, Try again, the way back and the typed code.
   Widget _buildInvalidPhase(AppLocalizations l10n) {
-    return SingleChildScrollView(
-      child: FwContentWidth(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            FwDetailHeader(
-              title: _title(l10n),
-              subtitle: _deliveryLabel(l10n),
+    // The trucker scans at a pickup and goes back to the trip; a buyer
+    // confirming a delivery just goes back.
+    return QrScanFailedView(
+      pickup: _isPickup,
+      reason: _serverRefusal ?? _localizeQrError(l10n),
+      backLabel: _isPickup ? l10n.qrFailedBackToTrip : l10n.back,
+      onRetry: _resetScanner,
+      onBack: () => Navigator.of(context).maybePop(),
+      onTypeCode: _openTyping,
+    );
+  }
+}
+
+/// What the driver (or the buyer) sees when a QR scan fails (design canvas
+/// page M, TruckerQrFailedM): the round Back with the kind of scan beside
+/// it, the error tile, "The scan did not work", why (the failure the phone
+/// found: a QR of another delivery, one it cannot read, one that is not a
+/// handoff code; or the server's refusal of the code after Confirm) and
+/// that nothing was lost, then Try again (the one orange
+/// action), the way back, and the typed code for a QR that will not read.
+/// Nothing here needs the network.
+class QrScanFailedView extends StatelessWidget {
+  const QrScanFailedView({
+    required this.pickup,
+    required this.reason,
+    required this.backLabel,
+    required this.onRetry,
+    required this.onBack,
+    this.onTypeCode,
+    super.key,
+  });
+
+  /// A pickup scan (the trucker at the farm) or a delivery scan.
+  final bool pickup;
+
+  /// Why the scan failed, in the viewer's language.
+  final String reason;
+
+  /// "Back to trip" for the trucker, "Back" for a buyer.
+  final String backLabel;
+  final VoidCallback onRetry;
+  final VoidCallback onBack;
+
+  /// Opens the nine-digit code field (T-1); null hides the link.
+  final VoidCallback? onTypeCode;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final onTypeCode = this.onTypeCode;
+    return FwContentWidth(
+      key: const Key('qr_scan_failed'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
+            child: Row(
+              children: [
+                FwBackButton(onPressed: onBack),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    pickup
+                        ? l10n.qrFailedPickupScan
+                        : l10n.qrFailedDeliveryScan,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.slate,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-              child: FwCard(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: AppTheme.statusErrorContainer,
-                        borderRadius: BorderRadius.circular(18),
+          ),
+          Expanded(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
+                child: Semantics(
+                  liveRegion: true,
+                  container: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          color: AppTheme.statusErrorContainer,
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                        child: const Icon(
+                          Icons.qr_code_scanner,
+                          size: 38,
+                          color: AppTheme.statusError,
+                        ),
                       ),
-                      child: const Icon(
-                        Icons.cancel,
-                        size: 28,
-                        color: AppTheme.statusError,
+                      const SizedBox(height: 16),
+                      Semantics(
+                        header: true,
+                        child: Text(
+                          l10n.qrFailedTitle,
+                          style: const TextStyle(
+                            fontSize: 34,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -1.2,
+                            height: 1.05,
+                            color: AppTheme.ink,
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      l10n.deliveryQrFailed,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.statusError,
+                      const SizedBox(height: 16),
+                      Text(
+                        // A reason that ends without a full stop gets one
+                        // before the next sentence.
+                        '${_sentence(reason)} ${l10n.qrFailedNothingLost}',
+                        key: const Key('qr_scan_failed_reason'),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          height: 1.45,
+                          color: AppTheme.inkSoft,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _localizeQrError(l10n),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        height: 1.5,
-                        color: AppTheme.mutedSteel,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FilledButton.icon(
+                  key: const Key('qr_failed_retry'),
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: Text(l10n.deliveryTryAgain),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  key: const Key('qr_failed_back'),
+                  onPressed: onBack,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  child: Text(backLabel),
+                ),
+                if (onTypeCode != null)
+                  TextButton.icon(
+                    key: const Key('qr_failed_type_code'),
+                    onPressed: onTypeCode,
+                    icon: const Icon(Icons.dialpad, size: 18),
+                    label: Text(l10n.qrTypeCodeInstead),
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                  )
+                else
+                  const SizedBox(height: 12),
+                Text(
+                  l10n.qrFailedOfflineNote,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 13, color: AppTheme.slate),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
+  }
+
+  /// [text] ending in a sentence mark (Latin or Ethiopic).
+  static String _sentence(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return trimmed;
+    const marks = ['.', '!', '?', '።'];
+    return marks.any(trimmed.endsWith) ? trimmed : '$trimmed.';
   }
 }
 
@@ -992,7 +1154,7 @@ class _DarkHeader extends StatelessWidget {
                   subtitle,
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.soilMuted,
+                    color: AppTheme.inkMuted,
                   ),
                 ),
                 Semantics(
@@ -1078,7 +1240,7 @@ class QrLocationNeededView extends StatelessWidget {
             const Icon(
               Icons.warning_amber,
               size: 18,
-              color: AppTheme.actionInk,
+              color: AppTheme.orangeInk,
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -1087,7 +1249,7 @@ class QrLocationNeededView extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: AppTheme.actionInk,
+                  color: AppTheme.orangeInk,
                 ),
               ),
             ),
@@ -1100,7 +1262,7 @@ class QrLocationNeededView extends StatelessWidget {
           style: const TextStyle(
             fontSize: 13,
             height: 1.45,
-            color: AppTheme.soilDark,
+            color: AppTheme.ink,
           ),
         ),
         const SizedBox(height: 12),
@@ -1158,13 +1320,13 @@ class QrCameraErrorView extends StatelessWidget {
     final buttonStyle = OutlinedButton.styleFrom(
       backgroundColor: Colors.transparent,
       foregroundColor: Colors.white,
-      side: const BorderSide(color: Color(0xFF4A5A52)),
+      side: const BorderSide(color: AppTheme.inkMuted),
       minimumSize: const Size.fromHeight(48),
     );
 
     return ColoredBox(
       key: const Key('qr_camera_error'),
-      color: AppTheme.soilCard,
+      color: AppTheme.inkCard,
       child: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
@@ -1194,7 +1356,7 @@ class QrCameraErrorView extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 14,
                   height: 1.45,
-                  color: AppTheme.soilMuted,
+                  color: AppTheme.inkMuted,
                 ),
               ),
               const SizedBox(height: 16),

@@ -21,6 +21,8 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 class _MockCropListingBloc extends Mock implements CropListingBloc {}
 
@@ -130,6 +132,7 @@ void main() {
     required CropListing listing,
     String userId = 'farmer-001',
     UserRole role = UserRole.farmer,
+    ThemeData? theme,
   }) =>
       MultiBlocProvider(
         providers: [
@@ -138,6 +141,7 @@ void main() {
           BlocProvider<RatingBloc>.value(value: ratingBloc),
         ],
         child: MaterialApp(
+          theme: theme,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           locale: const Locale('en'),
@@ -167,9 +171,15 @@ void main() {
     CropListing? listing,
     String userId = 'farmer-001',
     UserRole role = UserRole.farmer,
+    ThemeData? theme,
   }) async {
     await tester.pumpWidget(
-      app(listing: listing ?? _listing(), userId: userId, role: role),
+      app(
+        listing: listing ?? _listing(),
+        userId: userId,
+        role: role,
+        theme: theme,
+      ),
     );
     await tester.tap(find.text('home'));
     await tester.pumpAndSettle();
@@ -177,6 +187,71 @@ void main() {
 
   const edit = Key('crop_detail_edit');
   const delete = Key('crop_detail_delete');
+
+  // Design canvas page M: the owner's detail in the app's own theme.
+  group('page M look of the owner\'s detail', () {
+    final theme = AppTheme.light(role: UserRole.farmer);
+
+    testWidgets('Edit is the 54 px orange pill, Delete outlined in error',
+        (tester) async {
+      await open(tester, theme: theme);
+
+      final editButton = find.byKey(edit);
+      expect(tester.getSize(editButton).height, 54);
+      final editMaterial = tester.widget<Material>(
+        find.descendant(of: editButton, matching: find.byType(Material)).first,
+      );
+      expect(editMaterial.color, AppTheme.orange);
+      expect(editMaterial.shape, isA<StadiumBorder>());
+
+      final deleteButton = find.byKey(delete);
+      expect(tester.widget(deleteButton), isA<OutlinedButton>());
+      expect(tester.getSize(deleteButton).height, greaterThanOrEqualTo(48));
+      final deleteMaterial = tester.widget<Material>(
+        find
+            .descendant(of: deleteButton, matching: find.byType(Material))
+            .first,
+      );
+      final shape = deleteMaterial.shape! as StadiumBorder;
+      expect(shape.side.color, AppTheme.statusError);
+      expect(deleteMaterial.color, isNot(AppTheme.statusError));
+      final label = tester.widget<RichText>(
+        find.descendant(of: deleteButton, matching: find.byType(RichText)),
+      );
+      expect(label.text.style!.color, AppTheme.statusError);
+    });
+
+    testWidgets('"Not sent yet" is the orange tint pill with the upload mark',
+        (tester) async {
+      when(() => cropRepo.hasChangeWaiting('listing-1'))
+          .thenAnswer((_) async => true);
+      await open(tester, theme: theme);
+
+      final pill = tester.widget<FwPill>(
+        find.byKey(const Key('listing_not_sent_pill')),
+      );
+      expect(pill.background, AppTheme.orangeTint);
+      expect(pill.foreground, AppTheme.orangeInk);
+      expect(pill.icon, Icons.cloud_upload_outlined);
+      expect(pill.label, 'Not sent yet');
+    });
+
+    testWidgets('the quantity line leads with kg, quintals in parentheses',
+        (tester) async {
+      await open(tester, theme: theme);
+
+      final line = tester.widget<Text>(
+        find.byKey(const Key('crop_detail_quantity_line')),
+      );
+      final text = line.textSpan!.toPlainText();
+      final kg = text.indexOf('kg');
+      final quintals = text.indexOf('(');
+      expect(kg, greaterThan(0));
+      expect(quintals, greaterThan(kg));
+      expect(text, contains('quintal'));
+      expect(text.substring(quintals), contains(')'));
+    });
+  });
 
   // BUG-36: the detail of a listing saved offline said "Active" like a
   // synced one.
@@ -416,8 +491,9 @@ void main() {
 
       expect(find.byType(EditCropListingScreen), findsOneWidget);
       expect(find.text('Edit listing'), findsOneWidget);
-      // At most two decimals in the field.
-      expect(find.text('12.35'), findsOneWidget);
+      // The stock is 12.345 quintals; the field shows it in kilograms.
+      expect(find.text('1234.5'), findsOneWidget);
+      expect(find.text('Quantity (kg)'), findsOneWidget);
       expect(find.text('45'), findsOneWidget);
       expect(find.text('White teff'), findsOneWidget);
 
@@ -483,7 +559,7 @@ void main() {
       sent.clear();
       await tester.tap(find.byKey(edit));
       await tester.pumpAndSettle();
-      expect(find.text('6'), findsOneWidget);
+      expect(find.text('600'), findsOneWidget);
       expect(find.text('60.5'), findsOneWidget);
       await tester.enterText(
         find.byKey(const Key('edit_listing_price')),
@@ -505,7 +581,7 @@ void main() {
       );
       await openEdit(tester);
 
-      expect(find.text('5'), findsOneWidget);
+      expect(find.text('500'), findsOneWidget);
       await tester.enterText(
         find.byKey(const Key('edit_listing_price')),
         '50',
@@ -642,6 +718,92 @@ void main() {
         find.byKey(const Key('edit_listing_save')),
       );
       expect(save.onPressed, isNotNull);
+    });
+
+    // Design canvas page M: kilograms in the field, quintals on the wire.
+    testWidgets('a quantity changed to 2,500 kg is sent as 25 quintals',
+        (tester) async {
+      await openEdit(tester);
+
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_quantity')),
+        '2500',
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('listing_quantity_unit')))
+            .textSpan!
+            .toPlainText(),
+        'kg (25 q)',
+      );
+      // 2,500 kg at 45 ETB per kg.
+      expect(
+        tester.widget<Text>(find.byKey(const Key('edit_listing_total'))).data,
+        'Total: 112,500 ETB (4,500 ETB per quintal)',
+      );
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pump();
+
+      expect(sentEdit().quantity, 25);
+      expect(sentEdit().pricePerKg, isNull);
+      sentEdit().done!.complete(_listing(quantity: 25)..version = 2);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('under 1 kg is refused', (tester) async {
+      await openEdit(tester);
+
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_quantity')),
+        '0.4',
+      );
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pumpAndSettle();
+
+      expect(sent, isEmpty);
+      expect(find.text('Enter at least 1 kg.'), findsOneWidget);
+    });
+
+    testWidgets(
+        'stock an order left under 1 kg does not block a price edit: the '
+        'untouched quantity is not checked and not sent', (tester) async {
+      // 100.5 kg listed, 100 kg funded: half a kilo is left.
+      when(() => cropRepo.getListingById('listing-1')).thenAnswer(
+        (_) async => _listing(quantity: 0.005)..version = 2,
+      );
+      await openEdit(tester);
+
+      expect(find.text('0.5'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_price')),
+        '50',
+      );
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pump();
+
+      expect(find.text('Enter at least 1 kg.'), findsNothing);
+      expect(sentEdit().quantity, isNull);
+      expect(sentEdit().pricePerKg, 50);
+      sentEdit().done!.complete(_listing(quantity: 0.005, pricePerKg: 50));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a pasted "4,000" is 4,000 kg, not 4', (tester) async {
+      await openEdit(tester);
+
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_quantity')),
+        '4,000',
+      );
+      await tester.pump();
+      expect(find.text('4000'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pump();
+
+      expect(sentEdit().quantity, 40);
+      sentEdit().done!.complete(_listing(quantity: 40)..version = 2);
+      await tester.pumpAndSettle();
     });
   });
 }

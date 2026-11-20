@@ -21,6 +21,7 @@ import 'package:wereda_connect/features/delivery_verification/domain/repositorie
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_scan_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -595,6 +596,12 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    // The refusal opens the failed page (TruckerQrFailedM): its reason
+    // line is the server's reason, then "Nothing was lost."
+    String reason(WidgetTester tester) => tester
+        .widget<Text>(find.byKey(const Key('qr_scan_failed_reason')))
+        .data!;
+
     testWidgets('a wait for the trucker\'s code names the trucker',
         (tester) async {
       await failWith(
@@ -604,22 +611,42 @@ void main() {
         'sync. Will retry automatically.',
       );
 
-      expect(find.text(l10n.deliveryErrorDropoffQrPending), findsOneWidget);
-      expect(find.text(l10n.deliveryErrorQrPending), findsNothing);
+      expect(reason(tester), contains(l10n.deliveryErrorDropoffQrPending));
+      expect(reason(tester), isNot(contains(l10n.deliveryErrorQrPending)));
     });
 
+    testWidgets('a wait for the farmer\'s QR keeps its own text',
+        (tester) async {
+      await failWith(
+        tester,
+        DeliveryErrorCode.qrPending,
+        "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. "
+        'Will retry automatically.',
+      );
+
+      expect(find.byKey(const Key('qr_scan_failed')), findsOneWidget);
+      expect(reason(tester), contains(l10n.deliveryErrorQrPending));
+      expect(
+        reason(tester),
+        isNot(contains(l10n.deliveryErrorDropoffQrPending)),
+      );
+    });
+
+    // The same server code, not about a code: the scan was good, so the
+    // confirm page stays, with its photo and GPS fix, and Confirm works.
     for (final message in [
-      "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. "
-          'Will retry automatically.',
       'DELIVERY_NONCE_PENDING: The payment check could not be completed. '
           'Will retry automatically.',
+      'DELIVERY_NONCE_PENDING: Waiting for the pickup to sync. '
+          'Will retry automatically.',
     ]) {
-      testWidgets('any other wait keeps its own text: $message',
+      testWidgets('a wait that is not about the code stays: $message',
           (tester) async {
         await failWith(tester, DeliveryErrorCode.qrPending, message);
 
-        expect(find.text(l10n.deliveryErrorQrPending), findsOneWidget);
-        expect(find.text(l10n.deliveryErrorDropoffQrPending), findsNothing);
+        expect(find.byKey(const Key('qr_scan_failed')), findsNothing);
+        expect(find.byType(SnackBar), findsOneWidget);
+        expect(find.byKey(const Key('qr_confirm')), findsOneWidget);
       });
     }
 
@@ -632,7 +659,7 @@ void main() {
         "the trucker's drop-off QR, or ask the trucker for a new code.",
       );
 
-      expect(find.text(l10n.deliveryErrorDropoffCodeLocked), findsOneWidget);
+      expect(reason(tester), contains(l10n.deliveryErrorDropoffCodeLocked));
     });
 
     testWidgets('a store without typed codes keeps the shared lock text',
@@ -644,8 +671,11 @@ void main() {
         'delivery. Scan the QR code.',
       );
 
-      expect(find.text(l10n.deliveryErrorCodeLocked), findsOneWidget);
-      expect(find.text(l10n.deliveryErrorDropoffCodeLocked), findsNothing);
+      expect(reason(tester), contains(l10n.deliveryErrorCodeLocked));
+      expect(
+        reason(tester),
+        isNot(contains(l10n.deliveryErrorDropoffCodeLocked)),
+      );
     });
 
     testWidgets('the pickup keeps the farmer\'s wait text', (tester) async {
@@ -657,7 +687,72 @@ void main() {
         type: VerificationType.pickup,
       );
 
-      expect(find.text(l10n.deliveryErrorQrPending), findsOneWidget);
+      expect(reason(tester), contains(l10n.deliveryErrorQrPending));
+    });
+
+    // TruckerQrFailedM: a refusal of the code after Confirm is the failed
+    // page, not a snackbar.
+    testWidgets('a refused code opens the failed page; Try again rescans',
+        (tester) async {
+      await failWith(
+        tester,
+        DeliveryErrorCode.codeMismatch,
+        'DELIVERY_CODE_MISMATCH: The code does not match this delivery.',
+        type: VerificationType.pickup,
+      );
+
+      expect(find.byKey(const Key('qr_scan_failed')), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(find.byKey(const Key('qr_confirm')), findsNothing);
+      expect(find.text(l10n.qrFailedTitle), findsOneWidget);
+      expect(
+        reason(tester),
+        '${l10n.deliveryErrorCodeMismatch} ${l10n.qrFailedNothingLost}',
+      );
+
+      await tester.tap(find.byKey(const Key('qr_failed_retry')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('qr_scan_failed')), findsNothing);
+      expect(find.byType(MobileScanner), findsOneWidget);
+    });
+
+    testWidgets('a locked drop-off code opens the failed page too',
+        (tester) async {
+      await failWith(
+        tester,
+        DeliveryErrorCode.codeLockedDropoff,
+        'DELIVERY_CODE_LOCKED_DROPOFF: locked',
+      );
+
+      expect(find.byKey(const Key('qr_scan_failed')), findsOneWidget);
+      expect(
+        reason(tester),
+        contains(
+          localizeDeliveryError(l10n, DeliveryErrorCode.codeLockedDropoff),
+        ),
+      );
+    });
+
+    testWidgets('a refusal that is not about the code stays a snackbar',
+        (tester) async {
+      await failWith(
+        tester,
+        DeliveryErrorCode.gpsPickupFar,
+        'DELIVERY_GPS_PROXIMITY: pickup_far: too far',
+        type: VerificationType.pickup,
+      );
+
+      expect(find.byKey(const Key('qr_scan_failed')), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text(l10n.deliveryErrorGpsPickupFar), findsOneWidget);
+      // Still on the confirm page, Confirm usable again.
+      expect(
+        tester
+            .widget<FilledButton>(find.byKey(const Key('qr_confirm')))
+            .onPressed,
+        isNotNull,
+      );
     });
   });
 
@@ -1006,6 +1101,147 @@ void main() {
       final sent =
           verify(() => bloc.add(captureAny())).captured.single as ConfirmPickup;
       expect(sent.gpsPickup, isNull);
+    });
+  });
+
+  // Design canvas page M (TruckerQrFailedM): what a failed scan shows.
+  group('scan failed', () {
+    final l10n = lookupAppLocalizations(const Locale('en'));
+
+    Future<void> scanGarbage(
+      WidgetTester tester,
+      VerificationType type,
+      String errorCode,
+    ) async {
+      when(() => qr.parseQrToken(any(), any())).thenReturn(
+        QrParseResult.invalid('bad', errorCode: errorCode),
+      );
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await pumpScreen(tester, type);
+      final scanner = tester.widget<MobileScanner>(find.byType(MobileScanner));
+      scanner.onDetect!(
+        const BarcodeCapture(barcodes: [Barcode(rawValue: 'not-a-handoff')]),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('a QR of another delivery: why, nothing lost, the ways out',
+        (tester) async {
+      await scanGarbage(
+        tester,
+        VerificationType.pickup,
+        QrErrorCode.wrongDelivery,
+      );
+
+      expect(find.byKey(const Key('qr_scan_failed')), findsOneWidget);
+      expect(find.text(l10n.qrFailedPickupScan), findsOneWidget);
+      expect(find.text(l10n.qrFailedTitle), findsOneWidget);
+      expect(
+        find.text(
+          '${l10n.deliveryQrWrongDelivery}. ${l10n.qrFailedNothingLost}',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.deliveryTryAgain), findsOneWidget);
+      // The trucker goes back to the trip.
+      expect(find.text(l10n.qrFailedBackToTrip), findsOneWidget);
+      expect(find.text(l10n.qrTypeCodeInstead), findsOneWidget);
+      expect(find.text(l10n.qrFailedOfflineNote), findsOneWidget);
+      // Nothing was sent.
+      verifyNever(() => bloc.add(any()));
+      for (final key in ['qr_failed_retry', 'qr_failed_back']) {
+        expect(
+          tester.getSize(find.byKey(Key(key))).height,
+          greaterThanOrEqualTo(48),
+        );
+      }
+    });
+
+    testWidgets('Try again goes back to the camera', (tester) async {
+      await scanGarbage(
+        tester,
+        VerificationType.pickup,
+        QrErrorCode.invalidFormat,
+      );
+      expect(
+        find.textContaining(l10n.deliveryQrInvalidFormat),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('qr_failed_retry')));
+      await tester.pump();
+
+      expect(find.byKey(const Key('qr_scan_failed')), findsNothing);
+      expect(find.byType(MobileScanner), findsOneWidget);
+    });
+
+    testWidgets('the typed code is one tap away', (tester) async {
+      await scanGarbage(
+        tester,
+        VerificationType.pickup,
+        QrErrorCode.processFailed,
+      );
+
+      await tester.tap(find.byKey(const Key('qr_failed_type_code')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('qr_code_field')), findsOneWidget);
+    });
+
+    testWidgets('a buyer at a delivery reads Delivery scan and Back',
+        (tester) async {
+      await scanGarbage(
+        tester,
+        VerificationType.delivery,
+        QrErrorCode.wrongDelivery,
+      );
+
+      expect(find.text(l10n.qrFailedDeliveryScan), findsOneWidget);
+      expect(find.text(l10n.qrFailedBackToTrip), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('qr_failed_back')),
+          matching: find.text(l10n.back),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('fits a small phone with large Amharic text', (tester) async {
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final am = lookupAppLocalizations(const Locale('am'));
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('am'),
+          home: MediaQuery.withClampedTextScaling(
+            minScaleFactor: 2,
+            maxScaleFactor: 2,
+            child: Scaffold(
+              body: SafeArea(
+                child: QrScanFailedView(
+                  pickup: true,
+                  reason: am.deliveryQrWrongDelivery,
+                  backLabel: am.qrFailedBackToTrip,
+                  onRetry: () {},
+                  onBack: () {},
+                  onTypeCode: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text(am.qrFailedTitle), findsOneWidget);
     });
   });
 }

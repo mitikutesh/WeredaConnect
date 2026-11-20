@@ -6,8 +6,10 @@ import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
-/// The Fieldway bottom bar (every phone board): white, a whisper rule on
-/// top, the selected tab's icon in the role's tint pill. The device shell
+/// The bottom bar of every phone board (design canvas page M): a black
+/// pill floating over the white ground, three destinations in white with
+/// a dot in the role's tint under the selected one, and the role's create
+/// verb as the orange button that ends the bar. The device shell
 /// (MainNavigation) and the web shell (AdaptiveShell) both draw it, so the
 /// app looks the same in the browser and on the phone.
 class RoleNavBar extends StatelessWidget {
@@ -18,40 +20,98 @@ class RoleNavBar extends StatelessWidget {
   final int? currentIndex;
   final ValueChanged<int> onSelected;
 
+  /// The role's create verb; null leaves the button out.
+  final VoidCallback? onCreate;
+
   const RoleNavBar({
     required this.role,
     required this.tabs,
     required this.currentIndex,
     required this.onSelected,
+    this.onCreate,
     super.key,
   });
+
+  /// Between the last tab and the create button.
+  static const double _createGap = 4;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: AppTheme.surfaceWhite,
-        border: Border(top: BorderSide(color: AppTheme.whisperBorder)),
-      ),
+    final onCreate = this.onCreate;
+    return ColoredBox(
+      color: AppTheme.ground,
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-          child: Row(
-            children: [
-              for (var i = 0; i < tabs.length; i++)
-                Expanded(
-                  child: RoleNavItem(
-                    icon: tabs[i].icon,
-                    activeIcon: tabs[i].activeIcon,
-                    label: tabs[i].label(l10n),
-                    selected: i == currentIndex,
-                    role: role,
-                    onTap: () => onSelected(i),
-                  ),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: DecoratedBox(
+            decoration: const ShapeDecoration(
+              color: AppTheme.ink,
+              shape: StadiumBorder(),
+              shadows: [
+                BoxShadow(
+                  color: Color(0x401A1516),
+                  blurRadius: 24,
+                  offset: Offset(0, 10),
                 ),
-            ],
+              ],
+            ),
+            child: ConstrainedBox(
+              // 62 tall on the boards; taller with large text.
+              constraints: const BoxConstraints(minHeight: 62),
+              child: Padding(
+                padding: const EdgeInsetsDirectional.fromSTEB(10, 6, 8, 6),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // The tabs share the bar equally, and each keeps a
+                    // 48 px target and its label at full size. The
+                    // create button gets what is left, and folds to its
+                    // plus when its word does not fit there (a long
+                    // am/om verb, large text, 200% zoom).
+                    var tabWidth = kMinInteractiveDimension;
+                    for (final tab in tabs) {
+                      final width = RoleNavItem.minWidthFor(
+                        context,
+                        tab.label(l10n),
+                      );
+                      if (width > tabWidth) tabWidth = width;
+                    }
+                    final createRoom = constraints.maxWidth -
+                        _createGap -
+                        tabs.length * tabWidth;
+                    return Row(
+                      children: [
+                        for (var i = 0; i < tabs.length; i++)
+                          Expanded(
+                            child: RoleNavItem(
+                              icon: tabs[i].icon,
+                              activeIcon: tabs[i].activeIcon,
+                              label: tabs[i].label(l10n),
+                              selected: i == currentIndex,
+                              onTap: () => onSelected(i),
+                            ),
+                          ),
+                        if (onCreate != null) ...[
+                          const SizedBox(width: _createGap),
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: createRoom < kMinInteractiveDimension
+                                  ? kMinInteractiveDimension
+                                  : createRoom,
+                            ),
+                            child: RoleCreateButton(
+                              role: role,
+                              onPressed: onCreate,
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -59,14 +119,13 @@ class RoleNavBar extends StatelessWidget {
   }
 }
 
-/// One bar destination: icon over label, the icon in a 56 by 30 pill when
-/// selected.
+/// One bar destination: a white icon over its label, and under the
+/// selected one a 4 px dot in the role's tint.
 class RoleNavItem extends StatelessWidget {
   final IconData icon;
   final IconData activeIcon;
   final String label;
   final bool selected;
-  final UserRole role;
   final VoidCallback onTap;
 
   const RoleNavItem({
@@ -74,16 +133,32 @@ class RoleNavItem extends StatelessWidget {
     required this.activeIcon,
     required this.label,
     required this.selected,
-    required this.role,
     required this.onTap,
     super.key,
   });
 
+  /// Space on each side of the label.
+  static const double _sidePadding = 2;
+
+  static TextStyle _labelStyle({required bool selected}) => TextStyle(
+        fontSize: 12,
+        height: 1.2,
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        color: Colors.white,
+      );
+
+  /// The narrowest a tab can be and still show [label] at full size: its
+  /// longest word (the label wraps at spaces) in the selected tab's bold.
+  static double minWidthFor(BuildContext context, String label) =>
+      FwWordFitText.longestWordWidth(
+        context,
+        label,
+        _labelStyle(selected: true),
+      ) +
+      2 * _sidePadding;
+
   @override
   Widget build(BuildContext context) {
-    final accent = AppTheme.roleAccent(role);
-    const inactive = AppTheme.inkSecondary;
-
     return Semantics(
       button: true,
       selected: selected,
@@ -91,44 +166,50 @@ class RoleNavItem extends StatelessWidget {
       excludeSemantics: true,
       // excludeSemantics drops the InkWell's tap action: give it back.
       onTap: onTap,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                width: 56,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: selected
-                      ? AppTheme.roleAccentTint(role)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Icon(
-                  selected ? activeIcon : icon,
-                  color: selected ? accent : inactive,
-                  size: 20,
-                ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const StadiumBorder(),
+          // A white ring for keyboard focus (A-7) on the black bar.
+          focusColor: const Color(0x33FFFFFF),
+          hoverColor: const Color(0x1AFFFFFF),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 50),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: _sidePadding),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    selected ? activeIcon : icon,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  const SizedBox(height: 2),
+                  // Each tab gets a share of the bar. A long am/om label
+                  // or large text wraps at a space; only a word wider
+                  // than the slot shrinks, and never breaks.
+                  FwWordFitText(
+                    label,
+                    style: _labelStyle(selected: selected),
+                  ),
+                  const SizedBox(height: 2),
+                  // The selected tab's dot: the shape and the bold label
+                  // say "selected", the role's tint says whose app it is.
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: selected
+                          ? context.roleColors.tint
+                          : Colors.transparent,
+                    ),
+                    child: const SizedBox(width: 4, height: 4),
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              // Each tab gets a quarter of the bar. A long am/om label or
-              // large text wraps at a space; only a word wider than the
-              // slot shrinks, and never breaks.
-              FwWordFitText(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  height: 1.2,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                  color: selected ? accent : inactive,
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -136,23 +217,29 @@ class RoleNavItem extends StatelessWidget {
   }
 }
 
-/// The role's one create verb as the boards draw it: a labelled pill
-/// floating centred over the bar, soil dark for farmers and buyers, gold
-/// for truckers.
+/// The role's one create verb as the boards draw it: the orange pill that
+/// ends the bar ("Sell", "Post trip", "Buy"), black ink, a plus before the
+/// word. [floating] draws the same pill with a shadow for a shell without
+/// the bar (the tablet rail); [expanded] fills the web sidebar's width.
 class RoleCreateButton extends StatelessWidget {
   final UserRole role;
   final VoidCallback onPressed;
 
-  /// Full width inside the web sidebar instead of floating.
+  /// Full width inside the web sidebar.
   final bool expanded;
+
+  /// Floats over the page (the tablet rail has no bar to sit in).
+  final bool floating;
 
   const RoleCreateButton({
     required this.role,
     required this.onPressed,
     this.expanded = false,
+    this.floating = false,
     super.key,
   });
 
+  /// The full name of the verb, for a screen reader and the tooltip.
   static String labelFor(AppLocalizations l10n, UserRole role) {
     return switch (role) {
       UserRole.farmer => l10n.sellCrops,
@@ -161,104 +248,181 @@ class RoleCreateButton extends StatelessWidget {
     };
   }
 
+  /// The one word the bar has room for.
+  static String shortLabelFor(AppLocalizations l10n, UserRole role) {
+    return switch (role) {
+      UserRole.farmer => l10n.sell,
+      UserRole.trucker => l10n.postTrip,
+      UserRole.buyer => l10n.buy,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final background = AppTheme.createButtonBackground(role);
-    final foreground = AppTheme.createButtonForeground(role);
-    final label = Text(
-      labelFor(l10n, role),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: TextStyle(
-        fontSize: expanded ? 14 : 15,
-        fontWeight: FontWeight.w800,
-        color: foreground,
-      ),
-    );
+    final name = labelFor(l10n, role);
 
     if (expanded) {
+      // Web · Buyer deliveries board: the sidebar's button is black with
+      // white ink, 44 tall, radius 14. Orange stays the page's one action.
       return SizedBox(
         height: 44,
         width: double.infinity,
         child: FilledButton.icon(
           onPressed: onPressed,
           style: FilledButton.styleFrom(
-            backgroundColor: background,
-            foregroundColor: foreground,
+            backgroundColor: AppTheme.ink,
+            foregroundColor: Colors.white,
             minimumSize: const Size.fromHeight(44),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            // 10, not the board's 16: "New Buying Intent" has to fit the
+            // 180 px the sidebar leaves it.
+            padding: const EdgeInsets.symmetric(horizontal: 10),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(14),
             ),
           ).copyWith(
-            // A visible ring for keyboard focus (A-7): the default overlay
-            // barely changes a dark fill.
+            // A visible ring for keyboard focus (A-7), in the role's colour.
             side: WidgetStateProperty.resolveWith(
               (states) => states.contains(WidgetState.focused)
-                  ? BorderSide(color: foreground, width: 2)
+                  ? BorderSide(color: context.roleColors.primary, width: 3)
                   : null,
             ),
           ),
-          icon: const Icon(Icons.add, size: 20),
-          label: label,
+          icon: const Icon(Icons.add, size: 18),
+          label: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+          ),
         ),
       );
     }
 
-    // At 200% zoom or with large text the labelled pill covered a third of
-    // a phone screen: with room for fewer than 20 label-sized letters, only
-    // the plus shows, named by its tooltip.
-    final letter = MediaQuery.textScalerOf(context).scale(15);
-    if (MediaQuery.sizeOf(context).width < letter * 20) {
-      return FloatingActionButton(
-        heroTag: 'role_fab',
-        onPressed: onPressed,
-        tooltip: labelFor(l10n, role),
-        backgroundColor: background,
-        foregroundColor: foreground,
-        elevation: 4,
-        highlightElevation: 6,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: const Icon(Icons.add, size: 24),
-      );
-    }
+    // Inside the bar the word shows where the bar has room for it beside
+    // the tabs (the LayoutBuilder below): at 200% zoom or with large text
+    // only the plus shows. Floating over a page there is no bar to
+    // measure: with room for fewer than 26 label-sized letters only the
+    // plus shows, and (BUG-27) it folds while the page scrolls toward its
+    // end. Inside the bar it covers nothing.
+    final letter = MediaQuery.textScalerOf(context).scale(14);
+    final unfolded = !floating ||
+        (MediaQuery.sizeOf(context).width >= letter * 26 &&
+            CreateButtonScrollScope.showsLabel(context));
+    final word = shortLabelFor(l10n, role);
+    final labelledWidth = _labelledWidth(context, word);
 
-    // BUG-27: folded to its plus while the tab scrolls toward its end, so
-    // at rest it no longer hides the status chip of the last card in view.
-    final showLabel = CreateButtonScrollScope.showsLabel(context);
-    final name = labelFor(l10n, role);
+    return LayoutBuilder(
+      // The bar gives the button what its tabs leave: the word shows only
+      // where the whole pill fits.
+      builder: (context, constraints) => _pill(
+        name: name,
+        word: word,
+        showLabel: unfolded && labelledWidth <= constraints.maxWidth,
+      ),
+    );
+  }
+
+  static const TextStyle _wordStyle = TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.w800,
+    color: AppTheme.ink,
+  );
+
+  /// The pill's side padding, its plus, and the gaps around its word.
+  static const double _sidePadding = 13;
+  static const double _plusSize = 20;
+  static const double _wordGap = 5;
+
+  /// How wide the pill is with [word] showing.
+  static double _labelledWidth(BuildContext context, String word) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: word,
+        style: DefaultTextStyle.of(context).style.merge(_wordStyle),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final width = painter.width.ceilToDouble();
+    painter.dispose();
+    return 2 * _sidePadding + _plusSize + 2 * _wordGap + width;
+  }
+
+  Widget _pill({
+    required String name,
+    required String word,
+    required bool showLabel,
+  }) {
+    const foreground = AppTheme.ink;
     return Tooltip(
       // Names the plus on a long press or hover. The button's own
       // semantics carry the name, so a screen reader hears it once.
       message: name,
       excludeFromSemantics: true,
-      child: FloatingActionButton.extended(
-        heroTag: 'role_fab',
-        onPressed: onPressed,
-        backgroundColor: background,
-        foregroundColor: foreground,
-        elevation: 4,
-        highlightElevation: 6,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        // 17 + 22 + 17: folded, a 56 dp square like the plain button.
-        // Unfolded, as wide as before (the label adds 7 and 3).
-        extendedPadding: const EdgeInsetsDirectional.symmetric(horizontal: 17),
-        extendedIconLabelSpacing: 0,
-        icon: Icon(
-          Icons.add,
-          size: 22,
-          semanticLabel: showLabel ? null : name,
-        ),
-        label: _FoldingLabel(
-          shown: showLabel,
-          child: Padding(
-            padding: const EdgeInsetsDirectional.only(start: 7, end: 3),
-            child: label,
+      child: Semantics(
+        button: true,
+        label: name,
+        excludeSemantics: true,
+        onTap: onPressed,
+        // The pill is 46 tall on the boards; its hit area is Material's
+        // 48 by 48 minimum, and so is the box a screen reader gets.
+        child: FwTapTarget(
+          onTap: onPressed,
+          child: Material(
+            color: AppTheme.orange,
+            elevation: floating ? 4 : 0,
+            shadowColor: const Color(0x661A1516),
+            shape: const StadiumBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onPressed,
+              // A black ring for keyboard focus (A-7).
+              focusColor: const Color(0x331A1516),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: floating ? 54 : 46,
+                  minWidth: floating ? 54 : 46,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: _sidePadding,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.add,
+                        size: _plusSize,
+                        color: foreground,
+                      ),
+                      // Flexible: while the word slides shut in a pill
+                      // that has no room for it, it is clipped, not an
+                      // overflow.
+                      Flexible(
+                        child: _FoldingLabel(
+                          shown: showLabel,
+                          child: Padding(
+                            padding: const EdgeInsetsDirectional.only(
+                              start: _wordGap,
+                              end: _wordGap,
+                            ),
+                            child: Text(
+                              word,
+                              maxLines: 1,
+                              softWrap: false,
+                              style: _wordStyle,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -289,6 +453,10 @@ class _FoldingLabel extends StatelessWidget {
           child: Align(
             alignment: AlignmentDirectional.centerStart,
             widthFactor: open,
+            // As tall as the label: without it the Align fills the height
+            // it is offered, and the bar (or the floating pill) grows to
+            // cover the page.
+            heightFactor: 1,
             child: child,
           ),
         ),
@@ -297,7 +465,7 @@ class _FoldingLabel extends StatelessWidget {
   }
 }
 
-/// Folds the floating [RoleCreateButton] to its plus while the tab under it
+/// Folds the bar's [RoleCreateButton] to its plus while the tab under it
 /// scrolls toward its end, and unfolds it when the tab scrolls back toward
 /// its top or rests there (BUG-27: at rest the labelled pill covered the
 /// status chip of the last card in view).

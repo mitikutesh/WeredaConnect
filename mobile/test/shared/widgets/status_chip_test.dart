@@ -101,11 +101,35 @@ void main() {
       );
 
       final icon = tester.widget<Icon>(find.byType(Icon));
-      expect(icon.size, 20);
+      expect(icon.size, 18);
 
       final text = tester.widget<Text>(find.text('Delivered'));
-      expect(text.style?.fontSize, 16);
-      expect(text.style?.fontWeight, FontWeight.w700);
+      expect(text.style?.fontSize, 14);
+      expect(text.style?.fontWeight, FontWeight.w800);
+    });
+
+    testWidgets('a stadium pill, 26 tall (32 large), icon and label',
+        (tester) async {
+      for (final large in [false, true]) {
+        await _pump(
+          tester,
+          StatusChip(label: 'Funded', kind: StatusKind.info, large: large),
+        );
+        final box = tester.widget<Container>(
+          find.ancestor(
+            of: find.text('Funded'),
+            matching: find.byType(Container),
+          ),
+        );
+        final decoration = box.decoration! as BoxDecoration;
+        expect(decoration.borderRadius, BorderRadius.circular(999));
+        expect(decoration.border, isNull);
+        expect(
+          tester.getSize(find.byType(StatusChip)).height,
+          large ? 32 : 26,
+        );
+        expect(find.byType(Icon), findsOneWidget);
+      }
     });
 
     testWidgets('every kind renders without error', (tester) async {

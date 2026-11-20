@@ -22,12 +22,18 @@ import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_sc
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_event.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
+import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
@@ -38,6 +44,10 @@ class MockAuthBloc extends Mock implements AuthBloc {}
 class MockBuyerIntentBloc extends Mock implements BuyerIntentBloc {}
 
 class MockCropListingBloc extends Mock implements CropListingBloc {}
+
+class MockDeliveryBloc extends Mock implements DeliveryBloc {}
+
+class MockEscrowBloc extends Mock implements EscrowBloc {}
 
 class MockInboxBloc extends Mock implements InboxBloc {}
 
@@ -78,6 +88,8 @@ void main() {
   late MockAuthBloc authBloc;
   late MockBuyerIntentBloc buyerIntentBloc;
   late MockCropListingBloc cropListingBloc;
+  late MockDeliveryBloc deliveryBloc;
+  late MockEscrowBloc escrowBloc;
   late MockInboxBloc inboxBloc;
   late MockSyncExecutor syncExecutor;
   late MockTripListingBloc tripListingBloc;
@@ -97,6 +109,8 @@ void main() {
     authBloc = MockAuthBloc();
     buyerIntentBloc = MockBuyerIntentBloc();
     cropListingBloc = MockCropListingBloc();
+    deliveryBloc = MockDeliveryBloc();
+    escrowBloc = MockEscrowBloc();
     inboxBloc = MockInboxBloc();
     syncExecutor = MockSyncExecutor();
     tripListingBloc = MockTripListingBloc();
@@ -110,6 +124,13 @@ void main() {
     when(() => cropListingBloc.stream).thenAnswer(
       (_) => Stream.value(const CropListingsLoaded(listings: [])),
     );
+    // The pages a tile pushes when its destination is not a bar tab: the
+    // farmer's Deliveries, the trucker's payments.
+    when(() => deliveryBloc.state)
+        .thenReturn(const DeliveriesLoaded(deliveries: []));
+    when(() => deliveryBloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => escrowBloc.state).thenReturn(const EscrowInitial());
+    when(() => escrowBloc.stream).thenAnswer((_) => const Stream.empty());
     // The header's Messages button loads the inbox for its badge.
     when(() => inboxBloc.state).thenReturn(const InboxInitial());
     when(() => inboxBloc.stream).thenAnswer((_) => const Stream.empty());
@@ -153,6 +174,8 @@ void main() {
           BlocProvider<AuthBloc>.value(value: authBloc),
           BlocProvider<BuyerIntentBloc>.value(value: buyerIntentBloc),
           BlocProvider<CropListingBloc>.value(value: cropListingBloc),
+          BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
+          BlocProvider<EscrowBloc>.value(value: escrowBloc),
           BlocProvider<InboxBloc>.value(value: inboxBloc),
           BlocProvider<TripListingBloc>.value(value: tripListingBloc),
         ],
@@ -287,8 +310,10 @@ void main() {
       await tester.tap(find.text('Deliveries'));
       await tester.pump();
 
-      // Buyer bar: Home · Market · Orders · Deliveries
-      expect(tabRequests, [2, 3]);
+      // Buyer bar: Deliveries, Market, Orders. (A buyer has no Home tab
+      // since canvas page M; where this board is still mounted its tiles
+      // must resolve through the same bar.)
+      expect(tabRequests, [2, 0]);
     });
   });
 
@@ -319,11 +344,33 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Pending Orders'));
-      await tester.tap(find.text('Deliveries'));
       await tester.pump();
 
-      // Farmer bar: Home · My Crops · Orders · Deliveries
-      expect(tabRequests, [2, 3]);
+      // Farmer bar: Home, My Crops, Orders.
+      expect(tabRequests, [2]);
+      expect(find.byType(DeliveriesPage), findsNothing);
+    });
+
+    // Deliveries left the farmer's bar (canvas page M): Home's tile still
+    // opens it, as a pushed page with a way back.
+    testWidgets('the Deliveries tile pushes the deliveries page',
+        (tester) async {
+      useTallSurface(tester);
+      await tester.pumpWidget(buildHomeScreen(UserRole.farmer));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Deliveries'));
+      await tester.pumpAndSettle();
+
+      expect(tabRequests, isEmpty);
+      expect(find.byType(DeliveriesPage), findsOneWidget);
+      expect(find.byType(DeliveriesTabScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.byType(DeliveriesPage), findsNothing);
+      expect(find.text('AT A GLANCE'), findsOneWidget);
     });
   });
 
@@ -357,11 +404,28 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('My Trips'));
-      await tester.tap(find.text('Escrow'));
       await tester.pump();
 
-      // Trucker bar: Home · My Trips · Deliveries · Payments
-      expect(tabRequests, [1, 3]);
+      // Trucker bar: Home, My Trips, Deliveries.
+      expect(tabRequests, [1]);
+      expect(find.byType(PaymentHistoryScreen), findsNothing);
+    });
+
+    // Payments left the trucker's bar (canvas page M): the Escrow tile
+    // pushes the payment history instead of asking for a tab.
+    testWidgets('the Escrow tile pushes the payment history', (tester) async {
+      useTallSurface(tester);
+      await tester.pumpWidget(buildHomeScreen(UserRole.trucker));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Escrow'));
+      // The history spins until its first read lands: no settling.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(tabRequests, isEmpty);
+      expect(find.byType(PaymentHistoryScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
 

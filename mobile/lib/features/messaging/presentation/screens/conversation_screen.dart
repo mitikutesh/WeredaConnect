@@ -21,6 +21,8 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
 import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// A single conversation thread, scoped to a marketplace context
 /// (crop / order / trip / delivery). Creates its own [ConversationBloc] from the
@@ -140,7 +142,7 @@ class _ConversationViewState extends State<_ConversationView> {
       widget.contextType == 'crop' || widget.contextType == 'trip';
 
   /// Open the crop/trip this thread is linked to. Loads the entity through
-  /// the marketplace repositories (Isar on mobile, HTTP on web) — the detail
+  /// the marketplace repositories (Isar on mobile, HTTP on web): the detail
   /// screens need the full model, not just the tag's label info.
   Future<void> _openLinkedContext() async {
     final authState = context.read<AuthBloc>().state;
@@ -212,101 +214,145 @@ class _ConversationViewState extends State<_ConversationView> {
     // (FUP-130).
     final title = partyNameOrUnnamed(widget.counterpartName, l10n);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-            // The crop/trip this thread is linked to — tap to open it.
-            ConversationContextTag(
-              contextType: widget.contextType,
-              contextId: widget.contextId,
-              resolver: context.read<InboxBloc>().contextResolver,
-              color: AppTheme.mutedSteel,
-              onTap: _contextOpensDetail ? _openLinkedContext : null,
-            ),
-          ],
-        ),
-        actions: [
-          if (_contact.open == true && _contact.phone != null)
-            IconButton(
-              icon: const Icon(Icons.call_outlined),
-              tooltip: l10n.contact,
-              onPressed: () => showContactActionsSheet(
-                context,
-                name: title,
-                roleLabel: l10n.contact,
-                phone: _contact.phone,
-              ),
-            ),
-        ],
-      ),
-      body: Column(
+    // The boards' detail header in place of an app bar: the round back
+    // button, the name with the linked crop or trip under it, and Call as
+    // the black round button of the order boards' contact rows.
+    final header = Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+      child: Row(
         children: [
+          const FwBackButton(),
+          const SizedBox(width: 12),
           Expanded(
-            child: BlocConsumer<ConversationBloc, ConversationState>(
-              listener: (context, state) {
-                if (state is ConversationLoaded) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (_scrollController.hasClients) {
-                      _scrollController.jumpTo(
-                        _scrollController.position.maxScrollExtent,
-                      );
-                    }
-                  });
-                }
-              },
-              builder: (context, state) {
-                if (state is ConversationLoaded) {
-                  if (state.messages.isEmpty) {
-                    return _EmptyThread(text: l10n.noMessagesInThread);
-                  }
-                  return ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(12),
-                    itemCount: state.messages.length,
-                    itemBuilder: (context, i) {
-                      final m = state.messages[i];
-                      return _MessageBubble(
-                        body: m.body,
-                        time: m.createdAt,
-                        isMine: m.senderId == widget.me,
-                      );
-                    },
-                  );
-                }
-                if (state is ConversationError) {
-                  return _EmptyThread(text: state.message);
-                }
-                return const Center(child: CircularProgressIndicator());
-              },
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Semantics(
+                  header: true,
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.4,
+                      color: AppTheme.ink,
+                    ),
+                  ),
+                ),
+                // The crop or trip this thread is linked to; tap to open it.
+                ConversationContextTag(
+                  contextType: widget.contextType,
+                  contextId: widget.contextId,
+                  resolver: context.read<InboxBloc>().contextResolver,
+                  color: _contextOpensDetail
+                      ? context.roleColors.primary
+                      : AppTheme.slate,
+                  fontSize: 13,
+                  onTap: _contextOpensDetail ? _openLinkedContext : null,
+                ),
+              ],
             ),
           ),
-          if (_contact.open == false)
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: ContactLockedNote(
-                  text: switch (_contact.closedReason) {
-                    ContactClosedReason.beforeAccept =>
-                      l10n.contactAfterAcceptNote,
-                    ContactClosedReason.closed => l10n.contactClosedNote,
-                    _ => l10n.contactAfterEscrowNote,
+          if (_contact.open == true && _contact.phone != null) ...[
+            const SizedBox(width: 8),
+            Tooltip(
+              message: l10n.contact,
+              child: FwSquareButton(
+                background: AppTheme.ink,
+                semanticLabel: l10n.contact,
+                onTap: () => showContactActionsSheet(
+                  context,
+                  name: title,
+                  roleLabel: l10n.contact,
+                  phone: _contact.phone,
+                ),
+                child: const Icon(
+                  Icons.call_outlined,
+                  size: 18,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    return Scaffold(
+      body: SafeArea(
+        bottom: false,
+        child: FwContentWidth(
+          child: Column(
+            children: [
+              header,
+              const Divider(height: 1),
+              Expanded(
+                child: BlocConsumer<ConversationBloc, ConversationState>(
+                  listener: (context, state) {
+                    if (state is ConversationLoaded) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (_scrollController.hasClients) {
+                          _scrollController.jumpTo(
+                            _scrollController.position.maxScrollExtent,
+                          );
+                        }
+                      });
+                    }
+                  },
+                  builder: (context, state) {
+                    if (state is ConversationLoaded) {
+                      if (state.messages.isEmpty) {
+                        return _EmptyThread(text: l10n.noMessagesInThread);
+                      }
+                      return ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                        itemCount: state.messages.length,
+                        itemBuilder: (context, i) {
+                          final m = state.messages[i];
+                          return _MessageBubble(
+                            body: m.body,
+                            time: m.createdAt,
+                            isMine: m.senderId == widget.me,
+                          );
+                        },
+                      );
+                    }
+                    if (state is ConversationError) {
+                      return _EmptyThread(text: state.message);
+                    }
+                    return const Center(child: CircularProgressIndicator());
                   },
                 ),
               ),
-            )
-          else
-            _Composer(
-              controller: _controller,
-              hintText: l10n.typeAMessage,
-              sendLabel: l10n.send,
-              onSend: _send,
-            ),
-        ],
+              if (_contact.open == false)
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                    child: ContactLockedNote(
+                      text: switch (_contact.closedReason) {
+                        ContactClosedReason.beforeAccept =>
+                          l10n.contactAfterAcceptNote,
+                        ContactClosedReason.closed => l10n.contactClosedNote,
+                        _ => l10n.contactAfterEscrowNote,
+                      },
+                    ),
+                  ),
+                )
+              else
+                _Composer(
+                  controller: _controller,
+                  hintText: l10n.typeAMessage,
+                  sendLabel: l10n.send,
+                  onSend: _send,
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -325,26 +371,29 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final clockTime = clockFormatOf(context).time(time);
+    // Mine: black with white ink, at the end. Theirs: the paper grey, at
+    // the start. The corner by the speaker is the small one.
+    const big = Radius.circular(20);
+    const small = Radius.circular(6);
 
     return Align(
-      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: isMine
+          ? AlignmentDirectional.centerEnd
+          : AlignmentDirectional.centerStart,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.fromLTRB(14, 10, 14, 9),
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.78,
         ),
         decoration: BoxDecoration(
-          color: isMine
-              ? AppTheme.primary
-              : theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(14),
-            topRight: const Radius.circular(14),
-            bottomLeft: Radius.circular(isMine ? 14 : 4),
-            bottomRight: Radius.circular(isMine ? 4 : 14),
+          color: isMine ? AppTheme.ink : AppTheme.paper,
+          borderRadius: BorderRadiusDirectional.only(
+            topStart: big,
+            topEnd: big,
+            bottomStart: isMine ? big : small,
+            bottomEnd: isMine ? small : big,
           ),
         ),
         child: Column(
@@ -352,16 +401,19 @@ class _MessageBubble extends StatelessWidget {
           children: [
             Text(
               body,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: isMine ? Colors.white : theme.colorScheme.onSurface,
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.4,
+                color: isMine ? Colors.white : AppTheme.ink,
               ),
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 3),
             Text(
               clockTime,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: (isMine ? Colors.white : theme.colorScheme.onSurface)
-                    .withValues(alpha: 0.6),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: isMine ? AppTheme.inkMuted : AppTheme.slate,
               ),
             ),
           ],
@@ -389,8 +441,9 @@ class _Composer extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
               child: TextField(
@@ -399,18 +452,21 @@ class _Composer extends StatelessWidget {
                 maxLines: 4,
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => onSend(),
-                decoration: InputDecoration(
-                  hintText: hintText,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
+                // The theme's field: paper fill, radius 16.
+                decoration: InputDecoration(hintText: hintText),
               ),
             ),
             const SizedBox(width: 8),
+            // The screen's one action: the orange round button.
             IconButton.filled(
-              icon: const Icon(Icons.send),
+              icon: const Icon(Icons.send, size: 20),
               tooltip: sendLabel,
               onPressed: onSend,
+              style: IconButton.styleFrom(
+                backgroundColor: AppTheme.orange,
+                foregroundColor: AppTheme.ink,
+                minimumSize: const Size(52, 52),
+              ),
             ),
           ],
         ),
@@ -426,24 +482,21 @@ class _EmptyThread extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.forum_outlined,
-              size: 64,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-            ),
+            const Icon(Icons.forum_outlined, size: 48, color: AppTheme.sketch),
             const SizedBox(height: 16),
             Text(
               text,
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              style: const TextStyle(
+                fontSize: 15,
+                height: 1.45,
+                color: AppTheme.slate,
               ),
             ),
           ],

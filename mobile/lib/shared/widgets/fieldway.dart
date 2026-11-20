@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
-/// Building blocks every Fieldway board repeats (specs/design-canvas):
+/// Building blocks every board repeats (design canvas page M,
+/// specs/design-canvas; the Fw prefix is from the earlier Fieldway boards):
 /// the page header, the uppercase section label, the segmented switch, the
 /// square icon button, the status pill and the phone-width content column.
 
@@ -17,14 +20,81 @@ class FwPageHeader extends StatelessWidget {
   final Widget? trailing;
   final EdgeInsetsGeometry padding;
 
+  /// Draws this role's sketch at the header's end, beside the title, when
+  /// the title leaves it room (the canvas's sketch rules, [RoleSketch]).
+  final UserRole? sketchRole;
+
+  /// For a header whose [trailing] buttons leave the title's line no room
+  /// for the sketch (Market: the bell and the account button). The sketch
+  /// then sits under the buttons, at the end of the title's line, with the
+  /// eyebrow up beside the buttons. It still hides when the title is too
+  /// long for one line with it, with large text and with reduced effects;
+  /// the header is then the usual one.
+  final bool sketchBelowTrailing;
+
   const FwPageHeader({
     required this.title,
     this.eyebrow,
     this.eyebrowWidget,
     this.trailing,
+    this.sketchRole,
+    this.sketchBelowTrailing = false,
     this.padding = const EdgeInsets.fromLTRB(20, 16, 20, 12),
     super.key,
   });
+
+  /// The header sketch's widest and narrowest size, and the gap it keeps
+  /// from the title.
+  static const double _sketchWidth = 84;
+  static const double _sketchMinWidth = 56;
+
+  /// The sketch's width under the trailing buttons (MarketM draws it 58
+  /// wide): no taller than the title's line.
+  static const double _sketchBelowWidth = 58;
+  static const double _sketchGap = 16;
+
+  static const TextStyle _eyebrowStyle = TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w500,
+    color: AppTheme.slate,
+  );
+
+  /// How wide the sketch may be beside [title] in a header [width] wide,
+  /// or null when the title leaves it no room: the sketch is never under
+  /// the title, and never squeezed below [_sketchMinWidth]. With an
+  /// [eyebrow] in the same column the sketch also leaves that line whole:
+  /// decoration never cuts the person and place short.
+  static double? _sketchWidthFor(
+    BuildContext context,
+    String title,
+    double width, {
+    String? eyebrow,
+  }) {
+    if (!RoleSketch.sketchesShown(context)) return null;
+    double measure(String text, TextStyle style) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: DefaultTextStyle.of(context).style.merge(style),
+        ),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        maxLines: 1,
+      )..layout();
+      final w = painter.width;
+      painter.dispose();
+      return w;
+    }
+
+    var needed = measure(title, FwText.pageTitle);
+    if (eyebrow != null && eyebrow.isNotEmpty) {
+      final eyebrowWidth = measure(eyebrow, _eyebrowStyle);
+      if (eyebrowWidth > needed) needed = eyebrowWidth;
+    }
+    final room = width - needed - _sketchGap;
+    if (room < _sketchMinWidth) return null;
+    return room < _sketchWidth ? room : _sketchWidth;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,36 +103,122 @@ class FwPageHeader extends StatelessWidget {
             ? null
             : Text(
                 eyebrow!,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: AppTheme.mutedSteel,
-                ),
+                style: _eyebrowStyle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ));
-    final heading = Column(
+    final titleText = Semantics(
+      header: true,
+      child: Text(
+        title,
+        style: FwText.pageTitle,
+      ),
+    );
+    final text = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (eyebrowWidget != null) ...[
           eyebrowWidget,
           const SizedBox(height: 2),
         ],
-        Semantics(
-          header: true,
-          child: Text(
-            title,
-            style: FwText.pageTitle,
-          ),
-        ),
+        titleText,
       ],
     );
+    final sketchRole = this.sketchRole;
+    // The sketch sits at the end of the title's own column, on the
+    // title's line: before the trailing buttons, never under them.
+    final heading = sketchRole == null
+        ? text
+        : LayoutBuilder(
+            builder: (context, constraints) {
+              final sketchWidth = _sketchWidthFor(
+                context,
+                title,
+                constraints.maxWidth,
+                // Only a plain eyebrow can be measured; a custom one keeps
+                // its own layout.
+                eyebrow: this.eyebrowWidget == null ? eyebrow : null,
+              );
+              if (sketchWidth == null) return text;
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(child: text),
+                  const SizedBox(width: _sketchGap),
+                  RoleSketch(role: sketchRole, width: sketchWidth),
+                ],
+              );
+            },
+          );
     final trailing = this.trailing;
+    final usual = trailing == null
+        ? Row(children: [Expanded(child: heading)])
+        : FwHeaderRow(
+            heading: heading,
+            trailing: trailing,
+            headingFontSize: FwText.pageTitle.fontSize!,
+            // A 42 px title: seven letters of room (294 px) keep the
+            // bell beside it on every phone, as on the boards.
+            minWidthInLetters: 7,
+          );
+    if (!sketchBelowTrailing || sketchRole == null || trailing == null) {
+      return Padding(padding: padding, child: usual);
+    }
     return Padding(
       padding: padding,
-      child: trailing == null
-          ? Row(children: [Expanded(child: heading)])
-          : FwHeaderRow(heading: heading, trailing: trailing),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // The title has the header's whole width here, so the sketch
+          // fits whenever the title and it share one line.
+          final room = _sketchWidthFor(context, title, constraints.maxWidth);
+          if (room == null) return usual;
+          final sketchWidth =
+              room < _sketchBelowWidth ? room : _sketchBelowWidth;
+          // Read as the usual header: the eyebrow, the title, the buttons.
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Semantics(
+                      container: true,
+                      explicitChildNodes: true,
+                      sortKey: const OrdinalSortKey(0),
+                      child: eyebrowWidget ?? const SizedBox.shrink(),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Semantics(
+                    container: true,
+                    explicitChildNodes: true,
+                    sortKey: const OrdinalSortKey(2),
+                    child: trailing,
+                  ),
+                ],
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Semantics(
+                      container: true,
+                      explicitChildNodes: true,
+                      sortKey: const OrdinalSortKey(1),
+                      child: titleText,
+                    ),
+                  ),
+                  const SizedBox(width: _sketchGap),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: RoleSketch(role: sketchRole, width: sketchWidth),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -87,12 +243,13 @@ class FwHeaderRow extends StatelessWidget {
     required this.heading,
     required this.trailing,
     this.headingFontSize = 26,
+    this.minWidthInLetters = 9,
     this.crossAxisAlignment = CrossAxisAlignment.start,
     super.key,
   });
 
   /// Below this many heading-sized letters of width the buttons move up.
-  static const double minWidthInLetters = 9;
+  final double minWidthInLetters;
 
   @override
   Widget build(BuildContext context) {
@@ -139,31 +296,40 @@ class FwHeaderRow extends StatelessWidget {
 /// Type the boards repeat.
 abstract final class FwText {
   static const TextStyle pageTitle = TextStyle(
-    fontSize: 26,
+    fontSize: 42,
     fontWeight: FontWeight.w800,
-    letterSpacing: -0.6,
-    height: 1.15,
-    color: AppTheme.soilDark,
+    letterSpacing: -1.4,
+    height: 1.1,
+    color: AppTheme.ink,
+  );
+
+  /// The title of a page under a tab (a detail page, a form, a join step).
+  static const TextStyle detailTitle = TextStyle(
+    fontSize: 32,
+    fontWeight: FontWeight.w800,
+    letterSpacing: -1.1,
+    height: 1.1,
+    color: AppTheme.ink,
   );
 
   static const TextStyle cardTitle = TextStyle(
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: FontWeight.w800,
-    letterSpacing: -0.2,
-    color: AppTheme.soilDark,
+    letterSpacing: -0.3,
+    color: AppTheme.ink,
   );
 
   static const TextStyle body = TextStyle(
     fontSize: 13,
     fontWeight: FontWeight.w500,
-    color: AppTheme.mutedSteel,
+    color: AppTheme.slate,
   );
 
   static const TextStyle sectionLabel = TextStyle(
     fontSize: 12,
     fontWeight: FontWeight.w700,
-    letterSpacing: 0.7,
-    color: AppTheme.mutedSteel,
+    letterSpacing: 1.4,
+    color: AppTheme.slate,
   );
 }
 
@@ -389,9 +555,11 @@ class FwSegment<T> {
   });
 }
 
-/// The boards' segmented switch: a chalk-grey track holding white raised
-/// segments (Market Browse / My Requests, Deliveries Active / Delivered /
-/// All, My Crops Active / Reserved / Sold / Drafts).
+/// The boards' switch between a page's views (Market Browse / My
+/// Requests, Deliveries Active / Delivered / All, My Crops Active /
+/// Reserved / Sold / Drafts): a row of pills, the selected one black with
+/// white ink, the others outlined. The row scrolls sideways when the
+/// pills do not fit (long labels, large text).
 class FwSegmented<T> extends StatelessWidget {
   final List<FwSegment<T>> segments;
   final T selected;
@@ -406,27 +574,20 @@ class FwSegmented<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      // The track's top and bottom 4 px belong to each segment's hit area
-      // (48 tall, [_FwSegmentButton]).
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      decoration: BoxDecoration(
-        color: AppTheme.segmentTrack,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      // Equal heights when one label wraps to a second line.
-      child: IntrinsicHeight(
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final segment in segments)
-              Expanded(
-                child: _FwSegmentButton<T>(
-                  segment: segment,
-                  selected: segment.value == selected,
-                  onTap: () => onChanged(segment.value),
-                ),
+            for (var i = 0; i < segments.length; i++) ...[
+              if (i > 0) const SizedBox(width: 8),
+              _FwSegmentButton<T>(
+                segment: segments[i],
+                selected: segments[i].value == selected,
+                onTap: () => onChanged(segments[i].value),
               ),
+            ],
           ],
         ),
       ),
@@ -447,73 +608,52 @@ class _FwSegmentButton<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final count = segment.count;
+    final label = count == null ? segment.label : '${segment.label} · $count';
+    final foreground = selected ? Colors.white : AppTheme.inkSoft;
     return Semantics(
       button: true,
       selected: selected,
-      // A 40 tall segment in a 48 tall hit area: the track's padding is
-      // part of the target, and the segment fills the track's height.
-      child: GestureDetector(
+      // A 44 tall pill in a 48 tall hit area.
+      child: FwTapTarget(
         onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        excludeFromSemantics: true,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: _segment(),
-        ),
-      ),
-    );
-  }
-
-  Widget _segment() {
-    final count = segment.count;
-    final label = count == null ? segment.label : '${segment.label} · $count';
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(11),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          constraints: const BoxConstraints(minHeight: 40),
-          padding: const EdgeInsets.symmetric(horizontal: 6),
-          decoration: BoxDecoration(
-            color: selected ? AppTheme.surfaceWhite : Colors.transparent,
-            borderRadius: BorderRadius.circular(11),
-            boxShadow: selected
-                ? const [
-                    BoxShadow(
-                      color: Color(0x14000000),
-                      blurRadius: 4,
-                      offset: Offset(0, 1),
-                    ),
-                  ]
-                : null,
+        child: Material(
+          color: selected ? AppTheme.ink : Colors.transparent,
+          shape: StadiumBorder(
+            side: BorderSide(
+              color: selected ? AppTheme.ink : AppTheme.fieldBorder,
+            ),
           ),
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (segment.icon != null) ...[
-                Icon(
-                  segment.icon,
-                  size: 16,
-                  color: selected ? AppTheme.fieldGreen : AppTheme.mutedSteel,
-                ),
-                const SizedBox(width: 6),
-              ],
-              // Two lines for a long Afaan Oromoo label or large text
-              // rather than an ellipsis after a few letters.
-              Flexible(
-                child: FwWordFitText(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                    color: selected ? AppTheme.soilDark : AppTheme.inkSecondary,
-                  ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 44),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (segment.icon != null) ...[
+                      Icon(segment.icon, size: 16, color: foreground),
+                      const SizedBox(width: 6),
+                    ],
+                    Text(
+                      label,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
+                        color: foreground,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -555,8 +695,9 @@ class FwTapTarget extends StatelessWidget {
   }
 }
 
-/// The boards' square action button (the bell, the place pin): white,
-/// whisper border, 44 by 44, radius 14, in a 48 by 48 hit area.
+/// The boards' round action button (the bell, back, the place pin): a 44
+/// by 44 circle on the paper grey, no edge, in a 48 by 48 hit area. (The
+/// name is from the earlier boards, where it was a square.)
 class FwSquareButton extends StatelessWidget {
   final Widget child;
   final VoidCallback? onTap;
@@ -567,7 +708,7 @@ class FwSquareButton extends StatelessWidget {
     required this.child,
     this.onTap,
     this.semanticLabel,
-    this.background = AppTheme.surfaceWhite,
+    this.background = AppTheme.paper,
     super.key,
   });
 
@@ -580,10 +721,7 @@ class FwSquareButton extends StatelessWidget {
         onTap: onTap,
         child: Material(
           color: background,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: const BorderSide(color: AppTheme.whisperBorder),
-          ),
+          shape: const CircleBorder(),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap,
@@ -602,25 +740,29 @@ class FwSquareButton extends StatelessWidget {
 /// A small rounded status pill ("In Transit", "Release pending").
 class FwPill extends StatelessWidget {
   final String label;
-  final Color background;
-  final Color foreground;
+  final Color? background;
+  final Color? foreground;
   final IconData? icon;
 
   const FwPill({
     required this.label,
-    this.background = AppTheme.actionCream,
-    this.foreground = AppTheme.money,
+    this.background,
+    this.foreground,
     this.icon,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
+    // The role's tint pill unless the caller names a pair.
+    final background = this.background ?? context.roleColors.tint;
+    final foreground = this.foreground ?? context.roleColors.primary;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
+      constraints: const BoxConstraints(minHeight: 26),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: ShapeDecoration(
         color: background,
-        borderRadius: BorderRadius.circular(8),
+        shape: const StadiumBorder(),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -636,7 +778,7 @@ class FwPill extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 12,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
                 color: foreground,
               ),
             ),
@@ -647,36 +789,69 @@ class FwPill extends StatelessWidget {
   }
 }
 
-/// The boards' white card: radius 18, whisper border, optional tap.
+/// The boards' card. Three grounds:
+/// - the default: paper grey with a quiet edge, radius 24
+/// - [raised]: the card a screen leads with (the action card, a listing):
+///   the same paper, radius 28, on a soft shadow
+/// - [FwCard.sand]: a flat tile or note on the sand ground, no edge
 class FwCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final VoidCallback? onTap;
   final Color color;
-  final Color borderColor;
+  final Color? borderColor;
+  final bool raised;
 
   const FwCard({
     required this.child,
     this.padding = const EdgeInsets.all(16),
     this.onTap,
-    this.color = AppTheme.surfaceWhite,
-    this.borderColor = AppTheme.whisperBorder,
+    this.color = AppTheme.paper,
+    this.borderColor = AppTheme.line,
+    this.raised = false,
     super.key,
   });
 
+  const FwCard.sand({
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.onTap,
+    super.key,
+  })  : color = AppTheme.sand,
+        borderColor = null,
+        raised = false;
+
   @override
   Widget build(BuildContext context) {
-    return Material(
+    final radius = BorderRadius.circular(raised ? 28 : 24);
+    final borderColor = this.borderColor;
+    final card = Material(
       color: color,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: borderColor),
+        borderRadius: radius,
+        side: borderColor == null
+            ? BorderSide.none
+            : BorderSide(color: borderColor),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(padding: padding, child: child),
       ),
+    );
+    if (!raised) return card;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        boxShadow: const [
+          BoxShadow(
+            color: AppTheme.shadowSoft,
+            blurRadius: 30,
+            offset: Offset(0, 14),
+          ),
+        ],
+      ),
+      child: card,
     );
   }
 }
@@ -719,18 +894,15 @@ class FwContentWidth extends StatelessWidget {
 ({Color background, Color foreground}) cropTileColors(String? cropKey) {
   switch (cropKey?.toLowerCase()) {
     case 'wheat' || 'barley' || 'sesame':
-      return (background: const Color(0xFFF4EBCF), foreground: AppTheme.money);
+      return (background: AppTheme.orangeTint, foreground: AppTheme.orangeInk);
     case 'teff' || 'sorghum' || 'coffee':
-      return (background: const Color(0xFFEFE6D8), foreground: AppTheme.money);
+      return (background: AppTheme.sand, foreground: AppTheme.inkSoft);
     case 'chickpea' || 'lentils':
-      return (
-        background: const Color(0xFFE6EFD9),
-        foreground: AppTheme.fieldGreen,
-      );
+      return (background: AppTheme.segmentTrack, foreground: AppTheme.inkSoft);
     default:
       return (
-        background: AppTheme.fieldGreenTint,
-        foreground: AppTheme.fieldGreen,
+        background: AppTheme.statusSuccessContainer,
+        foreground: AppTheme.statusSuccess,
       );
   }
 }
@@ -740,12 +912,15 @@ class FwContentWidth extends StatelessWidget {
 /// the canvas's 24 px path, stroked at 2 px with round ends.
 class FwSprout extends StatelessWidget {
   final double size;
-  final Color color;
 
-  const FwSprout({this.size = 22, this.color = AppTheme.fieldGreen, super.key});
+  /// The role's colour when null.
+  final Color? color;
+
+  const FwSprout({this.size = 22, this.color, super.key});
 
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? context.roleColors.primary;
     // Centred at its own size inside a tile (a tight box), and only its
     // size anywhere else.
     return Center(

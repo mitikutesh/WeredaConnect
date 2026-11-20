@@ -5,7 +5,7 @@ import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:intl/intl.dart';
 // The device build gets isar via isar_service.dart's re-export, but the web
-// build swaps in isar_service_web.dart which does NOT re-export it — keep the
+// build swaps in isar_service_web.dart which does NOT re-export it: keep the
 // direct import so QAfterFilterCondition resolves on both platforms.
 // ignore: unnecessary_import
 import 'package:isar/isar.dart' show QAfterFilterCondition;
@@ -41,17 +41,19 @@ import 'package:wereda_connect/features/reputation/domain/own_rating.dart';
 import 'package:wereda_connect/features/reputation/presentation/screens/my_reputation_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/join_chrome.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
 
-/// Profile screen in the Fieldway boards' language (no board of its own):
-/// the page header with the role as eyebrow and a gear to Settings, a white
-/// identity card (initials, name, role pill, Verified chip), the three
-/// stats, then the menu as white card groups under uppercase section labels
-/// and the logout button. One composition at every width, centred by
-/// [FwContentWidth] on wide windows.
+/// Profile screen in the boards' language (no board of its own): the page
+/// header with the role as eyebrow and a gear to Settings, the raised
+/// identity card (initials on the role's tint, name, role pill, Verified
+/// chip), three sand tiles of stats with the escrow amount in the role's
+/// colour, then the menu as paper card groups under uppercase section
+/// labels and the logout button. One composition at every width, centred
+/// by [FwContentWidth] on wide windows.
 ///
 /// Absorbs settings/about/logout that were previously in the drawer.
 class ProfileScreen extends StatefulWidget {
@@ -219,7 +221,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final user = snapshot.data;
         final name = user?.name ?? authState.userName;
         final role = user?.role ?? authState.role;
-        final initials = name.isNotEmpty ? name[0].toUpperCase() : '?';
+        final initials = accountInitials(name);
         final isVerified = user?.isVerified ?? false;
 
         return Scaffold(
@@ -244,13 +246,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         padding: EdgeInsets.zero,
                         eyebrow: _getRoleLabel(role, l10n),
                         title: l10n.profile,
+                        sketchRole: role,
                         trailing: FwSquareButton(
                           semanticLabel: l10n.settings,
                           onTap: () => _openSettings(context),
                           child: const Icon(
                             Icons.settings_outlined,
                             size: 20,
-                            color: AppTheme.soilDark,
+                            color: AppTheme.ink,
                           ),
                         ),
                       ),
@@ -263,7 +266,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         isVerified: isVerified,
                       ),
                       const SizedBox(height: 12),
-                      _StatsCard(stats: stats, rating: _ratingText(l10n)),
+                      _StatsRow(stats: stats, rating: _ratingText(l10n)),
                       const SizedBox(height: 22),
                       ..._menuSections(
                         context,
@@ -330,8 +333,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               icon: Icons.verified_user_outlined,
               title: l10n.verifyWithFayda,
               subtitle: l10n.faydaNotVerifiedSubtitle,
-              iconColor: AppTheme.money,
-              iconBackground: AppTheme.actionCream,
+              // Something to do: the orange tint.
+              iconColor: AppTheme.orangeInk,
+              iconBackground: AppTheme.orangeTint,
               onTap: () => _openFaydaVerification(context),
             ),
           if (myReputationUserId != null)
@@ -429,7 +433,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  /// The logout button: the boards' secondary button with red ink.
+  /// The logout button: the boards' outlined pill with red ink.
   Widget _buildLogoutButton(BuildContext context, AppLocalizations l10n) {
     return OutlinedButton.icon(
       onPressed: () => _showLogoutConfirmation(context, l10n),
@@ -456,24 +460,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             const Icon(
               Icons.person_off_outlined,
-              size: 80,
-              color: AppTheme.textMuted,
+              size: 64,
+              color: AppTheme.sketch,
             ),
             const SizedBox(height: 24),
             Text(
               l10n.notLoggedIn,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textDark,
-              ),
+              textAlign: TextAlign.center,
+              style: FwText.detailTitle.copyWith(fontSize: 24),
             ),
             const SizedBox(height: 8),
             Text(
               l10n.profileRestartApp,
               style: const TextStyle(
                 fontSize: 14,
-                color: AppTheme.textMuted,
+                color: AppTheme.slate,
               ),
             ),
           ],
@@ -606,7 +607,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  /// Web has no Isar — sum escrow-held order values from the API instead.
+  /// Web has no Isar: sum escrow-held order values from the API instead.
   /// Trades/rating stay placeholders (no local history on web).
   Future<Map<String, String>> _loadWebProfileStats(
     String userId,
@@ -718,7 +719,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // Escape key or barrier tap returns null, which is not true.
     if (confirmed == true && context.mounted) {
       // Explicit logout MUST clear the offline credential cache (tokens + PBKDF2
-      // password hash) — auth-api.md invariant 7, stolen-device mitigation. The
+      // password hash): auth-api.md invariant 7, stolen-device mitigation. The
       // AuthLogoutRequested default (clearCache: true) does exactly this; passing
       // clearCache:false here previously defeated it.
       context.read<AuthBloc>().add(const AuthLogoutRequested());
@@ -828,8 +829,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-/// The white identity card: initials, name, the role pill in the role's
-/// colours (as the Welcome board's pills) and the Verified chip.
+/// The identity card, the one this screen leads with (raised paper): the
+/// initials on the role's tint, the name, the role pill in the role's
+/// colours and the Verified chip.
 class _IdentityCard extends StatelessWidget {
   final String initials;
   final String name;
@@ -848,23 +850,27 @@ class _IdentityCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final (pillBackground, pillForeground) = switch (role) {
-      UserRole.farmer => (AppTheme.fieldGreenTint, AppTheme.fieldGreen),
-      UserRole.trucker => (AppTheme.actionCream, AppTheme.money),
-      UserRole.buyer => (AppTheme.dropoffBlueTint, AppTheme.dropoffBlue),
-    };
+    final colors = RoleColors.forRole(role);
     return FwCard(
+      raised: true,
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 28,
-            backgroundColor: pillBackground,
-            child: Text(
-              initials,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                color: pillForeground,
+          ExcludeSemantics(
+            child: Container(
+              width: 56,
+              height: 56,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: colors.tint,
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                initials,
+                style: TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                  color: colors.primary,
+                ),
               ),
             ),
           ),
@@ -875,9 +881,14 @@ class _IdentityCard extends StatelessWidget {
               children: [
                 Text(
                   name,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: FwText.cardTitle.copyWith(fontSize: 17),
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.4,
+                    color: AppTheme.ink,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Wrap(
@@ -886,8 +897,8 @@ class _IdentityCard extends StatelessWidget {
                   children: [
                     FwPill(
                       label: roleLabel,
-                      background: pillBackground,
-                      foreground: pillForeground,
+                      background: colors.tint,
+                      foreground: colors.primary,
                     ),
                     if (isVerified)
                       StatusChip(
@@ -906,86 +917,94 @@ class _IdentityCard extends StatelessWidget {
   }
 }
 
-/// Trades, rating and ETB in escrow side by side. [rating] is the user's
-/// own (ESC-31).
-class _StatsCard extends StatelessWidget {
+/// Trades, rating and ETB in escrow as three sand tiles, as the Home
+/// boards' "At a glance". [rating] is the user's own (ESC-31). The escrow
+/// amount is in the role's colour, as every amount on the boards.
+class _StatsRow extends StatelessWidget {
   final Map<String, String> stats;
   final String rating;
 
-  const _StatsCard({required this.stats, required this.rating});
+  const _StatsRow({required this.stats, required this.rating});
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return FwCard(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    return IntrinsicHeight(
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _StatColumn(value: stats['trades'] ?? '0', label: l10n.trades),
-          _verticalDivider(),
-          _StatColumn(
+          _StatTile(value: stats['trades'] ?? '0', label: l10n.trades),
+          const SizedBox(width: 10),
+          _StatTile(
             key: const Key('profile_rating'),
             value: rating,
             label: l10n.rating,
           ),
-          _verticalDivider(),
-          _StatColumn(value: stats['escrow'] ?? '0', label: l10n.inEscrowEtb),
+          const SizedBox(width: 10),
+          _StatTile(
+            value: stats['escrow'] ?? '0',
+            label: l10n.inEscrowEtb,
+            valueColor: context.roleColors.primary,
+          ),
         ],
       ),
     );
   }
-
-  Widget _verticalDivider() {
-    return Container(
-      width: 1,
-      height: 32,
-      margin: const EdgeInsets.symmetric(horizontal: 12),
-      color: AppTheme.whisperBorder,
-    );
-  }
 }
 
-class _StatColumn extends StatelessWidget {
+class _StatTile extends StatelessWidget {
   final String value;
   final String label;
+  final Color valueColor;
 
-  const _StatColumn({required this.value, required this.label, super.key});
+  const _StatTile({
+    required this.value,
+    required this.label,
+    this.valueColor = AppTheme.ink,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Column(
-        children: [
-          // Scale down instead of wrapping — escrow ETB sums can be long.
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              maxLines: 1,
+      child: FwCard.sand(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
               style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.soilDark,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                height: 1.25,
+                color: AppTheme.inkSoft,
               ),
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: AppTheme.mutedSteel,
+            const SizedBox(height: 2),
+            // Scale down instead of wrapping: escrow ETB sums can be long.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                value,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                  color: valueColor,
+                ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-/// A white card holding rows separated by whisper dividers. [trailing] is
+/// A paper card holding rows separated by quiet dividers. [trailing] is
 /// appended without one: a row that may render nothing (the app lock on
 /// web) draws its own divider, so no stray line is left behind.
 class _RowGroup extends StatelessWidget {
@@ -1011,7 +1030,8 @@ class _RowGroup extends StatelessWidget {
   }
 }
 
-/// A menu row: icon tile, title and subtitle, chevron. At least 56 tall.
+/// A menu row: the icon in a circle on the role's tint, title and
+/// subtitle, chevron. At least 62 tall, as the boards' contact rows.
 class _ProfileRow extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -1035,21 +1055,21 @@ class _ProfileRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        constraints: const BoxConstraints(minHeight: 56),
+        constraints: const BoxConstraints(minHeight: 62),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
             Container(
-              width: 36,
-              height: 36,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
-                color: iconBackground ?? AppTheme.fieldGreenTint,
-                borderRadius: BorderRadius.circular(10),
+                color: iconBackground ?? context.roleColors.tint,
+                shape: BoxShape.circle,
               ),
               child: Icon(
                 icon,
-                size: 20,
-                color: iconColor ?? AppTheme.fieldGreen,
+                size: 18,
+                color: iconColor ?? context.roleColors.primary,
               ),
             ),
             const SizedBox(width: 14),
@@ -1060,18 +1080,19 @@ class _ProfileRow extends StatelessWidget {
                   Text(
                     title,
                     style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.soilDark,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.15,
+                      color: AppTheme.ink,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     subtitle,
                     style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.mutedSteel,
+                      fontSize: 13,
+                      height: 1.3,
+                      color: AppTheme.slate,
                     ),
                   ),
                 ],
@@ -1080,7 +1101,7 @@ class _ProfileRow extends StatelessWidget {
             const Icon(
               Icons.chevron_right,
               size: 20,
-              color: AppTheme.mutedSteel,
+              color: AppTheme.slate,
             ),
           ],
         ),
@@ -1148,32 +1169,33 @@ class _AppLockRowState extends State<_AppLockRow> {
           key: const Key('profile_app_lock_switch'),
           contentPadding: const EdgeInsets.fromLTRB(16, 2, 12, 2),
           secondary: Container(
-            width: 36,
-            height: 36,
+            width: 38,
+            height: 38,
             decoration: BoxDecoration(
-              color: AppTheme.fieldGreenTint,
-              borderRadius: BorderRadius.circular(10),
+              color: context.roleColors.tint,
+              shape: BoxShape.circle,
             ),
-            child: const Icon(
+            child: Icon(
               Icons.lock_outline,
-              size: 20,
-              color: AppTheme.fieldGreen,
+              size: 18,
+              color: context.roleColors.primary,
             ),
           ),
           title: Text(
             l10n.appLockTitle,
             style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.soilDark,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.15,
+              color: AppTheme.ink,
             ),
           ),
           subtitle: Text(
             l10n.appLockSubtitle,
             style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: AppTheme.mutedSteel,
+              fontSize: 13,
+              height: 1.3,
+              color: AppTheme.slate,
             ),
           ),
           value: _enabled,
@@ -1283,10 +1305,15 @@ class _LogoutDialogState extends State<_LogoutDialog> {
                   )
                 : Text(l10n.syncNow),
           ),
-        TextButton(
+        // The destructive confirm: the error red with white ink.
+        FilledButton(
           key: const Key('logout_confirm'),
           onPressed: _syncing ? null : () => Navigator.of(context).pop(true),
-          style: TextButton.styleFrom(foregroundColor: AppTheme.statusError),
+          style: FilledButton.styleFrom(
+            backgroundColor: AppTheme.statusError,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(0, 48),
+          ),
           child: Text(_unsent ? l10n.logoutAnyway : l10n.logout),
         ),
       ],

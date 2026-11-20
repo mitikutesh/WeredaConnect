@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
@@ -107,6 +108,88 @@ void main() {
     states.add(OrderError(message: message, code: code));
     await tester.pumpAndSettle();
   }
+
+  // PaymentOfflineM (BUG-19): a payment that could not be sent for lack of
+  // a network takes the page and offers the same payment again.
+  group('no network while paying', () {
+    for (final code in [AppErrorCode.network, AppErrorCode.timeout]) {
+      testWidgets('${code.name}: the offline state, Retry sends it again',
+          (tester) async {
+        await open(tester);
+        await payAndGetRejected(tester, 'x', code: code);
+
+        expect(find.byKey(const Key('payment_offline_state')), findsOneWidget);
+        expect(find.text('No internet connection'), findsOneWidget);
+        expect(
+          find.text(
+            'Payment needs a connection. Your order is saved on this phone.',
+          ),
+          findsOneWidget,
+        );
+        // The form and its pinned actions give way to the state.
+        expect(find.text('Submit Payment'), findsNothing);
+        expect(find.byType(SnackBar), findsNothing);
+
+        await tester.tap(find.widgetWithText(FilledButton, 'Retry'));
+        await tester.pump();
+
+        // The same payment, once more.
+        expect(submitted, hasLength(2));
+        expect(submitted.last.orderId, submitted.first.orderId);
+        expect(submitted.last.paymentMethod, submitted.first.paymentMethod);
+        expect(
+          submitted.last.cbeTransactionId,
+          submitted.first.cbeTransactionId,
+        );
+      });
+    }
+
+    testWidgets('another refusal is still a message, not the offline state',
+        (tester) async {
+      await open(tester);
+      await payAndGetRejected(tester, 'x', code: AppErrorCode.server);
+
+      expect(find.byKey(const Key('payment_offline_state')), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text('Submit Payment'), findsOneWidget);
+    });
+
+    testWidgets('Back to order leaves the payment', (tester) async {
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        BlocProvider<OrderBloc>.value(
+          value: bloc,
+          child: MaterialApp(
+            navigatorKey: navigator,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: const Scaffold(body: Text('the order')),
+          ),
+        ),
+      );
+      // The order detail is the page underneath.
+      unawaited(
+        navigator.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => PaymentInstructionsScreen(
+              order: order(),
+              fromOrderDetail: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await payAndGetRejected(tester, 'x', code: AppErrorCode.network);
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Back to order'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PaymentInstructionsScreen), findsNothing);
+      expect(find.text('the order'), findsOneWidget);
+      expect(submitted, hasLength(1));
+    });
+  });
 
   testWidgets('above 10,000 ETB: a Fayda login resubmits the same payment',
       (tester) async {
@@ -498,6 +581,58 @@ void main() {
         expect(button.onPressed, isNull);
       });
     }
+
+    // PaymentM: the pill names the method only after the buyer confirmed.
+    testWidgets('Fayda confirmed for this payment: the pill says so',
+        (tester) async {
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OrderBloc>.value(value: bloc),
+            BlocProvider<EscrowBloc>.value(value: escrowBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: PaymentInstructionsScreen(
+              order: order()..orderTotal = 94500,
+              telebirrLive: true,
+              kycVerificationScreen: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('fayda screen'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final pill = find.byKey(const Key('checkout_confirmed_with'));
+      // Nothing is named before the server asks and the buyer answers.
+      expect(pill, findsNothing);
+
+      await tester.tap(find.text('Pay with Telebirr'));
+      await tester.pump();
+      states.add(
+        const OrderError(
+          message: "AUTH_041: Confirm it's you with Fayda",
+          code: AppErrorCode.faydaStepUpRequired,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(pill, findsNothing);
+
+      await tester.tap(find.byKey(const Key('fayda_step_up_verify_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('fayda screen'));
+      await tester.pumpAndSettle();
+
+      expect(submitted, hasLength(2));
+      expect(find.text('Confirmed with Fayda'), findsOneWidget);
+      SecurityEvents.instance.clearKeptRejections();
+    });
 
     testWidgets('once submitted, the checkout screen takes over',
         (tester) async {

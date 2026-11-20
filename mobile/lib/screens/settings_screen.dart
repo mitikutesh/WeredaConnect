@@ -14,8 +14,8 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/join_chrome.dart';
 import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
 
-/// Settings screen in the Fieldway boards' language (no board of its own):
-/// the page header, then the rows as white card groups under uppercase
+/// Settings screen in the boards' language (no board of its own): the
+/// page header, then the rows as paper card groups under uppercase
 /// section labels (Language and time, Data, then About). One composition
 /// at every width, centred by [FwContentWidth] on wide windows.
 class SettingsScreen extends StatelessWidget {
@@ -172,18 +172,20 @@ class SettingsScreen extends StatelessWidget {
 const _rowPadding = EdgeInsets.fromLTRB(16, 4, 12, 4);
 
 const _rowTitleStyle = TextStyle(
-  fontSize: 14,
-  fontWeight: FontWeight.w700,
-  color: AppTheme.soilDark,
+  fontSize: 15,
+  fontWeight: FontWeight.w800,
+  letterSpacing: -0.15,
+  color: AppTheme.ink,
 );
 
 const _rowSubtitleStyle = TextStyle(
-  fontSize: 12,
-  fontWeight: FontWeight.w500,
-  color: AppTheme.mutedSteel,
+  fontSize: 13,
+  height: 1.3,
+  color: AppTheme.slate,
 );
 
-/// A settings row: icon tile, title, optional subtitle, chevron. A
+/// A settings row: the icon in a circle on the role's tint, title,
+/// optional subtitle, chevron. A
 /// [ListTile], so its key, title and subtitle read as one.
 Widget _settingsRow({
   required IconData icon,
@@ -195,7 +197,7 @@ Widget _settingsRow({
   return ListTile(
     key: key,
     contentPadding: _rowPadding,
-    minTileHeight: 56,
+    minTileHeight: 62,
     leading: _SettingsIcon(icon),
     title: Text(title, style: _rowTitleStyle),
     subtitle:
@@ -203,7 +205,7 @@ Widget _settingsRow({
     trailing: const Icon(
       Icons.chevron_right,
       size: 20,
-      color: AppTheme.mutedSteel,
+      color: AppTheme.slate,
     ),
     onTap: onTap,
   );
@@ -217,13 +219,13 @@ class _SettingsIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 36,
-      height: 36,
+      width: 38,
+      height: 38,
       decoration: BoxDecoration(
-        color: AppTheme.fieldGreenTint,
-        borderRadius: BorderRadius.circular(10),
+        color: context.roleColors.tint,
+        shape: BoxShape.circle,
       ),
-      child: Icon(icon, size: 20, color: AppTheme.fieldGreen),
+      child: Icon(icon, size: 18, color: context.roleColors.primary),
     );
   }
 }

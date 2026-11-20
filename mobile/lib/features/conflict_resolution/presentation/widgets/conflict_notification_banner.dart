@@ -30,8 +30,10 @@ class ConflictNotificationBanner extends StatelessWidget {
         : l10n.conflictBannerSingle(entityType);
 
     return MaterialBanner(
-      backgroundColor: AppTheme.statusWarning.withAlpha(25),
-      leading: const Icon(Icons.sync, size: 24, color: AppTheme.statusWarning),
+      // Needs a look: the orange tint with its ink.
+      backgroundColor: AppTheme.orangeTint,
+      dividerColor: Colors.transparent,
+      leading: const Icon(Icons.sync, size: 22, color: AppTheme.orangeInk),
       content: Text(
         message,
         style: Theme.of(context).textTheme.bodyLarge,
@@ -40,6 +42,7 @@ class ConflictNotificationBanner extends StatelessWidget {
       ),
       actions: [
         TextButton(
+          style: TextButton.styleFrom(foregroundColor: AppTheme.ink),
           onPressed: onViewChanges,
           child: Text(l10n.conflictBannerAction),
         ),

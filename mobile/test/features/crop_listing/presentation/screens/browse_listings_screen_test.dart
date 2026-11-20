@@ -16,6 +16,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/widgets/own_listing_card.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -28,8 +29,11 @@ import 'package:wereda_connect/features/rating/domain/repositories/base_rating_r
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 import 'package:wereda_connect/shared/widgets/listing_card.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -85,6 +89,16 @@ CropListing _listing({
       ..updatedAt = DateTime.now()
       ..version = 1;
 
+/// Counts the screens pushed over the one under test.
+class _PushObserver extends NavigatorObserver {
+  int pushed = -1; // the first route is the screen itself
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    pushed++;
+  }
+}
+
 void main() {
   late MockAuthBloc authBloc;
   late MockCropListingBloc cropListingBloc;
@@ -123,6 +137,8 @@ void main() {
     Locale? locale,
     OrderBloc? orderBloc,
     TripListingBloc? tripBloc,
+    List<NavigatorObserver> observers = const [],
+    VoidCallback? onBackToHome,
   }) {
     return MultiBlocProvider(
       providers: [
@@ -137,11 +153,13 @@ void main() {
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: locale,
+        navigatorObservers: observers,
         home: Scaffold(
           body: BrowseListingsScreen(
             showHeader: showHeader,
             ownerMode: ownerMode,
             embedded: embedded,
+            onBackToHome: onBackToHome,
           ),
         ),
       ),
@@ -190,6 +208,148 @@ void main() {
       expect(find.text('All'), findsOneWidget);
       expect(find.text('Teff'), findsOneWidget);
       expect(find.text('Wheat'), findsOneWidget);
+
+      // MarketM: each crop chip with its own glyph, "All" with none.
+      final glyphs = tester
+          .widgetList<CropGlyph>(find.byType(CropGlyph))
+          .map((glyph) => glyph.cropKey)
+          .toList();
+      expect(glyphs, containsAllInOrder(['teff', 'wheat', 'barley']));
+      expect(glyphs, isNot(contains(null)));
+    });
+  });
+
+  // FarmerEmptyCrops board (design canvas page M): My Crops with no
+  // listing at all.
+  group('My Crops with no listing', () {
+    void none() {
+      const state = CropListingsLoaded(listings: []);
+      when(() => cropListingBloc.state).thenReturn(state);
+      when(() => cropListingBloc.stream).thenAnswer((_) => Stream.value(state));
+    }
+
+    testWidgets(
+        'the large sketch, the title, the explanation and the orange action; '
+        'no sketch in the header and no status switch', (tester) async {
+      none();
+      await tester.pumpWidget(buildTestWidget(ownerMode: true, embedded: true));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('my_crops_empty')), findsOneWidget);
+      expect(find.text('No crops listed yet'), findsOneWidget);
+      expect(
+        find.text(
+          'List your first crop so buyers can find it and send you orders.',
+        ),
+        findsOneWidget,
+      );
+      // FilledButton.icon is a private subclass on some Flutter versions
+      // (CI's 3.38): match the subtype, not the exact type.
+      expect(
+        find.ancestor(
+          of: find.text('List a crop'),
+          matching: find.bySubtype<FilledButton>(),
+        ),
+        findsOneWidget,
+      );
+      // One sketch per screen: the large one, none beside the title.
+      final sketches =
+          tester.widgetList<RoleSketch>(find.byType(RoleSketch)).toList();
+      expect(sketches, hasLength(1));
+      expect(sketches.single.role, UserRole.farmer);
+      expect(sketches.single.width, 200);
+      expect(find.byType(FwSegmented<ListingStatus>), findsNothing);
+      // The old icon-and-two-lines empty state is gone for the farmer.
+      expect(find.text('No crop listings yet'), findsNothing);
+      // As a phone tab, Home is in the bar: no "Back to Home" here.
+      expect(find.text('Back to Home'), findsNothing);
+      expect(find.text('My Crops'), findsOneWidget);
+    });
+
+    testWidgets('"List a crop" asks for a new listing, then reads the list',
+        (tester) async {
+      none();
+      final observer = _PushObserver();
+      await tester.pumpWidget(
+        buildTestWidget(
+          ownerMode: true,
+          embedded: true,
+          observers: [observer],
+        ),
+      );
+      await tester.pumpAndSettle();
+      clearInteractions(cropListingBloc);
+
+      await tester.tap(find.byKey(const Key('my_crops_empty_list_crop')));
+      await tester.pump();
+
+      expect(observer.pushed, 1);
+      // Create listing is on top; going back reads the farmer's own list.
+      observer.navigator!.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      final events = verify(() => cropListingBloc.add(captureAny())).captured;
+      expect(
+        events.whereType<LoadCropListings>().single.farmerId,
+        'farmer-001',
+      );
+    });
+
+    testWidgets('pushed over Home, "Back to Home" goes back', (tester) async {
+      none();
+      await tester.pumpWidget(buildTestWidget(ownerMode: true));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.widgetWithText(OutlinedButton, 'Back to Home'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a given way home is used', (tester) async {
+      none();
+      var wentHome = 0;
+      await tester.pumpWidget(
+        buildTestWidget(
+          ownerMode: true,
+          embedded: true,
+          onBackToHome: () => wentHome++,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('my_crops_empty_back_home')));
+      expect(wentHome, 1);
+    });
+
+    testWidgets('with a listing the header has the sketch and the switch',
+        (tester) async {
+      final state = CropListingsLoaded(
+        listings: [_listing(farmerId: 'farmer-001')],
+      );
+      when(() => cropListingBloc.state).thenReturn(state);
+      when(() => cropListingBloc.stream).thenAnswer((_) => Stream.value(state));
+      await tester.pumpWidget(buildTestWidget(ownerMode: true, embedded: true));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('my_crops_empty')), findsNothing);
+      expect(find.byType(FwSegmented<ListingStatus>), findsOneWidget);
+      final sketch = tester.widget<RoleSketch>(find.byType(RoleSketch));
+      expect(sketch.width, lessThanOrEqualTo(84));
+      // The lead card's tile is the black one.
+      expect(
+        tester.widget<OwnListingCard>(find.byType(OwnListingCard)).lead,
+        isTrue,
+      );
+    });
+
+    testWidgets('the buyer market keeps its own empty state', (tester) async {
+      none();
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('my_crops_empty')), findsNothing);
+      expect(find.text('List a crop'), findsNothing);
     });
   });
 
@@ -211,7 +371,10 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      expect(find.text('4.6 (12)'), findsOneWidget);
+      expect(
+        find.textContaining('4.6\u00A0(12\u00A0ratings)'),
+        findsOneWidget,
+      );
       expect(find.text('4.5'), findsNothing);
       expect(find.text('Escrow'), findsNothing);
     });
@@ -306,7 +469,8 @@ void main() {
 
         expect(find.text('Not sent yet'), findsOneWidget);
         expect(find.byKey(pendingIcon), findsOneWidget);
-        final cards = tester.widgetList<ListingCard>(find.byType(ListingCard));
+        final cards =
+            tester.widgetList<OwnListingCard>(find.byType(OwnListingCard));
         expect(cards.map((c) => c.status), ['Not sent yet', 'Active']);
         expect(cards.map((c) => c.statusPending), [true, false]);
         expect(find.byKey(notSentNote), findsOneWidget);
@@ -340,7 +504,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Not sent yet'), findsNothing);
-        expect(find.byType(ListingCard), findsOneWidget);
+        expect(find.byType(OwnListingCard), findsOneWidget);
       });
 
       testWidgets('the buyer market never reads the queue or shows the mark',
@@ -402,8 +566,14 @@ void main() {
         await tester.pumpWidget(buildTestWidget());
         await tester.pumpAndSettle();
 
-        expect(find.text('4.8 (3)'), findsOneWidget);
-        expect(find.text('4.4 (12)'), findsOneWidget);
+        expect(
+          find.textContaining('4.8\u00A0(3\u00A0ratings)'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('4.4\u00A0(12\u00A0ratings)'),
+          findsOneWidget,
+        );
         expect(find.text('Low reputation'), findsNothing);
         verify(() => ratingRepo.getRatingSummary('farmer-plain')).called(1);
         verifyNever(() => ratingRepo.getRatingSummary('farmer-copied'));
@@ -427,7 +597,7 @@ void main() {
         await tester.pumpWidget(buildTestWidget(ownerMode: true));
         await tester.pumpAndSettle();
 
-        expect(find.text('4.4 (12)'), findsOneWidget);
+        expect(find.textContaining('4.4 (12)'), findsOneWidget);
         expect(find.text('Low reputation'), findsNothing);
         verifyNever(() => ratingRepo.getRatingSummary(any()));
       });
@@ -440,11 +610,12 @@ void main() {
       await tester.pumpWidget(buildTestWidget(ownerMode: true));
       await tester.pumpAndSettle();
 
-      expect(find.text('1,250'), findsOneWidget);
+      expect(find.textContaining('1,250'), findsOneWidget);
     });
 
-    // MyCrops board: "32 of 60 quintals ordered". Paid orders took their
-    // quantity off the listing, so the total is what is left plus them.
+    // MyCrops board: "3,200 of 6,000 kg ordered (32 of 60 quintals)":
+    // kilograms lead, quintals follow. Paid orders took their quantity off
+    // the listing, so the total is what is left plus them.
     testWidgets('My Crops cards say how much is ordered', (tester) async {
       when(() => authBloc.state).thenReturn(
         const AuthAuthenticated(
@@ -489,8 +660,30 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('32 of 60 quintals ordered'), findsOneWidget);
-      expect(find.text('8 quintals, no orders yet'), findsOneWidget);
+      expect(
+        find.text('3,200 of 6,000 kg ordered (32 of 60 quintals)'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('800 kg (8 quintals) · no orders yet'),
+        findsOneWidget,
+      );
+      // The quintals are the smaller, muted part of the line.
+      final line = tester.widget<Text>(
+        find.text('3,200 of 6,000 kg ordered (32 of 60 quintals)'),
+      );
+      final spans = (line.textSpan! as TextSpan).children!.cast<TextSpan>();
+      expect(spans.first.toPlainText(), '3,200 of 6,000 kg ordered');
+      expect(spans.last.style!.fontSize, 13);
+      expect(spans.last.style!.color, AppTheme.slate);
+      // The bar is the share ordered: 32 of 60.
+      final bars = tester
+          .widgetList<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          )
+          .toList();
+      expect(bars.first.value, closeTo(32 / 60, 1e-9));
+      expect(bars.last.value, 0);
     });
 
     // MyCrops board: "Almaz Bekele · Meki" over "My Crops", and each card
@@ -572,7 +765,8 @@ void main() {
 
       // The pill, not the footnote's "Transport is matched for ...".
       expect(find.textContaining(RegExp(r'^Transport ')), findsOneWidget);
-      expect(find.textContaining('18 q room'), findsOneWidget);
+      // Page M: the room in kilograms.
+      expect(find.textContaining('1,800 kg room'), findsOneWidget);
       expect(find.text('2 trips this week'), findsOneWidget);
       expect(find.text('No trip yet'), findsOneWidget);
     });
@@ -792,11 +986,11 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      // Market board: "Teff · 10 quintals left".
+      // MarketM board: "Teff · 1,000 kg left" with "(10 quintals)" after.
       expect(
         find.descendant(
           of: find.byType(ListingCard),
-          matching: find.text('Teff · 10 quintals left'),
+          matching: find.text('Teff · 1,000 kg left (10\u00A0quintals)'),
         ),
         findsOneWidget,
       );
@@ -1090,6 +1284,58 @@ void main() {
         () =>
             cropListingBloc.add(const LoadActiveListings(searchQuery: 'abebe')),
       ).called(1);
+    });
+  });
+
+  // The quintals beside the kilograms keep two decimals and the singular:
+  // 125 kg is "1.25 quintals" (never "1.3"), 4 kg "0.04" (never "0.0").
+  group('OwnListingCard: the quintals after the kilograms', () {
+    Future<void> pumpCard(
+      WidgetTester tester, {
+      required double free,
+      double ordered = 0,
+    }) =>
+        tester.pumpWidget(
+          MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: Scaffold(
+              body: OwnListingCard(
+                key: ValueKey('$free/$ordered'),
+                crop: 'Teff',
+                subtitle: 'Meki',
+                price: '42',
+                priceUnit: 'ETB/kg',
+                status: 'Active',
+                freeQuintals: free,
+                orderedQuintals: ordered,
+              ),
+            ),
+          ),
+        );
+
+    testWidgets('free stock', (tester) async {
+      await pumpCard(tester, free: 1.25);
+      expect(
+        find.text('125 kg (1.25 quintals) · no orders yet'),
+        findsOneWidget,
+      );
+      await pumpCard(tester, free: 0.04);
+      expect(
+        find.text('4 kg (0.04 quintals) · no orders yet'),
+        findsOneWidget,
+      );
+      await pumpCard(tester, free: 1);
+      expect(find.text('100 kg (1 quintal) · no orders yet'), findsOneWidget);
+    });
+
+    testWidgets('ordered of total', (tester) async {
+      await pumpCard(tester, free: 48.75, ordered: 1.25);
+      expect(
+        find.text('125 of 5,000 kg ordered (1.25 of 50 quintals)'),
+        findsOneWidget,
+      );
     });
   });
 }

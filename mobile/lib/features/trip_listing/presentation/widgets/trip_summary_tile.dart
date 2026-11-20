@@ -14,8 +14,9 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 /// confirms a truck, so the trucker the order will ask is never a surprise.
 ///
 /// Styled like the boards' suggested transport rows: a truck tile on the
-/// left, the trucker as the title, route and day under it, price and room
-/// as the third line.
+/// left, the trucker as the title, route and day under it, the price per
+/// 100 kg and the room in kilograms (quintals in parentheses) as the third
+/// line.
 class TripSummaryTile extends StatelessWidget {
   final Trip trip;
   final VoidCallback? onTap;
@@ -26,12 +27,13 @@ class TripSummaryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final day = boardDayInEthiopia(trip.departureDate);
-    final price = l10n.tripPricePerQuintalValue(
+    final price = l10n.tripPricePer100KgValue(
       formatEtbAmount(trip.pricePerQuintal),
     );
-    final room = l10n.tripRemainingCapacity(
-      formatQuintals(tripRoomLeft(trip)),
-    );
+    // Kilograms lead; the quintals follow in parentheses.
+    final roomKg = tripRoomLeft(trip) * kgPerQuintal;
+    final room = l10n.tripKgFree(wholeNumber(roomKg.round()));
+    final roomQuintals = quintalsInParensText(roomKg, l10n);
     return FwCard(
       onTap: onTap,
       padding: const EdgeInsets.all(14),
@@ -41,13 +43,13 @@ class TripSummaryTile extends StatelessWidget {
             width: 46,
             height: 46,
             decoration: BoxDecoration(
-              color: AppTheme.actionCream,
-              borderRadius: BorderRadius.circular(13),
+              color: context.roleColors.tint,
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.local_shipping_outlined,
               size: 22,
-              color: AppTheme.money,
+              color: context.roleColors.primary,
             ),
           ),
           const SizedBox(width: 12),
@@ -59,8 +61,8 @@ class TripSummaryTile extends StatelessWidget {
                   '${l10n.trucker}: ${partyDisplayName(trip.truckerName, l10n)}',
                   style: const TextStyle(
                     fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.ink,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -74,9 +76,10 @@ class TripSummaryTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '$price · $room',
+                  '$price · $room'
+                  '${roomQuintals.isEmpty ? '' : ' $roomQuintals'}',
                   style: FwText.body,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],
@@ -84,7 +87,7 @@ class TripSummaryTile extends StatelessWidget {
           ),
           if (onTap != null) ...[
             const SizedBox(width: 8),
-            const Icon(Icons.chevron_right, color: AppTheme.mutedSteel),
+            const Icon(Icons.chevron_right, color: AppTheme.slate),
           ],
         ],
       ),
@@ -99,9 +102,9 @@ Future<Trip?> showChooseTripSheet(BuildContext context, List<Trip> trips) {
   return showModalBottomSheet<Trip>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: AppTheme.chalkBackground,
+    backgroundColor: AppTheme.ground,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
     ),
     builder: (sheetContext) => SafeArea(
       child: ConstrainedBox(

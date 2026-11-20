@@ -37,6 +37,10 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_normalizer.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
+import 'package:wereda_connect/features/buyer/presentation/widgets/suggested_trip_card.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
@@ -375,19 +379,52 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
         );
   }
 
-  /// Under the quantity: the quintals, and whether the chosen trip has room
-  /// for them (the room left either way).
-  String _quantityNote(AppLocalizations l10n) {
-    final quintals =
-        // "= 15 quintals" as on the board, "= 2.55 quintals" for a part.
-        l10n.quintalEquivalent(formatQuintals(_quantity / 100));
+  /// Under the quantity (PlaceOrderM board): "1,500 kg (15 quintals) · fits
+  /// this trip, 1,800 kg left (18 quintals)". Kilograms lead in the role
+  /// colour, the quintals follow muted; a quantity the trip has no room for
+  /// reads in the error colour.
+  Widget _quantityNote(BuildContext context, AppLocalizations l10n) {
+    const muted = TextStyle(color: AppTheme.slate);
+    // No-break spaces: the parentheses wrap whole.
+    String nb(String text) => text.replaceAll(' ', '\u00A0');
     final trip = widget.selectedTrip;
-    if (trip == null) return quintals;
-    final room = tripRoomLeft(trip);
-    final fits = _quantity / 100 <= room + 0.001;
-    final roomText = formatQuintals(room);
-    return '$quintals · '
-        '${fits ? l10n.detailFitsTrip(roomText) : l10n.detailExceedsTrip(roomText)}';
+    final spans = <InlineSpan>[
+      TextSpan(text: kgQuantityText(_quantity, l10n)),
+      TextSpan(
+        text: ' ${nb(quintalsInParensText(_quantity, l10n))}',
+        style: muted,
+      ),
+    ];
+    var fits = true;
+    if (trip != null) {
+      final room = tripRoomLeft(trip);
+      final roomKg = room * kgPerQuintal;
+      fits = _quantity / kgPerQuintal <= room + 0.001;
+      // A full trip has "0 kg left", not a dash.
+      final roomText = kgRoomText(roomKg, l10n);
+      final roomQuintals = quintalsInParensText(roomKg, l10n);
+      spans.add(
+        TextSpan(
+          text: ' · '
+              '${fits ? l10n.placeOrderFitsTripKg(roomText) : l10n.placeOrderExceedsTripKg(roomText)}',
+        ),
+      );
+      if (roomQuintals.isNotEmpty) {
+        spans.add(TextSpan(text: ' ${nb(roomQuintals)}', style: muted));
+      }
+    }
+    return Text.rich(
+      TextSpan(children: spans),
+      key: const Key('place_order_quantity_note'),
+      style: TextStyle(
+        fontSize: 13,
+        height: 1.4,
+        fontWeight: FontWeight.w500,
+        color: fits
+            ? context.roleColors.primary
+            : Theme.of(context).colorScheme.error,
+      ),
+    );
   }
 
   @override
@@ -427,9 +464,30 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  FwDetailHeader(title: l10n.placeOrder),
+                  // PlaceOrderM board: Back, the 32 px title, the buyer
+                  // sketch at the header's end.
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                    child: Row(
+                      children: [
+                        const FwBackButton(),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Semantics(
+                            header: true,
+                            child: Text(
+                              l10n.placeOrder,
+                              style: FwText.detailTitle,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const RoleSketch(role: UserRole.buyer, width: 64),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -437,6 +495,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                         Semantics(
                           label: l10n.listingSummary,
                           child: _PartyCard(
+                            sand: true,
+                            cropKey: widget.listing.cropType,
                             iconBackground:
                                 cropTileColors(widget.listing.cropType)
                                     .background,
@@ -497,7 +557,8 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                                     key: const Key('place_order_all'),
                                     onPressed: _orderAll,
                                     style: TextButton.styleFrom(
-                                      foregroundColor: AppTheme.money,
+                                      foregroundColor:
+                                          context.roleColors.primary,
                                       minimumSize: const Size(48, 48),
                                     ),
                                     child: Text(l10n.all),
@@ -507,12 +568,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                               // Listings and requests are quoted in quintals;
                               // show the conversion so the kg entry isn't a
                               // unit trap.
-                              if (_quantity > 0)
-                                Text(
-                                  _quantityNote(l10n),
-                                  key: const Key('place_order_quantity_note'),
-                                  style: LabeledField.helperStyle,
-                                ),
+                              if (_quantity > 0) _quantityNote(context, l10n),
                             ],
                           ),
                         ),
@@ -522,16 +578,18 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                         if (trip != null) ...[
                           _PartyCard(
                             icon: Icons.local_shipping_outlined,
-                            iconBackground: AppTheme.actionCream,
+                            iconBackground: AppTheme.ink,
+                            iconColor: AppTheme.orange,
                             title: '${trip.truckerName} · '
                                 '${boardDayInEthiopia(trip.departureDate)}',
+                            // "1.50 ETB per kg (150 per quintal)".
                             subtitle: '${trip.fromWoreda} → ${trip.toWoreda} · '
-                                '${l10n.tripPricePerQuintalValue(trip.pricePerQuintal.toStringAsFixed(0))}'
+                                '${l10n.transportPricePerKgAndQuintal(transportPricePerKgText(trip.pricePerQuintal), formatEtbAmount(trip.pricePerQuintal))}'
                                 '${_truckerRating == null ? '' : ' · ${_truckerRating!.toStringAsFixed(1)}'}',
                             trailing: TextButton(
                               onPressed: () => Navigator.of(context).pop(),
                               style: TextButton.styleFrom(
-                                foregroundColor: AppTheme.money,
+                                foregroundColor: context.roleColors.primary,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 8,
                                 ),
@@ -540,7 +598,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                                   fontFamilyFallback:
                                       AppTheme.ethiopicFontFallback,
                                   fontSize: 13,
-                                  fontWeight: FontWeight.w700,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                               child: Text(l10n.detailChange),
@@ -569,18 +627,25 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 
                         // ── Price breakdown ────────────────────────────
                         FwCard(
+                          raised: true,
+                          padding: const EdgeInsets.all(18),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Text(
-                                l10n.priceBreakdown,
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppTheme.soilDark,
-                                ),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.receipt_long_outlined,
+                                    size: 16,
+                                    color: AppTheme.slate,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: FwSectionLabel(l10n.priceBreakdown),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 11),
+                              const SizedBox(height: 12),
                               FwMoneyRow(
                                 label: l10n.cropCost,
                                 amount: l10n.etbCurrency(
@@ -602,28 +667,56 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                                 amount: l10n
                                     .etbCurrency(formatEtbAmount(_commission)),
                               ),
+                              const SizedBox(height: 11),
+                              const Divider(
+                                height: 1,
+                                thickness: 1,
+                                color: AppTheme.sketch,
+                              ),
                               const SizedBox(height: 9),
-                              FwMoneyRow(
-                                label: l10n.orderTotal,
-                                amount:
+                              // The total large in the role colour.
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.baseline,
+                                textBaseline: TextBaseline.alphabetic,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      l10n.orderTotal,
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppTheme.ink,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(
                                     l10n.etbCurrency(formatEtbAmount(_total)),
-                                total: true,
+                                    key: const Key('place_order_total'),
+                                    style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: -0.7,
+                                      color: context.roleColors.primary,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 18),
 
                         // ── Escrow trust line (PlaceOrder.dc.html) ─────
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Padding(
-                              padding: EdgeInsets.only(top: 2),
+                            Padding(
+                              padding: const EdgeInsets.only(top: 1),
                               child: Icon(
-                                Icons.lock_outline,
-                                size: 16,
-                                color: AppTheme.unselectedNav,
+                                Icons.verified_user_outlined,
+                                size: 18,
+                                color: context.roleColors.primary,
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -633,7 +726,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                                 style: const TextStyle(
                                   fontSize: 13,
                                   height: 1.5,
-                                  color: AppTheme.unselectedNav,
+                                  color: AppTheme.inkSoft,
                                 ),
                               ),
                             ),
@@ -662,22 +755,13 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                         _deliveryPlaceBlocks
                     ? null
                     : _placeOrder,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(56),
-                  textStyle: const TextStyle(
-                    fontFamily: AppTheme.fontFamily,
-                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
                 child: isLoading
                     ? const SizedBox(
                         height: 20,
                         width: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: AppTheme.ink,
                         ),
                       )
                     : Text(l10n.placeOrder),
@@ -693,27 +777,38 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
 /// The board's one-line card: a tinted icon tile, a title, a line under it
 /// and an optional action at the end (the listing, the transport).
 class _PartyCard extends StatelessWidget {
-  /// The tile's icon; null draws the boards' crop sprout.
+  /// The tile's icon; null draws the glyph of [cropKey].
   final IconData? icon;
+
+  /// The listing's stored crop key, for its glyph.
+  final String? cropKey;
   final Color iconBackground;
-  final Color iconColor;
+  final Color? iconColor;
   final String title;
   final String subtitle;
   final Widget? trailing;
+
+  /// A flat sand tile (the listing) instead of the outlined row (the
+  /// transport).
+  final bool sand;
 
   const _PartyCard({
     required this.iconBackground,
     required this.title,
     required this.subtitle,
     this.icon,
-    this.iconColor = AppTheme.money,
+    this.cropKey,
+    this.iconColor,
     this.trailing,
+    this.sand = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return FwCard(
-      padding: const EdgeInsets.all(14),
+      color: sand ? AppTheme.sand : Colors.transparent,
+      borderColor: sand ? null : AppTheme.fieldBorder,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
           Container(
@@ -721,10 +816,10 @@ class _PartyCard extends StatelessWidget {
             height: 44,
             decoration: BoxDecoration(
               color: iconBackground,
-              borderRadius: BorderRadius.circular(13),
+              borderRadius: BorderRadius.circular(14),
             ),
             child: icon == null
-                ? FwSprout(color: iconColor)
+                ? CropGlyph(cropKey: cropKey, size: 22, color: iconColor)
                 : Icon(icon, size: 22, color: iconColor),
           ),
           const SizedBox(width: 12),
@@ -734,18 +829,14 @@ class _PartyCard extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.soilDark,
-                  ),
+                  style: FwText.cardTitle.copyWith(fontSize: sand ? 17 : 15),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   subtitle,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.mutedSteel,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: sand ? AppTheme.inkSoft : AppTheme.slate,
                   ),
                 ),
               ],
@@ -761,8 +852,8 @@ class _PartyCard extends StatelessWidget {
   }
 }
 
-/// The board's quantity box: a 56 tall field with a green outline, the
-/// number large, and minus and plus squares inside it.
+/// The board's quantity box: a 56 tall paper field with a black outline,
+/// the number large, and round minus and plus buttons on sand inside it.
 class _QuantityField extends StatelessWidget {
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
@@ -788,11 +879,11 @@ class _QuantityField extends StatelessWidget {
           height: 56,
           padding: const EdgeInsetsDirectional.only(start: 16, end: 6),
           decoration: BoxDecoration(
-            color: AppTheme.surfaceWhite,
+            color: AppTheme.paper,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: error == null
-                  ? AppTheme.fieldGreen
+                  ? AppTheme.ink
                   : Theme.of(context).colorScheme.error,
               width: 2,
             ),
@@ -810,7 +901,7 @@ class _QuantityField extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    color: AppTheme.ink,
                   ),
                   decoration: InputDecoration(
                     hintText: l10n.quantity,
@@ -829,7 +920,7 @@ class _QuantityField extends StatelessWidget {
                 semanticLabel: l10n.detailLess,
                 onPressed: onLess,
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               _StepButton(
                 icon: Icons.add,
                 semanticLabel: l10n.detailMore,
@@ -872,19 +963,18 @@ class _StepButton extends StatelessWidget {
       label: semanticLabel,
       enabled: onPressed != null,
       child: Material(
-        color: AppTheme.chalkBackground,
-        borderRadius: BorderRadius.circular(12),
+        color: AppTheme.sand,
+        shape: const CircleBorder(),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onPressed,
           child: SizedBox(
-            width: 42,
-            height: 42,
+            width: 44,
+            height: 44,
             child: Icon(
               icon,
               size: 20,
-              color:
-                  onPressed == null ? AppTheme.mutedSteel : AppTheme.soilDark,
+              color: onPressed == null ? AppTheme.slate : AppTheme.ink,
             ),
           ),
         ),

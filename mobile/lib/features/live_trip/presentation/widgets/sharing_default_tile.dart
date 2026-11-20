@@ -65,7 +65,7 @@ class _SharingDefaultTileState extends State<SharingDefaultTile> {
               const Icon(
                 Icons.share_location,
                 size: 22,
-                color: AppTheme.soilDark,
+                color: AppTheme.ink,
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -77,7 +77,7 @@ class _SharingDefaultTileState extends State<SharingDefaultTile> {
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.soilDark,
+                        color: AppTheme.ink,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -86,7 +86,7 @@ class _SharingDefaultTileState extends State<SharingDefaultTile> {
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
-                        color: AppTheme.mutedSteel,
+                        color: AppTheme.slate,
                       ),
                     ),
                   ],
@@ -96,7 +96,7 @@ class _SharingDefaultTileState extends State<SharingDefaultTile> {
               const Icon(
                 Icons.chevron_right,
                 size: 20,
-                color: AppTheme.mutedSteel,
+                color: AppTheme.slate,
               ),
             ],
           ),
@@ -128,7 +128,7 @@ class SharingDefaultDialog extends StatelessWidget {
             Text(
               l10n.sharingDefaultHint,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.textMuted,
+                    color: AppTheme.slate,
                   ),
             ),
             const SizedBox(height: 8),

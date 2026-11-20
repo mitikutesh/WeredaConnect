@@ -18,19 +18,18 @@ double _contrast(Color a, Color b) {
 /// tests do not see borders, so the tokens are checked here.
 void main() {
   const grounds = {
-    'white': AppTheme.surfaceWhite,
-    'chalk': AppTheme.chalkBackground,
+    'white': AppTheme.ground,
+    'paper': AppTheme.paper,
   };
 
-  const textTokens = {
-    'soilDark': AppTheme.soilDark,
-    'mutedSteel': AppTheme.mutedSteel,
-    'unselectedNav': AppTheme.unselectedNav,
-    'inkSecondary': AppTheme.inkSecondary,
-    'actionInk': AppTheme.actionInk,
-    'money': AppTheme.money,
-    'fieldGreen': AppTheme.fieldGreen,
-    'dropoffBlue': AppTheme.dropoffBlue,
+  final textTokens = {
+    'ink': AppTheme.ink,
+    'slate': AppTheme.slate,
+    'inkSoft': AppTheme.inkSoft,
+    'orangeInk': AppTheme.orangeInk,
+    'farmer plum': RoleColors.farmer.primary,
+    'trucker blue': RoleColors.trucker.primary,
+    'buyer green': RoleColors.buyer.primary,
     'statusSuccess': AppTheme.statusSuccess,
     'statusWarning': AppTheme.statusWarning,
     'statusError': AppTheme.statusError,
@@ -82,42 +81,54 @@ void main() {
       }
     });
 
-    test('nav labels: each role accent on its tint and on white', () {
+    test('pills: each role colour on its tint, on white and on sand', () {
       for (final role in UserRole.values) {
-        final accent = AppTheme.roleAccent(role);
+        final colors = RoleColors.forRole(role);
+        for (final ground in [colors.tint, AppTheme.ground, AppTheme.paper]) {
+          expect(
+            _contrast(colors.primary, ground),
+            greaterThanOrEqualTo(4.5),
+            reason: '${role.name} on $ground',
+          );
+        }
+        // The login header's pastel carries black text.
         expect(
-          _contrast(accent, AppTheme.roleAccentTint(role)),
-          greaterThanOrEqualTo(4.5),
-          reason: role.name,
-        );
-        expect(
-          _contrast(accent, AppTheme.surfaceWhite),
+          _contrast(AppTheme.ink, colors.soft),
           greaterThanOrEqualTo(4.5),
           reason: role.name,
         );
       }
     });
 
-    test('create button: label on fill for every role', () {
+    test('sand tiles: ink and inkSoft read on them', () {
+      for (final text in [AppTheme.ink, AppTheme.inkSoft]) {
+        expect(_contrast(text, AppTheme.sand), greaterThanOrEqualTo(4.5));
+      }
+    });
+
+    test('the nav pill: white labels and each role dot on black', () {
+      expect(_contrast(Colors.white, AppTheme.ink), greaterThanOrEqualTo(4.5));
       for (final role in UserRole.values) {
         expect(
-          _contrast(
-            AppTheme.createButtonForeground(role),
-            AppTheme.createButtonBackground(role),
-          ),
-          greaterThanOrEqualTo(4.5),
+          _contrast(RoleColors.forRole(role).tint, AppTheme.ink),
+          greaterThanOrEqualTo(3),
           reason: role.name,
         );
       }
     });
 
-    test('gold is a fill: dark ink on it, never white', () {
+    test('orange is a fill: black ink on it, never white', () {
       expect(
-        _contrast(AppTheme.soilDark, AppTheme.accentSoft),
+        _contrast(AppTheme.ink, AppTheme.orange),
         greaterThanOrEqualTo(4.5),
       );
-      // Why gold never carries white text or sits as text on white.
-      expect(_contrast(Colors.white, AppTheme.accentSoft), lessThan(3));
+      // Why orange never carries white text or sits as text on white.
+      expect(_contrast(Colors.white, AppTheme.orange), lessThan(3));
+      // Its ink on its tint (the "needs attention" note).
+      expect(
+        _contrast(AppTheme.orangeInk, AppTheme.orangeTint),
+        greaterThanOrEqualTo(4.5),
+      );
     });
   });
 
@@ -148,11 +159,11 @@ void main() {
       // A disabled button keeps the quiet edge.
       expect(
         side.resolve({WidgetState.disabled})!.color,
-        AppTheme.whisperBorder,
+        AppTheme.line,
       );
-      // Cards keep the decorative whisper edge.
+      // Cards keep the decorative edge.
       final card = theme.cardTheme.shape! as RoundedRectangleBorder;
-      expect(card.side.color, AppTheme.whisperBorder);
+      expect(card.side.color, AppTheme.line);
     });
   });
 }

@@ -197,11 +197,12 @@ void main() {
     expect(created.single.quantity, 1000000);
   });
 
-  // Place order board: "= 15 quintals", no trailing ".0".
-  testWidgets('the quintal line drops a whole number\'s decimal',
+  // PlaceOrderM board: "1,500 kg (15 quintals)", kilograms first, no
+  // trailing ".0".
+  testWidgets('the quantity line leads with kg, the quintals in parentheses',
       (tester) async {
     await open(tester, quintals: 15);
-    expect(find.textContaining('15 quintals'), findsOneWidget);
+    expect(find.text('1,500 kg (15\u00A0quintals)'), findsOneWidget);
     expect(find.textContaining('15.0 quintals'), findsNothing);
   });
 
@@ -280,7 +281,18 @@ void main() {
     expect(find.text('18,375 ETB'), findsNothing);
     // ESC-15: the buyer sees which trucker the order will ask, and the room.
     expect(find.textContaining('Abebe · '), findsOneWidget);
-    expect(find.textContaining('120 quintals left'), findsOneWidget);
+    // PlaceOrderM: kg first, with the room left on the trip.
+    expect(
+      find.text(
+        '500 kg (5\u00A0quintals) · fits this trip, 12,000 kg left (120\u00A0quintals)',
+      ),
+      findsOneWidget,
+    );
+    // The transport price per kg, the per-quintal price in parentheses.
+    expect(
+      find.textContaining('1.00 ETB per kg (100 per quintal)'),
+      findsOneWidget,
+    );
 
     await tester.ensureVisible(find.byType(FilledButton));
     await tester.tap(find.byType(FilledButton));
@@ -356,9 +368,23 @@ void main() {
       // 30 quintals listed, 12 free on the truck: 1,200 kg.
       expect(find.text('1,200'), findsOneWidget);
       expect(
-        find.textContaining('fits this trip (12 quintals left)'),
+        find.textContaining('fits this trip, 1,200 kg left (12\u00A0quintals)'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('a full truck has "0 kg left", not a dash', (tester) async {
+      await open(
+        tester,
+        quintals: 30,
+        selectedTrip: trip(pricePerQuintal: 100, remaining: 0),
+      );
+
+      final note = tester
+          .widget<Text>(find.byKey(const Key('place_order_quantity_note')))
+          .textSpan!
+          .toPlainText();
+      expect(note, endsWith('more than this trip has room for, 0 kg left'));
     });
 
     testWidgets('a truck whose day is over: told why, back to choosing',

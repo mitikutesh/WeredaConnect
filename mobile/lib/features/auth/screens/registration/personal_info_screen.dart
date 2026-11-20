@@ -4,6 +4,7 @@ import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/join_chrome.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
@@ -85,7 +86,7 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
     final l10n = AppLocalizations.of(context)!;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 16),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
       child: Form(
         key: widget.formKey,
         child: Column(
@@ -97,18 +98,19 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
             ),
             const SizedBox(height: 20),
 
-            // Verified legal name (shown when Fayda verified): a grey, read
-            // only row with the "From Fayda" lock tag.
+            // Verified legal name (shown when Fayda verified): a sand, read
+            // only row with the "From Fayda" pill in the role's tint.
             if (widget.faydaVerified && widget.faydaVerifiedName != null) ...[
               Text(l10n.verifiedLegalName, style: LabeledField.labelStyle),
               const SizedBox(height: 6),
               Container(
                 width: double.infinity,
-                constraints: const BoxConstraints(minHeight: 48),
-                padding: const EdgeInsets.symmetric(horizontal: 14),
+                constraints: const BoxConstraints(minHeight: 52),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: AppTheme.segmentTrack,
-                  borderRadius: BorderRadius.circular(14),
+                  color: AppTheme.sand,
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
                   children: [
@@ -119,25 +121,12 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
-                          color: AppTheme.soilDark,
+                          color: AppTheme.ink,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    const Icon(
-                      Icons.lock_outline,
-                      size: 14,
-                      color: AppTheme.fieldGreen,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      l10n.fromFayda,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.fieldGreen,
-                      ),
-                    ),
+                    const SizedBox(width: 10),
+                    FwPill(label: l10n.fromFayda, icon: Icons.lock_outline),
                   ],
                 ),
               ),
@@ -242,9 +231,9 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   Text(
                     l10n.joinWeredaHelper,
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 13,
                       fontWeight: FontWeight.w500,
-                      color: AppTheme.mutedSteel,
+                      color: AppTheme.slate,
                     ),
                   ),
                 ],
@@ -331,8 +320,9 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
             Text(
               l10n.passwordRequirements,
               style: const TextStyle(
-                fontSize: 12,
-                color: AppTheme.mutedSteel,
+                fontSize: 13,
+                height: 1.4,
+                color: AppTheme.slate,
               ),
             ),
           ],

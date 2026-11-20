@@ -22,14 +22,17 @@ import 'package:wereda_connect/features/order/presentation/open_order_detail.dar
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/dashed_border.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
-import 'package:wereda_connect/shared/widgets/wc_card.dart';
 
-/// The farmer's order on the road (LT-11, the Farmer · Order on the road
-/// board): the Farmer pill, "Your wheat is on the road", the map in a card
-/// from the farmer's own pickup (other stops are grey rings, never named)
-/// with the last check-in and the arrival window under it, the payment
-/// steps, the buyer and the trucker, and the order details. The farmer sees
+/// The farmer's order on the road (LT-11, the Farmer journey board of
+/// design canvas page M): the Farmer pill, "Your wheat is on the road", the
+/// map in a raised card from the farmer's own pickup, the trail in the
+/// farmer's plum (other stops are grey rings, never named) with the last
+/// check-in over it and the arrival window under it, the payment steps on
+/// sand with "Nothing for you to do now", the buyer and the trucker with
+/// Message and Call, and the order details. The farmer sees
 /// only this order's delivery: the server answers the track to the
 /// delivery's parties only, and this screen opens only for the delivery's
 /// farmer.
@@ -50,7 +53,7 @@ class FarmerTripScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.chalkBackground,
+      backgroundColor: AppTheme.ground,
       body: SafeArea(
         child: Column(
           children: [
@@ -185,45 +188,76 @@ class _FarmerTripViewState extends State<FarmerTripView> {
         eta != null &&
         DateUtils.isSameDay(dayInEthiopia(eta.from), dayInEthiopia(view.now));
 
+    final place = track?.dropoffNote?.trim() ?? '';
+    final to = place.isEmpty ? buyer : '$buyer, $place';
+    // What the farmer still has to do: nothing, once the crop is handed
+    // over. On the road the buyer must confirm; after that the window runs.
+    final windowEnd = confirmedAt?.add(DeliveryConstants.disputeWindow);
+    final ClockLabel? nothingToDo;
+    if (delivery.status == DeliveryStatus.delivered &&
+        windowEnd != null &&
+        view.now.isBefore(windowEnd) &&
+        order?.status != OrderStatus.settled) {
+      nothingToDo = clock.deadline(
+        windowEnd,
+        date: formatMonthDay,
+        sentence: l10n.liveTripFarmerNothingToDoWindow,
+      );
+    } else if (isOnTheRoad(delivery)) {
+      nothingToDo = ClockLabel.text(l10n.liveTripFarmerNothingToDo(buyer));
+    } else {
+      nothingToDo = null;
+    }
+
     return [
       LiveTripTopRow(
         leading: widget.leading,
         trailing: DotPill(
           label: l10n.farmer,
-          background: AppTheme.fieldGreenTint,
-          foreground: AppTheme.fieldGreen,
+          background: AppTheme.sand,
+          foreground: AppTheme.inkSoft,
           icon: Icons.eco_outlined,
-          height: 32,
-          radius: 999,
-          fontSize: 13,
         ),
       ),
       ...trackReadNotice(context, view),
       ClockText(
         title,
         style: const TextStyle(
-          fontSize: 24,
+          fontSize: 28,
           fontWeight: FontWeight.w800,
-          letterSpacing: -0.7,
-          height: 1.15,
-          color: AppTheme.soilDark,
+          letterSpacing: -1,
+          height: 1.05,
+          color: AppTheme.ink,
         ),
       ),
-      const SizedBox(height: 2),
-      Text(
-        order == null
-            ? buyer
-            : l10n.liveTripFarmerTo(
-                l10n.quantityKg(birrText(order.quantity)),
-                buyer,
+      const SizedBox(height: 4),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const FwSprout(size: 20, color: AppTheme.slate),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(
+              order == null
+                  ? to
+                  : l10n.liveTripFarmerTo(
+                      l10n.quantityKg(birrText(order.quantity)),
+                      to,
+                    ),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: AppTheme.slate,
               ),
-        style: const TextStyle(fontSize: 13, color: AppTheme.mutedSteel),
+            ),
+          ),
+        ],
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 14),
       if (onRoad)
         _MapCard(track: track, now: view.now, places: _places)
       else if (ended) ...[
-        WcCard(
+        FwCard.sand(
           child: RouteRibbon(
             stops: ribbonStopsOf(
               context,
@@ -236,39 +270,47 @@ class _FarmerTripViewState extends State<FarmerTripView> {
             ended: true,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         Align(
           alignment: AlignmentDirectional.centerStart,
           child: DotPill(
             label: l10n.liveTripSharingEnded,
-            background: AppTheme.dropoffBlueTint,
-            foreground: AppTheme.dropoffBlue,
+            background: AppTheme.sand,
+            foreground: AppTheme.inkSoft,
             icon: Icons.check,
-            height: 32,
-            radius: 999,
           ),
         ),
       ] else
-        WcCard(
-          color: AppTheme.statusNeutralContainer,
+        DashedBorderBox(
           child: Row(
             children: [
-              const Icon(Icons.map_outlined, color: AppTheme.textMuted),
+              const Icon(Icons.map_outlined, color: AppTheme.slate),
               const SizedBox(width: 12),
-              Expanded(child: Text(l10n.liveTripMapStartsAtPickup)),
+              Expanded(
+                child: Text(
+                  l10n.liveTripMapStartsAtPickup,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.35,
+                    color: AppTheme.ink,
+                  ),
+                ),
+              ),
             ],
           ),
         ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 14),
       _PaymentSteps(
         delivery: delivery,
         order: order,
         now: view.now,
         expectedToday: expectedToday,
+        nothingToDo: nothingToDo,
       ),
-      const SizedBox(height: 12),
-      WcCard(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+      const SizedBox(height: 14),
+      FwCard(
+        raised: true,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         child: Column(
           children: [
             _ContactRow(
@@ -280,6 +322,7 @@ class _FarmerTripViewState extends State<FarmerTripView> {
                 order: order,
                 role: UserRole.buyer,
                 avatarSize: 38,
+                look: PartyContactLook.boxes,
               ),
               divider: true,
             ),
@@ -292,44 +335,44 @@ class _FarmerTripViewState extends State<FarmerTripView> {
                 order: order,
                 role: UserRole.trucker,
                 avatarSize: 38,
+                look: PartyContactLook.boxes,
               ),
             ),
           ],
         ),
       ),
       if (delivery.orderId?.isNotEmpty ?? false) ...[
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         Material(
           key: const Key('farmer_trip_order_link'),
-          color: AppTheme.surfaceWhite,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: AppTheme.whisperBorder),
+          color: Colors.transparent,
+          shape: const StadiumBorder(
+            side: BorderSide(color: AppTheme.fieldBorder),
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: () => openOrderDetail(context, delivery.orderId!),
             child: Container(
-              height: 52,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              constraints: const BoxConstraints(minHeight: 52),
+              padding: const EdgeInsets.fromLTRB(20, 6, 18, 6),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
                       l10n.liveTripOrderDetailsLink,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.soilDark,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.ink,
                       ),
                     ),
                   ),
                   const Icon(
                     Icons.chevron_right,
-                    size: 20,
-                    color: AppTheme.soilDark,
+                    size: 16,
+                    color: AppTheme.ink,
                   ),
                 ],
               ),
@@ -341,7 +384,7 @@ class _FarmerTripViewState extends State<FarmerTripView> {
   }
 }
 
-/// One party row of the contact card: 60 tall, a hairline under it when
+/// One party row of the contact card: 66 tall, a hairline under it when
 /// another row follows.
 class _ContactRow extends StatelessWidget {
   const _ContactRow(this.tile, {this.divider = false});
@@ -352,11 +395,12 @@ class _ContactRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minHeight: 60),
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      constraints: const BoxConstraints(minHeight: 66),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      alignment: Alignment.center,
       decoration: divider
           ? const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppTheme.segmentTrack)),
+              border: Border(bottom: BorderSide(color: AppTheme.sketch)),
             )
           : null,
       child: tile,
@@ -364,8 +408,10 @@ class _ContactRow extends StatelessWidget {
   }
 }
 
-/// The map in a card with the last check-in and the arrival window under
-/// it, and the grey rings note (the board's "Where the truck is").
+/// The map in a raised card (the board's "Where the truck is"): the last
+/// check-in in a white pill over it ("11:42 · Bishoftu · 28 min ago"),
+/// under it the grey rings note with the arrival window in the farmer's
+/// colour at the end.
 class _MapCard extends StatelessWidget {
   const _MapCard({
     required this.track,
@@ -385,27 +431,21 @@ class _MapCard extends StatelessWidget {
         band == TrackFreshness.fresh || band == TrackFreshness.normal;
     final Widget chip;
     if (band != null && rhythm) {
-      // "11:42 · Bishoftu · 28 min ago" with a dot, as on the board.
       final text = checkInChipText(context, track, now, places, band);
       chip = DotPill(
         label: text.subtitle == null
             ? text.title
             : '${text.title} · ${text.subtitle}',
-        border: AppTheme.whisperBorder,
-        dotColor: band == TrackFreshness.fresh
-            ? AppTheme.fieldGreen
-            : AppTheme.mutedSteel,
+        dotColor: AppTheme.ink,
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
       );
     } else {
       chip = CheckInChip(track: track, now: now, places: places, compact: true);
     }
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceWhite,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.whisperBorder),
-      ),
+    return FwCard(
+      raised: true,
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -413,38 +453,47 @@ class _MapCard extends StatelessWidget {
             track: track,
             now: now,
             places: places,
-            height: 200,
+            height: 160,
             borderRadius: 0,
             showChip: false,
+            overlay: [
+              Positioned(
+                left: 12,
+                top: 12,
+                right: 12,
+                child: Align(
+                  alignment: AlignmentDirectional.topStart,
+                  child: chip,
+                ),
+              ),
+            ],
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-            // The window moves under the chip when both do not fit a line.
-            child: Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 8,
-              runSpacing: 6,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+            child: Row(
               children: [
-                chip,
-                ArrivalWindowBlock(
-                  track: track,
-                  now: now,
-                  prefix: l10n.liveTripArrives,
-                  compact: true,
+                Expanded(
+                  child: Text(
+                    l10n.liveTripGreyRingsNote,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      height: 1.35,
+                      color: AppTheme.slate,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // The window wraps in its own share when the clock words
+                // are long (am, om).
+                Flexible(
+                  child: ArrivalWindowBlock(
+                    track: track,
+                    now: now,
+                    prefix: l10n.liveTripArrives,
+                    compact: true,
+                  ),
                 ),
               ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
-            child: Text(
-              l10n.liveTripGreyRingsNote,
-              style: const TextStyle(
-                fontSize: 12,
-                height: 1.4,
-                color: AppTheme.mutedSteel,
-              ),
             ),
           ),
         ],
@@ -462,6 +511,7 @@ class _PaymentSteps extends StatelessWidget {
     required this.order,
     required this.now,
     this.expectedToday = false,
+    this.nothingToDo,
   });
 
   final Delivery delivery;
@@ -470,6 +520,9 @@ class _PaymentSteps extends StatelessWidget {
 
   /// The truck arrives today: said beside "Buyer confirms delivery".
   final bool expectedToday;
+
+  /// "Nothing for you to do now. ..." under the steps, when that is so.
+  final ClockLabel? nothingToDo;
 
   @override
   Widget build(BuildContext context) {
@@ -523,18 +576,29 @@ class _PaymentSteps extends StatelessWidget {
       ),
     ];
     final current = steps.indexWhere((s) => !s.done);
-    Widget dot(Color? fill) => Container(
+    // The board: done steps a black dot, the current one orange with a
+    // black edge, the ones ahead a hollow ring.
+    Widget dot({required bool done, required bool current}) => Container(
           width: 10,
           height: 10,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: fill,
-            border: fill == null
-                ? Border.all(color: const Color(0xFFA7ADA9), width: 2)
-                : null,
+            color: done
+                ? AppTheme.ink
+                : current
+                    ? AppTheme.orange
+                    : null,
+            border: done
+                ? null
+                : Border.all(
+                    color: current ? AppTheme.ink : AppTheme.slate,
+                    width: 1.5,
+                  ),
           ),
         );
-    return WcCard(
+    final note = nothingToDo;
+    return FwCard.sand(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -547,38 +611,30 @@ class _PaymentSteps extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    letterSpacing: -0.15,
+                    color: AppTheme.ink,
                   ),
                 ),
               ),
               if (payout != null)
                 Text(
                   l10n.etbCurrency(birrText(payout)),
-                  style: const TextStyle(
-                    fontSize: 20,
+                  style: TextStyle(
+                    fontSize: 19,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.soilDark,
+                    letterSpacing: -0.4,
+                    color: context.roleColors.primary,
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 6),
           for (final (i, step) in steps.indexed)
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4.5),
+              padding: const EdgeInsets.symmetric(vertical: 4),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: dot(
-                      step.done
-                          ? AppTheme.fieldGreen
-                          : i == current
-                              ? AppTheme.accentSoft
-                              : null,
-                    ),
-                  ),
+                  dot(done: step.done, current: i == current),
                   const SizedBox(width: 10),
                   // The label gets the larger share, the time wraps in its
                   // own when the clock words are long (am, om).
@@ -588,35 +644,78 @@ class _PaymentSteps extends StatelessWidget {
                       step.label,
                       style: TextStyle(
                         fontSize: 13,
+                        height: 1.3,
                         color: step.done || i == current
-                            ? AppTheme.soilDark
-                            : AppTheme.unselectedNav,
+                            ? AppTheme.ink
+                            : AppTheme.inkSoft,
                         fontWeight:
-                            i == current ? FontWeight.w700 : FontWeight.w500,
+                            i == current ? FontWeight.w800 : FontWeight.w400,
                       ),
                     ),
                   ),
                   if (step.when != null) ...[
                     const SizedBox(width: 8),
                     Flexible(
-                      flex: 3,
-                      child: ClockText(
-                        step.when!,
-                        textAlign: TextAlign.end,
-                        style: TextStyle(
-                          fontSize: i == current ? 13 : 12,
-                          fontWeight:
-                              i == current ? FontWeight.w700 : FontWeight.w500,
-                          color: i == current
-                              ? AppTheme.soilDark
-                              : AppTheme.mutedSteel,
-                        ),
-                      ),
+                      flex: 4,
+                      child: i == current
+                          // What the farmer waits for now: the board's
+                          // orange pill ("expected today").
+                          ? Container(
+                              key: const Key('farmer_trip_current_when'),
+                              constraints: const BoxConstraints(minHeight: 26),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppTheme.orange,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: AppTheme.ink,
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: ClockText(
+                                step.when!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.ink,
+                                ),
+                              ),
+                            )
+                          : ClockText(
+                              step.when!,
+                              textAlign: TextAlign.end,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: AppTheme.inkSoft,
+                              ),
+                            ),
                     ),
                   ],
                 ],
               ),
             ),
+          if (note != null) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.only(top: 10),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: AppTheme.sketch)),
+              ),
+              child: ClockText(
+                note,
+                key: const Key('farmer_trip_nothing_to_do'),
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.4,
+                  color: AppTheme.ink,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

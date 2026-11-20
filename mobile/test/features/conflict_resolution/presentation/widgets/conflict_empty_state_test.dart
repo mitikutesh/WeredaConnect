@@ -16,7 +16,7 @@ Widget _buildWidget(Widget child) {
 
 void main() {
   group('ConflictEmptyState', () {
-    testWidgets('renders check_circle icon at size 80',
+    testWidgets('renders check_circle icon at size 56',
         (WidgetTester tester) async {
       await tester.pumpWidget(
         _buildWidget(const ConflictEmptyState()),
@@ -26,7 +26,7 @@ void main() {
       expect(find.byIcon(Icons.check_circle), findsOneWidget);
 
       final icon = tester.widget<Icon>(find.byIcon(Icons.check_circle));
-      expect(icon.size, equals(80));
+      expect(icon.size, equals(56));
       expect(icon.color, equals(AppTheme.statusSuccess));
     });
 

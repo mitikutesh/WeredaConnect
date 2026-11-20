@@ -135,6 +135,7 @@ class AdaptiveShell extends StatelessWidget {
     UserRole role, {
     required bool onTabRoot,
     bool expanded = false,
+    bool floating = false,
   }) {
     return ValueListenableBuilder<int>(
       valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
@@ -143,6 +144,7 @@ class AdaptiveShell extends StatelessWidget {
         return RoleCreateButton(
           role: role,
           expanded: expanded,
+          floating: floating,
           onPressed: () => _onFabPressed(context, role),
         );
       },
@@ -180,9 +182,6 @@ class AdaptiveShell extends StatelessWidget {
                 enabled: onTabRoot && pushed == 0,
                 child: child,
               ),
-              floatingActionButton: _fab(context, role, onTabRoot: onTabRoot),
-              floatingActionButtonLocation:
-                  FloatingActionButtonLocation.centerFloat,
               bottomNavigationBar: fullPage
                   ? null
                   : RoleNavBar(
@@ -193,6 +192,9 @@ class AdaptiveShell extends StatelessWidget {
                       currentIndex: selectedIndex < 0 ? null : selectedIndex,
                       onSelected: (i) =>
                           _onDestinationSelected(context, i, dests),
+                      // The create verb belongs to a tab's own page.
+                      onCreate:
+                          onTabRoot ? () => _onFabPressed(context, role) : null,
                     ),
             );
           },
@@ -209,19 +211,22 @@ class AdaptiveShell extends StatelessWidget {
     return CreateButtonScrollScope(
       resetKey: selectedIndex,
       child: Scaffold(
-        backgroundColor: AppTheme.chalkBackground,
+        backgroundColor: AppTheme.ground,
         // The rail has no room for the labelled button: it floats over the
         // content as on the phone.
-        floatingActionButton:
-            isDesktop ? null : _fab(context, role, onTabRoot: onTabRoot),
-        floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+        floatingActionButton: isDesktop
+            ? null
+            : _fab(context, role, onTabRoot: onTabRoot, floating: true),
+        // Centred over the page, not over the page plus the rail.
+        floatingActionButtonLocation: const _CenterOfPageFloat(
+          Breakpoints.sidebarCollapsed,
+        ),
         body: _SidebarThenPage(
           sidebar: _Sidebar(
             expanded: isDesktop,
             selectedIndex: selectedIndex,
             destinations: dests,
-            accent: AppTheme.roleAccent(role),
-            accentTint: AppTheme.roleAccentTint(role),
+            accent: context.roleColors.dark,
             currentLocation: GoRouterState.of(context).matchedLocation,
             onSelected: (i) => _onDestinationSelected(context, i, dests),
             onProfileTap: () => context.go('/profile'),
@@ -302,6 +307,25 @@ class ShellPushedRoutesObserver extends NavigatorObserver {
 // ═══════════════════════════════════════════════════════════════════════
 // Private widgets
 // ═══════════════════════════════════════════════════════════════════════
+
+/// [FloatingActionButtonLocation.centerFloat], moved half the rail's width
+/// toward the page so the button is centred over the content.
+class _CenterOfPageFloat extends FloatingActionButtonLocation {
+  final double railWidth;
+
+  const _CenterOfPageFloat(this.railWidth);
+
+  @override
+  Offset getOffset(ScaffoldPrelayoutGeometry scaffoldGeometry) {
+    final centre =
+        FloatingActionButtonLocation.centerFloat.getOffset(scaffoldGeometry);
+    final shift = railWidth / 2;
+    return switch (scaffoldGeometry.textDirection) {
+      TextDirection.ltr => centre.translate(shift, 0),
+      TextDirection.rtl => centre.translate(-shift, 0),
+    };
+  }
+}
 
 /// The sidebar beside the page, in that order for a screen reader and for
 /// Tab (A-7).
@@ -412,7 +436,6 @@ class _Sidebar extends StatelessWidget {
   final int selectedIndex;
   final List<_NavDestination> destinations;
   final Color accent;
-  final Color accentTint;
   final String currentLocation;
   final ValueChanged<int> onSelected;
   final VoidCallback onProfileTap;
@@ -425,7 +448,6 @@ class _Sidebar extends StatelessWidget {
     required this.selectedIndex,
     required this.destinations,
     required this.accent,
-    required this.accentTint,
     required this.currentLocation,
     required this.onSelected,
     required this.onProfileTap,
@@ -445,7 +467,7 @@ class _Sidebar extends StatelessWidget {
         color: Colors.white,
         border: Border(
           right: BorderSide(
-            color: AppTheme.whisperBorder,
+            color: AppTheme.line,
           ),
         ),
       ),
@@ -453,11 +475,11 @@ class _Sidebar extends StatelessWidget {
         children: [
           // App branding
           _SidebarHeader(expanded: expanded),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
           // Navigation items
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: EdgeInsets.symmetric(horizontal: expanded ? 20 : 12),
               children: [
                 for (int i = 0; i < destinations.length; i++)
                   _SidebarItem(
@@ -465,18 +487,17 @@ class _Sidebar extends StatelessWidget {
                     selected: selectedIndex == i,
                     expanded: expanded,
                     accent: accent,
-                    accentTint: accentTint,
                     onTap: () => onSelected(i),
                   ),
                 if (expanded && actionButton != null) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
                   actionButton!,
                 ],
               ],
             ),
           ),
-          // Bottom section: profile + settings
-          const Divider(color: AppTheme.whisperBorder, height: 1),
+          // Bottom section: settings, then the user card (the board has no
+          // rule above it).
           _SidebarFooter(
             expanded: expanded,
             role: role,
@@ -501,41 +522,46 @@ class _SidebarHeader extends StatelessWidget {
     return Container(
       padding: EdgeInsets.fromLTRB(
         expanded ? 20 : 12,
-        MediaQuery.of(context).padding.top + 20,
+        MediaQuery.of(context).padding.top + 28,
         expanded ? 20 : 12,
         8,
       ),
       child: Row(
+        mainAxisAlignment:
+            expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
         children: [
-          // The Web board's 36 px mark and 16 px name, which fit the
-          // 220 px sidebar.
+          // The Web board's mark: 40 px, the role's colour, the tractor.
           Container(
-            width: 36,
-            height: 36,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              color: AppTheme.fieldGreen,
-              borderRadius: BorderRadius.circular(11),
+              color: context.roleColors.primary,
+              borderRadius: BorderRadius.circular(12),
             ),
-            // The boards' mark: a route between two places.
             child: const Icon(
-              Icons.route,
+              Icons.agriculture,
               color: Colors.white,
-              size: 20,
+              size: 25,
             ),
           ),
           if (expanded) ...[
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                AppLocalizations.of(context)!.appName,
-                style: const TextStyle(
-                  color: AppTheme.soilDark,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.4,
+              // The board's 18 px name; it shrinks before it is cut where
+              // the sidebar or large text leaves less room.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  AppLocalizations.of(context)!.appName,
+                  style: const TextStyle(
+                    color: AppTheme.ink,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.36,
+                  ),
+                  maxLines: 1,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -624,7 +650,6 @@ class _SidebarItem extends StatelessWidget {
   final bool selected;
   final bool expanded;
   final Color accent;
-  final Color accentTint;
   final VoidCallback onTap;
 
   const _SidebarItem({
@@ -632,7 +657,6 @@ class _SidebarItem extends StatelessWidget {
     required this.selected,
     required this.expanded,
     required this.accent,
-    required this.accentTint,
     required this.onTap,
   });
 
@@ -659,8 +683,10 @@ class _SidebarItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final iconColor = selected ? accent : AppTheme.unselectedNav;
-    final textColor = selected ? accent : AppTheme.unselectedNav;
+    // The role's dark shade on the board's warm ground: the plain role
+    // colour falls under 4.5:1 there for the farmer and the buyer.
+    final iconColor = selected ? accent : AppTheme.inkSoft;
+    final textColor = selected ? accent : AppTheme.inkSoft;
     final borderRadius = BorderRadius.circular(12);
 
     return Padding(
@@ -679,9 +705,9 @@ class _SidebarItem extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             color: selected
-                ? accentTint
+                ? AppTheme.sidebarSelected
                 : hovered
-                    ? const Color(0xFFF3F1EB)
+                    ? AppTheme.paper
                     : Colors.transparent,
             borderRadius: borderRadius,
           ),
@@ -753,13 +779,16 @@ class _SidebarFooter extends StatelessWidget {
       UserRole.trucker => l10n.trucker,
       UserRole.buyer => l10n.buyer,
     };
-    // Where the user is and what they do: "Meki · Farmer".
-    final subtitle = woreda.isNotEmpty ? '$woreda · $roleName' : roleName;
+    // What the user does and where, as on the Web board: "Buyer · Merkato".
+    // The role comes first so a long place name is what gets cut.
+    final subtitle = woreda.isNotEmpty ? '$roleName · $woreda' : roleName;
 
     return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: expanded ? 14 : 8,
-        vertical: 12,
+      padding: EdgeInsets.fromLTRB(
+        expanded ? 20 : 12,
+        12,
+        expanded ? 20 : 12,
+        20,
       ),
       child: Column(
         children: [
@@ -779,12 +808,15 @@ class _SidebarFooter extends StatelessWidget {
             selected: isProfileActive,
             onTap: onProfileTap,
             borderRadius: BorderRadius.circular(12),
-            focusColor: AppTheme.fieldGreen,
+            focusColor: context.roleColors.dark,
             builder: (context, _) => Container(
-              padding: EdgeInsets.all(expanded ? 8 : 6),
+              padding: EdgeInsets.symmetric(
+                horizontal: expanded ? 8 : 0,
+                vertical: 6,
+              ),
               decoration: BoxDecoration(
                 color: isProfileActive
-                    ? AppTheme.fieldGreenTint
+                    ? AppTheme.sidebarSelected
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -796,13 +828,13 @@ class _SidebarFooter extends StatelessWidget {
                           height: 36,
                           decoration: const BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Color(0xFFE6ECF5),
+                            color: AppTheme.segmentTrack,
                           ),
                           alignment: Alignment.center,
                           child: Text(
                             initials,
                             style: const TextStyle(
-                              color: Color(0xFF2E4C7D),
+                              color: AppTheme.slate,
                               fontSize: 13,
                               fontWeight: FontWeight.w800,
                             ),
@@ -816,7 +848,7 @@ class _SidebarFooter extends StatelessWidget {
                               Text(
                                 name.isNotEmpty ? name : roleName,
                                 style: const TextStyle(
-                                  color: AppTheme.soilDark,
+                                  color: AppTheme.ink,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -825,7 +857,7 @@ class _SidebarFooter extends StatelessWidget {
                               Text(
                                 subtitle,
                                 style: const TextStyle(
-                                  color: AppTheme.mutedSteel,
+                                  color: AppTheme.slate,
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -840,17 +872,17 @@ class _SidebarFooter extends StatelessWidget {
                       child: Tooltip(
                         message: name,
                         child: Container(
-                          width: 34,
-                          height: 34,
+                          width: 36,
+                          height: 36,
                           decoration: const BoxDecoration(
                             shape: BoxShape.circle,
-                            color: Color(0xFFE6ECF5),
+                            color: AppTheme.segmentTrack,
                           ),
                           alignment: Alignment.center,
                           child: Text(
                             initials,
                             style: const TextStyle(
-                              color: Color(0xFF2E4C7D),
+                              color: AppTheme.slate,
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
                             ),
@@ -885,26 +917,26 @@ class _SidebarFooterButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isActive ? AppTheme.fieldGreen : AppTheme.mutedSteel;
+    final color = isActive ? context.roleColors.dark : AppTheme.inkSoft;
     final displayIcon = isActive ? (selectedIcon ?? icon) : icon;
-    final borderRadius = BorderRadius.circular(10);
+    final borderRadius = BorderRadius.circular(12);
 
     return _SidebarButton(
       label: label,
       selected: isActive,
       onTap: onTap,
       borderRadius: borderRadius,
-      focusColor: AppTheme.fieldGreen,
+      focusColor: context.roleColors.dark,
       builder: (context, hovered) => Container(
-        height: 38,
+        height: 44,
         padding: EdgeInsets.symmetric(
-          horizontal: expanded ? 10 : 0,
+          horizontal: expanded ? 12 : 0,
         ),
         decoration: BoxDecoration(
           color: isActive
-              ? AppTheme.fieldGreenTint
+              ? AppTheme.sidebarSelected
               : hovered
-                  ? const Color(0xFFF3F1EB)
+                  ? AppTheme.paper
                   : Colors.transparent,
           borderRadius: borderRadius,
         ),
@@ -912,13 +944,18 @@ class _SidebarFooterButton extends StatelessWidget {
             ? Row(
                 children: [
                   Icon(displayIcon, color: color, size: 20),
-                  const SizedBox(width: 10),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 13,
-                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 14,
+                        fontWeight:
+                            isActive ? FontWeight.w700 : FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
@@ -926,7 +963,7 @@ class _SidebarFooterButton extends StatelessWidget {
             : Center(
                 child: Tooltip(
                   message: label,
-                  child: Icon(displayIcon, color: color, size: 20),
+                  child: Icon(displayIcon, color: color, size: 22),
                 ),
               ),
       ),

@@ -76,8 +76,7 @@ class EscrowStatusBadge extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
         decoration: BoxDecoration(
           color: kind.background,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: fg.withValues(alpha: 0.25)),
+          borderRadius: BorderRadius.circular(24),
         ),
         child: Column(
           children: [
@@ -94,9 +93,11 @@ class EscrowStatusBadge extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              pending
-                  ? l10n.escrowDescRefundPending
-                  : _statusDescription(status, l10n),
+              escrowStatusDescription(
+                status,
+                l10n,
+                refundPending: refundPending,
+              ),
               style: TextStyle(
                 color: fg.withValues(alpha: 0.8),
                 fontSize: 14,
@@ -123,11 +124,20 @@ class EscrowStatusBadge extends StatelessWidget {
       PaymentStatus.unknown => Icons.help_outline,
     };
   }
+}
 
-  static String _statusDescription(
-    PaymentStatus status,
-    AppLocalizations l10n,
-  ) {
+/// The sentence under an escrow status ("Funds held safely until
+/// delivery"), shared by the large badge and the escrow status screen's
+/// summary card. [refundPending] as on [EscrowStatusBadge].
+String escrowStatusDescription(
+  PaymentStatus status,
+  AppLocalizations l10n, {
+  bool refundPending = false,
+}) {
+  if (refundPending && status == PaymentStatus.escrowed) {
+    return l10n.escrowDescRefundPending;
+  }
+  {
     return switch (status) {
       PaymentStatus.initiated => l10n.escrowDescInitiated,
       PaymentStatus.escrowed => l10n.escrowDescEscrowed,

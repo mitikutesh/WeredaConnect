@@ -10,6 +10,8 @@ import 'package:wereda_connect/features/escrow_payment/presentation/screens/paym
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/messages_inbox_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
+import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
@@ -49,9 +51,9 @@ class HeaderActions extends StatelessWidget {
 /// trucker), then Profile and Settings. The phone bar has no slot for them.
 ///
 /// Draws nothing under a web sidebar ([SidebarScope]), which lists the same
-/// pages, or when no one is signed in. A gold dot shows unread messages.
+/// pages, or when no one is signed in. An orange dot shows unread messages.
 class AccountButton extends StatelessWidget {
-  /// The trucker's dark Home header.
+  /// On a black header.
   final bool dark;
 
   const AccountButton({this.dark = false, super.key});
@@ -115,7 +117,7 @@ class _Avatar extends StatelessWidget {
         onTap: onTap,
         child: Material(
           key: const Key('account_button'),
-          color: dark ? const Color(0xFF22302A) : const Color(0xFFE6ECF5),
+          color: dark ? AppTheme.inkCard : AppTheme.paper,
           shape: const CircleBorder(),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
@@ -130,7 +132,7 @@ class _Avatar extends StatelessWidget {
                   Icon(
                     Icons.person,
                     size: 22,
-                    color: dark ? Colors.white : const Color(0xFF2E4C7D),
+                    color: dark ? Colors.white : AppTheme.ink,
                   ),
                   if (unread)
                     Positioned(
@@ -141,12 +143,10 @@ class _Avatar extends StatelessWidget {
                         width: 10,
                         height: 10,
                         decoration: BoxDecoration(
-                          color: AppTheme.accentGold,
+                          color: AppTheme.orange,
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: dark
-                                ? const Color(0xFF22302A)
-                                : const Color(0xFFE6ECF5),
+                            color: dark ? AppTheme.inkCard : AppTheme.paper,
                             width: 2,
                           ),
                         ),
@@ -192,11 +192,12 @@ Widget Function()? _extraScreen(RoleTab tab) => switch (tab) {
       RoleTab.payments => () => const PaymentHistoryScreen(),
       RoleTab.orders => () =>
           const Scaffold(body: OrdersTabScreen(showBackButton: true)),
+      RoleTab.deliveries => () => const DeliveriesPage(),
+      RoleTab.findTrips => () => const BrowseTripsScreen(),
       RoleTab.home ||
       RoleTab.myCrops ||
       RoleTab.myTrips ||
-      RoleTab.market ||
-      RoleTab.deliveries =>
+      RoleTab.market =>
         null,
     };
 
@@ -231,6 +232,14 @@ List<_AccountItem> _itemsForRole(UserRole role, AppLocalizations l10n) {
   ];
 }
 
+/// A person's initials for their avatar: the first letters of the first two
+/// words of [name] ("Almaz Bekele" gives "AB"), "?" for an empty name.
+String accountInitials(String name) {
+  final words = name.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
+  if (words.isEmpty) return '?';
+  return words.take(2).map((w) => w.characters.first.toUpperCase()).join();
+}
+
 /// Opens the account sheet for the signed-in user.
 Future<void> showAccountSheet(BuildContext context) async {
   final auth = context.read<AuthBloc>().state;
@@ -245,8 +254,9 @@ Future<void> showAccountSheet(BuildContext context) async {
     context: context,
     // Over the shell's bar and create button, not under them.
     useRootNavigator: true,
+    backgroundColor: AppTheme.ground,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
     ),
     builder: (sheetContext) => _AccountSheet(
       auth: auth,
@@ -292,7 +302,7 @@ class _AccountSheet extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+        padding: const EdgeInsets.fromLTRB(8, 12, 8, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -302,44 +312,70 @@ class _AccountSheet extends StatelessWidget {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: AppTheme.textMuted.withAlpha(60),
-                  borderRadius: BorderRadius.circular(2),
+                  color: AppTheme.sketch,
+                  borderRadius: BorderRadius.circular(999),
                 ),
               ),
             ),
             const SizedBox(height: 16),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.soilDark,
+                  // Whose app this is: the initials on the role's tint.
+                  ExcludeSemantics(
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: context.roleColors.tint,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        accountInitials(name),
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: context.roleColors.primary,
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.mutedSteel,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.4,
+                            color: AppTheme.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: AppTheme.slate,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 12),
-            const Divider(height: 1),
-            const SizedBox(height: 4),
             for (final item in items) _row(context, item),
           ],
         ),
@@ -350,21 +386,35 @@ class _AccountSheet extends StatelessWidget {
   Widget _row(BuildContext context, _AccountItem item) {
     Widget tile(int unread) => ListTile(
           key: Key('account_menu_${item.id}'),
+          minTileHeight: 56,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
           ),
-          leading: Icon(item.icon, color: AppTheme.soilDark),
+          leading: Container(
+            width: 38,
+            height: 38,
+            decoration: const BoxDecoration(
+              color: AppTheme.paper,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(item.icon, size: 18, color: AppTheme.ink),
+          ),
           title: Text(
             item.label,
             style: const TextStyle(
               fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.soilDark,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.ink,
             ),
           ),
           trailing: unread > 0
-              ? Badge(label: Text('$unread'))
-              : const Icon(Icons.chevron_right, color: AppTheme.mutedSteel),
+              ? FwPill(
+                  label: '$unread',
+                  background: AppTheme.orange,
+                  foreground: AppTheme.ink,
+                )
+              : const Icon(Icons.chevron_right, color: AppTheme.slate),
           onTap: () => Navigator.of(context).pop(item),
         );
     final inbox = this.inbox;

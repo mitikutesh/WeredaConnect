@@ -26,7 +26,7 @@ class StarRating extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final starColor = color ?? AppTheme.accentGold;
+    final starColor = color ?? AppTheme.orange;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(max, (index) {
