@@ -3631,6 +3631,18 @@ class AppLocalizationsAm extends AppLocalizations {
       'ትዕዛዝዎ በጊዜው ስላልተከፈለ ተዘግቷል። አዲስ ትዕዛዝ ማስገባት ይችላሉ።';
 
   @override
+  String get notifCommissionChangedTitle => 'የትዕዛዙ ጠቅላላ ዋጋ ተቀይሯል';
+
+  @override
+  String notifCommissionChangedBody(String rate, String total) {
+    return 'የዚህ ትዕዛዝ የመድረክ ኮሚሽን አሁን $rate ነው። አዲሱ ጠቅላላ፦ $total። እስካሁን ምንም አልተከፈለም።';
+  }
+
+  @override
+  String get notifCommissionChangedBodyNoTotal =>
+      'የዚህ ትዕዛዝ የመድረክ ኮሚሽን ተቀይሯል። ከመክፈልዎ በፊት አዲሱን ጠቅላላ ለማየት ትዕዛዙን ይክፈቱ።';
+
+  @override
   String get notifPaymentFailedTitle => 'ክፍያው አልተሳካም';
 
   @override
