@@ -5,7 +5,7 @@ import type { Locale } from '../i18n';
 import { t, localePath } from '../i18n';
 import Icon from './Icon.astro';
 import SectionHeading from './SectionHeading.astro';
-import { roles, stepNumbers } from './roles';
+import { roles, roleTones, stepNumbers } from './roles';
 
 interface Props {
   locale: Locale;
@@ -23,7 +23,7 @@ const { locale } = Astro.props;
         title={t(locale, 'howItWorks.subtitle')}
         class="max-w-[640px]"
       />
-      <a href={localePath(locale, '/how-it-works/')} class="inline-flex min-h-[44px] items-center gap-2 text-base font-bold text-primary no-underline hover:underline">
+      <a href={localePath(locale, '/how-it-works/')} class="inline-flex min-h-[44px] items-center gap-2 text-base font-bold text-ink underline underline-offset-4 hover:no-underline">
         <span>{t(locale, 'howItWorks.seeFull')}</span>
         <Icon name="arrowRight" size={20} />
       </a>
@@ -31,23 +31,23 @@ const { locale } = Astro.props;
 
     <div class="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-6 stagger-children">
       {roles.map((role) => (
-        <article class="flex flex-col gap-6 rounded-3xl border border-border-light bg-white p-8 animate-on-scroll">
+        <article class="flex flex-col gap-6 rounded-3xl border border-line bg-paper p-8 animate-on-scroll">
           <div class="flex items-center gap-3.5">
-            <span class="flex h-[52px] w-[52px] items-center justify-center rounded-2xl bg-primary text-white">
+            <span class:list={['flex h-[52px] w-[52px] items-center justify-center rounded-2xl', roleTones[role.key].solid]}>
               <Icon name={role.icon} size={26} strokeWidth={1.8} />
             </span>
             <div class="flex flex-col gap-0.5">
               <h3 class="m-0 text-[22px] font-extrabold tracking-[-0.01em]">{t(locale, `howItWorks.${role.key}.title`)}</h3>
-              <span class="text-sm text-text-muted">{t(locale, `howItWorks.${role.key}.tagline`)}</span>
+              <span class="text-sm text-slate">{t(locale, `howItWorks.${role.key}.tagline`)}</span>
             </div>
           </div>
           <ol class="m-0 flex list-none flex-col gap-5 p-0">
             {stepNumbers.map((step) => (
               <li class="flex gap-3.5">
-                <span aria-hidden="true" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-tint text-sm font-extrabold text-primary">{step}</span>
+                <span aria-hidden="true" class:list={['flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-extrabold', roleTones[role.key].tint]}>{step}</span>
                 <div class="flex flex-col gap-1">
                   <span class="text-base font-bold">{t(locale, `howItWorks.${role.key}.step${step}.title`)}</span>
-                  <span class="text-sm leading-[1.55] text-text-muted">{t(locale, `howItWorks.${role.key}.step${step}.description`)}</span>
+                  <span class="text-sm leading-[1.55] text-slate">{t(locale, `howItWorks.${role.key}.step${step}.description`)}</span>
                 </div>
               </li>
             ))}

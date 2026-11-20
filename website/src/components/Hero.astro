@@ -15,25 +15,25 @@ const points = ['hero.point1', 'hero.point2', 'hero.point3'];
 <section aria-labelledby="hero-title" class="px-6 py-[72px]">
   <div class="mx-auto max-w-[1200px] flex flex-wrap items-center gap-x-16 gap-y-12">
     <div class="flex min-w-0 flex-[1_1_440px] flex-col gap-6 animate-on-scroll">
-      <p class="eyebrow text-accent-dark">{t(locale, 'hero.eyebrow')}</p>
+      <p class="eyebrow text-slate">{t(locale, 'hero.eyebrow')}</p>
       <h1 id="hero-title" class="m-0 text-[clamp(40px,4.6vw,66px)] leading-[1.04] tracking-[-0.025em] font-extrabold">
         {t(locale, 'hero.title')}
       </h1>
-      <p class="m-0 max-w-[540px] text-xl leading-[1.55] text-text-muted">{t(locale, 'hero.subtitle')}</p>
+      <p class="m-0 max-w-[540px] text-xl leading-[1.55] text-slate">{t(locale, 'hero.subtitle')}</p>
       <div class="flex flex-wrap items-center gap-3">
-        <a href={localePath(locale, '/#download')} class="btn bg-accent text-white hover:bg-accent-dark">
+        <a href={localePath(locale, '/#download')} class="btn bg-orange text-ink hover:bg-orange-deep">
           <Icon name="download" size={20} />
           <span>{t(locale, 'hero.cta')}</span>
         </a>
-        <a href={localePath(locale, '/how-it-works/')} class="btn border-[1.5px] border-primary text-primary hover:bg-primary-tint">
+        <a href={localePath(locale, '/how-it-works/')} class="btn bg-ink text-white hover:bg-ink-card">
           <span>{t(locale, 'hero.seeHow')}</span>
           <Icon name="arrowRight" size={20} />
         </a>
       </div>
-      <ul class="mt-2 flex list-none flex-wrap gap-x-6 gap-y-3 p-0 text-sm font-semibold text-text-muted">
+      <ul class="mt-2 flex list-none flex-wrap gap-x-6 gap-y-3 p-0 text-sm font-semibold text-ink-soft">
         {points.map((key) => (
           <li class="inline-flex items-center gap-2">
-            <Icon name="check" size={18} strokeWidth={2.2} class="text-primary" />
+            <Icon name="check" size={18} strokeWidth={2.2} class="text-ink" />
             <span>{t(locale, key)}</span>
           </li>
         ))}
