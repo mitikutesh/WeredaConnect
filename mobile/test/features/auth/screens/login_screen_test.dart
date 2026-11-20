@@ -120,8 +120,8 @@ void main() {
       // Password field
       expect(find.text('Password'), findsWidgets);
 
-      // Login button
-      expect(find.text('Login'), findsWidgets);
+      // Login button: the first run opens in the Farmer look
+      expect(find.text('Login as Farmer'), findsOneWidget);
 
       // Register link
       expect(find.text("Don't have an account? Register"), findsOneWidget);
@@ -130,7 +130,7 @@ void main() {
       expect(find.text('Forgot Password?'), findsOneWidget);
 
       // Inline language switch, each language in its own script
-      expect(find.text('Language'), findsOneWidget);
+      expect(find.text('LANGUAGE'), findsOneWidget);
       expect(find.text('English'), findsOneWidget);
       expect(find.text('አማርኛ'), findsOneWidget);
       expect(find.text('Afaan Oromoo'), findsOneWidget);
@@ -138,7 +138,7 @@ void main() {
       // Branding copy comes from l10n, not hardcoded English
       expect(find.text('Works without network'), findsOneWidget);
       expect(
-        find.text('Connecting Ethiopian farmers, truckers, and buyers'),
+        find.text('Sell your harvest and follow every order'),
         findsOneWidget,
       );
       expect(

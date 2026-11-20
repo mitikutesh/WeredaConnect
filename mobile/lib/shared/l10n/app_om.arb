@@ -336,6 +336,20 @@
   "@forgotPassword": {
     "description": "Forgot password link"
   },
+  "loginYourRole": "Gahee kee",
+  "loginAsFarmer": "Akka Qotee Bulaatti Seeni",
+  "loginAsTrucker": "Akka Konkolaachisaatti Seeni",
+  "loginAsBuyer": "Akka Bitaatti Seeni",
+  "loginTaglineFarmer": "Oomisha kee gurguri, ajaja hunda hordofi",
+  "loginTaglineTrucker": "Konkolaataa kee guuti, yeroo geessitu kaffaltii kee argadhu",
+  "loginTaglineBuyer": "Midhaanii fi geejjiba bakka tokkotti argadhu",
+  "orderCheckoutApproveNote": "Kaffaltii Telebirr keessatti mirkaneessuu qabdu. Sana booda hanga geessuu mirkaneessitanitti maallaqni Eeskiroo keessatti qabama.",
+  "paymentNotPaidPill": "Hin kaffalamne",
+  "paymentFailedTitle": "Kaffaltiin hin milkoofne",
+  "paymentFailedBody": "Herrega Telebirr keessan irraa maallaqni hin fudhatamne, ajajni keessanis akkuma olkaa'ametti jira.",
+  "paymentTryAgain": "Kaffaltii irra deebi'aa yaalaa",
+  "paymentOfflineBody": "Kaffaltiin neetworkii barbaada. Ajajni keessan bilbila kana irratti olkaa'ameera.",
+  "paymentBackToOrder": "Gara ajajaatti deebi'i",
   "getStarted": "Jalqabi",
   "@getStarted": {
     "description": "Get started button"

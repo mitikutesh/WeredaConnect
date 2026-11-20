@@ -640,6 +640,90 @@ abstract class AppLocalizations {
   /// **'Forgot Password?'**
   String get forgotPassword;
 
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Screen reader name of the Farmer, Trucker, Buyer switch; the switch only dresses the screen
+  ///
+  /// In en, this message translates to:
+  /// **'Your role'**
+  String get loginYourRole;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Login button while the Farmer look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Login as Farmer'**
+  String get loginAsFarmer;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Login button while the Trucker look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Login as Trucker'**
+  String get loginAsTrucker;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Login button while the Buyer look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Login as Buyer'**
+  String get loginAsBuyer;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Line above the welcome title while the Farmer look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Sell your harvest and follow every order'**
+  String get loginTaglineFarmer;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Line above the welcome title while the Trucker look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Fill your truck and get paid on delivery'**
+  String get loginTaglineTrucker;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Line above the welcome title while the Buyer look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Find crops and transport in one place'**
+  String get loginTaglineBuyer;
+
+  /// Design canvas page M, Telebirr payment. am and om machine drafted, native review owed. Status card while the app waits for the buyer to approve in Telebirr
+  ///
+  /// In en, this message translates to:
+  /// **'You need to approve the payment in Telebirr. Then the money is held in escrow until you confirm delivery.'**
+  String get orderCheckoutApproveNote;
+
+  /// Design canvas page M, payment failed state. am and om machine drafted, native review owed. Pill above the title
+  ///
+  /// In en, this message translates to:
+  /// **'Not paid'**
+  String get paymentNotPaidPill;
+
+  /// Design canvas page M, payment failed state. am and om machine drafted, native review owed. Title
+  ///
+  /// In en, this message translates to:
+  /// **'Payment did not go through'**
+  String get paymentFailedTitle;
+
+  /// Design canvas page M, payment failed state. am and om machine drafted, native review owed. Explanation under the title
+  ///
+  /// In en, this message translates to:
+  /// **'No money was taken from your Telebirr account, and your order is still saved.'**
+  String get paymentFailedBody;
+
+  /// Design canvas page M, payment failed state. am and om machine drafted, native review owed. Main button: start the payment again
+  ///
+  /// In en, this message translates to:
+  /// **'Try payment again'**
+  String get paymentTryAgain;
+
+  /// Design canvas page M, payment offline state. am and om machine drafted, native review owed. Explanation under the title No internet connection
+  ///
+  /// In en, this message translates to:
+  /// **'Payment needs a connection. Your order is saved on this phone.'**
+  String get paymentOfflineBody;
+
+  /// Design canvas page M, payment offline state. am and om machine drafted, native review owed. Second button: leave the payment and show the order
+  ///
+  /// In en, this message translates to:
+  /// **'Back to order'**
+  String get paymentBackToOrder;
+
   /// Get started button
   ///
   /// In en, this message translates to:
@@ -4033,7 +4117,7 @@ abstract class AppLocalizations {
   /// Subtitle on splash/landing screen
   ///
   /// In en, this message translates to:
-  /// **'One platform for farmers, truckers, and buyers — with secure escrow.'**
+  /// **'One platform for farmers, truckers, and buyers, with secure escrow.'**
   String get splashSubtitle;
 
   /// Order status label for funded/paid orders

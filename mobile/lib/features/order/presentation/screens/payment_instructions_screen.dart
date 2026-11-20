@@ -19,9 +19,10 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
-/// Screen for paying for an order after it is created (the Buyer · Telebirr
-/// payment board: the amount in the green card, how the payment confirms
-/// it is the buyer, and Pay pinned at the foot).
+/// Screen for paying for an order after it is created (the PaymentM board:
+/// the amount on the raised card, how the payment confirms it is the buyer,
+/// and the orange Pay pinned at the foot). A payment that could not be sent
+/// for lack of a network takes the page as the PaymentOfflineM state.
 ///
 /// Demo builds: Telebirr is the default method. The Commercial Bank of
 /// Ethiopia (CBE) transfer is offered beside it only when a real account is
@@ -154,6 +155,21 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
         );
   }
 
+  /// The last submit did not reach the server (no network, or it timed
+  /// out): the page shows the offline state until the buyer tries again or
+  /// leaves (BUG-19: the same payment is offered again; the order is read
+  /// first, so a payment that did arrive is not sent twice).
+  bool _offline = false;
+
+  /// Leave the payment for the order, as a paid order does.
+  void _backToOrder() {
+    if (widget.fromOrderDetail) {
+      Navigator.of(context).pop();
+    } else {
+      replaceWithOrderDetail(context, widget.order.orderId);
+    }
+  }
+
   /// A password prompt is open. Only the server knows that a payment needs
   /// a fresh password (AUTH_040: the token's age and the risk tier), so the
   /// first submit is how the client learns it. This keeps the answer to one
@@ -213,6 +229,9 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
     return Scaffold(
       body: BlocListener<OrderBloc, OrderState>(
         listener: (context, state) {
+          if (_offline && state is! OrderError && state is! OrderLoading) {
+            setState(() => _offline = false);
+          }
           if (state is PaymentSubmitted && _live) {
             // The checkout screen opens Telebirr once the payment is on the
             // server.
@@ -249,240 +268,236 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
             // Every KYC refusal opens the dialog: it offers Fayda only when
             // the buyer must verify, and names the farmer otherwise (SIM-49).
             _retryAfterKyc(state.message);
+          } else if (state is OrderError &&
+              (state.code == AppErrorCode.network ||
+                  state.code == AppErrorCode.timeout)) {
+            // BUG-19: a lost connection says so, as the full offline state,
+            // and offers the same payment again.
+            setState(() => _offline = true);
           } else if (state is OrderError) {
-            // BUG-19: a lost connection says so and offers the same payment
-            // again. The order is read first, so a payment that did reach
-            // the server is not sent twice.
-            final offline = state.code == AppErrorCode.network ||
-                state.code == AppErrorCode.timeout;
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(localizeErrorCode(state.code, l10n)),
-                action: offline
-                    ? SnackBarAction(
-                        label: l10n.retry,
-                        onPressed: () {
-                          if (mounted) _submitPayment();
-                        },
-                      )
-                    : null,
-              ),
+              SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
             );
           }
         },
-        child: SafeArea(
-          bottom: false,
-          child: SingleChildScrollView(
-            child: FwContentWidth(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // The board closes the payment with an X, not Back.
-                  FwDetailHeader(
-                    title: _live
-                        ? l10n.orderCheckoutTitle
-                        : l10n.paymentInstructions,
-                    onBack: () => Navigator.of(context).pop(),
+        child: _offline
+            ? SafeArea(
+                child: BlocBuilder<OrderBloc, OrderState>(
+                  builder: (context, state) => PaymentStateView.offline(
+                    l10n: l10n,
+                    onTryAgain: state is OrderLoading ? null : _submitPayment,
+                    onBackToOrder: _backToOrder,
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                ),
+              )
+            : SafeArea(
+                bottom: false,
+                child: SingleChildScrollView(
+                  child: FwContentWidth(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        PaymentAmountCard(
-                          amount: amount,
-                          detail: paymentAmountDetail(widget.order, l10n),
+                        // The board closes the payment with an X, not Back.
+                        PaymentHeader(
+                          title: _live
+                              ? l10n.orderCheckoutTitle
+                              : l10n.paymentInstructions,
+                          onClose: () => Navigator.of(context).pop(),
                         ),
-                        const SizedBox(height: 14),
-                        if (_live) ...[
-                          // Telebirr payment board: how the payment asks the
-                          // buyer to confirm it is them.
-                          const ConfirmItsYouCard(),
-                          if (!_withinTelebirrLimits) ...[
-                            const SizedBox(height: 14),
-                            Text(
-                              l10n.paymentTotalOutOfRange,
-                              style: theme.textTheme.bodyMedium
-                                  ?.copyWith(color: theme.colorScheme.error),
-                            ),
-                          ],
-                        ] else ...[
-                          // ── Payment method selector ───────────────────
-                          Text(l10n.selectPaymentMethod, style: _cardTitle),
-                          const SizedBox(height: 8),
-                          FwCard(
-                            padding: EdgeInsets.zero,
-                            child: Column(
-                              children: [
-                                // Telebirr first: it is the default.
-                                _PaymentMethodTile(
-                                  icon: Icons.phone_android,
-                                  label: l10n.paymentMethodTelebirr,
-                                  selected: _method == _PaymentMethod.telebirr,
-                                  onTap: () => setState(
-                                    () => _method = _PaymentMethod.telebirr,
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              PaymentAmountCard(
+                                amount: amount,
+                                detail: paymentAmountDetail(widget.order, l10n),
+                              ),
+                              const SizedBox(height: 18),
+                              if (_live) ...[
+                                // Telebirr payment board: how the payment asks the
+                                // buyer to confirm it is them.
+                                const ConfirmItsYouCard(),
+                                if (!_withinTelebirrLimits) ...[
+                                  const SizedBox(height: 14),
+                                  Text(
+                                    l10n.paymentTotalOutOfRange,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: theme.colorScheme.error,
+                                    ),
+                                  ),
+                                ],
+                              ] else ...[
+                                // ── Payment method selector ───────────────────
+                                Text(
+                                  l10n.selectPaymentMethod,
+                                  style: _cardTitle,
+                                ),
+                                const SizedBox(height: 8),
+                                FwCard(
+                                  padding: EdgeInsets.zero,
+                                  child: Column(
+                                    children: [
+                                      // Telebirr first: it is the default.
+                                      _PaymentMethodTile(
+                                        icon: Icons.phone_android,
+                                        label: l10n.paymentMethodTelebirr,
+                                        selected:
+                                            _method == _PaymentMethod.telebirr,
+                                        onTap: () => setState(
+                                          () =>
+                                              _method = _PaymentMethod.telebirr,
+                                        ),
+                                      ),
+                                      // No real account, no bank transfer.
+                                      if (cbeAccount != null) ...[
+                                        const Divider(height: 1),
+                                        _PaymentMethodTile(
+                                          icon: Icons.account_balance,
+                                          label: l10n.paymentMethodCbe,
+                                          selected:
+                                              _method == _PaymentMethod.cbe,
+                                          onTap: () => setState(
+                                            () => _method = _PaymentMethod.cbe,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                 ),
-                                // No real account, no bank transfer.
-                                if (cbeAccount != null) ...[
-                                  const Divider(height: 1),
-                                  _PaymentMethodTile(
-                                    icon: Icons.account_balance,
-                                    label: l10n.paymentMethodCbe,
-                                    selected: _method == _PaymentMethod.cbe,
-                                    onTap: () => setState(
-                                      () => _method = _PaymentMethod.cbe,
+                                const SizedBox(height: 14),
+
+                                // ── Demo/mock notice ──────────────────────────
+                                FwNoteBox.cream(
+                                  icon: Icons.info_outline,
+                                  child: Text(l10n.mockPaymentNotice),
+                                ),
+                                const SizedBox(height: 14),
+
+                                // ── Method-specific content ───────────────────
+                                if (_method == _PaymentMethod.cbe &&
+                                    cbeAccount != null) ...[
+                                  Text(
+                                    l10n.cbePaymentInstructions,
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
+                                  const SizedBox(height: 14),
+                                  FwCard(
+                                    child: Column(
+                                      children: [
+                                        _DetailRow(
+                                          icon: Icons.account_balance,
+                                          label: l10n.bankName,
+                                          value: l10n.bankName,
+                                          showCopy: false,
+                                        ),
+                                        const Divider(height: 24),
+                                        _DetailRow(
+                                          icon: Icons.credit_card,
+                                          label: l10n.cbeAccountNumber,
+                                          value: cbeAccount,
+                                          showCopy: true,
+                                        ),
+                                        const Divider(height: 24),
+                                        _DetailRow(
+                                          icon: Icons.tag,
+                                          label: l10n.transferReference,
+                                          value: _reference,
+                                          showCopy: true,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+
+                                  // Optional transaction id (mock generates one
+                                  // when blank).
+                                  TextField(
+                                    controller: _transactionIdController,
+                                    decoration: InputDecoration(
+                                      labelText: l10n.transactionIdOptional,
+                                      prefixIcon:
+                                          const Icon(Icons.receipt_long),
+                                    ),
+                                  ),
+                                ] else ...[
+                                  Text(
+                                    l10n.telebirrPayInstructions,
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
+                                  const SizedBox(height: 14),
+                                  FwCard(
+                                    child: Column(
+                                      children: [
+                                        _DetailRow(
+                                          icon: Icons.phone_android,
+                                          label: l10n.paymentMethodTelebirr,
+                                          value: l10n.telebirrPayment,
+                                          showCopy: false,
+                                        ),
+                                        const Divider(height: 24),
+                                        _DetailRow(
+                                          icon: Icons.tag,
+                                          label: l10n.transferReference,
+                                          value: _reference,
+                                          showCopy: true,
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],
                               ],
-                            ),
+                            ],
                           ),
-                          const SizedBox(height: 14),
-
-                          // ── Demo/mock notice ──────────────────────────
-                          FwNoteBox.cream(
-                            icon: Icons.info_outline,
-                            child: Text(l10n.mockPaymentNotice),
-                          ),
-                          const SizedBox(height: 14),
-
-                          // ── Method-specific content ───────────────────
-                          if (_method == _PaymentMethod.cbe &&
-                              cbeAccount != null) ...[
-                            Text(
-                              l10n.cbePaymentInstructions,
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                            const SizedBox(height: 14),
-                            FwCard(
-                              child: Column(
-                                children: [
-                                  _DetailRow(
-                                    icon: Icons.account_balance,
-                                    label: l10n.bankName,
-                                    value: l10n.bankName,
-                                    showCopy: false,
-                                  ),
-                                  const Divider(height: 24),
-                                  _DetailRow(
-                                    icon: Icons.credit_card,
-                                    label: l10n.cbeAccountNumber,
-                                    value: cbeAccount,
-                                    showCopy: true,
-                                  ),
-                                  const Divider(height: 24),
-                                  _DetailRow(
-                                    icon: Icons.tag,
-                                    label: l10n.transferReference,
-                                    value: _reference,
-                                    showCopy: true,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-
-                            // Optional transaction id (mock generates one
-                            // when blank).
-                            TextField(
-                              controller: _transactionIdController,
-                              decoration: InputDecoration(
-                                labelText: l10n.transactionIdOptional,
-                                prefixIcon: const Icon(Icons.receipt_long),
-                              ),
-                            ),
-                          ] else ...[
-                            Text(
-                              l10n.telebirrPayInstructions,
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                            const SizedBox(height: 14),
-                            FwCard(
-                              child: Column(
-                                children: [
-                                  _DetailRow(
-                                    icon: Icons.phone_android,
-                                    label: l10n.paymentMethodTelebirr,
-                                    value: l10n.telebirrPayment,
-                                    showCopy: false,
-                                  ),
-                                  const Divider(height: 24),
-                                  _DetailRow(
-                                    icon: Icons.tag,
-                                    label: l10n.transferReference,
-                                    value: _reference,
-                                    showCopy: true,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ],
+                        ),
                       ],
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
-        ),
       ),
       // ── Pay, pinned at the foot ────────────────────────────────────
-      bottomNavigationBar: BlocBuilder<OrderBloc, OrderState>(
-        builder: (context, state) {
-          final isLoading = state is OrderLoading;
-          final blocked = _live && !_withinTelebirrLimits;
-          return FwBottomActions(
-            children: [
-              FilledButton(
-                onPressed: isLoading || blocked ? null : _submitPayment,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.ink,
-                  minimumSize: const Size.fromHeight(56),
-                  textStyle: const TextStyle(
-                    fontFamily: AppTheme.fontFamily,
-                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                child: isLoading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : Text(
-                        _live ? l10n.payWithTelebirr : l10n.submitPayment,
-                      ),
-              ),
-              const SizedBox(height: 6),
-              TextButton(
-                onPressed: isLoading ? null : () => Navigator.of(context).pop(),
-                style: TextButton.styleFrom(
-                  minimumSize: const Size.fromHeight(44),
-                  foregroundColor: AppTheme.inkSoft,
-                ),
-                child: Text(l10n.payLater),
-              ),
-              FwActionNote(l10n.escrowErrorOffline),
-            ],
-          );
-        },
-      ),
+      bottomNavigationBar: _offline
+          ? null
+          : BlocBuilder<OrderBloc, OrderState>(
+              builder: (context, state) {
+                final isLoading = state is OrderLoading;
+                final blocked = _live && !_withinTelebirrLimits;
+                return FwBottomActions(
+                  children: [
+                    FilledButton(
+                      // The page's one orange action (the theme's button).
+                      onPressed: isLoading || blocked ? null : _submitPayment,
+                      child: isLoading
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppTheme.ink,
+                              ),
+                            )
+                          : Text(
+                              _live ? l10n.payWithTelebirr : l10n.submitPayment,
+                            ),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed:
+                          isLoading ? null : () => Navigator.of(context).pop(),
+                      style: paymentSecondaryButtonStyle(),
+                      child: Text(l10n.payLater),
+                    ),
+                    FwActionNote(l10n.escrowErrorOffline),
+                  ],
+                );
+              },
+            ),
     );
   }
 }
 
-const TextStyle _cardTitle = TextStyle(
-  fontSize: 15,
-  fontWeight: FontWeight.w800,
-  color: AppTheme.ink,
-);
+const TextStyle _cardTitle = FwText.cardTitle;
 
 /// A selectable payment-method row (radio-style, without the deprecated
 /// RadioListTile group API).
@@ -501,16 +516,14 @@ class _PaymentMethodTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return ListTile(
       onTap: onTap,
       leading: Icon(icon),
       title: Text(label),
       trailing: Icon(
         selected ? Icons.radio_button_checked : Icons.radio_button_off,
-        color: selected
-            ? theme.colorScheme.primary
-            : theme.colorScheme.onSurface.withValues(alpha: 0.4),
+        // The picked method's radio is black, as the join steps' radios.
+        color: selected ? AppTheme.ink : AppTheme.fieldBorder,
       ),
     );
   }

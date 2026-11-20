@@ -48,7 +48,7 @@ class FayidaIdScreen extends StatelessWidget {
           child: FwContentWidth(
             maxWidth: 480,
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 22, 20, 16),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -56,7 +56,7 @@ class FayidaIdScreen extends StatelessWidget {
                     title: l10n.faydaVerifyTitle,
                     subtitle: promptMessage ?? l10n.faydaVerifyDescription,
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
                   // Error banner if any
                   if (errorMessage != null) ...[
@@ -122,28 +122,22 @@ class FayidaIdScreen extends StatelessWidget {
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        SizedBox(
-                          height: 56,
-                          child: FilledButton.icon(
-                            onPressed: onFaydaVerifyRequested,
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppTheme.ink,
-                              foregroundColor: Colors.white,
-                            ),
-                            icon: const Icon(Icons.shield_outlined, size: 20),
-                            label: Text(
-                              errorMessage != null
-                                  ? l10n.retry
-                                  : l10n.verifyWithFayda,
-                            ),
+                        // The orange pill (the theme's button).
+                        FilledButton.icon(
+                          onPressed: onFaydaVerifyRequested,
+                          icon: const Icon(Icons.shield_outlined, size: 20),
+                          label: Text(
+                            errorMessage != null
+                                ? l10n.retry
+                                : l10n.verifyWithFayda,
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 10),
                         Text(
                           l10n.joinFaydaNeedsInternet,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontSize: 12,
+                            fontSize: 13,
                             color: AppTheme.slate,
                           ),
                         ),
@@ -156,7 +150,7 @@ class FayidaIdScreen extends StatelessWidget {
   }
 }
 
-/// The board's dark Digital ID card: the label and shield, a photo
+/// The board's black Digital ID card, raised on the soft shadow: the label and shield, a photo
 /// placeholder beside three grey lines (or the verified legal name), and
 /// the note that the legal name comes from Fayda.
 class _DigitalIdCard extends StatelessWidget {
@@ -174,8 +168,9 @@ class _DigitalIdCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: verified ? const Color(0xFF193B2B) : AppTheme.ink,
-        borderRadius: BorderRadius.circular(24),
+        color: AppTheme.ink,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: joinRaisedShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -187,14 +182,14 @@ class _DigitalIdCard extends StatelessWidget {
                 l10n.faydaDigitalIdLabel.toUpperCase(),
                 style: const TextStyle(
                   fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
-                  color: AppTheme.inkMuted,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.4,
+                  color: AppTheme.track,
                 ),
               ),
               Icon(
                 verified ? Icons.verified_outlined : Icons.shield_outlined,
-                color: context.roleColors.mid,
+                color: Colors.white,
                 size: 26,
               ),
             ],
@@ -207,12 +202,12 @@ class _DigitalIdCard extends StatelessWidget {
                 height: 76,
                 decoration: BoxDecoration(
                   color: AppTheme.inkCard,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                 ),
                 child: const Icon(
                   Icons.person_outline,
-                  color: Color(0xFF9AA59F),
-                  size: 30,
+                  color: AppTheme.fieldBorder,
+                  size: 28,
                 ),
               ),
               const SizedBox(width: 14),
@@ -232,9 +227,9 @@ class _DigitalIdCard extends StatelessWidget {
                           const SizedBox(height: 4),
                           Text(
                             l10n.faydaVerifiedWith,
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: 12,
-                              color: context.roleColors.mid,
+                              color: AppTheme.track,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -258,8 +253,8 @@ class _DigitalIdCard extends StatelessWidget {
             l10n.faydaLegalNameNote,
             style: const TextStyle(
               fontSize: 13,
-              color: AppTheme.inkMuted,
-              height: 1.4,
+              color: AppTheme.track,
+              height: 1.5,
             ),
           ),
         ],

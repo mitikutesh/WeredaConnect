@@ -22,10 +22,10 @@ class LanguageSelectionDialog extends StatelessWidget {
     final languageProvider = Provider.of<LanguageProvider>(context);
     final currentLocale = languageProvider.locale;
 
-    // The boards' card: white, radius 18.
+    // The boards' raised card: white, radius 28.
     return AlertDialog(
       backgroundColor: AppTheme.surfaceWhite,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
       title: Text(l10n.language),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -73,7 +73,7 @@ class LanguageSelectionDialog extends StatelessWidget {
               ),
             ),
             secondary: isSelected
-                ? const Icon(Icons.check, color: AppTheme.statusSuccess)
+                ? const Icon(Icons.check, color: AppTheme.ink)
                 : null,
           );
         }).toList(),

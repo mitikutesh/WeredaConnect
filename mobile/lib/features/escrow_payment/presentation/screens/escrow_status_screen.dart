@@ -548,7 +548,7 @@ class _AwaitingPaymentBanner extends StatelessWidget {
                   onOpenAgain!();
                 },
                 style: TextButton.styleFrom(
-                  foregroundColor: AppTheme.ink,
+                  foregroundColor: context.roleColors.primary,
                 ),
                 icon: const Icon(Icons.open_in_new, size: 18),
                 label: Text(l10n.escrowOpenPaymentAgain),

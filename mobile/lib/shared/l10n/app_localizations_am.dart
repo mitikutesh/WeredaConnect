@@ -287,6 +287,50 @@ class AppLocalizationsAm extends AppLocalizations {
   String get forgotPassword => 'የይለፍ ቃል ረሳኽው?';
 
   @override
+  String get loginYourRole => 'የእርስዎ ሚና';
+
+  @override
+  String get loginAsFarmer => 'እንደ ገበሬ ግባ';
+
+  @override
+  String get loginAsTrucker => 'እንደ ሹፌር ግባ';
+
+  @override
+  String get loginAsBuyer => 'እንደ ገዢ ግባ';
+
+  @override
+  String get loginTaglineFarmer => 'ምርትዎን ይሽጡ፣ እያንዳንዱን ትዕዛዝ ይከታተሉ';
+
+  @override
+  String get loginTaglineTrucker => 'መኪናዎን ይሙሉ፣ ሲያደርሱ ክፍያዎን ያግኙ';
+
+  @override
+  String get loginTaglineBuyer => 'ሰብልና ትራንስፖርት በአንድ ቦታ ያግኙ';
+
+  @override
+  String get orderCheckoutApproveNote =>
+      'ክፍያውን በቴሌብር ማጽደቅ አለብዎት። ከዚያ ርክክቡን እስኪያረጋግጡ ድረስ ገንዘቡ በኢስክሮ ይያዛል።';
+
+  @override
+  String get paymentNotPaidPill => 'አልተከፈለም';
+
+  @override
+  String get paymentFailedTitle => 'ክፍያው አልተሳካም';
+
+  @override
+  String get paymentFailedBody =>
+      'ከቴሌብር ሂሳብዎ ምንም ገንዘብ አልተወሰደም፣ ትዕዛዝዎም እንደተቀመጠ ነው።';
+
+  @override
+  String get paymentTryAgain => 'ክፍያውን እንደገና ይሞክሩ';
+
+  @override
+  String get paymentOfflineBody => 'ክፍያ ኔትወርክ ያስፈልገዋል። ትዕዛዝዎ በዚህ ስልክ ላይ ተቀምጧል።';
+
+  @override
+  String get paymentBackToOrder => 'ወደ ትዕዛዙ ተመለስ';
+
+  @override
   String get getStarted => 'ጀምር';
 
   @override

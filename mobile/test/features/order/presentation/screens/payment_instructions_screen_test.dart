@@ -108,6 +108,88 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  // PaymentOfflineM (BUG-19): a payment that could not be sent for lack of
+  // a network takes the page and offers the same payment again.
+  group('no network while paying', () {
+    for (final code in [AppErrorCode.network, AppErrorCode.timeout]) {
+      testWidgets('${code.name}: the offline state, Retry sends it again',
+          (tester) async {
+        await open(tester);
+        await payAndGetRejected(tester, 'x', code: code);
+
+        expect(find.byKey(const Key('payment_offline_state')), findsOneWidget);
+        expect(find.text('No internet connection'), findsOneWidget);
+        expect(
+          find.text(
+            'Payment needs a connection. Your order is saved on this phone.',
+          ),
+          findsOneWidget,
+        );
+        // The form and its pinned actions give way to the state.
+        expect(find.text('Submit Payment'), findsNothing);
+        expect(find.byType(SnackBar), findsNothing);
+
+        await tester.tap(find.widgetWithText(FilledButton, 'Retry'));
+        await tester.pump();
+
+        // The same payment, once more.
+        expect(submitted, hasLength(2));
+        expect(submitted.last.orderId, submitted.first.orderId);
+        expect(submitted.last.paymentMethod, submitted.first.paymentMethod);
+        expect(
+          submitted.last.cbeTransactionId,
+          submitted.first.cbeTransactionId,
+        );
+      });
+    }
+
+    testWidgets('another refusal is still a message, not the offline state',
+        (tester) async {
+      await open(tester);
+      await payAndGetRejected(tester, 'x', code: AppErrorCode.server);
+
+      expect(find.byKey(const Key('payment_offline_state')), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text('Submit Payment'), findsOneWidget);
+    });
+
+    testWidgets('Back to order leaves the payment', (tester) async {
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        BlocProvider<OrderBloc>.value(
+          value: bloc,
+          child: MaterialApp(
+            navigatorKey: navigator,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: const Scaffold(body: Text('the order')),
+          ),
+        ),
+      );
+      // The order detail is the page underneath.
+      unawaited(
+        navigator.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => PaymentInstructionsScreen(
+              order: order(),
+              fromOrderDetail: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await payAndGetRejected(tester, 'x', code: AppErrorCode.network);
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Back to order'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PaymentInstructionsScreen), findsNothing);
+      expect(find.text('the order'), findsOneWidget);
+      expect(submitted, hasLength(1));
+    });
+  });
+
   testWidgets('above 10,000 ETB: a Fayda login resubmits the same payment',
       (tester) async {
     await open(tester);

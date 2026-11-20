@@ -104,8 +104,8 @@ class _AuthGateState extends State<AuthGate> {
 
 /// Loading splash shown during initial auth check.
 ///
-/// Full-screen dark green background with centered logo,
-/// app name, tagline, and gold progress indicator.
+/// The brand before anyone is signed in: a white ground, the black brand
+/// tile, the app name and tagline, and an orange progress ring.
 class _LoadingSplash extends StatelessWidget {
   const _LoadingSplash();
 
@@ -114,49 +114,59 @@ class _LoadingSplash extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
 
     return Scaffold(
-      backgroundColor: context.roleColors.primary,
+      backgroundColor: AppTheme.ground,
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Agriculture icon
-            const Icon(
-              Icons.agriculture,
-              size: 80,
-              color: Colors.white,
-            ),
-            const SizedBox(height: 24),
-            // App name
-            Text(
-              l10n?.appName ?? 'WeredaConnect',
-              style: const TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-                letterSpacing: 0.5,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: AppTheme.ink,
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: const Icon(
+                  Icons.agriculture,
+                  size: 40,
+                  color: Colors.white,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            // Tagline
-            Text(
-              l10n?.taglineShort ?? 'Connecting Farmers, Truckers & Buyers',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.white.withAlpha(200),
-                fontWeight: FontWeight.w400,
+              const SizedBox(height: 20),
+              Text(
+                l10n?.appName ?? 'WeredaConnect',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.ink,
+                  letterSpacing: -0.8,
+                ),
               ),
-            ),
-            const SizedBox(height: 48),
-            // Gold progress indicator
-            const SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                valueColor: AlwaysStoppedAnimation<Color>(AppTheme.orange),
+              const SizedBox(height: 8),
+              Text(
+                l10n?.taglineShort ?? 'Connecting Farmers, Truckers & Buyers',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: AppTheme.slate,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 40),
+              const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  valueColor: AlwaysStoppedAnimation<Color>(AppTheme.orange),
+                  backgroundColor: AppTheme.track,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
