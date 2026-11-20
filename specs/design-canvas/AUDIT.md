@@ -27,7 +27,7 @@ Audit of the 42 boards in this folder against the app, written 2026-11-20 with t
 | Board | State | Notes |
 |---|---|---|
 | Main | Built | The token sheet: `AppTheme` and `RoleColors` carry every colour; component themes cover buttons, inputs, chips, cards, sheets, dialogs, pickers, switches, tabs, tooltips, snackbars. |
-| Foundations | Built | Map language: warm ground, role-coloured trail with white check-in rings, dotted gap over 90 minutes, dashed road ahead, dashed orange halo, truck as a black square with an orange truck, pickup ring in role colour, slate drop-off. Left: roads and terrain (the app has no roads file). |
+| Foundations | Built | Map language: warm ground, role-coloured trail with white check-in rings, dotted gap over 90 minutes, dashed road ahead, dashed orange halo, truck as a black square with an orange truck, pickup ring in role colour, slate drop-off, a pale road under the route the truck uses (pickup, check-ins, drop-off) with a short crossing at each end and a side road to each other stop. Left: other roads and terrain (the app has no roads file). |
 | EthiopianClock | Built (no change) | Every time goes through `ClockText`; am and om show the small 24 hour range. |
 | CheckInFlow | Built (no change) | The request and the read are unchanged. |
 
@@ -57,7 +57,7 @@ Audit of the 42 boards in this folder against the app, written 2026-11-20 with t
 | TruckerHome | Built | White ground, "Today" at 42 px with the truck sketch, raised trip card ("3,000 of 5,000 kg loaded (30 of 50 quintals)"), flat orange tint action card, sand tiles, payments row. |
 | CreateTrip | Built | Capacity in kg with the quintal echo, "Price per 100 kg (ETB)", black swap button, route preview on the map ground. Left: the board's decorative road curves. |
 | TripDetail | Built | Booked card in kg with the role bar, asked booking raised with "It is your turn to answer", accepted on sand, black pickup note with "Open". Kept: Start Trip and Mark Delivered (black, so Accept stays the one orange action). |
-| TruckerTripMode | Built | Sand sharing card with the next check-in time, next stop card with Call, stop list (done black, next blue). Left: arrival windows on later stops (one request per delivery). |
+| TruckerTripMode | Built | Sand sharing card with the next check-in time, next stop card with Call, stop list (done black, next blue), the arrival window on each later drop-off whose load is on the truck (one track read per such delivery, at most 6, once per load of the page; nothing offline or without an estimate). |
 | TruckerShareConsent, TruckerPaused | Built | Restyled; the app's words are kept. |
 | TruckerQrFailed | Built | For the scan failures the phone can tell on its own. Kept: "Type the code instead". Left: server refusals after confirm still show as a snackbar. |
 
@@ -73,16 +73,16 @@ Audit of the 42 boards in this folder against the app, written 2026-11-20 with t
 | Payment, PaymentFailed, PaymentOffline | Built | Amount card in green, confirm it's you on sand, dashed status card; the failed and offline states with their two actions. Left: "Confirmed with Fayda" (the app does not know the method before the server asks). |
 | BuyerDeliveries | Built | Stage labels, raised map card with "Open map", dashed waiting card, sand delivered card with "Release pending" and "Nothing for you to do". Kept: bell and account buttons in the header. |
 | BuyerDeliveriesEmpty | Built | For all three roles, each with its own sketch, words and buttons. |
-| BuyerLiveTrip, LiveTripAm, LiveTripOm | Built | Round back, crop pill, "Whole route" (a toggle), legend, window in green, sand driver card with Message and Call. Left: the check-in chip stays at the map's top left. |
+| BuyerLiveTrip, LiveTripAm, LiveTripOm | Built | Round back, crop pill, "Whole route" (a toggle), legend, window in green, sand driver card with Message and Call, the check-in chip beside the truck (inside the map, under the floating controls; at the top left when it has no room). |
 | BuyerArriving | Built | Orange "Scan driver's QR" with Call beside it, sand checklist. |
-| BuyerDelivered | Built | Sand trip summary, raised escrow card, the nothing to do line. Left: Rate buttons stay outlined. |
-| BuyerTripLog | Built | Black and sand stat tiles, check-ins card, price card. Left: pickup photo and sack count (no such data), platform commission line. |
+| BuyerDelivered | Built | Sand trip summary, raised escrow card, the nothing to do line, black Rate buttons. |
+| BuyerTripLog | Built | Black and sand stat tiles, check-ins card, pickup proof with the pickup photo and "View photo" when the delivery has one (`pickupPhotoRef`), price card with "Platform Commission · 5%" from the order's own rate and amount, for the buyer only. Left: the sack count (no delivery, order, check-in or track field carries a package count, in the app or in `specs/contracts/`). |
 
 ### Web and admin
 
 | Board | State | Notes |
 |---|---|---|
-| WebDeliveries | Built | Sidebar (role mark, selected ground, black create button), tablet rail, search box, white cards, the live pane. Kept: the Settings row. Left: map zoom buttons (the drawn map has no zoom). |
+| WebDeliveries | Built | Sidebar (role mark, selected ground, black create button), tablet rail, search box, white cards, the live pane with Zoom in and Zoom out over its map (four steps of 1.5, about the truck). Kept: the Settings row. |
 | AdminDispute | Built | The whole admin app is on the page M tokens and font: dark sidebar, cards, badges, the dispute page with breadcrumb, role-coloured party chips, tab track, black and outlined verdict buttons, the trail map and table. Left: the dispute count in the nav (a new request), amounts on the verdict buttons (risk of a wrong figure on a money button). |
 
 ## Screens without a board
