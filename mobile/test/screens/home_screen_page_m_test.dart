@@ -62,9 +62,17 @@ void main() {
         UserRole.buyer => buyerId,
       };
 
-  /// An order that waits for [role]'s answer, due in two hours.
+  /// An order that waits for [role]'s answer, due in two hours, or at the
+  /// last minute of today in Ethiopia (UTC+3) when two hours on is already
+  /// tomorrow there: the card must say "Due today" at any hour the suite
+  /// runs.
   Order waitingFor(UserRole role) {
-    final due = DateTime.now().toUtc().add(const Duration(hours: 2));
+    const ethiopia = Duration(hours: 3);
+    final now = DateTime.now().toUtc();
+    var due = now.add(const Duration(hours: 2));
+    if (due.add(ethiopia).day != now.add(ethiopia).day) {
+      due = DateTime.utc(now.year, now.month, now.day, 20, 59);
+    }
     return liveOrder(status: OrderStatus.funded)
       ..orderId = 'order-9'
       ..quantity = 1200
@@ -182,6 +190,54 @@ void main() {
             )
             .first,
       );
+
+  /// WCAG contrast ratio between two opaque colours.
+  double contrast(Color a, Color b) {
+    final la = a.computeLuminance();
+    final lb = b.computeLuminance();
+    final hi = la > lb ? la : lb;
+    final lo = la > lb ? lb : la;
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  test('every role\'s dark step passes 4.5:1 on a sand tile', () {
+    for (final role in UserRole.values) {
+      final colors = RoleColors.forRole(role);
+      expect(
+        contrast(colors.dark, AppTheme.sand),
+        greaterThanOrEqualTo(4.5),
+        reason: role.name,
+      );
+    }
+    // Why the amount is not in the role colour itself: plum on sand.
+    expect(
+      contrast(RoleColors.forRole(UserRole.farmer).primary, AppTheme.sand),
+      lessThan(4.5),
+    );
+  });
+
+  for (final role in [UserRole.farmer, UserRole.trucker]) {
+    testWidgets(
+        'the ${role.name}\'s escrow amount on its sand tile is the dark '
+        'role colour', (tester) async {
+      await pumpHome(tester, role);
+
+      final tile = find.byKey(const Key('home_tile_payments'));
+      expect(tileMaterial(tester, 'home_tile_payments').color, AppTheme.sand);
+      final value = tester.widget<Text>(
+        find.descendant(
+          of: find.descendant(of: tile, matching: find.byType(FittedBox)),
+          matching: find.byType(Text),
+        ),
+      );
+      // The tile's value (a dash here: this harness has no stats to read).
+      expect(value.style!.color, RoleColors.forRole(role).dark);
+      expect(
+        contrast(value.style!.color!, AppTheme.sand),
+        greaterThanOrEqualTo(4.5),
+      );
+    });
+  }
 
   test('homeFirstName is the first word of the name', () {
     expect(homeFirstName('Almaz Bekele'), 'Almaz');

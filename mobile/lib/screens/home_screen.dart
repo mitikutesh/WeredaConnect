@@ -795,7 +795,10 @@ class _GlanceTile extends StatelessWidget {
                             fontWeight: FontWeight.w800,
                             letterSpacing: -0.5,
                             height: 1.15,
-                            color: amount && !emphasized ? role.primary : ink,
+                            // On sand the role colour itself is about
+                            // 3.8:1, too little at the compact 16 px:
+                            // its dark step passes 4.5:1.
+                            color: amount && !emphasized ? role.dark : ink,
                           ),
                         ),
                       ),
