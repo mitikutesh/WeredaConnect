@@ -105,12 +105,14 @@ void main() {
       await tester.pumpAndSettle();
 
       // Verify crop type grid is rendered
-      expect(find.text('Select Crop Type'), findsOneWidget);
+      expect(find.text('SELECT CROP TYPE'), findsOneWidget);
 
       // Verify form fields
-      expect(find.text('Quantity (quintals)'), findsOneWidget);
+      // Kilograms are typed (design canvas page M), never quintals.
+      expect(find.text('Quantity (kg)'), findsOneWidget);
+      expect(find.text('Quantity (quintals)'), findsNothing);
       expect(find.text('Price (ETB/kg)'), findsOneWidget);
-      expect(find.text('Location'), findsOneWidget);
+      expect(find.text('LOCATION'), findsOneWidget);
       expect(find.text('Description'), findsOneWidget);
 
       // Verify save button and the offline save note under it
@@ -140,7 +142,7 @@ void main() {
       expect(find.text('Please enter the location'), findsOneWidget);
     });
 
-    // F-3: quantity in quintals, price per kg: the form says the total.
+    // F-3: quantity in kilograms, price per kg: the form says the total.
     testWidgets('shows the total and the price per quintal as typed',
         (tester) async {
       await tester.pumpWidget(buildTestWidget());
@@ -151,7 +153,7 @@ void main() {
 
       await tester.enterText(
         find.byKey(const Key('create_listing_quantity')),
-        '12',
+        '1200',
       );
       await tester.pump();
       // A quantity alone is no total yet.
@@ -162,7 +164,7 @@ void main() {
         '42.5',
       );
       await tester.pump();
-      // 12 quintals x 100 kg x 42.50 ETB/kg.
+      // 1,200 kg (12 quintals) x 42.50 ETB/kg.
       expect(
         tester.widget<Text>(total).data,
         'Total: 51,000 ETB (4,250 ETB per quintal)',
@@ -696,6 +698,99 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+  });
+
+  // Design canvas page M: the farmer types kilograms; the listing is still
+  // stored and sent in quintals (crop-listing-api.md), converted at the
+  // form and nowhere else.
+  group('Quantity in kilograms', () {
+    Future<void> fill(WidgetTester tester, String kg) async {
+      await tester.tap(find.byKey(const Key('create_listing_crop_teff')));
+      await addTestPhotos(tester);
+      await tester.enterText(
+        find.byKey(const Key('create_listing_quantity')),
+        kg,
+      );
+      await tester.enterText(
+        find.byKey(const Key('create_listing_price')),
+        '42',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('create_listing_location')),
+          matching: find.byType(TextFormField),
+        ),
+        'Bishoftu',
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> tapSave(WidgetTester tester) async {
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Save'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+    }
+
+    testWidgets('4,000 kg typed is sent as 40 quintals', (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await fill(tester, '4000');
+
+      // The unit, with the same amount in quintals beside it.
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('listing_quantity_unit')))
+            .textSpan!
+            .toPlainText(),
+        'kg (40 q)',
+      );
+      await tapSave(tester);
+
+      final event = verify(() => cropListingBloc.add(captureAny()))
+          .captured
+          .single as CreateCropListing;
+      expect(event.quantity, 40);
+      // The price stays per kg.
+      expect(event.pricePerKg, 42);
+    });
+
+    testWidgets('a part of a quintal keeps its decimals', (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await fill(tester, '1234.56');
+      await tapSave(tester);
+
+      final event = verify(() => cropListingBloc.add(captureAny()))
+          .captured
+          .single as CreateCropListing;
+      expect(event.quantity, 12.3456);
+    });
+
+    testWidgets('under 1 kg (0.01 quintals, the server\'s least) is refused',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await fill(tester, '0.5');
+      await tapSave(tester);
+      await tester.pumpAndSettle();
+
+      verifyNever(() => cropListingBloc.add(any()));
+      expect(find.text('Enter at least 1 kg.'), findsOneWidget);
+    });
+
+    testWidgets('the field takes no more than 1,000,000.00 kg', (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await fill(tester, '1000000.01');
+      await tapSave(tester);
+      await tester.pumpAndSettle();
+
+      verifyNever(() => cropListingBloc.add(any()));
+      expect(find.text('Enter at most 1,000,000 kg.'), findsOneWidget);
     });
   });
 }

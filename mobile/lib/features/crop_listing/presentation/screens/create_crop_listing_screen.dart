@@ -13,13 +13,13 @@ import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dar
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_form_parts.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_photo_picker_field.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/place.dart';
-import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/contact_in_text.dart';
-import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/utils/kg_entry.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_preview_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
@@ -109,20 +109,14 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
     if (mounted) setState(() {});
   }
 
-  /// F-3: quantity is in quintals and price in ETB per kg, so the form says
-  /// what the whole listing sells for and the price per quintal, once both
-  /// are numbers above zero. Null otherwise.
-  String? _totalLine(AppLocalizations l10n) {
-    final quintals = double.tryParse(_quantityController.text);
-    final pricePerKg = double.tryParse(_priceController.text);
-    if (quintals == null || quintals <= 0) return null;
-    if (pricePerKg == null || pricePerKg <= 0) return null;
-    final perQuintal = pricePerKg * kgPerQuintal;
-    return l10n.cropFormTotalLine(
-      formatEtbAmount(quintals * perQuintal),
-      formatEtbAmount(perQuintal),
-    );
-  }
+  /// F-3: quantity is typed in kilograms and price in ETB per kg, so the
+  /// form says what the whole listing sells for and the price per quintal,
+  /// once both are numbers above zero. Null otherwise.
+  String? _totalLine(AppLocalizations l10n) => cropFormTotalLine(
+        _quantityController.text,
+        _priceController.text,
+        l10n,
+      );
 
   Future<void> _captureGps() async {
     setState(() => _gpsCapturing = true);
@@ -187,7 +181,10 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
             farmerName: authState.userName,
             farmerPhone: authState.phoneNumber,
             cropType: _selectedCropType!.name,
-            quantity: double.parse(_quantityController.text),
+            // Typed in kilograms; the listing is stored and sent in
+            // quintals (crop-listing-api.md), converted here and nowhere
+            // else.
+            quantity: quintalsFromKg(parseKgEntry(_quantityController.text)!),
             pricePerKg: double.parse(_priceController.text),
             latitude: latitude,
             longitude: longitude,
@@ -264,9 +261,9 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  FwDetailHeader(title: l10n.createListing),
+                  CropFormHeader(title: l10n.createListing),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
                     child: Form(
                       key: _formKey,
                       child: _buildForm(context, l10n),
@@ -287,7 +284,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
             FilledButton(
               onPressed: _isSubmitting ? null : _handleSave,
               style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(56),
+                minimumSize: const Size.fromHeight(54),
                 textStyle: const TextStyle(
                   fontFamily: AppTheme.fontFamily,
                   fontFamilyFallback: AppTheme.ethiopicFontFallback,
@@ -302,7 +299,7 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          Colors.white,
+                          AppTheme.ink,
                         ),
                       ),
                     )
@@ -321,7 +318,10 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // Crop type selection
-        Text(l10n.selectCropType, style: LabeledField.labelStyle),
+        CropFormSectionLabel(
+          icon: Icons.eco_outlined,
+          text: l10n.selectCropType,
+        ),
         const SizedBox(height: 10),
         _CropTypeGrid(
           selectedCropType: _selectedCropType,
@@ -345,33 +345,10 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
         // Quantity and price side by side, labels above
         // (Farmer · Create crop listing board).
         LabeledFieldPair(
-          first: LabeledField(
-            label: l10n.quantityInQuintals,
-            field: TextFormField(
-              key: const Key('create_listing_quantity'),
-              controller: _quantityController,
-              decoration: labeledFieldDecoration(
-                suffixText: l10n.quintals,
-              ),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(
-                  RegExp(r'^\d+\.?\d{0,2}'),
-                ),
-              ],
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return l10n.quantityRequired;
-                }
-                final quantity = double.tryParse(value);
-                if (quantity == null || quantity <= 0) {
-                  return l10n.quantityRequired;
-                }
-                return null;
-              },
-            ),
+          first: KgQuantityField.labeled(
+            controller: _quantityController,
+            l10n: l10n,
+            fieldKey: const Key('create_listing_quantity'),
           ),
           second: LabeledField(
             label: l10n.priceInBirr,
@@ -427,11 +404,16 @@ class _CreateCropListingScreenState extends State<CreateCropListingScreen> {
 
         // Location: the place, then the board's card with the farm drawn
         // from the GPS fix (else the picked place) and the GPS state.
-        LabeledField(
-          // The suggestions stay their own nodes (see LabeledField).
-          mergeSemantics: false,
+        CropFormSectionLabel(
+          icon: Icons.place_outlined,
+          text: l10n.location,
+        ),
+        const SizedBox(height: 10),
+        Semantics(
+          // The suggestions stay their own nodes: the label is read on
+          // its own, just before the field.
           label: l10n.location,
-          field: PlaceSelector(
+          child: PlaceSelector(
             key: const Key('create_listing_location'),
             controller: _locationController,
             labelAbove: true,
@@ -648,8 +630,8 @@ class _GpsStatusIndicator extends StatelessWidget {
   }
 }
 
-/// The board's crop picker: three text tiles per row (46 tall, radius 14),
-/// the chosen one filled green with a check.
+/// The board's crop picker: three pills per row (44 tall), each with the
+/// sprout glyph; the chosen one black with white ink and a check.
 class _CropTypeGrid extends StatelessWidget {
   final CropType? selectedCropType;
   final ValueChanged<CropType> onSelected;
@@ -676,43 +658,48 @@ class _CropTypeGrid extends StatelessWidget {
               button: true,
               selected: isSelected,
               child: Material(
-                color: isSelected
-                    ? context.roleColors.primary
-                    : AppTheme.surfaceWhite,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  side: isSelected
-                      ? BorderSide.none
-                      : const BorderSide(color: AppTheme.line),
+                color: isSelected ? AppTheme.ink : Colors.transparent,
+                shape: StadiumBorder(
+                  side: BorderSide(
+                    color: isSelected ? AppTheme.ink : AppTheme.fieldBorder,
+                  ),
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: InkWell(
                   onTap: () => onSelected(type),
-                  child: SizedBox(
+                  child: Container(
                     width: width,
-                    height: 46,
+                    // 44 tall in a 48 tall row; taller with large text.
+                    constraints: const BoxConstraints(minHeight: 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         if (isSelected) ...[
                           const Icon(
                             Icons.check,
-                            size: 14,
+                            size: 13,
                             color: Colors.white,
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 4),
                         ],
+                        FwSprout(
+                          size: 18,
+                          color: isSelected ? Colors.white : AppTheme.inkSoft,
+                        ),
+                        const SizedBox(width: 5),
                         Flexible(
                           child: Text(
                             type.displayName(l10n),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               fontWeight: isSelected
-                                  ? FontWeight.w800
-                                  : FontWeight.w600,
-                              color: isSelected ? Colors.white : AppTheme.ink,
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                              color:
+                                  isSelected ? Colors.white : AppTheme.inkSoft,
                             ),
                           ),
                         ),

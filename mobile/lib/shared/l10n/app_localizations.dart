@@ -8783,6 +8783,102 @@ abstract class AppLocalizations {
   /// **'{quantity} quintals, no orders yet'**
   String myCropsNoOrdersYet(String quantity);
 
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Farmer home header: the small line over the person's first name
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome back,'**
+  String get homeWelcomeBack;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Home cards: the pill or link that opens the card's page (a verb)
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get homeOpen;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Farmer home Escrow tile: the line under the amount
+  ///
+  /// In en, this message translates to:
+  /// **'held for you until the buyer confirms delivery'**
+  String get homeTileHeldUntilConfirmed;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Trucker home trip card: booked kilograms out of the truck's capacity; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{loaded} of {capacity} kg loaded'**
+  String homeTripLoadedKg(String loaded, String capacity);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. After a kilogram share, the same share in quintals, small and muted; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'({part} of {total} quintals)'**
+  String quintalsOfInParens(String part, String total);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Trucker home Payments row: the transport pay held in escrow; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} ETB in escrow'**
+  String homePaymentsInEscrow(String amount);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops card: paid orders out of the listing's kilograms; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{ordered} of {total} kg ordered'**
+  String myCropsOrderedOfKg(String ordered, String total);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops card: after the listing's kilograms, nobody has paid an order on it
+  ///
+  /// In en, this message translates to:
+  /// **'no orders yet'**
+  String get myCropsNoOrdersShort;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops with no listing: the title under the drawing
+  ///
+  /// In en, this message translates to:
+  /// **'No crops listed yet'**
+  String get myCropsEmptyTitle;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops with no listing: the line under the title
+  ///
+  /// In en, this message translates to:
+  /// **'List your first crop so buyers can find it and send you orders.'**
+  String get myCropsEmptyBody;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops with no listing: the orange button that opens Create listing
+  ///
+  /// In en, this message translates to:
+  /// **'List a crop'**
+  String get myCropsEmptyAction;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Create and edit listing: the quantity field's label, kilograms
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity (kg)'**
+  String get quantityInKg;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. The kilogram unit after a number field
+  ///
+  /// In en, this message translates to:
+  /// **'kg'**
+  String get kgUnit;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Create and edit listing: the typed kilograms in quintals, short, beside the unit; a number
+  ///
+  /// In en, this message translates to:
+  /// **'({count} q)'**
+  String quintalsShortInParens(String count);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Create and edit listing: the quantity is under one kilogram
+  ///
+  /// In en, this message translates to:
+  /// **'Enter at least 1 kg.'**
+  String get quantityKgTooSmall;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Create and edit listing: the quantity is over the server's limit (10,000 quintals)
+  ///
+  /// In en, this message translates to:
+  /// **'Enter at most 1,000,000 kg.'**
+  String get quantityKgTooLarge;
+
   /// Fieldway design alignment (specs/design-canvas). Create trip: under the departure date; the server refuses new orders on a trip leaving within 24 hours (ESC-15/17)
   ///
   /// In en, this message translates to:
