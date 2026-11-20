@@ -229,7 +229,13 @@ class _PaymentInstructionsScreenState extends State<PaymentInstructionsScreen> {
     return Scaffold(
       body: BlocListener<OrderBloc, OrderState>(
         listener: (context, state) {
-          if (_offline && state is! OrderError && state is! OrderLoading) {
+          // The offline page leaves on any answer that is not another
+          // lost connection: a refusal from the server means the network
+          // is back.
+          final stillOffline = state is OrderError &&
+              (state.code == AppErrorCode.network ||
+                  state.code == AppErrorCode.timeout);
+          if (_offline && !stillOffline && state is! OrderLoading) {
             setState(() => _offline = false);
           }
           if (state is PaymentSubmitted && _live) {
