@@ -53,26 +53,45 @@ class FwPageHeader extends StatelessWidget {
   static const double _sketchBelowWidth = 58;
   static const double _sketchGap = 16;
 
+  static const TextStyle _eyebrowStyle = TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w500,
+    color: AppTheme.slate,
+  );
+
   /// How wide the sketch may be beside [title] in a header [width] wide,
   /// or null when the title leaves it no room: the sketch is never under
-  /// the title, and never squeezed below [_sketchMinWidth].
+  /// the title, and never squeezed below [_sketchMinWidth]. With an
+  /// [eyebrow] in the same column the sketch also leaves that line whole:
+  /// decoration never cuts the person and place short.
   static double? _sketchWidthFor(
     BuildContext context,
     String title,
-    double width,
-  ) {
+    double width, {
+    String? eyebrow,
+  }) {
     if (!RoleSketch.sketchesShown(context)) return null;
-    final painter = TextPainter(
-      text: TextSpan(
-        text: title,
-        style: DefaultTextStyle.of(context).style.merge(FwText.pageTitle),
-      ),
-      textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
-      maxLines: 1,
-    )..layout();
-    final room = width - painter.width - _sketchGap;
-    painter.dispose();
+    double measure(String text, TextStyle style) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: DefaultTextStyle.of(context).style.merge(style),
+        ),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        maxLines: 1,
+      )..layout();
+      final w = painter.width;
+      painter.dispose();
+      return w;
+    }
+
+    var needed = measure(title, FwText.pageTitle);
+    if (eyebrow != null && eyebrow.isNotEmpty) {
+      final eyebrowWidth = measure(eyebrow, _eyebrowStyle);
+      if (eyebrowWidth > needed) needed = eyebrowWidth;
+    }
+    final room = width - needed - _sketchGap;
     if (room < _sketchMinWidth) return null;
     return room < _sketchWidth ? room : _sketchWidth;
   }
@@ -84,11 +103,7 @@ class FwPageHeader extends StatelessWidget {
             ? null
             : Text(
                 eyebrow!,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: AppTheme.slate,
-                ),
+                style: _eyebrowStyle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ));
@@ -116,8 +131,14 @@ class FwPageHeader extends StatelessWidget {
         ? text
         : LayoutBuilder(
             builder: (context, constraints) {
-              final sketchWidth =
-                  _sketchWidthFor(context, title, constraints.maxWidth);
+              final sketchWidth = _sketchWidthFor(
+                context,
+                title,
+                constraints.maxWidth,
+                // Only a plain eyebrow can be measured; a custom one keeps
+                // its own layout.
+                eyebrow: this.eyebrowWidget == null ? eyebrow : null,
+              );
               if (sketchWidth == null) return text;
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.end,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/models/user.dart';
@@ -117,6 +118,44 @@ void main() {
       );
       expect(drawing(), findsNothing);
       expect(find.text('Geejjibaalee keessan hunda'), findsOneWidget);
+    });
+
+    // The test font draws every glyph one em square: "Orders" is 252 px
+    // wide at 42 px, a 13 px eyebrow 13 px a letter.
+    Widget header(String eyebrow) => app(
+          Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 600,
+              child: FwPageHeader(
+                title: 'Orders',
+                eyebrow: eyebrow,
+                sketchRole: UserRole.farmer,
+                padding: EdgeInsets.zero,
+              ),
+            ),
+          ),
+        );
+
+    testWidgets('left out when it would cut the eyebrow short', (tester) async {
+      // 559 px of person and place: the title leaves the sketch room, the
+      // eyebrow does not.
+      const eyebrow = 'Abebe Kebede · Debre Birhan · Amhara region';
+      await tester.pumpWidget(header(eyebrow));
+      expect(drawing(), findsNothing);
+      final line = tester.renderObject<RenderParagraph>(find.text(eyebrow));
+      expect(line.didExceedMaxLines, isFalse);
+    });
+
+    testWidgets('kept beside the title when the eyebrow is short',
+        (tester) async {
+      await tester.pumpWidget(header('Abebe · Meki'));
+      expect(drawing(), findsOneWidget);
+      final eyebrow = tester.getRect(find.text('Abebe · Meki'));
+      final title = tester.getRect(find.text('Orders'));
+      final sketch = tester.getRect(drawing());
+      expect(sketch.left, greaterThanOrEqualTo(eyebrow.right));
+      expect(sketch.left, greaterThanOrEqualTo(title.right));
     });
 
     // MarketM with the app's two header buttons: no room on the title's
