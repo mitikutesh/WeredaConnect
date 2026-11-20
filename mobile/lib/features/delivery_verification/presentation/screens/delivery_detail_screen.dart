@@ -847,8 +847,9 @@ class _PartiesCard extends StatelessWidget {
           const SizedBox(height: 12),
           _PartyRow(
             icon: Icons.agriculture,
-            background: context.roleColors.tint,
-            foreground: context.roleColors.primary,
+            // Each party in its own role colour, as on order detail.
+            background: RoleColors.farmer.tint,
+            foreground: RoleColors.farmer.primary,
             label: l10n.deliveryFarmer,
             name: partyDisplayName(delivery.farmerName, l10n),
           ),
@@ -856,8 +857,8 @@ class _PartiesCard extends StatelessWidget {
             const SizedBox(height: 10),
             _PartyRow(
               icon: Icons.local_shipping,
-              background: AppTheme.orangeTint,
-              foreground: context.roleColors.primary,
+              background: RoleColors.trucker.tint,
+              foreground: RoleColors.trucker.primary,
               label: l10n.deliveryTrucker,
               name: partyDisplayName(delivery.truckerName, l10n),
             ),
@@ -865,8 +866,8 @@ class _PartiesCard extends StatelessWidget {
           const SizedBox(height: 10),
           _PartyRow(
             icon: Icons.store,
-            background: AppTheme.dropoffSlateTint,
-            foreground: AppTheme.dropoffSlate,
+            background: RoleColors.buyer.tint,
+            foreground: RoleColors.buyer.primary,
             label: l10n.deliveryBuyer,
             name: partyDisplayName(delivery.buyerName, l10n),
           ),
