@@ -4205,6 +4205,15 @@ class AppLocalizationsAm extends AppLocalizations {
   String get liveTripNearTruck => 'መኪናው አካባቢ';
 
   @override
+  String get liveTripZoomIn => 'አጉላ';
+
+  @override
+  String get liveTripZoomOut => 'አሳንስ';
+
+  @override
+  String get liveTripViewPhoto => 'ፎቶውን ይመልከቱ';
+
+  @override
   String get liveTripLegendLabel => 'የካርታ መፍቻ';
 
   @override

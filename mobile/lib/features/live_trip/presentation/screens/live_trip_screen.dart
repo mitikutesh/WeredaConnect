@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
@@ -130,6 +132,12 @@ class _LiveTripViewState extends State<LiveTripView> {
   /// then. A phone starts on the truck and the road ahead, the wide web
   /// map on the whole route.
   bool? _wholeRouteChoice;
+
+  /// How far the web pane's map is zoomed in: steps of [_zoomStep] over
+  /// the framed view, 0 to [_maxZoomSteps].
+  int _zoomSteps = 0;
+  static const _zoomStep = 1.5;
+  static const _maxZoomSteps = 4;
   bool _escrowRequested = false;
   bool _reloadRequested = false;
   List<Place> _places = const [];
@@ -338,7 +346,11 @@ class _LiveTripViewState extends State<LiveTripView> {
     final wholeRoute = _wholeRouteChoice ?? wide;
     final focus =
         wholeRoute ? TrackMapFocus.wholeRoute : TrackMapFocus.roadAhead;
-    void toggleRoute() => setState(() => _wholeRouteChoice = !wholeRoute);
+    // A new frame starts from its own fit: the zoom goes back to none.
+    void toggleRoute() => setState(() {
+          _wholeRouteChoice = !wholeRoute;
+          _zoomSteps = 0;
+        });
     final statusPill = _StatusPill(
       label: status.label,
       quiet: status.kind == StatusKind.neutral,
@@ -465,16 +477,44 @@ class _LiveTripViewState extends State<LiveTripView> {
             borderRadius: 22,
             chipTop: 16,
             chipOneLine: true,
+            // The web board keeps the one-line chip at the top left.
+            chipBesideTruck: false,
             focus: focus,
+            zoom: math.pow(_zoomStep, _zoomSteps).toDouble(),
             overlay: [
+              // The board's three square controls, top to bottom: zoom
+              // in, zoom out, the whole route.
               Positioned(
                 right: 16,
                 top: 16,
-                child: _WholeRouteButton(
-                  selected: wholeRoute,
-                  iconOnly: true,
-                  squared: true,
-                  onTap: toggleRoute,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _MapZoomButton(
+                      key: const Key('live_trip_zoom_in'),
+                      icon: Icons.add,
+                      label: l10n.liveTripZoomIn,
+                      onTap: _zoomSteps >= _maxZoomSteps
+                          ? null
+                          : () => setState(() => _zoomSteps++),
+                    ),
+                    const SizedBox(height: 8),
+                    _MapZoomButton(
+                      key: const Key('live_trip_zoom_out'),
+                      icon: Icons.remove,
+                      label: l10n.liveTripZoomOut,
+                      onTap: _zoomSteps <= 0
+                          ? null
+                          : () => setState(() => _zoomSteps--),
+                    ),
+                    const SizedBox(height: 8),
+                    _WholeRouteButton(
+                      selected: wholeRoute,
+                      iconOnly: true,
+                      squared: true,
+                      onTap: toggleRoute,
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -850,6 +890,67 @@ class _WholeRouteButton extends StatelessWidget {
                       ),
                     ],
                   ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Zoom in" or "Zoom out" on the web pane's map (the Web deliveries
+/// board): a white 40 by 44 square with the sign, named for a screen
+/// reader and in a tooltip, reachable with Tab and pressed with Enter or
+/// Space. Greyed and out of the tab order at the end of its range ([onTap]
+/// null).
+class _MapZoomButton extends StatelessWidget {
+  const _MapZoomButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    super.key,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    );
+    return Tooltip(
+      message: label,
+      excludeFromSemantics: true,
+      // Merged with the ink well under it, which brings the tap and the
+      // keyboard focus.
+      child: MergeSemantics(
+        child: Semantics(
+          button: true,
+          enabled: onTap != null,
+          label: label,
+          child: DecoratedBox(
+            decoration: ShapeDecoration(
+              shape: shape,
+              shadows: liveTripFloatShadow,
+            ),
+            child: Material(
+              color: AppTheme.surfaceWhite,
+              shape: shape,
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onTap,
+                child: SizedBox(
+                  width: 40,
+                  height: 44,
+                  child: Icon(
+                    icon,
+                    size: 18,
+                    color: onTap == null ? AppTheme.fieldBorder : AppTheme.ink,
+                  ),
                 ),
               ),
             ),

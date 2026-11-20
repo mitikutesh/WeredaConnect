@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -423,6 +424,156 @@ void main() {
       tester.getTopLeft(card).dy,
       lessThan(tester.getTopLeft(details).dy + 40),
     );
+  });
+
+  // Buyer · Live deliveries board (web): zoom in and zoom out over the
+  // pane's map, above the whole route control.
+  group('wide: zoom buttons', () {
+    Future<void> pumpWide(WidgetTester tester) async {
+      await pumpView(tester);
+      tester.view.physicalSize = const Size(900, 1800);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    double zoomOf(WidgetTester tester) =>
+        tester.widget<TrackMap>(find.byType(TrackMap)).zoom;
+    final zoomIn = find.byKey(const Key('live_trip_zoom_in'));
+    final zoomOut = find.byKey(const Key('live_trip_zoom_out'));
+
+    testWidgets('a phone has none', (tester) async {
+      await pumpView(tester);
+      expect(zoomIn, findsNothing);
+      expect(zoomOut, findsNothing);
+      expect(zoomOf(tester), 1);
+    });
+
+    testWidgets('in, out and back, within the range', (tester) async {
+      await pumpWide(tester);
+      expect(zoomOf(tester), 1);
+      // The three square controls in the board's order, top to bottom.
+      final whole = find.byKey(const Key('live_trip_whole_route'));
+      expect(
+        tester.getTopLeft(zoomIn).dy,
+        lessThan(tester.getTopLeft(zoomOut).dy),
+      );
+      expect(
+        tester.getTopLeft(zoomOut).dy,
+        lessThan(tester.getTopLeft(whole).dy),
+      );
+
+      await tester.tap(zoomIn);
+      await tester.pump();
+      expect(zoomOf(tester), 1.5);
+      await tester.tap(zoomIn);
+      await tester.pump();
+      expect(zoomOf(tester), 2.25);
+      await tester.tap(zoomOut);
+      await tester.pump();
+      expect(zoomOf(tester), 1.5);
+
+      // Four steps in and no further.
+      for (var i = 0; i < 6; i++) {
+        await tester.tap(zoomIn);
+        await tester.pump();
+      }
+      expect(zoomOf(tester), closeTo(5.0625, 1e-9));
+      // All the way out and no further.
+      for (var i = 0; i < 6; i++) {
+        await tester.tap(zoomOut);
+        await tester.pump();
+      }
+      expect(zoomOf(tester), 1);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('named for a screen reader, off at the end of the range',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpWide(tester);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Zoom in')),
+        matchesSemantics(
+          label: 'Zoom in',
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          isFocusable: true,
+          hasTapAction: true,
+          hasFocusAction: true,
+        ),
+      );
+      // Nothing to zoom out of yet.
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Zoom out')),
+        matchesSemantics(
+          label: 'Zoom out',
+          isButton: true,
+          hasEnabledState: true,
+        ),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('reachable and pressed from the keyboard', (tester) async {
+      await pumpWide(tester);
+      final focus = Focus.of(
+        tester.element(
+          find.descendant(of: zoomIn, matching: find.byType(SizedBox)).first,
+        ),
+      );
+      focus.requestFocus();
+      await tester.pump();
+      expect(focus.hasPrimaryFocus, isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(zoomOf(tester), 1.5);
+    });
+
+    testWidgets('a new frame starts unzoomed', (tester) async {
+      await pumpWide(tester);
+      await tester.tap(zoomIn);
+      await tester.pump();
+      expect(zoomOf(tester), 1.5);
+      await tester.tap(find.byKey(const Key('live_trip_whole_route')));
+      await tester.pump();
+      expect(zoomOf(tester), 1);
+    });
+
+    testWidgets('the wide chip stays at the map\'s top left', (tester) async {
+      await pumpWide(tester);
+      final map = tester.getTopLeft(find.byType(LiveTripMap));
+      final chip = tester.getTopLeft(find.byType(CheckInChip));
+      expect(chip - map, const Offset(12, 16));
+    });
+  });
+
+  // Buyer live trip board: on a phone the chip sits beside the truck.
+  testWidgets('phone: the check-in chip sits beside the truck', (tester) async {
+    await pumpView(tester);
+    final map = tester.getRect(find.byType(LiveTripMap));
+    final chip = tester.getRect(find.byType(CheckInChip));
+    final painter = tester
+        .widget<CustomPaint>(
+          find.descendant(
+            of: find.byType(TrackMap),
+            matching: find.byType(CustomPaint),
+          ),
+        )
+        .painter! as TrackMapPainter;
+    final truck = TrackMapFrame.of(
+          track: painter.track,
+          now: painter.now,
+          size: map.size,
+          focus: painter.focus,
+        )!
+            .truck! +
+        map.topLeft;
+    final square = Rect.fromCircle(center: truck, radius: 15);
+    expect(chip.overlaps(square), isFalse);
+    expect(chip.inflate(8.5).overlaps(square), isTrue);
+    // Under the back button, the crop pill and "Whole route".
+    expect(chip.top - map.top, greaterThanOrEqualTo(76));
   });
 
   group('arriving', () {

@@ -4333,6 +4333,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get liveTripNearTruck => 'Near the truck';
 
   @override
+  String get liveTripZoomIn => 'Zoom in';
+
+  @override
+  String get liveTripZoomOut => 'Zoom out';
+
+  @override
+  String get liveTripViewPhoto => 'View photo';
+
+  @override
   String get liveTripLegendLabel => 'Map legend';
 
   @override

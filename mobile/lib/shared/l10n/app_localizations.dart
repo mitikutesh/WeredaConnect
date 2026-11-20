@@ -7624,6 +7624,24 @@ abstract class AppLocalizations {
   /// **'Near the truck'**
   String get liveTripNearTruck;
 
+  /// Design canvas page M (specs/design-canvas). Web deliveries pane: the name of the plus button that magnifies the map (screen reader label and tooltip). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom in'**
+  String get liveTripZoomIn;
+
+  /// Design canvas page M (specs/design-canvas). Web deliveries pane: the name of the minus button that shows more of the map (screen reader label and tooltip). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom out'**
+  String get liveTripZoomOut;
+
+  /// Design canvas page M (specs/design-canvas). Buyer trip log, pickup proof: the link that opens the pickup photo larger. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'View photo'**
+  String get liveTripViewPhoto;
+
   /// Design canvas page M (specs/design-canvas). Buyer live trip: screen reader label of the map legend. am and om machine drafted, native review owed.
   ///
   /// In en, this message translates to:

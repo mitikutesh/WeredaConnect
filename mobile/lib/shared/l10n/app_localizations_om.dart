@@ -4379,6 +4379,15 @@ class AppLocalizationsOm extends AppLocalizations {
   String get liveTripNearTruck => 'Naannoo konkolaataa';
 
   @override
+  String get liveTripZoomIn => 'Guddisi';
+
+  @override
+  String get liveTripZoomOut => 'Xiqqeessi';
+
+  @override
+  String get liveTripViewPhoto => 'Suuraa ilaali';
+
+  @override
   String get liveTripLegendLabel => 'Hiika kaartaa';
 
   @override

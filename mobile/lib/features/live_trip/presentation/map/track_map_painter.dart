@@ -24,12 +24,96 @@ enum TrackMapFocus {
   roadAhead,
 }
 
+/// Where a track falls on a map of a given size: the projection, the fixes
+/// in capture order and the truck's place (null without a check-in or once
+/// the delivery ended). The painter draws from it, and a screen reads it to
+/// put a control beside the truck.
+@immutable
+class TrackMapFrame {
+  const TrackMapFrame._({
+    required this.projection,
+    required this.fixes,
+    required this.band,
+    required this.truck,
+  });
+
+  /// The frame of [track] at [now] on a canvas of [size], or null when the
+  /// track has nothing to place (before pickup, an ended answer). [zoom]
+  /// magnifies the fitted view about the truck, or about the view's centre
+  /// when no truck is shown.
+  static TrackMapFrame? of({
+    required DeliveryTrack track,
+    required DateTime now,
+    required Size size,
+    TrackMapFocus focus = TrackMapFocus.wholeRoute,
+    double zoom = 1,
+  }) {
+    final fixes = [...track.trail];
+    final lastFix = track.lastFix;
+    if (lastFix != null &&
+        (fixes.isEmpty || lastFix.capturedAt.isAfter(fixes.last.capturedAt))) {
+      fixes.add(lastFix);
+    }
+    final pickup = track.pickup;
+    final dropoff = track.dropoff;
+    final band = trackFreshness(track, now) ?? TrackFreshness.normal;
+    final ended = band == TrackFreshness.ended;
+    final last = fixes.isEmpty ? null : fixes.last;
+    // The road ahead needs a truck and somewhere to go; else the whole
+    // route is framed.
+    final aheadOnly = focus == TrackMapFocus.roadAhead &&
+        !ended &&
+        last != null &&
+        dropoff != null;
+    final fitted = TrackProjection.fit(
+      aheadOnly
+          ? [
+              last.point,
+              dropoff,
+              for (final stop in track.otherStops)
+                if (!stop.done) stop.point,
+            ]
+          : [
+              for (final fix in fixes) fix.point,
+              if (pickup != null) pickup,
+              if (dropoff != null) dropoff,
+              for (final stop in track.otherStops) stop.point,
+            ],
+      size,
+      // The road ahead leaves the truck and the drop-off clear of the
+      // controls floating over the map's edges.
+      padding: aheadOnly ? 48 : 28,
+    );
+    if (fitted == null) return null;
+    final shown = last == null || ended ? null : last.point;
+    final projection = fitted.zoomed(zoom, around: shown);
+    return TrackMapFrame._(
+      projection: projection,
+      fixes: fixes,
+      band: band,
+      truck: shown == null ? null : projection.project(shown),
+    );
+  }
+
+  final TrackProjection projection;
+
+  /// The fixes in capture order, the last check-in included.
+  final List<TrackFix> fixes;
+
+  /// The freshness band the map is drawn in.
+  final TrackFreshness band;
+
+  /// The centre of the truck's square.
+  final Offset? truck;
+}
+
 /// Colours and sizes of the track map (the Foundations board, design canvas
 /// page M: the map language).
 @immutable
 class TrackMapStyle {
   const TrackMapStyle({
     this.background = AppTheme.mapGround,
+    this.road = AppTheme.mapRoad,
     this.town = AppTheme.slate,
     this.labelText = AppTheme.inkSoft,
     this.labelOutline = AppTheme.mapGround,
@@ -61,6 +145,9 @@ class TrackMapStyle {
       TrackMapStyle(trail: colors.primary, pin: colors.primary);
 
   final Color background;
+
+  /// The pale band under the route: the road the truck uses.
+  final Color road;
 
   /// Town dots.
   final Color town;
@@ -110,6 +197,7 @@ class TrackMapStyle {
   bool operator ==(Object other) =>
       other is TrackMapStyle &&
       other.background == background &&
+      other.road == road &&
       other.town == town &&
       other.labelText == labelText &&
       other.labelOutline == labelOutline &&
@@ -131,6 +219,7 @@ class TrackMapStyle {
   @override
   int get hashCode => Object.hash(
         background,
+        road,
         town,
         labelText,
         labelOutline,
@@ -152,7 +241,10 @@ class TrackMapStyle {
 }
 
 /// Draws a delivery's track from the bundled place list (no tiles, no map
-/// package; spec section 8): the trail through the check-ins with a ring at
+/// package; spec section 8): a pale road under the route the truck uses
+/// (the pickup, the check-ins, the drop-off; the app has no roads file, so
+/// no other road is drawn), with a short crossing at the pickup and at the
+/// drop-off and a side road to each other stop, the trail through the check-ins with a ring at
 /// each, a dotted segment where two check-ins are more than 90 minutes
 /// apart, the road ahead dashed from the last check-in to the drop-off (an
 /// estimate), the pickup ring in the trail colour, the drop-off disc in
@@ -174,6 +266,7 @@ class TrackMapPainter extends CustomPainter {
     required this.languageCode,
     this.style = const TrackMapStyle(),
     this.focus = TrackMapFocus.wholeRoute,
+    this.zoom = 1,
     this.textDirection = TextDirection.ltr,
     this.textScaler = TextScaler.noScaling,
     this.labelCache,
@@ -192,6 +285,10 @@ class TrackMapPainter extends CustomPainter {
 
   /// What the map frames; the whole route by default.
   final TrackMapFocus focus;
+
+  /// How many times the framed view is magnified (1: as framed), about the
+  /// truck or, without one, the view's centre.
+  final double zoom;
   final TextDirection textDirection;
   final TextScaler textScaler;
 
@@ -203,63 +300,39 @@ class TrackMapPainter extends CustomPainter {
   List<TrackLabel> get labels => _labels;
   List<TrackLabel> _labels = const [];
 
-  /// The fixes in capture order, the last check-in included.
-  List<TrackFix> get _fixes {
-    final fixes = [...track.trail];
-    final last = track.lastFix;
-    if (last != null &&
-        (fixes.isEmpty || last.capturedAt.isAfter(fixes.last.capturedAt))) {
-      fixes.add(last);
-    }
-    return fixes;
-  }
-
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = style.background);
 
-    final fixes = _fixes;
-    final pickup = track.pickup;
-    final dropoff = track.dropoff;
-    final band = trackFreshness(track, now) ?? TrackFreshness.normal;
-    final ended = band == TrackFreshness.ended;
-    final last = fixes.isEmpty ? null : fixes.last;
-    // The road ahead needs a truck and somewhere to go; else the whole
-    // route is framed.
-    final aheadOnly = focus == TrackMapFocus.roadAhead &&
-        !ended &&
-        last != null &&
-        dropoff != null;
-    final projection = TrackProjection.fit(
-      aheadOnly
-          ? [
-              last.point,
-              dropoff,
-              for (final stop in track.otherStops)
-                if (!stop.done) stop.point,
-            ]
-          : [
-              for (final fix in fixes) fix.point,
-              if (pickup != null) pickup,
-              if (dropoff != null) dropoff,
-              for (final stop in track.otherStops) stop.point,
-            ],
-      size,
-      // The road ahead leaves the truck and the drop-off clear of the
-      // controls floating over the map's edges.
-      padding: aheadOnly ? 48 : 28,
+    final frame = TrackMapFrame.of(
+      track: track,
+      now: now,
+      size: size,
+      focus: focus,
+      zoom: zoom,
     );
-    if (projection == null) {
+    if (frame == null) {
       _labels = const [];
       return;
     }
-    final truck = last == null || ended ? null : projection.project(last.point);
+    final projection = frame.projection;
+    final fixes = frame.fixes;
+    final pickup = track.pickup;
+    final dropoff = track.dropoff;
+    final band = frame.band;
+    final ended = band == TrackFreshness.ended;
+    final truck = frame.truck;
     final half = style.truckSize / 2;
 
-    // The halo first, so everything else reads over it.
+    // The road under everything: the ground's only geography.
+    _drawRoad(canvas, projection, fixes);
+
+    // The halo next, so everything else reads over it.
     if (truck != null) {
-      final radiusKm =
-          trackHaloRadiusKm(band, trackFixAge(track, now) ?? Duration.zero);
+      final radiusKm = trackHaloRadiusKm(
+        band,
+        trackFixAge(track, now) ?? Duration.zero,
+      );
       if (radiusKm != null) {
         // Never smaller than the truck's square, or it would hide it.
         final radius = math.max(radiusKm * projection.pixelsPerKm, half + 8);
@@ -301,6 +374,7 @@ class TrackMapPainter extends CustomPainter {
       languageCode: languageCode,
       size: size,
       focus: focus,
+      zoom: zoom,
       labelStyle: style.labelStyle,
       textDirection: textDirection,
       textScaler: textScaler,
@@ -386,6 +460,95 @@ class TrackMapPainter extends CustomPainter {
       _drawLabel(canvas, label);
     }
     if (noteLabel != null) _drawLabel(canvas, noteLabel, bold: true);
+  }
+
+  /// The road the truck uses, pale on the ground: one wide band from the
+  /// pickup through every check-in to the drop-off (the driven trail and
+  /// the road ahead), a short crossing at the pickup and at the drop-off,
+  /// and a side road from the band to each other stop off it. Drawn as
+  /// paths: the dashed road ahead stays the map's only straight line.
+  void _drawRoad(
+    Canvas canvas,
+    TrackProjection projection,
+    List<TrackFix> fixes,
+  ) {
+    final pickup = track.pickup;
+    final dropoff = track.dropoff;
+    final route = <Offset>[];
+    for (final point in [
+      if (pickup != null) pickup,
+      for (final fix in fixes) fix.point,
+      if (dropoff != null) dropoff,
+    ]) {
+      final at = projection.project(point);
+      if (route.isEmpty || (at - route.last).distance > 0.5) route.add(at);
+    }
+    if (route.length < 2) return;
+    final band = Paint()
+      ..color = style.road
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 14
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final path = Path()..moveTo(route.first.dx, route.first.dy);
+    for (final at in route.skip(1)) {
+      path.lineTo(at.dx, at.dy);
+    }
+    canvas.drawPath(path, band);
+
+    final side = Paint()
+      ..color = style.road
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 7
+      ..strokeCap = StrokeCap.round;
+    final sides = Path();
+    // A crossing at each end, square to the road there.
+    void crossing(Offset at, Offset towards) {
+      final along = towards - at;
+      if (along.distance == 0) return;
+      final across = Offset(-along.dy, along.dx) / along.distance * 22;
+      sides
+        ..moveTo(at.dx - across.dx, at.dy - across.dy)
+        ..lineTo(at.dx + across.dx, at.dy + across.dy);
+    }
+
+    if (pickup != null) crossing(route.first, route[1]);
+    if (dropoff != null) crossing(route.last, route[route.length - 2]);
+    // The truck drove to its other stops: a side road from the band.
+    for (final stop in track.otherStops) {
+      final at = projection.project(stop.point);
+      final on = _nearestOn(route, at);
+      if ((at - on).distance > 6) {
+        sides
+          ..moveTo(on.dx, on.dy)
+          ..lineTo(at.dx, at.dy);
+      }
+    }
+    canvas.drawPath(sides, side);
+  }
+
+  /// The point of the polyline [route] nearest to [to].
+  static Offset _nearestOn(List<Offset> route, Offset to) {
+    var best = route.first;
+    var bestDistance = double.infinity;
+    for (var i = 1; i < route.length; i++) {
+      final a = route[i - 1];
+      final ab = route[i] - a;
+      final length = ab.distanceSquared;
+      final t = length == 0
+          ? 0.0
+          : (((to - a).dx * ab.dx + (to - a).dy * ab.dy) / length).clamp(
+              0.0,
+              1.0,
+            );
+      final at = a + ab * t;
+      final distance = (to - at).distanceSquared;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = at;
+      }
+    }
+    return best;
   }
 
   void _drawTrail(
@@ -512,11 +675,7 @@ class TrackMapPainter extends CustomPainter {
   /// A label's text: the fill, or with [outline] the light edge drawn under
   /// it. The colour is set here, so a colour in [TrackMapStyle.labelStyle]
   /// is ignored.
-  TextPainter _layout(
-    String text, {
-    bool bold = false,
-    bool outline = false,
-  }) {
+  TextPainter _layout(String text, {bool bold = false, bool outline = false}) {
     final base = style.labelStyle;
     final textStyle = TextStyle(
       fontFamily: base.fontFamily,
@@ -612,6 +771,7 @@ class TrackMapPainter extends CustomPainter {
       oldDelegate.languageCode != languageCode ||
       oldDelegate.style != style ||
       oldDelegate.focus != focus ||
+      oldDelegate.zoom != zoom ||
       oldDelegate.textDirection != textDirection ||
       oldDelegate.textScaler != textScaler;
 }
@@ -654,6 +814,7 @@ class _TrackLabelKey {
     required this.languageCode,
     required this.size,
     required this.focus,
+    required this.zoom,
     required this.labelStyle,
     required this.textDirection,
     required this.textScaler,
@@ -664,6 +825,7 @@ class _TrackLabelKey {
   final String languageCode;
   final Size size;
   final TrackMapFocus focus;
+  final double zoom;
   final TextStyle labelStyle;
   final TextDirection textDirection;
   final TextScaler textScaler;
@@ -676,6 +838,7 @@ class _TrackLabelKey {
       other.languageCode == languageCode &&
       other.size == size &&
       other.focus == focus &&
+      other.zoom == zoom &&
       other.labelStyle == labelStyle &&
       other.textDirection == textDirection &&
       other.textScaler == textScaler;
@@ -687,6 +850,7 @@ class _TrackLabelKey {
         languageCode,
         size,
         focus,
+        zoom,
         labelStyle,
         textDirection,
         textScaler,

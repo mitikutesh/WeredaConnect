@@ -23,6 +23,7 @@ class TrackMap extends StatefulWidget {
     this.places,
     this.style,
     this.focus = TrackMapFocus.wholeRoute,
+    this.zoom = 1,
     this.semanticLabel,
     super.key,
   });
@@ -36,6 +37,10 @@ class TrackMap extends StatefulWidget {
 
   /// What the map frames; the whole route by default.
   final TrackMapFocus focus;
+
+  /// How many times the framed view is magnified (the web pane's zoom
+  /// buttons); 1 shows it as framed.
+  final double zoom;
 
   /// What a screen reader says for the map (the screen's summary of it).
   final String? semanticLabel;
@@ -85,6 +90,7 @@ class _TrackMapState extends State<TrackMap> {
       languageCode: Localizations.maybeLocaleOf(context)?.languageCode ?? 'en',
       style: widget.style ?? TrackMapStyle.forRole(context.roleColors),
       focus: widget.focus,
+      zoom: widget.zoom,
       textDirection: Directionality.of(context),
       textScaler: MediaQuery.textScalerOf(context),
       labelCache: _labelCache,
@@ -93,10 +99,7 @@ class _TrackMapState extends State<TrackMap> {
       image: true,
       label: widget.semanticLabel,
       child: RepaintBoundary(
-        child: CustomPaint(
-          painter: painter,
-          child: const SizedBox.expand(),
-        ),
+        child: CustomPaint(painter: painter, child: const SizedBox.expand()),
       ),
     );
   }

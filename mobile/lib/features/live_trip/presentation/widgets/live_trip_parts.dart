@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
@@ -411,9 +413,11 @@ CheckInChipText checkInChipText(
   }
 }
 
-/// The map with the last check-in chip over its top left corner. Draws
-/// nothing for a track without coordinates: callers show the "map starts at
-/// pickup" card or the summary instead.
+/// The map with the last check-in chip beside the truck (the Buyer live
+/// trip board), or at the top left when the chip sits there by design
+/// ([chipBesideTruck] off, the web board) or has no room beside the truck.
+/// Draws nothing for a track without coordinates: callers show the "map
+/// starts at pickup" card or the summary instead.
 class LiveTripMap extends StatelessWidget {
   const LiveTripMap({
     required this.track,
@@ -424,7 +428,9 @@ class LiveTripMap extends StatelessWidget {
     this.showChip = true,
     this.chipTop = 12,
     this.chipOneLine = false,
+    this.chipBesideTruck = true,
     this.focus = TrackMapFocus.wholeRoute,
+    this.zoom = 1,
     this.overlay = const [],
     super.key,
   });
@@ -439,14 +445,22 @@ class LiveTripMap extends StatelessWidget {
   /// the map instead (the farmer's card).
   final bool showChip;
 
-  /// Where the chip starts, so it clears the controls floating over the map.
+  /// Where the map's free area starts: the chip never sits above it, so it
+  /// clears the controls floating over the map's top. Also the top of the
+  /// chip's fallback place at the top left.
   final double chipTop;
 
   /// The chip on one line (the web board).
   final bool chipOneLine;
 
+  /// The chip next to the truck's square; off keeps it at the top left.
+  final bool chipBesideTruck;
+
   /// What the map frames.
   final TrackMapFocus focus;
+
+  /// How many times the framed view is magnified.
+  final double zoom;
 
   /// Widgets drawn over the map (the boards' floating back button and crop
   /// pill), positioned by the caller.
@@ -463,40 +477,144 @@ class LiveTripMap extends StatelessWidget {
       child: SizedBox(
         height: height,
         width: double.infinity,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: TrackMap(
-                track: track,
-                now: now,
-                places: places,
-                focus: focus,
-                semanticLabel: place == null
-                    ? l10n.liveTripMapSemanticsNoPlace
-                    : l10n.liveTripMapSemantics(place),
-              ),
-            ),
-            if (showChip)
-              Positioned(
-                left: 12,
-                top: chipTop,
-                right: 12,
-                child: Align(
-                  alignment: Alignment.topLeft,
-                  child: CheckInChip(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final truck = !showChip || !chipBesideTruck
+                ? null
+                : TrackMapFrame.of(
+                    track: track,
+                    now: now,
+                    size: constraints.biggest,
+                    focus: focus,
+                    zoom: zoom,
+                  )?.truck;
+            return Stack(
+              children: [
+                Positioned.fill(
+                  child: TrackMap(
                     track: track,
                     now: now,
                     places: places,
-                    oneLine: chipOneLine,
+                    focus: focus,
+                    zoom: zoom,
+                    semanticLabel: place == null
+                        ? l10n.liveTripMapSemanticsNoPlace
+                        : l10n.liveTripMapSemantics(place),
                   ),
                 ),
-              ),
-            ...overlay,
-          ],
+                if (showChip)
+                  Positioned.fill(
+                    child: CustomSingleChildLayout(
+                      delegate: CheckInChipPlacement(
+                        truck: truck,
+                        top: chipTop,
+                        textDirection: Directionality.of(context),
+                      ),
+                      child: CheckInChip(
+                        track: track,
+                        now: now,
+                        places: places,
+                        oneLine: chipOneLine,
+                      ),
+                    ),
+                  ),
+                ...overlay,
+              ],
+            );
+          },
         ),
       ),
     );
   }
+}
+
+/// Places the check-in chip on the map: beside the truck's square (after
+/// it, else before it, else under it, else over it), wherever it fits
+/// whole inside the map's edge margin and below [top] (the floating
+/// controls); at the top left under [top] when it fits nowhere or there is
+/// no [truck].
+class CheckInChipPlacement extends SingleChildLayoutDelegate {
+  const CheckInChipPlacement({
+    required this.truck,
+    required this.top,
+    this.textDirection = TextDirection.ltr,
+    this.truckSize = 30,
+  });
+
+  /// The centre of the truck's square on the map; null keeps the chip at
+  /// the top left.
+  final Offset? truck;
+
+  /// Where the map's free area starts.
+  final double top;
+  final TextDirection textDirection;
+
+  /// The side of the truck's square ([TrackMapStyle.truckSize]).
+  final double truckSize;
+
+  /// The space kept between the chip and the map's edges.
+  static const double margin = 12;
+
+  /// The space between the truck's square and the chip (the board).
+  static const double gap = 8;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      BoxConstraints(
+        maxWidth: math.max(constraints.maxWidth - 2 * margin, 0),
+        maxHeight: math.max(constraints.maxHeight - top - margin, 0),
+      );
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) =>
+      place(size, childSize);
+
+  /// The chip's top left corner on a map of [size].
+  @visibleForTesting
+  Offset place(Size size, Size childSize) {
+    final fallback = Offset(
+      textDirection == TextDirection.rtl
+          ? size.width - margin - childSize.width
+          : margin,
+      top,
+    );
+    final truck = this.truck;
+    if (truck == null) return fallback;
+    final free = Rect.fromLTRB(
+      margin,
+      top,
+      size.width - margin,
+      size.height - margin,
+    );
+    final reach = truckSize / 2 + gap;
+    final besideTop = truck.dy - childSize.height / 2;
+    final after = Offset(truck.dx + reach, besideTop);
+    final before = Offset(truck.dx - reach - childSize.width, besideTop);
+    final centred = truck.dx - childSize.width / 2;
+    final rtl = textDirection == TextDirection.rtl;
+    for (final at in [
+      if (rtl) before else after,
+      if (rtl) after else before,
+      Offset(centred, truck.dy + reach),
+      Offset(centred, truck.dy - reach - childSize.height),
+    ]) {
+      final rect = at & childSize;
+      if (rect.left >= free.left &&
+          rect.top >= free.top &&
+          rect.right <= free.right &&
+          rect.bottom <= free.bottom) {
+        return at;
+      }
+    }
+    return fallback;
+  }
+
+  @override
+  bool shouldRelayout(CheckInChipPlacement oldDelegate) =>
+      oldDelegate.truck != truck ||
+      oldDelegate.top != top ||
+      oldDelegate.textDirection != textDirection ||
+      oldDelegate.truckSize != truckSize;
 }
 
 /// One stop on a [RouteRibbon].
