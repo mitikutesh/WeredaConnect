@@ -5199,6 +5199,13 @@ class AppLocalizationsOm extends AppLocalizations {
       'Kaffaltiin Birrii 10,000 ol Fayda barbaada. Kanneen xixiqqoon jecha icciitii keessan gaafatu.';
 
   @override
+  String get checkoutConfirmedWithFayda => 'Faydaan mirkanaa\'eera';
+
+  @override
+  String get checkoutConfirmedWithPassword =>
+      'Jecha icciitii keessaniin mirkanaa\'eera';
+
+  @override
   String myCropsOrderedOf(String ordered, String total) {
     return 'Kuntaala $total keessaa $ordered ajajameera';
   }

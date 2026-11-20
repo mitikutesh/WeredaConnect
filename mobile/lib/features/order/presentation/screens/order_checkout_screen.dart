@@ -11,6 +11,7 @@ import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/telebirr_launcher.dart';
@@ -69,10 +70,21 @@ class OrderCheckoutScreen extends StatefulWidget {
   /// (BUG-21).
   final bool fromOrderDetail;
 
+  /// How the buyer confirmed it is them on the page before this one (the
+  /// password or Fayda prompt of the first submit); null when they were
+  /// not asked.
+  final StepUpMethod? confirmedWith;
+
+  /// Test seam: the bus a step-up confirmed elsewhere (the background
+  /// prompt of a queued payment) is heard on. Null is the app's.
+  final SecurityEvents? securityEvents;
+
   const OrderCheckoutScreen({
     required this.order,
     this.autoOpen = true,
     this.fromOrderDetail = true,
+    this.confirmedWith,
+    this.securityEvents,
     this.bloc,
     this.launcher,
     this.returnLinks,
@@ -107,6 +119,12 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
   StreamSubscription<Uri>? _linkSub;
   StreamSubscription<void>? _connectivitySub;
   StreamSubscription<bool>? _onlineSub;
+  StreamSubscription<void>? _stepUpSub;
+
+  /// How the buyer confirmed it is them for this payment, once they did:
+  /// the board's "Confirmed with Fayda" pill. Never named before, and gone
+  /// again when a queued payment asks once more.
+  StepUpMethod? _confirmedWith;
 
   /// The device has no network (as far as it can tell). Only decides which
   /// state is drawn while a payment waits on the phone; nothing is sent or
@@ -121,6 +139,14 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
     _bloc = widget.bloc ?? _createBloc();
     WidgetsBinding.instance.addObserver(this);
     TelebirrReturnWatchers.add();
+    _confirmedWith = widget.confirmedWith;
+    final securityEvents = widget.securityEvents ?? SecurityEvents.instance;
+    // Also a prompt this screen did not open (the shell's, for a queued
+    // payment) while the checkout shows.
+    _stepUpSub = securityEvents.onStepUpCompleted.listen((_) {
+      final method = securityEvents.lastStepUpMethod;
+      if (mounted && method != null) setState(() => _confirmedWith = method);
+    });
     _linkSub = (widget.returnLinks ?? _appReturnLinks()).listen(
       (uri) {
         if (isTelebirrReturnLink(uri)) _trigger(refreshNow: true);
@@ -210,6 +236,7 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
     unawaited(_linkSub?.cancel());
     unawaited(_connectivitySub?.cancel());
     unawaited(_onlineSub?.cancel());
+    unawaited(_stepUpSub?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     TelebirrReturnWatchers.remove();
     if (_ownsBloc) unawaited(_bloc.close());
@@ -264,6 +291,12 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
   }
 
   void _onState(BuildContext context, OrderCheckoutState state) {
+    // The queued payment asks again: the earlier confirmation is spent.
+    if (state is CheckoutWaitingToSend &&
+        state.stepUpPending &&
+        _confirmedWith != null) {
+      setState(() => _confirmedWith = null);
+    }
     if (state.polls) {
       // Reading again after a pause (a request, a stop the KYC resubmit
       // woke up): start the schedule over.
@@ -313,13 +346,16 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
   }
 
   Future<void> _confirmItsYou({required bool withFayda}) async {
+    final securityEvents = widget.securityEvents;
+    // A completed prompt reports its method on the bus ([_stepUpSub]).
     if (withFayda) {
       await showFaydaStepUpDialog(
         context,
+        securityEvents: securityEvents,
         verificationScreen: widget.verificationScreen,
       );
     } else {
-      await showStepUpDialog(context);
+      await showStepUpDialog(context, securityEvents: securityEvents);
     }
     if (mounted) _trigger(refreshNow: true);
   }
@@ -436,7 +472,7 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
                       // Telebirr payment board: how the payment asks the
                       // buyer to confirm it is them, before it asks.
                       if (state is! CheckoutPaid) ...[
-                        const ConfirmItsYouCard(),
+                        ConfirmItsYouCard(confirmedWith: _confirmedWith),
                         const SizedBox(height: 18),
                       ],
                       _statusCard(context, state, l10n),

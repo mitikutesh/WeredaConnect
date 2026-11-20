@@ -5141,6 +5141,12 @@ class AppLocalizationsEn extends AppLocalizations {
       'Payments over 10,000 ETB need Fayda. Smaller ones ask for your password.';
 
   @override
+  String get checkoutConfirmedWithFayda => 'Confirmed with Fayda';
+
+  @override
+  String get checkoutConfirmedWithPassword => 'Confirmed with your password';
+
+  @override
   String myCropsOrderedOf(String ordered, String total) {
     return '$ordered of $total quintals ordered';
   }

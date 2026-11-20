@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/payment_cards.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
@@ -213,11 +214,35 @@ void main() {
     testWidgets('Confirm it is you names the method as a pill', (tester) async {
       await pump(
         tester,
-        (l10n) => const ConfirmItsYouCard(method: 'Confirmed with Fayda'),
+        (l10n) => const ConfirmItsYouCard(confirmedWith: StepUpMethod.fayda),
       );
 
       expect(find.text("Confirm it's you"), findsOneWidget);
       expect(find.text('Confirmed with Fayda'), findsOneWidget);
+      // The check beside the words: colour is not the only signal.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('checkout_confirmed_with')),
+          matching: find.byIcon(Icons.check),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a password confirmation has its own words', (tester) async {
+      await pump(
+        tester,
+        (l10n) => const ConfirmItsYouCard(confirmedWith: StepUpMethod.password),
+      );
+
+      expect(find.text('Confirmed with your password'), findsOneWidget);
+    });
+
+    testWidgets('no pill before the buyer confirmed', (tester) async {
+      await pump(tester, (l10n) => const ConfirmItsYouCard());
+
+      expect(find.text("Confirm it's you"), findsOneWidget);
+      expect(find.byKey(const Key('checkout_confirmed_with')), findsNothing);
     });
   });
 }

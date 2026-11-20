@@ -57,7 +57,8 @@ Future<bool> showStepUpDialog(
     ),
   );
   if (ok == true) {
-    (securityEvents ?? SecurityEvents.instance).stepUpCompleted();
+    (securityEvents ?? SecurityEvents.instance)
+        .stepUpCompleted(method: StepUpMethod.password);
     return true;
   }
   return false;
@@ -127,7 +128,8 @@ Future<StepUpOutcome> showFaydaStepUpDialog(
     ),
   );
   if (verified != true) return StepUpOutcome.notVerified;
-  (securityEvents ?? SecurityEvents.instance).stepUpCompleted();
+  (securityEvents ?? SecurityEvents.instance)
+      .stepUpCompleted(method: StepUpMethod.fayda);
   return StepUpOutcome.verified;
 }
 

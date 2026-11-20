@@ -3210,6 +3210,8 @@
   "farmerRejectRefundNote": "ገዢው ሙሉ ገንዘቡ ይመለስለታል።",
   "farmerAnswerNote": "ከገዢው ጋር ያለው ግንኙነት ሲቀበሉ ይከፈታል። ውድቅ ማድረግ ምክንያቱን ይጠይቃል፣ ገዢውም ገንዘቡ ይመለስለታል።",
   "checkoutConfirmItsYouNote": "ከ10,000 ብር በላይ የሆኑ ክፍያዎች ፋይዳ ያስፈልጋቸዋል። ያነሱት የይለፍ ቃልዎን ይጠይቃሉ።",
+  "checkoutConfirmedWithFayda": "በፋይዳ ተረጋግጧል",
+  "checkoutConfirmedWithPassword": "በይለፍ ቃልዎ ተረጋግጧል",
   "myCropsOrderedOf": "ከ{total} ኩንታል {ordered} ታዝዟል",
   "myCropsNoOrdersYet": "{quantity} ኩንታል፣ እስካሁን ትዕዛዝ የለም",
   "homeWelcomeBack": "እንኳን ደህና መጡ፣",

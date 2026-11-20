@@ -3195,6 +3195,8 @@
   "farmerRejectRefundNote": "Bitaan maallaqa guutuu deebifata.",
   "farmerAnswerNote": "Quunnamtiin bitaa wajjin yeroo fudhattan bana. Diduun sababa gaafata, bitaanis maallaqa deebifata.",
   "checkoutConfirmItsYouNote": "Kaffaltiin Birrii 10,000 ol Fayda barbaada. Kanneen xixiqqoon jecha icciitii keessan gaafatu.",
+  "checkoutConfirmedWithFayda": "Faydaan mirkanaa'eera",
+  "checkoutConfirmedWithPassword": "Jecha icciitii keessaniin mirkanaa'eera",
   "myCropsOrderedOf": "Kuntaala {total} keessaa {ordered} ajajameera",
   "myCropsNoOrdersYet": "Kuntaala {quantity}, hanga ammaatti ajajni hin jiru",
   "homeWelcomeBack": "Baga nagaan dhuftan,",
