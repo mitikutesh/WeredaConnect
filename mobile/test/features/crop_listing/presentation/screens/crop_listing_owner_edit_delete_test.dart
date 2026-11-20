@@ -416,8 +416,9 @@ void main() {
 
       expect(find.byType(EditCropListingScreen), findsOneWidget);
       expect(find.text('Edit listing'), findsOneWidget);
-      // At most two decimals in the field.
-      expect(find.text('12.35'), findsOneWidget);
+      // The stock is 12.345 quintals; the field shows it in kilograms.
+      expect(find.text('1234.5'), findsOneWidget);
+      expect(find.text('Quantity (kg)'), findsOneWidget);
       expect(find.text('45'), findsOneWidget);
       expect(find.text('White teff'), findsOneWidget);
 
@@ -483,7 +484,7 @@ void main() {
       sent.clear();
       await tester.tap(find.byKey(edit));
       await tester.pumpAndSettle();
-      expect(find.text('6'), findsOneWidget);
+      expect(find.text('600'), findsOneWidget);
       expect(find.text('60.5'), findsOneWidget);
       await tester.enterText(
         find.byKey(const Key('edit_listing_price')),
@@ -505,7 +506,7 @@ void main() {
       );
       await openEdit(tester);
 
-      expect(find.text('5'), findsOneWidget);
+      expect(find.text('500'), findsOneWidget);
       await tester.enterText(
         find.byKey(const Key('edit_listing_price')),
         '50',
@@ -642,6 +643,51 @@ void main() {
         find.byKey(const Key('edit_listing_save')),
       );
       expect(save.onPressed, isNotNull);
+    });
+
+    // Design canvas page M: kilograms in the field, quintals on the wire.
+    testWidgets('a quantity changed to 2,500 kg is sent as 25 quintals',
+        (tester) async {
+      await openEdit(tester);
+
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_quantity')),
+        '2500',
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('listing_quantity_unit')))
+            .textSpan!
+            .toPlainText(),
+        'kg (25 q)',
+      );
+      // 2,500 kg at 45 ETB per kg.
+      expect(
+        tester.widget<Text>(find.byKey(const Key('edit_listing_total'))).data,
+        'Total: 112,500 ETB (4,500 ETB per quintal)',
+      );
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pump();
+
+      expect(sentEdit().quantity, 25);
+      expect(sentEdit().pricePerKg, isNull);
+      sentEdit().done!.complete(_listing(quantity: 25)..version = 2);
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('under 1 kg is refused', (tester) async {
+      await openEdit(tester);
+
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_quantity')),
+        '0.4',
+      );
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pumpAndSettle();
+
+      expect(sent, isEmpty);
+      expect(find.text('Enter at least 1 kg.'), findsOneWidget);
     });
   });
 }

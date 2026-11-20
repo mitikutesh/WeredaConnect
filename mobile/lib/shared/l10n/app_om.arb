@@ -3140,7 +3140,7 @@
   "homeTileHeldUntilConfirmed": "hanga bitataan ga'uu isaa mirkaneessutti isiniif qabamee jira",
   "homeTripLoadedKg": "kg {capacity} keessaa {loaded} fe'ameera",
   "quintalsOfInParens": "(kuntaala {total} keessaa {part})",
-  "homePaymentsInEscrow": "Qarshii {amount} eeskiroo keessa",
+  "homePaymentsInEscrow": "Birrii {amount} eeskiroo keessa",
   "myCropsOrderedOfKg": "kg {total} keessaa {ordered} ajajameera",
   "myCropsNoOrdersShort": "hanga ammaatti ajajni hin jiru",
   "myCropsEmptyTitle": "Midhaan tarreeffame hin jiru",

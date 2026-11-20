@@ -56,7 +56,8 @@ class _FakeOwnTripSync extends Fake implements MarketplaceSync {
   }
 }
 
-/// The Trucker · Home board's trip card, one dark card for every trip state.
+/// The Trucker · Home board's trip card, one raised paper card for every
+/// trip state (design canvas page M).
 /// The live sharing states are covered with the engine in
 /// test/features/live_trip/presentation/trip_mode_entry_test.dart.
 void main() {
@@ -112,11 +113,22 @@ void main() {
     expect(find.text('Meki → Addis Ababa'), findsOneWidget);
     expect(find.text('Mar 5'), findsOneWidget);
     expect(find.text('150 ETB per quintal'), findsOneWidget);
-    // The whole card opens the trip; no "Open" pill reads as a button.
-    expect(find.text('Open'), findsNothing);
+    // The whole card opens the trip: the board's "Open" pill is its mark,
+    // not a second button.
+    expect(find.text('Open'), findsOneWidget);
+    expect(
+      find.ancestor(
+        of: find.text('Open'),
+        matching: find.byWidgetPredicate(
+          (w) => w is ButtonStyleButton || w is IconButton,
+        ),
+      ),
+      findsNothing,
+    );
   });
 
-  // Trucker · Home board: "Space on today's trip", booked out of capacity.
+  // Trucker · Home board: "Space on today's trip", booked out of capacity,
+  // kilograms first with the quintals after them (the trip is in quintals).
   testWidgets('a trip card shows how full the truck is', (tester) async {
     when(() => repository.getMostRelevantTrip('trucker-001'))
         .thenAnswer((_) async => trip(remaining: 20));
@@ -125,7 +137,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Space on this trip'), findsOneWidget);
-    expect(find.text('30 of 50 quintals loaded'), findsOneWidget);
+    expect(find.text('3,000 of 5,000 kg loaded'), findsOneWidget);
+    expect(find.text('(30 of 50 quintals)'), findsOneWidget);
     final bar = tester.widget<LinearProgressIndicator>(
       find.byType(LinearProgressIndicator),
     );
@@ -631,12 +644,13 @@ void main() {
     expect(tester.takeException(), isNull);
     final day = find.text('Guraandhala 26 (Bit\u00A05)');
     final route = find.text('Meki → Addis Ababa');
+    final open = find.text('Bani');
     expect(day, findsOneWidget);
-    final row = tester.getSize(
-      find.ancestor(of: route, matching: find.byType(Row)).first,
-    );
-    expect(tester.getSize(day).width, lessThan(row.width / 2));
-    expect(tester.getSize(route).width, greaterThan(row.width / 2));
+    expect(open, findsOneWidget);
+    // The day shares its row with the Open pill and gives way to it; the
+    // route has the card's whole width on its own line.
+    expect(tester.getRect(day).right, lessThan(tester.getRect(open).left));
+    expect(tester.getRect(route).top, greaterThan(tester.getRect(day).bottom));
   });
 
   testWidgets('no trip: a quiet line and the recent routes as chips',

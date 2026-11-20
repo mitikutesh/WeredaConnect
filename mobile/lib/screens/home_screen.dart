@@ -360,19 +360,27 @@ class _HomeHeader extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
             child: Row(
               children: [
-                // The lead and the pill share what the buttons leave; with
-                // large text they wrap onto two lines, never overflow.
-                Expanded(
-                  child: Wrap(
-                    spacing: 10,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [if (lead != null) lead, chip],
+                if (trucker) ...[
+                  // The greeting, then the pill at the end by the account
+                  // button. With large text the pill wraps, never overflows.
+                  Expanded(child: lead ?? const SizedBox.shrink()),
+                  const SizedBox(width: 10),
+                  Flexible(child: chip),
+                  if (!SidebarScope.of(context)) ...[
+                    const SizedBox(width: 10),
+                    const AccountButton(),
+                  ],
+                ] else ...[
+                  // The place and the pill share what the buttons leave;
+                  // with large text they wrap onto two lines.
+                  Expanded(
+                    child: Wrap(
+                      spacing: 10,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [if (lead != null) lead, chip],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                if (trucker)
-                  const AccountButton()
-                else
+                  const SizedBox(width: 12),
                   HeaderActions(
                     bell: NotificationBell(
                       userId: userId,
@@ -381,18 +389,18 @@ class _HomeHeader extends StatelessWidget {
                       square: true,
                     ),
                   ),
+                ],
               ],
             ),
           ),
           FwPageHeader(
             padding: const EdgeInsets.fromLTRB(20, 2, 20, 0),
             eyebrow: trucker || firstName.isEmpty ? null : l10n.homeWelcomeBack,
+            // Without a name the greeting itself is the title.
             title: trucker
                 ? l10n.homeToday
                 : (firstName.isEmpty
-                    ? l10n
-                        .welcomeBackUser('')
-                        .replaceAll(RegExp(r'[,፣\s]+$'), '')
+                    ? l10n.welcomeBackUser(userName)
                     : firstName),
             sketchRole: role,
           ),
@@ -665,8 +673,9 @@ Future<void> _openHomeDest(
     case _HomeDest.sellCrops:
       await push(const CreateCropListingScreen());
     case _HomeDest.myCrops:
-      await webOrPush(
-        '/my-crops',
+      // My Crops is a farmer tab: the tile switches to it.
+      await tabOrPush(
+        RoleTab.myCrops,
         const BrowseListingsScreen(ownerMode: true),
       );
     case _HomeDest.myTrips:

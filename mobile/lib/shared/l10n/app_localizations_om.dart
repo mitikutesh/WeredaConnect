@@ -5002,7 +5002,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String homePaymentsInEscrow(String amount) {
-    return 'Qarshii $amount eeskiroo keessa';
+    return 'Birrii $amount eeskiroo keessa';
   }
 
   @override
