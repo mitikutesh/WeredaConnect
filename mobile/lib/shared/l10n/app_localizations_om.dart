@@ -5223,7 +5223,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get homeTileHeldUntilConfirmed =>
-      'hanga bitataan ga\'uu isaa mirkaneessutti isiniif qabamee jira';
+      'hanga bitaan ga\'uu isaa mirkaneessutti isiniif qabamee jira';
 
   @override
   String homeTripLoadedKg(String loaded, String capacity) {
@@ -5253,7 +5253,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get myCropsEmptyBody =>
-      'Bitattoonni akka argataniifi ajaja akka isiniif erganiif midhaan keessan isa jalqabaa tarreessaa.';
+      'Bitoonni akka argataniifi ajaja akka isiniif erganiif midhaan keessan isa jalqabaa tarreessaa.';
 
   @override
   String get myCropsEmptyAction => 'Midhaan tarreessi';
@@ -5537,18 +5537,18 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get commitmentFarmerAcceptThenTrucker =>
-      'Yeroo fudhattu, itti aansee konkolaachisaan gaafatama, kaffaltiin bitataas eeskiroo keessa tura.';
+      'Yeroo fudhattu, itti aansee konkolaachisaan gaafatama, kaffaltiin bitaas eeskiroo keessa tura.';
 
   @override
   String get commitmentFarmerAcceptEscrowStays =>
-      'Yeroo fudhattu, kaffaltiin bitataa eeskiroo keessa tura.';
+      'Yeroo fudhattu, kaffaltiin bitaa eeskiroo keessa tura.';
 
   @override
   String get rejectConfirmTitle => 'Ajaja kana ni diddaa?';
 
   @override
   String get rejectConfirmBody =>
-      'Bitataan ajaja kana guutuu akka hin dandeenye itti himama, kaffaltiin isaas eeskiroo irraa deebi\'aaf.';
+      'Bitaan ajaja kana guutuu akka hin dandeenye itti himama, kaffaltiin isaas eeskiroo irraa deebi\'aaf.';
 
   @override
   String rejectConfirmReason(String reason) {
