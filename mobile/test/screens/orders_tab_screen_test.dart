@@ -187,7 +187,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-          find.widgetWithText(FwFilterPill, 'Waiting for you'), findsNothing);
+        find.widgetWithText(FwFilterPill, 'Waiting for you'),
+        findsNothing,
+      );
     });
 
     testWidgets('opens on it when Home asked (the Pending Orders tile)',
