@@ -18,9 +18,15 @@ void main() {
   CheckInChipPlacement placement(
     Offset? truck, {
     double top = 76,
+    double bottom = 0,
     TextDirection direction = TextDirection.ltr,
   }) =>
-      CheckInChipPlacement(truck: truck, top: top, textDirection: direction);
+      CheckInChipPlacement(
+        truck: truck,
+        top: top,
+        bottom: bottom,
+        textDirection: direction,
+      );
 
   group('where the chip goes', () {
     test('after the truck, level with it', () {
@@ -48,6 +54,20 @@ void main() {
       const truck = Offset(100, 200);
       final at = placement(truck).place(narrow, chip);
       expect(at, const Offset(100 - 75, 200 + 15 + 8));
+    });
+
+    test('never under the phone sheet at the map\'s foot', () {
+      // Level with the truck the chip ends at 400 + 21 = 421: inside the
+      // map's margin (428), but in the 24 px the sheet covers (404 and down).
+      const truck = Offset(120, 400);
+      final free = placement(truck).place(map, chip);
+      expect(free, const Offset(120 + 15 + 8, 400 - 21));
+      final sheet = placement(truck, bottom: 24).place(map, chip);
+      expect(sheet.dy + chip.height, lessThanOrEqualTo(440 - 24 - 12));
+      expect(
+        (sheet & chip).overlaps(Rect.fromCircle(center: truck, radius: 15)),
+        isFalse,
+      );
     });
 
     test('never above the free area: a truck under the controls', () {

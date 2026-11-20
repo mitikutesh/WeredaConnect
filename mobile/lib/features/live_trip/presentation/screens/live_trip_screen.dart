@@ -563,6 +563,8 @@ class _LiveTripViewState extends State<LiveTripView> {
         height: arriving ? 330 : 440,
         borderRadius: 0,
         chipTop: 76,
+        // The sheet below rises over the map's foot.
+        chipBottom: _Sheet.overlap,
         // Arriving: the last kilometres (the Truck arriving board).
         focus: arriving ? TrackMapFocus.roadAhead : focus,
         overlay: [
@@ -1073,10 +1075,13 @@ class _Sheet extends StatelessWidget {
 
   final List<Widget> children;
 
+  /// How far the sheet rises over the map's foot.
+  static const double overlap = 24;
+
   @override
   Widget build(BuildContext context) {
     return Transform.translate(
-      offset: const Offset(0, -24),
+      offset: const Offset(0, -overlap),
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
         decoration: const BoxDecoration(

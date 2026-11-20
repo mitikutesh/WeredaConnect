@@ -427,6 +427,7 @@ class LiveTripMap extends StatelessWidget {
     this.borderRadius = 16,
     this.showChip = true,
     this.chipTop = 12,
+    this.chipBottom = 0,
     this.chipOneLine = false,
     this.chipBesideTruck = true,
     this.focus = TrackMapFocus.wholeRoute,
@@ -449,6 +450,10 @@ class LiveTripMap extends StatelessWidget {
   /// clears the controls floating over the map's top. Also the top of the
   /// chip's fallback place at the top left.
   final double chipTop;
+
+  /// How much of the map's foot something covers (the phone's sheet): the
+  /// chip beside the truck keeps clear of it.
+  final double chipBottom;
 
   /// The chip on one line (the web board).
   final bool chipOneLine;
@@ -508,6 +513,7 @@ class LiveTripMap extends StatelessWidget {
                       delegate: CheckInChipPlacement(
                         truck: truck,
                         top: chipTop,
+                        bottom: chipBottom,
                         textDirection: Directionality.of(context),
                       ),
                       child: CheckInChip(
@@ -537,6 +543,7 @@ class CheckInChipPlacement extends SingleChildLayoutDelegate {
   const CheckInChipPlacement({
     required this.truck,
     required this.top,
+    this.bottom = 0,
     this.textDirection = TextDirection.ltr,
     this.truckSize = 30,
   });
@@ -547,6 +554,9 @@ class CheckInChipPlacement extends SingleChildLayoutDelegate {
 
   /// Where the map's free area starts.
   final double top;
+
+  /// How much of the map's foot is covered: the free area ends above it.
+  final double bottom;
   final TextDirection textDirection;
 
   /// The side of the truck's square ([TrackMapStyle.truckSize]).
@@ -584,7 +594,7 @@ class CheckInChipPlacement extends SingleChildLayoutDelegate {
       margin,
       top,
       size.width - margin,
-      size.height - margin,
+      size.height - bottom - margin,
     );
     final reach = truckSize / 2 + gap;
     final besideTop = truck.dy - childSize.height / 2;
@@ -613,6 +623,7 @@ class CheckInChipPlacement extends SingleChildLayoutDelegate {
   bool shouldRelayout(CheckInChipPlacement oldDelegate) =>
       oldDelegate.truck != truck ||
       oldDelegate.top != top ||
+      oldDelegate.bottom != bottom ||
       oldDelegate.textDirection != textDirection ||
       oldDelegate.truckSize != truckSize;
 }
