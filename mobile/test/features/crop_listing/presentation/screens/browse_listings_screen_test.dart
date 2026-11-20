@@ -276,7 +276,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       final events = verify(() => cropListingBloc.add(captureAny())).captured;
       expect(
-          events.whereType<LoadCropListings>().single.farmerId, 'farmer-001');
+        events.whereType<LoadCropListings>().single.farmerId,
+        'farmer-001',
+      );
     });
 
     testWidgets('pushed over Home, "Back to Home" goes back', (tester) async {
