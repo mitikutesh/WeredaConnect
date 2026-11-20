@@ -279,6 +279,12 @@ bool isDeliveryCodeRejectionMessage(String? message) =>
 /// renews (`DELIVERY_CODE_LOCKED` also locks the farmer's code).
 const String deliveryDropoffCodePendingText =
     "DELIVERY_NONCE_PENDING: Waiting for the trucker's drop-off QR code";
+
+/// The wait for the farmer's pickup QR to reach the server: like the
+/// trucker's above, a wait for a code (the payment check and the wait for
+/// the pickup share `DELIVERY_NONCE_PENDING` and are not about a code).
+const String deliveryPickupCodePendingText =
+    "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code";
 const String deliveryDropoffCodeLockedText =
     'DELIVERY_CODE_LOCKED: Too many wrong codes for this drop-off.';
 

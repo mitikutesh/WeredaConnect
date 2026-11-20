@@ -268,14 +268,22 @@ class _QrScanScreenState extends State<QrScanScreen> {
   /// locked, or not on the server yet. Scanning (or typing) again is what
   /// helps, so these open the failed page. Anything else (the place, the
   /// network, the session) keeps the confirm page and says why there.
-  bool _refusesTheCode(DeliveryError error) =>
-      _phase == _ScanPhase.verified &&
-      const {
-        DeliveryErrorCode.codeMismatch,
-        DeliveryErrorCode.codeLocked,
-        DeliveryErrorCode.codeLockedDropoff,
-        DeliveryErrorCode.qrPending,
-      }.contains(error.code);
+  /// `DELIVERY_NONCE_PENDING` is a code only while it waits for the
+  /// farmer's or the trucker's QR; its payment check and its wait for the
+  /// pickup keep the confirm page, with the photo and the GPS fix.
+  bool _refusesTheCode(DeliveryError error) {
+    if (_phase != _ScanPhase.verified) return false;
+    if (error.code == DeliveryErrorCode.qrPending) {
+      final message = error.message;
+      return message.startsWith(deliveryPickupCodePendingText) ||
+          message.startsWith(deliveryDropoffCodePendingText);
+    }
+    return const {
+      DeliveryErrorCode.codeMismatch,
+      DeliveryErrorCode.codeLocked,
+      DeliveryErrorCode.codeLockedDropoff,
+    }.contains(error.code);
+  }
 
   void _onBarcodeDetected(BarcodeCapture capture) {
     if (_phase != _ScanPhase.scanning) return;

@@ -615,21 +615,38 @@ void main() {
       expect(reason(tester), isNot(contains(l10n.deliveryErrorQrPending)));
     });
 
+    testWidgets('a wait for the farmer\'s QR keeps its own text',
+        (tester) async {
+      await failWith(
+        tester,
+        DeliveryErrorCode.qrPending,
+        "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. "
+        'Will retry automatically.',
+      );
+
+      expect(find.byKey(const Key('qr_scan_failed')), findsOneWidget);
+      expect(reason(tester), contains(l10n.deliveryErrorQrPending));
+      expect(
+        reason(tester),
+        isNot(contains(l10n.deliveryErrorDropoffQrPending)),
+      );
+    });
+
+    // The same server code, not about a code: the scan was good, so the
+    // confirm page stays, with its photo and GPS fix, and Confirm works.
     for (final message in [
-      "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. "
-          'Will retry automatically.',
       'DELIVERY_NONCE_PENDING: The payment check could not be completed. '
           'Will retry automatically.',
+      'DELIVERY_NONCE_PENDING: Waiting for the pickup to sync. '
+          'Will retry automatically.',
     ]) {
-      testWidgets('any other wait keeps its own text: $message',
+      testWidgets('a wait that is not about the code stays: $message',
           (tester) async {
         await failWith(tester, DeliveryErrorCode.qrPending, message);
 
-        expect(reason(tester), contains(l10n.deliveryErrorQrPending));
-        expect(
-          reason(tester),
-          isNot(contains(l10n.deliveryErrorDropoffQrPending)),
-        );
+        expect(find.byKey(const Key('qr_scan_failed')), findsNothing);
+        expect(find.byType(SnackBar), findsOneWidget);
+        expect(find.byKey(const Key('qr_confirm')), findsOneWidget);
       });
     }
 
