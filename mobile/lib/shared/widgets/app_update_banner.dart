@@ -181,7 +181,8 @@ class _UpdateNotice extends StatelessWidget {
   }
 
   Widget _banner(AppLocalizations l10n, {required bool actionsBelow}) {
-    const ink = AppTheme.onStatusInfoContainer;
+    // A sand strip with black text; the one thing to do is a black pill.
+    const ink = AppTheme.ink;
     final label =
         Text(isWeb ? l10n.appUpdateBannerReload : l10n.appUpdateBannerUpdate);
     return MaterialBanner(
@@ -194,22 +195,31 @@ class _UpdateNotice extends StatelessWidget {
         children: [
           Text(
             l10n.appUpdateBannerMessage,
-            style: const TextStyle(color: ink, fontWeight: FontWeight.w600),
+            style: const TextStyle(color: ink, fontWeight: FontWeight.w700),
           ),
           if (!isWeb) ...[
             const SizedBox(height: 4),
             Text(
               l10n.appUpdateBannerStoreHint,
-              style: const TextStyle(color: ink),
+              style: const TextStyle(color: AppTheme.inkSoft),
             ),
           ],
         ],
       ),
-      backgroundColor: AppTheme.statusInfoContainer,
+      backgroundColor: AppTheme.sand,
+      dividerColor: Colors.transparent,
       actions: [
         TextButton(
           onPressed: busy ? null : onPressed,
-          style: TextButton.styleFrom(foregroundColor: ink),
+          style: TextButton.styleFrom(
+            backgroundColor: ink,
+            foregroundColor: Colors.white,
+            disabledBackgroundColor: ink,
+            disabledForegroundColor: Colors.white,
+            minimumSize: const Size(48, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+            shape: const StadiumBorder(),
+          ),
           child: busy
               ? Row(
                   mainAxisSize: MainAxisSize.min,
@@ -219,7 +229,7 @@ class _UpdateNotice extends StatelessWidget {
                       height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: ink,
+                        color: Colors.white,
                       ),
                     ),
                     const SizedBox(width: 8),

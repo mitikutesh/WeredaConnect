@@ -297,11 +297,6 @@ class _PlaceSelectorState extends State<PlaceSelector>
                   isDense: widget.isDense,
                   // Long validator texts (FUP-49 phone refusal) wrap, not clip.
                   errorMaxLines: 3,
-                  border: widget.isDense || widget.labelAbove
-                      ? OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        )
-                      : null,
                   contentPadding: widget.contentPadding ??
                       (widget.isDense
                           ? const EdgeInsets.symmetric(
@@ -310,8 +305,8 @@ class _PlaceSelectorState extends State<PlaceSelector>
                             )
                           : widget.labelAbove
                               ? const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 14,
+                                  horizontal: 16,
+                                  vertical: 15,
                                 )
                               : const EdgeInsets.symmetric(
                                   horizontal: 16,
@@ -337,8 +332,15 @@ class _PlaceSelectorState extends State<PlaceSelector>
         return Align(
           alignment: Alignment.topLeft,
           child: Material(
-            elevation: 4,
-            borderRadius: BorderRadius.circular(12),
+            // The suggestion list: white, radius 16, the quiet card edge.
+            elevation: 6,
+            color: AppTheme.ground,
+            shadowColor: const Color(0x241A1516),
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: AppTheme.line),
+            ),
             child: Semantics(
               container: true,
               label: l10n.placeResultsLabel,
@@ -418,10 +420,8 @@ class _PlaceOptionTile extends StatelessWidget {
       // (up/down + enter).
       canRequestFocus: false,
       child: Container(
-        color: highlighted
-            ? context.roleColors.primary.withValues(alpha: 0.08)
-            : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        color: highlighted ? AppTheme.paper : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -438,7 +438,7 @@ class _PlaceOptionTile extends StatelessWidget {
                   Text(
                     title,
                     style: theme.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   if (subtitle.isNotEmpty)
                     Text(

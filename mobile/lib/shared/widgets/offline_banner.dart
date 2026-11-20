@@ -98,22 +98,36 @@ class _OfflineBannerState extends State<OfflineBanner> {
 
     final l10n = AppLocalizations.of(context)!;
 
+    // The boards' "No network here" note: the orange tint, radius 24,
+    // inside the page's 20 px margins.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: _banner(l10n),
+      ),
+    );
+  }
+
+  Widget _banner(AppLocalizations l10n) {
     return MaterialBanner(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      dividerColor: Colors.transparent,
       content: Row(
         children: [
           const Icon(
             Icons.cloud_off,
             color: AppTheme.onStatusWarningContainer,
-            size: 20,
+            size: 22,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               l10n.offlineModeIndicator,
               style: const TextStyle(
                 color: AppTheme.onStatusWarningContainer,
-                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),

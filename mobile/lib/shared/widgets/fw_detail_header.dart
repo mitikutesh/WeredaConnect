@@ -3,14 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
-/// The pieces the Fieldway create and detail boards share (Create trip,
-/// Create listing, Place order, Payment, the order detail boards): the square
-/// back button in the page instead of an app bar, the 22 pt title beside it,
-/// and the action area pinned to the foot of the page.
+/// The pieces the create and detail boards share (Create trip, Create
+/// listing, Place order, Payment, the order detail boards): the round back
+/// button in the page instead of an app bar, the 32 px title beside it, and
+/// the action area pinned to the foot of the page.
 
-/// The boards' back button: a 44 by 44 square, radius 14, in a 48 by 48
-/// hit area. White with the whisper border on a chalk page; [dark] draws
-/// it on the soil header (Trip detail) without a border.
+/// The boards' back button: a 44 by 44 circle on the paper grey, in a 48 by
+/// 48 hit area. [dark] draws it on a black header.
 class FwBackButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final bool dark;
@@ -46,7 +45,7 @@ class FwBackButton extends StatelessWidget {
         onTap: onTap,
         child: Material(
           color: AppTheme.inkCard,
-          borderRadius: BorderRadius.circular(14),
+          shape: const CircleBorder(),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap,
@@ -58,7 +57,7 @@ class FwBackButton extends StatelessWidget {
   }
 }
 
-/// A create or detail page's header: Back, the title (22 pt) with an
+/// A create or detail page's header: Back, the title (32 px) with an
 /// optional line under it, and an optional trailing widget (a status pill).
 /// With no [title] it is the back button alone (Create intent, where the
 /// page's own question is the title).
@@ -78,13 +77,7 @@ class FwDetailHeader extends StatelessWidget {
     super.key,
   });
 
-  static const TextStyle titleStyle = TextStyle(
-    fontSize: 22,
-    fontWeight: FontWeight.w800,
-    letterSpacing: -0.4,
-    height: 1.2,
-    color: AppTheme.ink,
-  );
+  static const TextStyle titleStyle = FwText.detailTitle;
 
   @override
   Widget build(BuildContext context) {
@@ -110,6 +103,7 @@ class FwDetailHeader extends StatelessWidget {
                       subtitle,
                       style: const TextStyle(
                         fontSize: 13,
+                        fontWeight: FontWeight.w500,
                         color: AppTheme.slate,
                       ),
                     ),
@@ -176,7 +170,7 @@ class FwActionNote extends StatelessWidget {
 
 /// The boards' tinted note box (the QR reminder on Trip detail, the map
 /// note on the buyer's order, the farmer's answer deadline): an icon and a
-/// bold line on a soft green or cream background.
+/// bold line on the role's tint or the orange tint.
 class FwNoteBox extends StatelessWidget {
   final IconData icon;
   final Widget child;

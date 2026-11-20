@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-// Form fields as the Fieldway boards draw them: the label above the field
+// Form fields as the boards draw them: the label above the field
 // (it wraps instead of being cut, which Afaan Oromoo labels need), and two
 // fields side by side when they fit (Create trip, Create listing).
 
@@ -17,8 +17,7 @@ InputDecoration labeledFieldDecoration({
       suffixText: suffixText,
       hintText: hintText,
       errorMaxLines: 4,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      // The fill, the radius 16 edge and the padding come from the theme.
     );
 
 /// A label above its field. Screen readers hear the label as the field's
@@ -143,7 +142,8 @@ class LabeledFieldPair extends StatelessWidget {
 }
 
 /// A date picked from a sheet, drawn like the boards' fields: the chosen day
-/// (or the placeholder, muted) and a calendar glyph at the end, 48 tall.
+/// (or the placeholder, muted) and a calendar glyph at the end, on the
+/// paper fill of a text field, 52 tall.
 class DateFieldButton extends StatelessWidget {
   const DateFieldButton({
     required this.text,
@@ -167,9 +167,9 @@ class DateFieldButton extends StatelessWidget {
     return Semantics(
       button: true,
       child: Material(
-        color: AppTheme.surfaceWhite,
+        color: AppTheme.paper,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           // A field's edge, as the text fields beside it.
           side: const BorderSide(color: AppTheme.fieldBorder),
         ),
@@ -177,8 +177,8 @@ class DateFieldButton extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Container(
-            constraints: const BoxConstraints(minHeight: 48),
-            padding: const EdgeInsetsDirectional.only(start: 14, end: 10),
+            constraints: const BoxConstraints(minHeight: 52),
+            padding: const EdgeInsetsDirectional.only(start: 16, end: 12),
             child: Row(
               children: [
                 Expanded(

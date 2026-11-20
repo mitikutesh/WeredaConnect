@@ -269,8 +269,13 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
             onPressed: () => Navigator.of(context).pop(false),
             child: Text(l10n.cancel),
           ),
-          TextButton(
+          FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.statusError,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 48),
+            ),
             child: Text(l10n.delete),
           ),
         ],
@@ -314,17 +319,11 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
           onPressed: _startRecording,
           icon: const Icon(Icons.mic),
           label: Text(l10n.recordAudioNote),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            minimumSize: const Size.fromHeight(48),
-          ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Text(
           l10n.audioRecordingLimit,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-          ),
+          style: theme.textTheme.bodySmall?.copyWith(color: AppTheme.slate),
           textAlign: TextAlign.center,
         ),
       ],
@@ -338,8 +337,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        border: Border.all(color: AppTheme.statusError),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(24),
         color: AppTheme.statusErrorContainer,
       ),
       child: Row(
@@ -369,7 +367,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
                   l10n.recording,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: AppTheme.onStatusErrorContainer,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
                 Text(
@@ -388,6 +386,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
             label: Text(l10n.stopRecording),
             style: FilledButton.styleFrom(
               backgroundColor: AppTheme.statusError,
+              foregroundColor: Colors.white,
               minimumSize: const Size(0, 48),
             ),
           ),
@@ -403,9 +402,8 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        border:
-            Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
-        borderRadius: BorderRadius.circular(12),
+        color: AppTheme.sand,
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Row(
         children: [
@@ -414,10 +412,11 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
             onPressed: _playAudio,
             tooltip: l10n.playAudio,
             icon: const Icon(Icons.play_arrow),
-            iconSize: 32,
+            iconSize: 28,
+            // The second strongest action: black with white ink.
             style: IconButton.styleFrom(
-              backgroundColor: theme.colorScheme.primaryContainer,
-              foregroundColor: theme.colorScheme.onPrimaryContainer,
+              backgroundColor: AppTheme.ink,
+              foregroundColor: Colors.white,
             ),
           ),
           const SizedBox(width: 12),
@@ -429,14 +428,14 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
                 Text(
                   l10n.audioNote,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
                 if (_displayDuration > 0)
                   Text(
                     l10n.secondsAbbreviation(_displayDuration),
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                      color: AppTheme.inkSoft,
                     ),
                   ),
               ],
@@ -448,7 +447,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
             icon: const Icon(Icons.mic),
             iconSize: 20,
             tooltip: l10n.reRecord,
-            color: theme.colorScheme.primary,
+            color: AppTheme.ink,
           ),
           // Delete button
           IconButton(
@@ -473,10 +472,8 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        border:
-            Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.3)),
-        borderRadius: BorderRadius.circular(12),
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.2),
+        color: AppTheme.sand,
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Row(
         children: [
@@ -485,10 +482,11 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
             onPressed: _pauseAudio,
             tooltip: l10n.pauseAudio,
             icon: const Icon(Icons.pause),
-            iconSize: 32,
+            iconSize: 28,
+            // The second strongest action: black with white ink.
             style: IconButton.styleFrom(
-              backgroundColor: theme.colorScheme.primaryContainer,
-              foregroundColor: theme.colorScheme.onPrimaryContainer,
+              backgroundColor: AppTheme.ink,
+              foregroundColor: Colors.white,
             ),
           ),
           const SizedBox(width: 12),
@@ -498,17 +496,19 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(999),
                   child: LinearProgressIndicator(
                     value: progress.clamp(0.0, 1.0),
                     minHeight: 4,
+                    color: context.roleColors.primary,
+                    backgroundColor: AppTheme.track,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   '${l10n.secondsAbbreviation(_playbackPosition.inSeconds)} / ${l10n.secondsAbbreviation(_playbackDuration.inSeconds)}',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    color: AppTheme.inkSoft,
                   ),
                 ),
               ],
@@ -520,7 +520,7 @@ class _VoiceNoteWidgetState extends State<VoiceNoteWidget>
             icon: const Icon(Icons.mic),
             iconSize: 20,
             tooltip: l10n.reRecord,
-            color: theme.colorScheme.primary,
+            color: AppTheme.ink,
           ),
           // Delete button
           IconButton(
@@ -610,12 +610,14 @@ class _VoiceNotePlaybackWidgetState extends State<VoiceNotePlaybackWidget> {
 
     return InkWell(
       onTap: _toggle,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(999),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        // A stadium pill on the role's tint, as the boards' tint pills.
+        constraints: const BoxConstraints(minHeight: 26),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
         decoration: BoxDecoration(
-          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(8),
+          color: context.roleColors.tint,
+          borderRadius: BorderRadius.circular(999),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -632,7 +634,7 @@ class _VoiceNotePlaybackWidgetState extends State<VoiceNotePlaybackWidget> {
                   : l10n.audioNote,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ],

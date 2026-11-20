@@ -181,8 +181,8 @@ class FwLoadBar extends StatelessWidget {
   }
 }
 
-/// The boards' tinted note row ("Only you see your listings here"): an icon
-/// and one line of 13/600 text on a soft ground, radius 16.
+/// The boards' sand note ("Next you verify with Fayda, then add your
+/// details"): an icon and 13 px text on the flat sand ground, radius 24.
 class FwInfoNote extends StatelessWidget {
   final IconData icon;
   final String text;
@@ -192,18 +192,18 @@ class FwInfoNote extends StatelessWidget {
   const FwInfoNote({
     required this.icon,
     required this.text,
-    this.background = AppTheme.dropoffSlateTint,
-    this.foreground = AppTheme.dropoffSlate,
+    this.background = AppTheme.sand,
+    this.foreground = AppTheme.inkSoft,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: background,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Row(
         children: [
@@ -215,7 +215,7 @@ class FwInfoNote extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                height: 1.35,
+                height: 1.45,
                 color: foreground,
               ),
             ),
