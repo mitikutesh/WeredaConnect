@@ -45,7 +45,7 @@ Audit of the 42 boards in this folder against the app, written 2026-11-20 with t
 | FarmerHome | Built | Header with place, synced pill, 42 px name and sketch; raised action card; sand "on the road" card with the In Transit pill, ribbon and arrival window in plum; At a glance tiles (My Crops black, Escrow amount in plum, Deliveries with its link). Kept: account button beside the bell, the recent line. |
 | MyCrops | Built | Eyebrow with the Farmer pill, 42 px title with sketch, raised cards, "3,200 of 6,000 kg ordered (32 of 60 quintals)". Own crops only: the query is untouched. |
 | FarmerEmptyCrops | Built | Large sketch, "No crops listed yet", orange "List a crop", "Back to Home". |
-| CreateCropListing | Built | 30 px header with sketch, crop pills (selected black with check), "Quantity (kg)" with the quintal echo, orange Save. Left: one glyph per crop (one sprout glyph for all), the raised location card with "Change". Kept: photos and voice note. |
+| CreateCropListing | Built | 30 px header with sketch, crop pills (selected black with check), "Quantity (kg)" with the quintal echo, orange Save. One glyph per crop as the boards draw them (an ear for the cereals, a pod for the pulses and sesame, a bean for coffee; a crop no board covers keeps the sprout). The farm's raised location card leads, with the GPS pill and "Change"; Save sits over the hairline. Kept: photos and voice note. |
 | FarmerOrderRequest | Built | "New order" header, who has agreed, "It is your turn: accept or reject by ...", orange Accept over outlined Reject. |
 | FarmerRejectConfirm | Built | Reject, reason, then the confirm sheet (red "Yes, reject order", outlined "Keep order"). The reject request is unchanged and sent only on yes. |
 | FarmerJourney | Built | Sand Farmer pill, raised map card with the plum trail, sand payment steps, "Nothing for you to do now", contact card with Message and Call. |
@@ -59,18 +59,18 @@ Audit of the 42 boards in this folder against the app, written 2026-11-20 with t
 | TripDetail | Built | Booked card in kg with the role bar, asked booking raised with "It is your turn to answer", accepted on sand, black pickup note with "Open". Kept: Start Trip and Mark Delivered (black, so Accept stays the one orange action). |
 | TruckerTripMode | Built | Sand sharing card with the next check-in time, next stop card with Call, stop list (done black, next blue), the arrival window on each later drop-off whose load is on the truck (one track read per such delivery, at most 6, once per load of the page; nothing offline or without an estimate). |
 | TruckerShareConsent, TruckerPaused | Built | Restyled; the app's words are kept. |
-| TruckerQrFailed | Built | For the scan failures the phone can tell on its own. Kept: "Type the code instead". Left: server refusals after confirm still show as a snackbar. |
+| TruckerQrFailed | Built | For the scan failures the phone can tell on its own. A code the server refuses after Confirm (not this delivery's, locked, not yet on the server) opens the same failed page with the server's reason. Kept: "Type the code instead"; refusals about the place or the network stay on the confirm page. |
 
 ### Buyer
 
 | Board | State | Notes |
 |---|---|---|
-| Market | Built | "Deliver to" eyebrow, crop pills, raised cards with "2,800 kg left (28 quintals)" and the price in green. ALL crops from everyone: the query is untouched. Left: the header sketch does not fit beside the bell and the account button at 390 px. |
+| Market | Built | "Deliver to" eyebrow, crop pills, raised cards with "2,800 kg left (28 quintals)" and the price in green. ALL crops from everyone: the query is untouched. The scale sits under the bell and the account button, at the end of the title's line (no room beside them at 390 px); a long title, large text or reduced effects drop it. |
 | CreateIntent | Built | Crop pills, "Quantity needed (kg)" with the echo, orange Find Matches. |
 | CropDetail | Built | 38 px crop and price, farmer tile on sand, transport cards in kg with the per kg and per quintal price, price tile. |
 | PlaceOrder | Built | Quantity box with round steppers, "fits this trip, 1,800 kg left (18 quintals)", raised breakdown. |
 | BuyerOrderDetail | Built | Who has agreed, "Now waiting for ..., the trucker, to answer by ... You do not need to do anything.", Message and Call per party. Call shows once the number is on the device. |
-| Payment, PaymentFailed, PaymentOffline | Built | Amount card in green, confirm it's you on sand, dashed status card; the failed and offline states with their two actions. Left: "Confirmed with Fayda" (the app does not know the method before the server asks). |
+| Payment, PaymentFailed, PaymentOffline | Built | Amount card in green, confirm it's you on sand, dashed status card; the failed and offline states with their two actions. "Confirmed with Fayda" (or with the password) shows once the buyer has confirmed for this payment, never ahead: only the server knows which one a payment needs. |
 | BuyerDeliveries | Built | Stage labels, raised map card with "Open map", dashed waiting card, sand delivered card with "Release pending" and "Nothing for you to do". Kept: bell and account buttons in the header. |
 | BuyerDeliveriesEmpty | Built | For all three roles, each with its own sketch, words and buttons. |
 | BuyerLiveTrip, LiveTripAm, LiveTripOm | Built | Round back, crop pill, "Whole route" (a toggle), legend, window in green, sand driver card with Message and Call, the check-in chip beside the truck (inside the map, under the floating controls; at the top left when it has no room). |
@@ -83,7 +83,7 @@ Audit of the 42 boards in this folder against the app, written 2026-11-20 with t
 | Board | State | Notes |
 |---|---|---|
 | WebDeliveries | Built | Sidebar (role mark, selected ground, black create button), tablet rail, search box, white cards, the live pane with Zoom in and Zoom out over its map (four steps of 1.5, about the truck). Kept: the Settings row. |
-| AdminDispute | Built | The whole admin app is on the page M tokens and font: dark sidebar, cards, badges, the dispute page with breadcrumb, role-coloured party chips, tab track, black and outlined verdict buttons, the trail map and table. Left: the dispute count in the nav (a new request), amounts on the verdict buttons (risk of a wrong figure on a money button). |
+| AdminDispute | Built | The whole admin app is on the page M tokens and font: dark sidebar, cards, badges, the dispute page with breadcrumb, role-coloured party chips, tab track, black and outlined verdict buttons, the trail map and table. The open dispute count beside Disputes in the nav, and the reason as the dispute's heading. Left: amounts on the verdict buttons and place names in the check-in table (the API carries neither: the escrow response has no per-verdict figure and the trail has coordinates only). |
 
 ## Screens without a board
 
@@ -95,9 +95,14 @@ Built in the same language: profile, settings, data usage, edit profile, delete 
 - **Farmer Deliveries** left the bar: Home's tile and the account sheet open it.
 - **Trucker Payments** left the bar: Home's payments row and the account sheet open it.
 
+## Live run (2026-11-20)
+
+The merged web build was run against the dev API as the three test users at 390 and 1280 px (reads only; writes were blocked in the browser). Farmer and trucker are sent away from Find Crops; the trucker sees only their own trips; the buyer sees every farmer's crops and every trucker's trips. Every API read returned 200; the only failed requests were crop photos the dev data names but S3 does not hold ("Photo not available yet"). Two defects were fixed from it: the header sketch cut the person and place line short on the Orders tab, and delivery detail coloured every party with the viewer's role colour.
+
+Seen there, older than this change and left as it was: Home's "Pending Orders" tile counts the farmer's funded orders while the Orders tab's Pending filter shows the `pending` status, so the two can disagree; the "(5%)" in "Platform Commission (5%)" on checkout and order detail is a fixed string (the trip log now reads the order's own rate).
+
 ## Owed
 
-- Amharic and Afaan Oromoo for every new string are machine drafted. A native review is owed.
+- Amharic and Afaan Oromoo for every new string are machine drafted. A native review is owed. Role words in the new Afaan Oromoo strings follow the existing ones: qonnaan bulaa, konkolaachisaa, bitaa.
 - A run on a real device.
-- The website (`website/`) still wears the old teal; its stylesheet says it follows the app theme, which is no longer true.
-- Unused strings left in the arb files: `capacity`, `pricePerQuintal`, `invalidCapacity`, `listsTripBooked`, `tripRemainingCapacity`, `homeTileHeldForYou`, `tripLoadedOf`, `quantityInQuintals`, `myCropsOrderedOf`, `myCropsNoOrdersYet`.
+- The website is on the same identity in its own pull request (#457); the admin app in #456.
