@@ -61,17 +61,19 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/services/place_normalizer.dart';
 import 'package:wereda_connect/shared/widgets/account_menu.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/home_cards.dart';
 import 'package:wereda_connect/shared/widgets/notification_bell.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
-/// Home screen: the Farmer and Trucker home boards (specs/design-canvas),
-/// the buyer on the farmer's light pattern with buyer content.
+/// Home screen: the Farmer and Trucker home boards (specs/design-canvas,
+/// page M), the buyer on the farmer's pattern with buyer content (the
+/// shells no longer show Home to a buyer, who lands on Deliveries).
 ///
-/// Layout: header (light with the place and the bell; dark for the trucker
-/// with the trip card inside it) then Action needed, the farmer's goods on
-/// the road, AT A GLANCE tiles, the buyer's active intents and one Recent
-/// line. One composition at every width, centred by [FwContentWidth] on a
-/// wide window.
+/// Layout, white ground for every role: the header ([_HomeHeader]), the
+/// trucker's trip card, Action needed, the farmer's goods on the road, AT A
+/// GLANCE tiles, the buyer's active intents, one Recent line and the
+/// trucker's Payments row. One composition at every width, centred by
+/// [FwContentWidth] on a wide window.
 ///
 /// Uses a [_refreshKey] counter to force overview/recent widgets to reload
 /// when returning from create screens (FAB or a tile).
@@ -140,11 +142,22 @@ class _HomeScreenState extends State<HomeScreen> {
     final userId = authState is AuthAuthenticated ? authState.userId : '';
     final woreda =
         authState is AuthAuthenticated ? (authState.woreda ?? '') : '';
-    final wide = !Breakpoints.isMobile(context);
 
+    final trucker = role == UserRole.trucker;
     final sections = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // ── Trucker: today's trip, the card the page leads with ──
+        if (trucker)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 18),
+            child: TruckerHeroCard(
+              key: ValueKey('hero_${userId}_$_refreshKey'),
+              userId: userId,
+              onRefresh: _refreshData,
+            ),
+          ),
+
         // ── Action needed: the order waiting for this user (ESC-15) ──
         _buildActionNeeded(role: role, userId: userId),
 
@@ -152,97 +165,70 @@ class _HomeScreenState extends State<HomeScreen> {
         if (role == UserRole.farmer) _buildFarmerOnTheRoad(userId: userId),
 
         // ── At a glance: counts and amounts, every tile tappable ──
-        FwSectionLabel(
-          l10n.atAGlance,
-          padding: const EdgeInsets.only(top: 16, bottom: 10),
-        ),
-        _buildDashboard(role: role, userId: userId, l10n: l10n),
-
-        // ── Buyer: active buying intents ────────────────────────
-        if (role == UserRole.buyer)
-          Padding(
-            padding: const EdgeInsets.only(top: 14),
-            child: _ActiveIntentsSection(
-              key: ValueKey('intents_$_refreshKey'),
-              userId: userId,
-              l10n: l10n,
-              onRefresh: _refreshData,
-            ),
-          ),
-
-        // ── Recent: the latest event, one line ──────────────────
         Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: _buildRecent(role: role, userId: userId, l10n: l10n),
+          padding: const EdgeInsets.only(top: 18, bottom: 10),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.grid_view_rounded,
+                size: 16,
+                color: AppTheme.slate,
+              ),
+              const SizedBox(width: 8),
+              Expanded(child: FwSectionLabel(l10n.atAGlance)),
+            ],
+          ),
+        ),
+        _buildDashboard(
+          role: role,
+          userId: userId,
+          l10n: l10n,
+          // Under the tiles: the buyer's active intents, then the latest
+          // event as one line. The trucker's Payments row follows them.
+          afterTiles: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (role == UserRole.buyer)
+                Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: _ActiveIntentsSection(
+                    key: ValueKey('intents_$_refreshKey'),
+                    userId: userId,
+                    l10n: l10n,
+                    onRefresh: _refreshData,
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: _buildRecent(role: role, userId: userId, l10n: l10n),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: Breakpoints.fabClearance),
       ],
     );
 
-    final Widget body;
-    if (role == UserRole.trucker) {
-      // The Trucker · Home board: a dark header holding the trip card, the
-      // chalk page starting under it with rounded top corners. On a wide
-      // window the header is a rounded dark panel at the top of the column.
-      final header = Container(
-        margin: wide ? const EdgeInsets.fromLTRB(20, 16, 20, 0) : null,
-        decoration: BoxDecoration(
-          color: AppTheme.ink,
-          borderRadius: wide ? BorderRadius.circular(28) : null,
-        ),
-        child: _TruckerHomeHeader(
+    // White ground for every role (design canvas page M): the header, then
+    // the sections in one column.
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _HomeHeader(
           key: ValueKey('header_$_refreshKey'),
+          role: role,
           userName: userName,
           userId: userId,
+          woreda: woreda,
           isOnline: widget.isOnline,
           l10n: l10n,
-          onNavigateToTab: widget.onNavigateToTab,
-          onRefresh: _refreshData,
         ),
-      );
-      body = Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          header,
-          if (wide)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-              child: sections,
-            )
-          else
-            Container(
-              color: AppTheme.ink,
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: AppTheme.ground,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-                ),
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                child: sections,
-              ),
-            ),
-        ],
-      );
-    } else {
-      body = Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _LightHomeHeader(
-            key: ValueKey('header_$_refreshKey'),
-            userName: userName,
-            userId: userId,
-            woreda: woreda,
-            isOnline: widget.isOnline,
-            l10n: l10n,
-            onNavigateToTab: widget.onNavigateToTab,
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-            child: sections,
-          ),
-        ],
-      );
-    }
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+          child: sections,
+        ),
+      ],
+    );
 
     return SingleChildScrollView(child: FwContentWidth(child: body));
   }
@@ -283,12 +269,14 @@ class _HomeScreenState extends State<HomeScreen> {
     required UserRole role,
     required String userId,
     required AppLocalizations l10n,
+    Widget? afterTiles,
   }) {
     return _OverviewStats(
       key: ValueKey('overview_$_refreshKey'),
       role: role,
       userId: userId,
       l10n: l10n,
+      afterTiles: afterTiles,
       onNavigateToTab: widget.onNavigateToTab,
       onRefresh: _refreshData,
     );
@@ -310,149 +298,105 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// The Farmer · Home board's header (the buyer's too): the place line, the
-/// greeting, the bell in a square and the account button, then the Synced
-/// chip. The account button opens Messages, Payments, Profile and Settings
-/// (none has a bar tab).
-class _LightHomeHeader extends StatelessWidget {
+/// The first word of [userName], for the Farmer home board's large
+/// greeting ("Almaz" of "Almaz Bekele"); empty when there is no name.
+@visibleForTesting
+String homeFirstName(String userName) {
+  final name = userName.trim();
+  return name.isEmpty ? '' : name.split(RegExp(r'\s+')).first;
+}
+
+/// The Home boards' header on the white ground (design canvas page M).
+///
+/// Farmer (and the buyer, who has no Home board): the place line and the
+/// Synced pill, the bell and the account button; "Welcome back," small
+/// over the person's first name at 42 px, the role's sketch beside it.
+///
+/// Trucker: "Welcome back, Dawit" small with the Synced pill and the
+/// account button, then "Today" at 42 px beside the truck sketch. The
+/// board draws no bell here (it is on the trucker's other tabs).
+///
+/// The account button opens what has no bar tab (Deliveries, Messages and
+/// Payments for the farmer), Profile and Settings.
+class _HomeHeader extends StatelessWidget {
+  final UserRole role;
   final String userName;
   final String userId;
   final String woreda;
   final bool isOnline;
   final AppLocalizations l10n;
-  final ValueChanged<int>? onNavigateToTab;
 
-  const _LightHomeHeader({
+  const _HomeHeader({
+    required this.role,
     required this.userName,
     required this.userId,
     required this.woreda,
     required this.isOnline,
     required this.l10n,
-    this.onNavigateToTab,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
+    final trucker = role == UserRole.trucker;
+    final firstName = homeFirstName(userName);
+    // The line the header opens with: where the farmer is, or the
+    // trucker's greeting.
+    final Widget? lead = trucker
+        ? Text(
+            firstName.isEmpty
+                ? l10n.homeWelcomeBack
+                : l10n.welcomeBackUser(firstName),
+            style: FwText.body,
+          )
+        : (woreda.isEmpty ? null : _PlaceLine(woreda: woreda));
+    final chip = _SyncChip(isOnline: isOnline);
     return SafeArea(
       bottom: false,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          FwPageHeader(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-            eyebrowWidget: woreda.isEmpty ? null : _PlaceLine(woreda: woreda),
-            title: l10n.welcomeBackUser(userName),
-            trailing: HeaderActions(
-              bell: NotificationBell(
-                userId: userId,
-                l10n: l10n,
-                isOnline: isOnline,
-                square: true,
-              ),
-            ),
-          ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 12, 0),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
             child: Row(
               children: [
-                // Flexible: with large text the label wraps, never overflows.
-                Flexible(child: _SyncChip(isOnline: isOnline)),
+                // The lead and the pill share what the buttons leave; with
+                // large text they wrap onto two lines, never overflow.
+                Expanded(
+                  child: Wrap(
+                    spacing: 10,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [if (lead != null) lead, chip],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                if (trucker)
+                  const AccountButton()
+                else
+                  HeaderActions(
+                    bell: NotificationBell(
+                      userId: userId,
+                      l10n: l10n,
+                      isOnline: isOnline,
+                      square: true,
+                    ),
+                  ),
               ],
             ),
           ),
+          FwPageHeader(
+            padding: const EdgeInsets.fromLTRB(20, 2, 20, 0),
+            eyebrow: trucker || firstName.isEmpty ? null : l10n.homeWelcomeBack,
+            title: trucker
+                ? l10n.homeToday
+                : (firstName.isEmpty
+                    ? l10n
+                        .welcomeBackUser('')
+                        .replaceAll(RegExp(r'[,፣\s]+$'), '')
+                    : firstName),
+            sketchRole: role,
+          ),
         ],
-      ),
-    );
-  }
-}
-
-/// The Trucker · Home board's dark header: the greeting, "Today" with the
-/// Synced chip, and the trip card ([TruckerHeroCard]). The board draws no
-/// bell here (it is on the trucker's other tabs); the account button after
-/// the chip opens Messages, Orders, Profile and Settings.
-class _TruckerHomeHeader extends StatelessWidget {
-  final String userName;
-  final String userId;
-  final bool isOnline;
-  final AppLocalizations l10n;
-  final ValueChanged<int>? onNavigateToTab;
-  final VoidCallback? onRefresh;
-
-  const _TruckerHomeHeader({
-    required this.userName,
-    required this.userId,
-    required this.isOnline,
-    required this.l10n,
-    this.onNavigateToTab,
-    this.onRefresh,
-    super.key,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      bottom: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    l10n.welcomeBackUser(userName),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppTheme.inkMuted,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: Semantics(
-                    header: true,
-                    child: Text(
-                      l10n.homeToday,
-                      style: const TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.6,
-                        height: 1.15,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-                // Flexible: with large text the label wraps, never overflows.
-                Flexible(
-                  flex: 2,
-                  child: Align(
-                    alignment: AlignmentDirectional.centerEnd,
-                    child: _SyncChip(isOnline: isOnline, dark: true),
-                  ),
-                ),
-                if (!SidebarScope.of(context)) ...[
-                  const SizedBox(width: 10),
-                  const AccountButton(dark: true),
-                ],
-              ],
-            ),
-            const SizedBox(height: 16),
-            TruckerHeroCard(
-              key: ValueKey('hero_$userId'),
-              userId: userId,
-              onRefresh: onRefresh,
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -510,8 +454,7 @@ String homePlaceLine(String woreda, List<Place> places, String languageCode) {
   return woreda;
 }
 
-/// The boards' Synced chip: a check on a green tint (soil ground with
-/// pale green on the trucker's dark header); Offline on grey.
+/// The boards' Synced pill: a check on the role's tint; Offline on grey.
 ///
 /// E-5: "Synced" only when online with nothing waiting. On a phone it
 /// follows the sync queue through an Isar watch: "N waiting to sync" while
@@ -520,9 +463,8 @@ String homePlaceLine(String woreda, List<Place> places, String languageCode) {
 /// API): the chip follows the browser's network.
 class _SyncChip extends StatefulWidget {
   final bool isOnline;
-  final bool dark;
 
-  const _SyncChip({required this.isOnline, this.dark = false});
+  const _SyncChip({required this.isOnline});
 
   @override
   State<_SyncChip> createState() => _SyncChipState();
@@ -597,7 +539,6 @@ class _SyncChipState extends State<_SyncChip> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final dark = widget.dark;
     final isOnline = _online;
     final pending = _counts.pending;
     final failed = _counts.failed;
@@ -612,26 +553,20 @@ class _SyncChipState extends State<_SyncChip> {
                 ? (l10n.syncFailed, Icons.sync_problem)
                 : (l10n.synced, Icons.check);
     final (background, foreground) = pending > 0
-        ? dark
-            ? (AppTheme.inkCard, AppTheme.orange)
-            : (AppTheme.orangeTint, AppTheme.orangeInk)
+        ? (AppTheme.orangeTint, AppTheme.orangeInk)
         : !isOnline
-            ? dark
-                ? (AppTheme.inkTrack, AppTheme.inkMuted)
-                : (AppTheme.segmentTrack, AppTheme.slate)
+            ? (AppTheme.segmentTrack, AppTheme.inkSoft)
             : failed > 0
                 ? (
                     AppTheme.statusErrorContainer,
                     AppTheme.onStatusErrorContainer
                   )
-                : dark
-                    ? (AppTheme.inkCard, context.roleColors.mid)
-                    : (context.roleColors.tint, context.roleColors.primary);
+                : (context.roleColors.tint, context.roleColors.primary);
 
-    // At least 28 tall, taller when the text is scaled up.
+    // At least 26 tall, taller when the text is scaled up.
     final chip = Container(
-      constraints: const BoxConstraints(minHeight: 28),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      constraints: const BoxConstraints(minHeight: 26),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
@@ -639,15 +574,15 @@ class _SyncChipState extends State<_SyncChip> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 13, color: foreground),
-          const SizedBox(width: 6),
+          Icon(icon, size: 12, color: foreground),
+          const SizedBox(width: 5),
           Flexible(
             child: Text(
               label,
               key: const Key('home_sync_chip_label'),
               style: TextStyle(
                 fontSize: 12,
-                fontWeight: FontWeight.w700,
+                fontWeight: FontWeight.w800,
                 color: foreground,
               ),
             ),
@@ -756,21 +691,27 @@ Future<void> _openHomeDest(
   }
 }
 
-/// One At a Glance tile (the Farmer and Trucker home boards): the label
-/// over a count or an amount, and on the 2 by 2 grid a line under it. The
-/// role's lead tile is filled field green. Every tile opens its section; a
-/// tile without a [value] is a plain shortcut with its [icon].
+/// One At a Glance tile (the Farmer and Trucker home boards, design
+/// canvas page M): the label over a count or an amount, a line under it on
+/// the 2 by 2 grid and, on the farmer's Deliveries tile, a link in the
+/// role's colour. The role's lead tile is black with white ink, the others
+/// flat sand; an amount is in the role's colour. Every tile opens its
+/// section; a tile without a [value] is a plain shortcut with its [icon].
 class _GlanceTile extends StatelessWidget {
   final String label;
   final String? value;
 
-  /// [value] is an amount ("4,500 ETB"): set smaller than a count.
+  /// [value] is an amount ("4,500 ETB"): set smaller than a count, in the
+  /// role's colour.
   final bool amount;
   final String? sub;
+
+  /// What the tile opens, said under [sub] ("Track delivery").
+  final String? link;
   final IconData? icon;
   final bool emphasized;
 
-  /// The trucker's three-across row: tighter padding, radius 16, no sub.
+  /// The trucker's three-across row: no sub line.
   final bool compact;
   final VoidCallback onTap;
 
@@ -780,66 +721,68 @@ class _GlanceTile extends StatelessWidget {
     this.value,
     this.amount = false,
     this.sub,
+    this.link,
     this.icon,
     this.emphasized = false,
     this.compact = false,
+    super.key,
   });
 
   @override
   Widget build(BuildContext context) {
+    final role = context.roleColors;
     final ink = emphasized ? Colors.white : AppTheme.ink;
-    final muted = emphasized ? const Color(0xFFCFE3D6) : AppTheme.slate;
+    final muted = emphasized ? Colors.white : AppTheme.inkSoft;
     final value = this.value;
     final sub = this.sub;
+    final link = this.link;
     final valueSize =
-        amount ? (compact ? 16.0 : 20.0) : (compact ? 22.0 : 26.0);
+        amount ? (compact ? 16.0 : 20.0) : (compact ? 24.0 : 26.0);
 
     return Semantics(
       button: true,
       child: Material(
-        color: emphasized ? context.roleColors.primary : AppTheme.surfaceWhite,
+        color: emphasized ? AppTheme.ink : AppTheme.sand,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(compact ? 16 : 18),
-          side: emphasized
-              ? BorderSide.none
-              : const BorderSide(color: AppTheme.line),
+          borderRadius: BorderRadius.circular(24),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: EdgeInsets.all(compact ? 12 : 14),
+            padding: EdgeInsets.fromLTRB(14, 12, 14, compact ? 14 : 13),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   label,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: FontWeight.w500,
                     color: muted,
                   ),
                 ),
                 if (value != null)
                   Padding(
-                    padding: EdgeInsets.only(
-                      top: amount ? (compact ? 6 : 4) : 2,
-                      bottom: amount && !compact ? 3 : 0,
-                    ),
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: AlignmentDirectional.centerStart,
-                      child: Text(
-                        value,
-                        maxLines: 1,
-                        style: TextStyle(
-                          fontSize: valueSize,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.5,
-                          height: 1.2,
-                          color: ink,
+                    padding: const EdgeInsets.only(top: 1),
+                    child: ConstrainedBox(
+                      // A count and an amount sit on the same 30 px line.
+                      constraints: const BoxConstraints(minHeight: 30),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: AlignmentDirectional.centerStart,
+                        child: Text(
+                          value,
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: valueSize,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
+                            height: 1.15,
+                            color: amount && !emphasized ? role.primary : ink,
+                          ),
                         ),
                       ),
                     ),
@@ -851,14 +794,27 @@ class _GlanceTile extends StatelessWidget {
                         Icon(icon ?? Icons.arrow_forward, size: 26, color: ink),
                   ),
                 if (!compact && sub != null)
-                  Text(
-                    sub,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: muted,
+                  Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: Text(
+                      sub,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.3,
+                        color: muted,
+                      ),
+                    ),
+                  ),
+                if (link != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      link,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: emphasized ? Colors.white : role.primary,
+                      ),
                     ),
                   ),
               ],
@@ -1072,6 +1028,10 @@ class _OverviewStats extends StatefulWidget {
   final ValueChanged<int>? onNavigateToTab;
   final VoidCallback? onRefresh;
 
+  /// Under the tiles (the buyer's intents, the Recent line). The trucker's
+  /// Payments row, which shows the escrow these stats read, comes after it.
+  final Widget? afterTiles;
+
   const _OverviewStats({
     required this.role,
     required this.userId,
@@ -1079,6 +1039,7 @@ class _OverviewStats extends StatefulWidget {
     super.key,
     this.onNavigateToTab,
     this.onRefresh,
+    this.afterTiles,
   });
 
   @override
@@ -1193,6 +1154,26 @@ class _OverviewStatsState extends State<_OverviewStats> {
               columns: compact ? 3 : 2,
               gap: compact ? 8 : 10,
             ),
+            if (widget.afterTiles case final after?) after,
+            // Trucker home board: Payments left the trucker's bar; this row
+            // (and the account sheet) opens it.
+            if (widget.role == UserRole.trucker)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: _PaymentsRow(
+                  detail: unknown != null
+                      ? null
+                      : widget.l10n
+                          .homePaymentsInEscrow(birrText(stats.escrowEtb)),
+                  onTap: () => _openHomeDest(
+                    context,
+                    role: widget.role,
+                    dest: _HomeDest.payments,
+                    onNavigateToTab: widget.onNavigateToTab,
+                    onRefresh: widget.onRefresh,
+                  ),
+                ),
+              ),
           ],
         );
       },
@@ -1560,15 +1541,18 @@ class _OverviewStatsState extends State<_OverviewStats> {
       String? value,
       bool amount = false,
       String? sub,
+      String? link,
       IconData? icon,
       bool emphasized = false,
       bool compact = false,
     }) {
       return _GlanceTile(
+        key: Key('home_tile_${dest.name}'),
         label: label,
         value: value,
         amount: amount,
         sub: sub,
+        link: link,
         icon: icon,
         emphasized: emphasized,
         compact: compact,
@@ -1584,8 +1568,9 @@ class _OverviewStatsState extends State<_OverviewStats> {
 
     switch (role) {
       case UserRole.farmer:
-        // Farmer · Home board: My Crops leads, filled; Sell Crops is the
-        // floating button.
+        // Farmer home board: My Crops leads, black; Sell is in the bar.
+        // Deliveries is no bar tab for the farmer: its tile (and the "on
+        // the road" card) is how the farmer gets there.
         return [
           tile(
             _HomeDest.myCrops,
@@ -1610,13 +1595,14 @@ class _OverviewStatsState extends State<_OverviewStats> {
             label: l10n.escrow,
             value: etb,
             amount: true,
-            sub: l10n.homeTileHeldForYou,
+            sub: l10n.homeTileHeldUntilConfirmed,
           ),
           tile(
             _HomeDest.deliveries,
             label: l10n.deliveries,
             value: count(stats.inTransit),
             sub: l10n.homeTileInTransit,
+            link: l10n.trackDelivery,
           ),
         ];
       case UserRole.trucker:
@@ -2216,8 +2202,8 @@ class _ActivityItem {
   });
 }
 
-/// The one-line Recent card: a mark for the event's kind, "Recent: ..." and
-/// how long ago.
+/// The Recent line (Trucker home board): an outlined pill with a mark for
+/// the event's kind in the role's colour, "Recent: ..." and how long ago.
 class _RecentLineCard extends StatelessWidget {
   final _ActivityItem item;
   final AppLocalizations l10n;
@@ -2231,10 +2217,10 @@ class _RecentLineCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (icon, color) = switch (item.type) {
-      _ActivityType.info => (Icons.info_outline, AppTheme.dropoffSlate),
-      _ActivityType.success => (Icons.check, context.roleColors.primary),
-      _ActivityType.pending => (Icons.schedule, AppTheme.statusTransit),
+    final icon = switch (item.type) {
+      _ActivityType.info => Icons.info_outline,
+      _ActivityType.success => Icons.check,
+      _ActivityType.pending => Icons.schedule,
     };
 
     final timeDiff = DateTime.now().difference(item.timestamp);
@@ -2246,50 +2232,115 @@ class _RecentLineCard extends StatelessWidget {
 
     return Semantics(
       button: true,
-      child: Material(
-        color: AppTheme.surfaceWhite,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: AppTheme.line),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: const Key('home_recent_line'),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            child: Row(
-              children: [
-                Icon(icon, size: 18, color: color),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    l10n.homeRecentLine(item.description),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.inkSoft,
+      // A 44 tall pill in a 48 tall hit area.
+      child: FwTapTarget(
+        onTap: onTap,
+        child: Material(
+          color: Colors.transparent,
+          shape: const StadiumBorder(
+            side: BorderSide(color: AppTheme.fieldBorder),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: const Key('home_recent_line'),
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 44),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Row(
+                  children: [
+                    Icon(icon, size: 16, color: context.roleColors.primary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        l10n.homeRecentLine(item.description),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.inkSoft,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                    const SizedBox(width: 8),
+                    Text(
+                      timeLabel,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.slate,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  timeLabel,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppTheme.slate,
-                  ),
-                ),
-                const SizedBox(width: 2),
-                const Icon(
-                  Icons.chevron_right,
-                  size: 18,
-                  color: AppTheme.slate,
-                ),
-              ],
+              ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The trucker's Payments row (Trucker home board): a flat sand row with
+/// the wallet, "Payments" over the transport pay held in escrow, and
+/// "Open". Payments is no bar tab for the trucker; this row opens it.
+class _PaymentsRow extends StatelessWidget {
+  /// "4,500 ETB in escrow"; null while the amount is not known.
+  final String? detail;
+  final VoidCallback onTap;
+
+  const _PaymentsRow({required this.detail, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final detail = this.detail;
+    return Semantics(
+      button: true,
+      child: FwCard.sand(
+        key: const Key('home_payments_row'),
+        padding: const EdgeInsetsDirectional.fromSTEB(16, 8, 14, 8),
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 40),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.account_balance_wallet_outlined,
+                size: 20,
+                color: AppTheme.ink,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      l10n.payments,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.15,
+                        color: AppTheme.ink,
+                      ),
+                    ),
+                    if (detail != null)
+                      Text(
+                        detail,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.inkSoft,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              HomeOpenMark(label: l10n.homeOpen, pill: false),
+            ],
           ),
         ),
       ),

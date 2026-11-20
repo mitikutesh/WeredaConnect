@@ -145,6 +145,20 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
     final onTap = widget.onTap ??
         () => openLiveTrip(context, delivery, widget.currentUserId);
 
+    if (farmer && !widget.compact) {
+      return _farmerCard(
+        context,
+        l10n: l10n,
+        clock: clock,
+        title: title,
+        buyer: subtitle,
+        track: track,
+        late: band == TrackFreshness.late,
+        now: view.now,
+        onTap: onTap,
+      );
+    }
+
     if (widget.compact) {
       return Material(
         color: AppTheme.surfaceWhite,
@@ -407,6 +421,146 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
     );
   }
 
+  /// The farmer's "Your wheat is on the road" (Farmer home board, design
+  /// canvas page M): a flat sand card with the truck glyph and the title,
+  /// the In Transit pill in the farmer's tint, the road ribbon (the driven
+  /// part in the farmer's colour, the truck in a black square, the rest
+  /// dashed), then the buyer with the arrival window in the farmer's
+  /// colour and the age of the last check-in.
+  Widget _farmerCard(
+    BuildContext context, {
+    required AppLocalizations l10n,
+    required ClockFormat clock,
+    required String title,
+    required String buyer,
+    required DeliveryTrack? track,
+    required bool late,
+    required DateTime now,
+    required VoidCallback onTap,
+  }) {
+    final role = context.roleColors;
+    final eta = track?.eta;
+    final arrives = eta == null
+        ? null
+        : _sentence(clock.window(eta.from, eta.to), l10n.liveTripArrives);
+    final band = track == null ? null : trackFreshness(track, now);
+    final age = track == null || band == null
+        ? null
+        : checkInChipText(context, track, now, _places, band).compact;
+    const line = TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w500,
+      color: AppTheme.inkSoft,
+    );
+    return FwCard.sand(
+      padding: EdgeInsets.zero,
+      child: InkWell(
+        key: Key('on_the_road_${widget.delivery.deliveryId}'),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.local_shipping_outlined,
+                    size: 20,
+                    color: AppTheme.ink,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.15,
+                        color: AppTheme.ink,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // A late truck says so with a mark, not by colour alone.
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 150),
+                    child: late
+                        ? FwPill(
+                            label: l10n.liveTripStatusOnTheRoad,
+                            icon: Icons.warning_amber_rounded,
+                            background: AppTheme.orangeTint,
+                            foreground: AppTheme.orangeInk,
+                          )
+                        : FwPill(label: l10n.inTransit),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              ExcludeSemantics(
+                child: CustomPaint(
+                  key: Key('road_ribbon_${widget.delivery.deliveryId}'),
+                  size: const Size(double.infinity, 28),
+                  painter: _RoadRibbonPainter(
+                    share: track == null ? 0 : (tripProgressShare(track) ?? 0),
+                    driven: role.primary,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: arrives == null
+                                ? buyer
+                                : '$buyer · ${arrives.before}',
+                          ),
+                          if (arrives != null) ...[
+                            TextSpan(
+                              text: arrives.time,
+                              style: TextStyle(
+                                color: role.primary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            if (arrives.time24 != null)
+                              TextSpan(
+                                text: ' (${arrives.time24})',
+                                style: TextStyle(
+                                  fontSize:
+                                      line.fontSize! * ClockText.smallScale,
+                                ),
+                              ),
+                            if (arrives.after.isNotEmpty)
+                              TextSpan(text: arrives.after),
+                          ],
+                        ],
+                      ),
+                      style: line,
+                    ),
+                  ),
+                  if (age != null) ...[
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: Text(age, textAlign: TextAlign.end, style: line),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   static ClockLabel _sentence(ClockLabel window, String Function(String) put) {
     const slot = '\u{FFFC}';
     final whole = put(slot);
@@ -419,6 +573,98 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
       after: whole.substring(at + slot.length),
     );
   }
+}
+
+/// The farmer card's road in one line (Farmer home board): a ring at each
+/// end, the driven part thick in the farmer's colour up to the truck (an
+/// orange truck in a black rounded square), the rest thin and dashed.
+class _RoadRibbonPainter extends CustomPainter {
+  const _RoadRibbonPainter({required this.share, required this.driven});
+
+  /// 0 at the pickup to 1 at the drop-off.
+  final double share;
+  final Color driven;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const ring = 6.0;
+    const box = 24.0;
+    final y = size.height / 2;
+    const start = ring + 2;
+    final end = size.width - ring - 2;
+    final part = share.isNaN ? 0.0 : share.clamp(0.0, 1.0);
+    // The truck's square stays between the two rings.
+    final left = (start + (end - start) * part - box / 2)
+        .clamp(start + ring, end - ring - box);
+    final right = left + box;
+
+    canvas.drawLine(
+      Offset(start, y),
+      Offset(left, y),
+      Paint()
+        ..color = driven
+        ..strokeWidth = 4
+        ..strokeCap = StrokeCap.round,
+    );
+    final ahead = Paint()
+      ..color = AppTheme.ink.withValues(alpha: 0.55)
+      ..strokeWidth = 2.5;
+    for (var x = right; x < end - ring; x += 10) {
+      final to = x + 5 < end - ring ? x + 5 : end - ring;
+      canvas.drawLine(Offset(x, y), Offset(to, y), ahead);
+    }
+    void ringAt(double x, Color color) {
+      canvas
+        ..drawCircle(Offset(x, y), ring, Paint()..color = AppTheme.ground)
+        ..drawCircle(
+          Offset(x, y),
+          ring,
+          Paint()
+            ..color = color
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3,
+        );
+    }
+
+    ringAt(start, driven);
+    ringAt(end, AppTheme.slate);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(left, y - box / 2, box, box),
+        const Radius.circular(8),
+      ),
+      Paint()..color = AppTheme.ink,
+    );
+    // The board's truck, drawn in its 24 px box at 0.54.
+    canvas
+      ..save()
+      ..translate(left + 5.5, y - box / 2 + 5.5)
+      ..scale(0.54);
+    final truck = Paint()
+      ..color = AppTheme.orange
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.6
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas
+      ..drawRect(const Rect.fromLTRB(3, 7, 14, 16), truck)
+      ..drawPath(
+        Path()
+          ..moveTo(14, 10)
+          ..lineTo(18, 10)
+          ..lineTo(21, 13)
+          ..lineTo(21, 16)
+          ..lineTo(14, 16),
+        truck,
+      )
+      ..drawCircle(const Offset(7, 17.5), 1.8, truck)
+      ..drawCircle(const Offset(17, 17.5), 1.8, truck)
+      ..restore();
+  }
+
+  @override
+  bool shouldRepaint(_RoadRibbonPainter oldDelegate) =>
+      oldDelegate.share != share || oldDelegate.driven != driven;
 }
 
 /// The thin bar of the web deliveries board's list card: [share] of the way

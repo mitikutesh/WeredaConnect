@@ -4927,6 +4927,66 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get homeWelcomeBack => 'Welcome back,';
+
+  @override
+  String get homeOpen => 'Open';
+
+  @override
+  String get homeTileHeldUntilConfirmed =>
+      'held for you until the buyer confirms delivery';
+
+  @override
+  String homeTripLoadedKg(String loaded, String capacity) {
+    return '$loaded of $capacity kg loaded';
+  }
+
+  @override
+  String quintalsOfInParens(String part, String total) {
+    return '($part of $total quintals)';
+  }
+
+  @override
+  String homePaymentsInEscrow(String amount) {
+    return '$amount ETB in escrow';
+  }
+
+  @override
+  String myCropsOrderedOfKg(String ordered, String total) {
+    return '$ordered of $total kg ordered';
+  }
+
+  @override
+  String get myCropsNoOrdersShort => 'no orders yet';
+
+  @override
+  String get myCropsEmptyTitle => 'No crops listed yet';
+
+  @override
+  String get myCropsEmptyBody =>
+      'List your first crop so buyers can find it and send you orders.';
+
+  @override
+  String get myCropsEmptyAction => 'List a crop';
+
+  @override
+  String get quantityInKg => 'Quantity (kg)';
+
+  @override
+  String get kgUnit => 'kg';
+
+  @override
+  String quintalsShortInParens(String count) {
+    return '($count q)';
+  }
+
+  @override
+  String get quantityKgTooSmall => 'Enter at least 1 kg.';
+
+  @override
+  String get quantityKgTooLarge => 'Enter at most 1,000,000 kg.';
+
+  @override
   String get createTripBookingCutoffNote =>
       'Buyers can book until 24 h before you leave.';
 

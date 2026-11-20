@@ -4981,6 +4981,66 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get homeWelcomeBack => 'Baga nagaan dhuftan,';
+
+  @override
+  String get homeOpen => 'Bani';
+
+  @override
+  String get homeTileHeldUntilConfirmed =>
+      'hanga bitataan ga\'uu isaa mirkaneessutti isiniif qabamee jira';
+
+  @override
+  String homeTripLoadedKg(String loaded, String capacity) {
+    return 'kg $capacity keessaa $loaded fe\'ameera';
+  }
+
+  @override
+  String quintalsOfInParens(String part, String total) {
+    return '(kuntaala $total keessaa $part)';
+  }
+
+  @override
+  String homePaymentsInEscrow(String amount) {
+    return 'Qarshii $amount eeskiroo keessa';
+  }
+
+  @override
+  String myCropsOrderedOfKg(String ordered, String total) {
+    return 'kg $total keessaa $ordered ajajameera';
+  }
+
+  @override
+  String get myCropsNoOrdersShort => 'hanga ammaatti ajajni hin jiru';
+
+  @override
+  String get myCropsEmptyTitle => 'Midhaan tarreeffame hin jiru';
+
+  @override
+  String get myCropsEmptyBody =>
+      'Bitattoonni akka argataniifi ajaja akka isiniif erganiif midhaan keessan isa jalqabaa tarreessaa.';
+
+  @override
+  String get myCropsEmptyAction => 'Midhaan tarreessi';
+
+  @override
+  String get quantityInKg => 'Hamma (kg)';
+
+  @override
+  String get kgUnit => 'kg';
+
+  @override
+  String quintalsShortInParens(String count) {
+    return '(kunt. $count)';
+  }
+
+  @override
+  String get quantityKgTooSmall => 'Yoo xiqqaate kg 1 galchi.';
+
+  @override
+  String get quantityKgTooLarge => 'kg 1,000,000 ol hin galchin.';
+
+  @override
   String get createTripBookingCutoffNote =>
       'Bitoonni hanga sa\'aatii 24 osoo hin ka\'iin dura qabachuu danda\'u.';
 

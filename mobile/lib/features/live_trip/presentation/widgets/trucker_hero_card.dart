@@ -12,6 +12,7 @@ import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
+import 'package:wereda_connect/core/utils/kg_entry.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
@@ -30,13 +31,16 @@ import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_s
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/home_cards.dart';
 
-/// The trip card inside the trucker home's dark header (Trucker · Home
-/// board): the route, the sharing state while the phone shares the trip's
-/// location (LT-09), how full the truck is, and the next stop or the trip's
-/// price. One dark card for every state: a trip on the road, a booked one,
-/// an open one, the last delivered one, or no trip at all (a quiet line and
-/// the recent routes; the gold Post Trip button floats below).
+/// The trip card the trucker's Home leads with (Trucker home board, design
+/// canvas page M): the sharing state while the phone shares the trip's
+/// location (LT-09) and the black Open pill, the route, how full the truck
+/// is in kilograms (quintals after, small), and the next stop or the trip's
+/// price. One raised paper card for every state: a trip on the road, a
+/// booked one, an open one, the last delivered one, or no trip at all (a
+/// quiet line and the recent routes; Post Trip is in the bar).
 ///
 /// Reads the trucker's own trip through the trip repository (Isar on mobile,
 /// painted first and read again when a pull of the trucker's own trips
@@ -371,7 +375,7 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const _DarkCard(
+      return const _HeroCard(
         child: SizedBox(
           height: 56,
           child: Center(
@@ -380,7 +384,7 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
               height: 18,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: AppTheme.inkMuted,
+                color: AppTheme.slate,
               ),
             ),
           ),
@@ -402,29 +406,23 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
     final clock = clockFormatOf(context);
     final sharing = _sharing(trip);
 
-    // The right slot: the sharing state while the phone shares, else the
-    // trip's state (its day while it is open).
+    // The pill: the sharing state while the phone shares, else the trip's
+    // state (its day while it is open).
     final Widget slot;
     if (sharing) {
       slot = switch (_status.mode) {
-        SharingMode.live => _SlotText(
-            l10n.tripModeSharingLive,
-            color: context.roleColors.mid,
-            dot: true,
-          ),
-        SharingMode.paused => _SlotText(
+        SharingMode.live => _SlotPill(l10n.tripModeSharingLive, dot: true),
+        SharingMode.paused => _SlotPill(
             '${l10n.liveTripPaused} · ${clock.time(_status.pausedUntil!)}',
+            quiet: true,
           ),
-        _ => _SlotText(l10n.tripModeScansOnlyTitle),
+        _ => _SlotPill(l10n.tripModeScansOnlyTitle, quiet: true),
       };
     } else {
       slot = switch (trip.status) {
-        TripStatus.open => _SlotText(_departureDay(l10n, trip)),
-        TripStatus.delivered => _SlotText(
-            tripStatusLabel(trip.status, l10n),
-            color: context.roleColors.mid,
-          ),
-        _ => _SlotText(tripStatusLabel(trip.status, l10n)),
+        TripStatus.open => _SlotPill(_departureDay(l10n, trip), quiet: true),
+        TripStatus.delivered => _SlotPill(tripStatusLabel(trip.status, l10n)),
+        _ => _SlotPill(tripStatusLabel(trip.status, l10n), quiet: true),
       };
     }
 
@@ -449,60 +447,49 @@ class _TruckerHeroCardState extends State<TruckerHeroCard> {
             ? CreateTripScreen.fromTrip(trip)
             : TripDetailScreen(trip: trip);
 
-    return _DarkCard(
+    return _HeroCard(
       onTap: () => _open(destination),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          LayoutBuilder(
-            builder: (context, constraints) => Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${trip.fromWoreda} → ${trip.toWoreda}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.2,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Under half the row, so the route keeps its room: the
-                // departure day carries the Ethiopian date in Amharic and
-                // Afaan Oromoo (FUP-545) and wraps instead.
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: constraints.maxWidth * 0.45,
-                  ),
+          Row(
+            children: [
+              // The state keeps what the Open pill leaves: the departure
+              // day carries the Ethiopian date in Amharic and Afaan Oromoo
+              // (FUP-545) and wraps instead of pushing Open off the card.
+              Expanded(
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
                   child: slot,
                 ),
-              ],
+              ),
+              const SizedBox(width: 10),
+              HomeOpenMark(label: l10n.homeOpen),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${trip.fromWoreda} → ${trip.toWoreda}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.6,
+              height: 1.1,
+              color: AppTheme.ink,
             ),
           ),
           if (trip.capacity > 0) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             _TripLoadBar(trip: trip),
           ],
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  line,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppTheme.inkMuted,
-                  ),
-                ),
-              ),
-              const Icon(Icons.chevron_right, size: 18, color: Colors.white),
-            ],
+          const SizedBox(height: 12),
+          Text(
+            line,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 14, color: AppTheme.slate),
           ),
         ],
       ),
@@ -535,19 +522,19 @@ class _LoadFailedCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return _DarkCard(
+    return _HeroCard(
       // Retry takes half the row at most, so a long label (Afaan Oromo,
       // large text) wraps instead of pushing the row off the card.
       child: LayoutBuilder(
         builder: (context, constraints) => Row(
           key: const Key('trucker_hero_load_failed'),
           children: [
-            const Icon(Icons.cloud_off, size: 24, color: AppTheme.inkMuted),
+            const Icon(Icons.cloud_off, size: 24, color: AppTheme.slate),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 l10n.homeTripLoadFailed,
-                style: const TextStyle(fontSize: 14, color: Colors.white),
+                style: const TextStyle(fontSize: 14, color: AppTheme.ink),
               ),
             ),
             const SizedBox(width: 8),
@@ -556,7 +543,6 @@ class _LoadFailedCard extends StatelessWidget {
               child: TextButton(
                 key: const Key('trucker_hero_retry'),
                 onPressed: onRetry,
-                style: TextButton.styleFrom(foregroundColor: AppTheme.orange),
                 child: Text(l10n.retry, textAlign: TextAlign.center),
               ),
             ),
@@ -567,74 +553,86 @@ class _LoadFailedCard extends StatelessWidget {
   }
 }
 
-/// The header's card: soil ground, radius 18, white ink.
-class _DarkCard extends StatelessWidget {
+/// The card the trucker's Home leads with (Trucker home board, design
+/// canvas page M): raised paper, radius 28, black ink.
+class _HeroCard extends StatelessWidget {
   final Widget child;
   final VoidCallback? onTap;
 
-  const _DarkCard({required this.child, this.onTap});
+  const _HeroCard({required this.child, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: AppTheme.inkCard,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      clipBehavior: Clip.antiAlias,
+    return FwCard(
+      raised: true,
+      padding: EdgeInsets.zero,
       child: InkWell(
         key: const Key('trucker_hero_card'),
         onTap: onTap,
-        child: Padding(padding: const EdgeInsets.all(16), child: child),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+          child: child,
+        ),
       ),
     );
   }
 }
 
-/// The small state text at the card's top right, with a green dot while the
-/// phone shares its location.
-class _SlotText extends StatelessWidget {
+/// The trip's state as the pill at the card's top left: the role's tint
+/// with a live dot while the phone shares its location, grey for a state
+/// that asks nothing ([quiet]).
+class _SlotPill extends StatelessWidget {
   final String text;
-  final Color color;
   final bool dot;
+  final bool quiet;
 
-  const _SlotText(
-    this.text, {
-    this.color = AppTheme.inkMuted,
-    this.dot = false,
-  });
+  const _SlotPill(this.text, {this.dot = false, this.quiet = false});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (dot) ...[
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 6),
-        ],
-        Flexible(
-          child: Text(
-            text,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.end,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: color,
+    final role = context.roleColors;
+    final foreground = quiet ? AppTheme.inkSoft : role.primary;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 26),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(
+        color: quiet ? AppTheme.segmentTrack : role.tint,
+        borderRadius: BorderRadius.circular(13),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (dot) ...[
+            Container(
+              width: 7,
+              height: 7,
+              decoration:
+                  BoxDecoration(color: foreground, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+          ],
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: foreground,
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
 /// How full the truck is (the board's "Space on today's trip"): booked
-/// quintals out of the capacity, as a gold bar on the dark card.
+/// kilograms out of the capacity in the role's colour, a 6 px bar, then
+/// the same share in quintals, small and muted (kilograms lead, design
+/// canvas page M). The trip itself is stored in quintals.
 class _TripLoadBar extends StatelessWidget {
   final Trip trip;
 
@@ -645,49 +643,60 @@ class _TripLoadBar extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final capacity = trip.capacity;
     final loaded = (capacity - tripRoomLeft(trip)).clamp(0, capacity);
-    final text = l10n.tripLoadedOf(
+    final kg = l10n.homeTripLoadedKg(
+      kgNumberText(loaded * kgPerQuintal),
+      kgNumberText(capacity * kgPerQuintal),
+    );
+    final quintals = l10n.quintalsOfInParens(
       formatQuintals(loaded.toDouble()),
       formatQuintals(capacity),
     );
 
     return Semantics(
-      label: '${l10n.tripSpaceTitle}: $text',
+      label: '${l10n.tripSpaceTitle}: $kg $quintals',
       excludeSemantics: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
+          // The words wrap under each other when they do not fit a line.
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 10,
             children: [
-              Expanded(
-                child: Text(
-                  l10n.tripSpaceTitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppTheme.inkMuted,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
               Text(
-                text,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
+                l10n.tripSpaceTitle,
+                style: const TextStyle(fontSize: 13, color: AppTheme.slate),
+              ),
+              Text(
+                kg,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: context.roleColors.primary,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 7),
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
               value: loaded / capacity,
-              minHeight: 8,
-              backgroundColor: AppTheme.inkTrack,
-              valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.orange),
+              minHeight: 6,
+              backgroundColor: AppTheme.track,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                context.roleColors.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            quintals,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.slate,
             ),
           ),
         ],
@@ -697,7 +706,7 @@ class _TripLoadBar extends StatelessWidget {
 }
 
 /// No trip posted (or the last one cancelled): a quiet line and the recent
-/// routes as chips that prefill a new trip. The card itself opens Create
+/// routes as pills that prefill a new trip. The card itself opens Create
 /// trip too.
 class _NoTripCard extends StatelessWidget {
   final List<({String from, String to})> recentRoutes;
@@ -709,7 +718,7 @@ class _NoTripCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return _DarkCard(
+    return _HeroCard(
       onTap: () => onOpen(const CreateTripScreen()),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -719,7 +728,7 @@ class _NoTripCard extends StatelessWidget {
               const Icon(
                 Icons.local_shipping_outlined,
                 size: 28,
-                color: AppTheme.inkMuted,
+                color: AppTheme.slate,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -729,18 +738,18 @@ class _NoTripCard extends StatelessWidget {
                     Text(
                       l10n.noActiveTrip,
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 19,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: -0.2,
-                        color: Colors.white,
+                        letterSpacing: -0.4,
+                        color: AppTheme.ink,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       l10n.homeTripNoneHint,
                       style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.inkMuted,
+                        fontSize: 14,
+                        color: AppTheme.slate,
                       ),
                     ),
                   ],
@@ -755,7 +764,7 @@ class _NoTripCard extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.inkMuted,
+                color: AppTheme.slate,
               ),
             ),
             const SizedBox(height: 8),
@@ -764,28 +773,38 @@ class _NoTripCard extends StatelessWidget {
               runSpacing: 8,
               children: [
                 for (final route in recentRoutes)
+                  // An outlined pill, 44 tall: a route to post again.
                   Material(
-                    color: AppTheme.inkTrack,
-                    borderRadius: BorderRadius.circular(10),
+                    color: Colors.transparent,
+                    shape: const StadiumBorder(
+                      side: BorderSide(color: AppTheme.fieldBorder),
+                    ),
+                    clipBehavior: Clip.antiAlias,
                     child: InkWell(
-                      borderRadius: BorderRadius.circular(10),
                       onTap: () => onOpen(
                         CreateTripScreen(
                           fromWoreda: route.from,
                           toWoreda: route.to,
                         ),
                       ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        child: Text(
-                          '${route.from} → ${route.to}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 44),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 6,
+                          ),
+                          child: Align(
+                            widthFactor: 1,
+                            heightFactor: 1,
+                            child: Text(
+                              '${route.from} → ${route.to}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.inkSoft,
+                              ),
+                            ),
                           ),
                         ),
                       ),

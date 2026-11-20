@@ -4793,6 +4793,65 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get homeWelcomeBack => 'እንኳን ደህና መጡ፣';
+
+  @override
+  String get homeOpen => 'ክፈት';
+
+  @override
+  String get homeTileHeldUntilConfirmed => 'ገዢው መድረሱን እስኪያረጋግጥ ለእርስዎ ተይዟል';
+
+  @override
+  String homeTripLoadedKg(String loaded, String capacity) {
+    return 'ከ$capacity ኪግ $loaded ተጭኗል';
+  }
+
+  @override
+  String quintalsOfInParens(String part, String total) {
+    return '(ከ$total ኩንታል $part)';
+  }
+
+  @override
+  String homePaymentsInEscrow(String amount) {
+    return '$amount ብር በኢስክሮ';
+  }
+
+  @override
+  String myCropsOrderedOfKg(String ordered, String total) {
+    return 'ከ$total ኪግ $ordered ታዝዟል';
+  }
+
+  @override
+  String get myCropsNoOrdersShort => 'እስካሁን ትዕዛዝ የለም';
+
+  @override
+  String get myCropsEmptyTitle => 'እስካሁን የተዘረዘረ ሰብል የለም';
+
+  @override
+  String get myCropsEmptyBody =>
+      'ገዢዎች እንዲያገኙት እና ትዕዛዝ እንዲልኩልዎ የመጀመሪያ ሰብልዎን ይዘርዝሩ።';
+
+  @override
+  String get myCropsEmptyAction => 'ሰብል ይዘርዝሩ';
+
+  @override
+  String get quantityInKg => 'መጠን (ኪግ)';
+
+  @override
+  String get kgUnit => 'ኪግ';
+
+  @override
+  String quintalsShortInParens(String count) {
+    return '($count ኩ.)';
+  }
+
+  @override
+  String get quantityKgTooSmall => 'ቢያንስ 1 ኪግ ያስገቡ።';
+
+  @override
+  String get quantityKgTooLarge => 'ከ1,000,000 ኪግ በላይ አያስገቡ።';
+
+  @override
   String get createTripBookingCutoffNote =>
       'ገዢዎች ከመነሳትዎ 24 ሰዓት በፊት ድረስ መያዝ ይችላሉ።';
 

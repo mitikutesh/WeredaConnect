@@ -24,6 +24,8 @@ import 'package:wereda_connect/features/order/presentation/open_order_detail.dar
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/home_cards.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// What an order is waiting for from the signed-in user (ESC-15/21).
@@ -524,80 +526,88 @@ class _ActionNeededCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final due = item.dueAt;
-    return Semantics(
-      button: true,
-      child: Material(
-        color: AppTheme.orangeTint,
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        l10n.actionNeededTitle.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.9,
-                          color: context.roleColors.primary,
-                        ),
-                      ),
-                    ),
-                    if (due != null)
-                      ClockText(
-                        _due(context, due),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.orangeInk,
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  actionNeededLabel(l10n, item.kind),
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.2,
-                    color: AppTheme.ink,
+    // Design canvas page M. The trucker's Home leads with the trip card, so
+    // their action card is flat on the orange tint; for the farmer (and the
+    // buyer) it is the card the page leads with, raised on paper.
+    final flat = role == UserRole.trucker;
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Flexible(child: HomeActionPill(l10n.actionNeededTitle)),
+            const SizedBox(width: 12),
+            if (due != null)
+              Expanded(
+                child: ClockText(
+                  _due(context, due),
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: flat ? AppTheme.orangeInk : AppTheme.inkSoft,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _facts(),
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.orangeInk,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const Icon(
-                      Icons.chevron_right,
-                      size: 20,
-                      color: AppTheme.orangeInk,
-                    ),
-                  ],
-                ),
-              ],
-            ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          actionNeededLabel(l10n, item.kind),
+          style: const TextStyle(
+            fontSize: 19,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.4,
+            height: 1.2,
+            color: AppTheme.ink,
           ),
         ),
-      ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            if (flat) ...[
+              const Icon(
+                Icons.inventory_2_outlined,
+                size: 20,
+                color: AppTheme.inkSoft,
+              ),
+              const SizedBox(width: 6),
+            ],
+            Expanded(
+              child: Text(
+                _facts(),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: flat ? AppTheme.inkSoft : AppTheme.slate,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 12),
+            HomeOpenMark(label: l10n.homeOpen, pill: !flat),
+          ],
+        ),
+      ],
+    );
+    return Semantics(
+      button: true,
+      child: flat
+          ? FwCard(
+              key: const Key('action_needed_card'),
+              color: AppTheme.orangeTint,
+              borderColor: null,
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              onTap: onTap,
+              child: body,
+            )
+          : FwCard(
+              key: const Key('action_needed_card'),
+              raised: true,
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+              onTap: onTap,
+              child: body,
+            ),
     );
   }
 }
