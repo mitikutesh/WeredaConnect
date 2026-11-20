@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
@@ -7,6 +8,9 @@ import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/delivery_photo_urls.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/photo_types.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/widgets/photo_evidence_widget.dart';
 import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
 import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
 import 'package:wereda_connect/features/live_trip/presentation/live_trip_text.dart';
@@ -34,8 +38,12 @@ class TripLogScreen extends StatelessWidget {
     required this.now,
     this.order,
     this.places = const [],
+    this.photoUrlLoader,
     super.key,
   });
+
+  /// Loads the pickup photo's URL; the app's delivery read by default.
+  final DeliveryPhotoUrlLoader? photoUrlLoader;
 
   final Delivery delivery;
   final String currentUserId;
@@ -150,7 +158,11 @@ class TripLogScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 18),
-            _PickupProof(delivery: delivery, track: track),
+            _PickupProof(
+              delivery: delivery,
+              track: track,
+              photoUrlLoader: photoUrlLoader,
+            ),
             if (o != null) ...[
               const SizedBox(height: 18),
               _PriceBreakdown(
@@ -903,13 +915,50 @@ class _MarkerBox extends StatelessWidget {
   }
 }
 
-/// When and how the pickup was proved: the QR scan time and whether the
-/// phone recorded where.
+/// When and how the pickup was proved (the board's pickup proof): the
+/// pickup photo in an 80 px tile with "View photo" when the delivery has
+/// one (else the proof mark), the QR scan time and whether the phone
+/// recorded where. The photo is the delivery's own evidence, which the
+/// server signs for its three parties only.
 class _PickupProof extends StatelessWidget {
-  const _PickupProof({required this.delivery, required this.track});
+  const _PickupProof({
+    required this.delivery,
+    required this.track,
+    this.photoUrlLoader,
+  });
 
   final Delivery delivery;
   final DeliveryTrack track;
+  final DeliveryPhotoUrlLoader? photoUrlLoader;
+
+  /// The pickup photo larger, in a dialog with its name and a close button.
+  void _viewPhoto(BuildContext context, String photoRef) {
+    final l10n = AppLocalizations.of(context)!;
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(l10n.deliveryPhotoPickup),
+        // A square as wide as the dialog allows: the screen less the
+        // dialog's own margins and padding (40 and 24 on each side).
+        content: PhotoEvidenceWidget(
+          key: const Key('trip_log_pickup_photo_large'),
+          photoRef: photoRef,
+          photoType: PhotoType.pickup,
+          deliveryId: delivery.deliveryId,
+          canCapture: false,
+          showLabel: false,
+          size: (MediaQuery.sizeOf(context).width - 128).clamp(120.0, 320.0),
+          photoUrlLoader: photoUrlLoader,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(l10n.close),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -920,23 +969,37 @@ class _PickupProof extends StatelessWidget {
     final gps = delivery.gpsPickup != null || track.pickup != null
         ? l10n.liveTripGpsRecorded
         : '${l10n.deliveryGpsLabel}: ${l10n.deliveryGpsNotCaptured}';
+    final photoRef = delivery.pickupPhotoRef;
+    final hasPhoto = photoRef != null && photoRef.isNotEmpty;
     return FwCard.sand(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: AppTheme.paper,
-              borderRadius: BorderRadius.circular(14),
+          if (hasPhoto)
+            PhotoEvidenceWidget(
+              key: const Key('trip_log_pickup_photo'),
+              photoRef: photoRef,
+              photoType: PhotoType.pickup,
+              deliveryId: delivery.deliveryId,
+              canCapture: false,
+              showLabel: false,
+              size: 80,
+              photoUrlLoader: photoUrlLoader,
+            )
+          else
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: AppTheme.paper,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.verified_outlined,
+                color: AppTheme.slate,
+                size: 26,
+              ),
             ),
-            child: const Icon(
-              Icons.verified_outlined,
-              color: AppTheme.slate,
-              size: 26,
-            ),
-          ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -952,6 +1015,25 @@ class _PickupProof extends StatelessWidget {
                     color: AppTheme.ink,
                   ),
                 ),
+                if (hasPhoto)
+                  // The board's link: role colour, a 44 px target.
+                  TextButton(
+                    key: const Key('trip_log_view_photo'),
+                    onPressed: () => _viewPhoto(context, photoRef),
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(48, 48),
+                      alignment: AlignmentDirectional.centerStart,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      textStyle: const TextStyle(
+                        fontFamily: AppTheme.fontFamily,
+                        fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    child: Text(l10n.liveTripViewPhoto),
+                  ),
               ],
             ),
           ),
@@ -1003,6 +1085,16 @@ class _PriceBreakdown extends StatelessWidget {
             '${etb(transport / quintals)})'
         : null;
     final place = dropoffNote?.trim() ?? '';
+    // "Platform commission · 5%" (the board), from the order's own fields:
+    // the amount the server priced and the rate when the order carries it.
+    // Only the buyer pays it and only the buyer is shown it (as on order
+    // detail: the farmer and the trucker see their own leg).
+    final commission = isBuyer ? order.commissionAmount : null;
+    final rate = order.commissionRate;
+    final commissionLabel = rate == null || rate <= 0
+        ? l10n.escrowPlatformCommission
+        : '${l10n.escrowPlatformCommission} · '
+            '${NumberFormat('0.##').format(rate * 100)}%';
     Widget row(String label, double amount, {String? detail}) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 5),
           child: Row(
@@ -1071,7 +1163,11 @@ class _PriceBreakdown extends StatelessWidget {
               transport,
               detail: transportDetail,
             ),
-          row(l10n.platformCommission, order.commissionAmount ?? 0),
+          if (commission != null)
+            KeyedSubtree(
+              key: const Key('trip_log_commission'),
+              child: row(commissionLabel, commission),
+            ),
           Container(
             margin: const EdgeInsets.only(top: 5),
             padding: const EdgeInsets.only(top: 10),

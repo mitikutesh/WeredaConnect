@@ -19,6 +19,11 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// it, the presigned GET that `GET /deliveries/{id}` gives the delivery's
 /// parties, cached on the phone by its key. Offline and never cached, the
 /// tile says it shows when online.
+///
+/// [size] is the tile's side (120 by default; the trip log shows an 80 px
+/// tile and a large one in its viewer); under 100 the placeholders keep
+/// their icon and drop their words. [showLabel] off leaves the photo's name
+/// to the caller.
 class PhotoEvidenceWidget extends StatelessWidget {
   final String? photoRef;
   final PhotoType photoType;
@@ -32,6 +37,12 @@ class PhotoEvidenceWidget extends StatelessWidget {
   /// Loads the server photo's URL; [fetchDeliveryPhotoUrl] by default.
   final DeliveryPhotoUrlLoader? photoUrlLoader;
 
+  /// The side of the square tile.
+  final double size;
+
+  /// The photo's name under the tile.
+  final bool showLabel;
+
   const PhotoEvidenceWidget({
     required this.photoType,
     required this.deliveryId,
@@ -41,13 +52,17 @@ class PhotoEvidenceWidget extends StatelessWidget {
     this.canCapture = true,
     this.previewBytes,
     this.photoUrlLoader,
+    this.size = 120,
+    this.showLabel = true,
   });
 
-  /// Pixels the 120 dp tile decodes at most (2 GB phones).
-  static const int _decodeWidth = 360;
+  /// Pixels the tile decodes at most: three per dp, 360 for the 120 dp
+  /// tile (2 GB phones).
+  int get _decodeWidth => (size * 3).round();
 
   @override
   Widget build(BuildContext context) {
+    if (!showLabel) return _photo(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -67,12 +82,14 @@ class PhotoEvidenceWidget extends StatelessWidget {
 
   Widget _photo(BuildContext context) {
     final placeholder = _PlaceholderBox(
+      size: size,
       canCapture: canCapture,
       onCapture: onCapture,
     );
     final bytes = previewBytes;
     if (bytes != null) {
       return _Frame(
+        size: size,
         child: Image.memory(
           bytes,
           fit: BoxFit.cover,
@@ -89,12 +106,14 @@ class PhotoEvidenceWidget extends StatelessWidget {
         deliveryId: deliveryId,
         photoType: photoType,
         photoRef: ref,
+        size: size,
         loader: photoUrlLoader ?? fetchDeliveryPhotoUrl,
       );
     }
     final local = localCropPhotoImage(ref, cacheWidth: _decodeWidth);
     if (local == null) return placeholder;
     return _Frame(
+      size: size,
       child: Image(
         image: local,
         fit: BoxFit.cover,
@@ -112,17 +131,18 @@ String photoTypeLabel(AppLocalizations l10n, PhotoType type) => switch (type) {
       PhotoType.arrival => l10n.deliveryPhotoArrival,
     };
 
-/// The 120 by 120 rounded tile a photo sits in.
+/// The rounded square tile a photo sits in.
 class _Frame extends StatelessWidget {
+  final double size;
   final Widget child;
 
-  const _Frame({required this.child});
+  const _Frame({required this.size, required this.child});
 
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
-      child: SizedBox(width: 120, height: 120, child: child),
+      child: SizedBox(width: size, height: size, child: child),
     );
   }
 }
@@ -133,12 +153,14 @@ class _RemotePhoto extends StatefulWidget {
   final String deliveryId;
   final PhotoType photoType;
   final String photoRef;
+  final double size;
   final DeliveryPhotoUrlLoader loader;
 
   const _RemotePhoto({
     required this.deliveryId,
     required this.photoType,
     required this.photoRef,
+    required this.size,
     required this.loader,
     super.key,
   });
@@ -175,20 +197,23 @@ class _RemotePhotoState extends State<_RemotePhoto> {
   Widget build(BuildContext context) {
     final url = _url;
     if (url == null) {
-      return _loading ? const _LoadingBox() : const _OnlineOnlyBox();
+      return _loading
+          ? _LoadingBox(size: widget.size)
+          : _OnlineOnlyBox(size: widget.size);
     }
     return _Frame(
+      size: widget.size,
       child: Semantics(
         image: true,
         label: photoTypeLabel(AppLocalizations.of(context)!, widget.photoType),
         child: CachedNetworkImage(
           imageUrl: url,
           cacheKey: widget.photoRef,
-          memCacheWidth: PhotoEvidenceWidget._decodeWidth,
+          memCacheWidth: (widget.size * 3).round(),
           fit: BoxFit.cover,
           fadeInDuration: const Duration(milliseconds: 150),
-          placeholder: (context, _) => const _LoadingBox(),
-          errorWidget: (context, _, __) => const _OnlineOnlyBox(),
+          placeholder: (context, _) => _LoadingBox(size: widget.size),
+          errorWidget: (context, _, __) => _OnlineOnlyBox(size: widget.size),
         ),
       ),
     );
@@ -196,12 +221,15 @@ class _RemotePhotoState extends State<_RemotePhoto> {
 }
 
 class _LoadingBox extends StatelessWidget {
-  const _LoadingBox();
+  const _LoadingBox({required this.size});
+
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    return const _ChalkTile(
-      child: SizedBox(
+    return _ChalkTile(
+      size: size,
+      child: const SizedBox(
         width: 20,
         height: 20,
         child: CircularProgressIndicator(strokeWidth: 2),
@@ -213,11 +241,28 @@ class _LoadingBox extends StatelessWidget {
 /// The server holds a photo this phone cannot show now (offline, never
 /// cached, or the read failed).
 class _OnlineOnlyBox extends StatelessWidget {
-  const _OnlineOnlyBox();
+  const _OnlineOnlyBox({required this.size});
+
+  final double size;
 
   @override
   Widget build(BuildContext context) {
+    final words = AppLocalizations.of(context)!.deliveryPhotoOnlineOnly;
+    // A small tile has no room for the words: the icon carries them for a
+    // screen reader.
+    if (size < _wordsFrom) {
+      return _ChalkTile(
+        size: size,
+        child: Icon(
+          Icons.cloud_off_outlined,
+          size: 24,
+          color: AppTheme.slate,
+          semanticLabel: words,
+        ),
+      );
+    }
     return _ChalkTile(
+      size: size,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -230,7 +275,7 @@ class _OnlineOnlyBox extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Text(
-              AppLocalizations.of(context)!.deliveryPhotoOnlineOnly,
+              words,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 11,
@@ -245,11 +290,15 @@ class _OnlineOnlyBox extends StatelessWidget {
   }
 }
 
-/// The chalk 120 by 120 tile of the placeholders.
+/// From this side a placeholder tile has room for its words.
+const double _wordsFrom = 100;
+
+/// The chalk square tile of the placeholders.
 class _ChalkTile extends StatelessWidget {
+  final double size;
   final Widget child;
 
-  const _ChalkTile({required this.child});
+  const _ChalkTile({required this.size, required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -260,16 +309,18 @@ class _ChalkTile extends StatelessWidget {
         side: const BorderSide(color: AppTheme.line),
       ),
       clipBehavior: Clip.antiAlias,
-      child: SizedBox(width: 120, height: 120, child: Center(child: child)),
+      child: SizedBox(width: size, height: size, child: Center(child: child)),
     );
   }
 }
 
 class _PlaceholderBox extends StatelessWidget {
+  final double size;
   final bool canCapture;
   final VoidCallback? onCapture;
 
   const _PlaceholderBox({
+    required this.size,
     required this.canCapture,
     this.onCapture,
   });
@@ -277,6 +328,12 @@ class _PlaceholderBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ink = canCapture ? context.roleColors.primary : AppTheme.slate;
+    // Read-only evidence with no photo says so instead of offering a
+    // capture that cannot happen.
+    final words = canCapture
+        ? AppLocalizations.of(context)!.deliveryAddPhoto
+        : AppLocalizations.of(context)!.restNoPhoto;
+    final small = size < _wordsFrom;
     return Semantics(
       button: canCapture,
       child: Material(
@@ -289,25 +346,28 @@ class _PlaceholderBox extends StatelessWidget {
         child: InkWell(
           onTap: canCapture ? onCapture : null,
           child: SizedBox(
-            width: 120,
-            height: 120,
+            width: size,
+            height: size,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.camera_alt_outlined, size: 28, color: ink),
-                const SizedBox(height: 6),
-                Text(
-                  // Read-only evidence with no photo says so instead of
-                  // offering a capture that cannot happen.
-                  canCapture
-                      ? AppLocalizations.of(context)!.deliveryAddPhoto
-                      : AppLocalizations.of(context)!.restNoPhoto,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: ink,
-                  ),
+                Icon(
+                  Icons.camera_alt_outlined,
+                  size: 28,
+                  color: ink,
+                  semanticLabel: small ? words : null,
                 ),
+                if (!small) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    words,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: ink,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
