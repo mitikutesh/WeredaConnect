@@ -209,7 +209,7 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
                         background: AppTheme.orangeTint,
                         foreground: AppTheme.orangeInk,
                       )
-                    : FwPill(label: l10n.liveTripStatusOnTheRoad),
+                    : FwPill(label: l10n.inTransit),
               ],
             ),
             const SizedBox(height: 10),

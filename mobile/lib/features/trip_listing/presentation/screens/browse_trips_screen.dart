@@ -352,8 +352,6 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
           ? FwInfoNote(
               icon: Icons.lock_outline,
               text: l10n.listsMyTripsPrivacyNote,
-              background: AppTheme.sand,
-              foreground: AppTheme.inkSoft,
             )
           : Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),

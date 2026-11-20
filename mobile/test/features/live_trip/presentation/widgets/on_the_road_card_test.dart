@@ -59,7 +59,7 @@ void main() {
     expect(find.textContaining('Selam Traders'), findsOneWidget);
     // Farmer home board: a sand card with the status pill, the ribbon,
     // the buyer with the window and the age of the last check-in.
-    expect(find.text('On the road'), findsOneWidget);
+    expect(find.text('In Transit'), findsOneWidget);
     expect(find.byType(RouteRibbon), findsOneWidget);
     expect(find.textContaining('min ago'), findsOneWidget);
     expect(

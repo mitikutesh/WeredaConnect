@@ -16,6 +16,7 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_sta
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/on_the_road_card.dart';
+import 'package:wereda_connect/features/live_trip/presentation/widgets/live_trip_parts.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
@@ -314,7 +315,13 @@ void main() {
       expect(find.byType(OnTheRoadCard), findsOneWidget);
       expect(find.text('Your Wheat is on the road'), findsOneWidget);
       expect(find.widgetWithText(FwPill, 'In Transit'), findsOneWidget);
-      expect(find.byKey(const Key('road_ribbon_delivery-101')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(OnTheRoadCard),
+          matching: find.byType(RouteRibbon),
+        ),
+        findsOneWidget,
+      );
       final card = tester.widget<FwCard>(
         find.descendant(
           of: find.byType(OnTheRoadCard),
