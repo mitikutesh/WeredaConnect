@@ -1245,8 +1245,12 @@ class _OrderDetailBody extends StatelessWidget {
                     );
                 Navigator.pop(dialogContext);
               },
+              // Beside the other action, not stacked under it: the theme's
+              // button is full width.
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.statusError,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(0, 48),
               ),
               child: Text(l10n.cancelOrder),
             ),

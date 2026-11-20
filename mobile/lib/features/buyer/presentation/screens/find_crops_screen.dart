@@ -245,6 +245,9 @@ class _MyRequestsTab extends StatelessWidget {
             child: Text(l10n.cancel),
           ),
           FilledButton(
+            // Beside Cancel, not stacked under it: the theme's button is
+            // full width.
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: Text(l10n.delete),
           ),

@@ -13,15 +13,6 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// road the truck took in between is unknown.
 const Duration trackGapOver = Duration(minutes: 90);
 
-/// The map's ground (the BuyerLiveTrip, BuyerDeliveries and FarmerJourney
-/// boards of design canvas page M). Needs a token: no theme colour is this
-/// warm grey.
-const Color _mapGround = Color(0xFFDCD5C9);
-
-/// The dashed edge of the halo around the last check-in (the Foundations
-/// board, page M). Needs a token: a lighter brown than `orangeInk`.
-const Color _haloEdge = Color(0xFFA85518);
-
 /// What the map frames.
 enum TrackMapFocus {
   /// Everything: the pickup, every check-in, the stops and the drop-off.
@@ -38,15 +29,15 @@ enum TrackMapFocus {
 @immutable
 class TrackMapStyle {
   const TrackMapStyle({
-    this.background = _mapGround,
+    this.background = AppTheme.mapGround,
     this.town = AppTheme.slate,
     this.labelText = AppTheme.inkSoft,
-    this.labelOutline = _mapGround,
+    this.labelOutline = AppTheme.mapGround,
     this.trail = AppTheme.ink,
     this.ended = AppTheme.slate,
     this.ahead = AppTheme.ink,
     this.halo = AppTheme.orange,
-    this.haloEdge = _haloEdge,
+    this.haloEdge = AppTheme.haloEdge,
     this.truck = AppTheme.ink,
     this.truckGlyph = AppTheme.orange,
     this.truckMuted = AppTheme.inkMuted,

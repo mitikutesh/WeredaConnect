@@ -693,7 +693,12 @@ Future<void> _openHomeDest(
       );
     case _HomeDest.deliveries:
       // Deliveries left the farmer's bar: a pushed page for them.
-      await tabOrPush(RoleTab.deliveries, const DeliveriesPage());
+      await tabOrPush(
+        RoleTab.deliveries,
+        // Its empty state's button ("See my orders") switches the tab
+        // under it.
+        DeliveriesPage(onNavigateToTab: onNavigateToTab),
+      );
     case _HomeDest.payments:
       // Payments is no bar tab: the payment history screen.
       await tabOrPush(RoleTab.payments, const PaymentHistoryScreen());

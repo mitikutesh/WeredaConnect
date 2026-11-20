@@ -41,8 +41,6 @@ class ClockSelectionDialog extends StatelessWidget {
 
     // The boards' raised card: white, radius 28.
     return AlertDialog(
-      backgroundColor: AppTheme.surfaceWhite,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
       title: Text(l10n.clockSetting),
       content: RadioGroup<ClockPreference>(
         groupValue: current,

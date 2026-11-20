@@ -18,10 +18,6 @@ import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// The selected sidebar entry's ground on the Web · Buyer deliveries board
-/// (page M). Needs a token: the theme has no warm tint this light.
-const Color _selectedGround = Color(0xFFEFE3DC);
-
 /// Adaptive shell that switches between sidebar, rail, and bottom navigation.
 ///
 /// - Desktop (>1024px): Full sidebar (260px) with labels, the role's create
@@ -709,7 +705,7 @@ class _SidebarItem extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             color: selected
-                ? _selectedGround
+                ? AppTheme.sidebarSelected
                 : hovered
                     ? AppTheme.paper
                     : Colors.transparent,
@@ -819,7 +815,9 @@ class _SidebarFooter extends StatelessWidget {
                 vertical: 6,
               ),
               decoration: BoxDecoration(
-                color: isProfileActive ? _selectedGround : Colors.transparent,
+                color: isProfileActive
+                    ? AppTheme.sidebarSelected
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: expanded
@@ -936,7 +934,7 @@ class _SidebarFooterButton extends StatelessWidget {
         ),
         decoration: BoxDecoration(
           color: isActive
-              ? _selectedGround
+              ? AppTheme.sidebarSelected
               : hovered
                   ? AppTheme.paper
                   : Colors.transparent,

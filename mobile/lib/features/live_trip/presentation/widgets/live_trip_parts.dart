@@ -100,7 +100,7 @@ class LiveTripBackButton extends StatelessWidget {
 /// The soft shadow under a control that floats over the map.
 const List<BoxShadow> liveTripFloatShadow = [
   BoxShadow(
-    color: Color(0x241A1516),
+    color: AppTheme.shadowSoft,
     blurRadius: 16,
     offset: Offset(0, 6),
   ),

@@ -291,7 +291,7 @@ class JoinErrorBanner extends StatelessWidget {
 /// role, the Digital ID card, the camera frame), as [FwCard]'s raised card.
 const List<BoxShadow> joinRaisedShadow = [
   BoxShadow(
-    color: Color(0x241A1516),
+    color: AppTheme.shadowSoft,
     blurRadius: 30,
     offset: Offset(0, 14),
   ),

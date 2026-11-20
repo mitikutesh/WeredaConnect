@@ -591,6 +591,9 @@ class DeliveryDetailScreen extends StatelessWidget {
               child: Text(l10n.cancel),
             ),
             FilledButton(
+              // Beside Cancel, not stacked under it: the theme's button is
+              // full width.
+              style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
               onPressed: () {
                 Navigator.of(dialogContext).pop();
                 context.read<DeliveryBloc>().add(

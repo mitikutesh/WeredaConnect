@@ -983,7 +983,7 @@ class _Sheet extends StatelessWidget {
           borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
           boxShadow: [
             BoxShadow(
-              color: Color(0x241A1516),
+              color: AppTheme.shadowSoft,
               blurRadius: 30,
               offset: Offset(0, -14),
             ),

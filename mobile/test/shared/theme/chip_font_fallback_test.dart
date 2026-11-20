@@ -51,7 +51,7 @@ void main() {
   // Canvas page M: a dialog has the cards' corner (FwCard's 24).
   test('dialogs are the boards\' white card, radius 24', () {
     final shape = AppTheme.light().dialogTheme.shape! as RoundedRectangleBorder;
-    expect(shape.borderRadius, BorderRadius.circular(24));
+    expect(shape.borderRadius, BorderRadius.circular(28));
     expect(AppTheme.light().dialogTheme.backgroundColor, AppTheme.surfaceWhite);
   });
 

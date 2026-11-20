@@ -765,6 +765,8 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
             onPressed: () => Navigator.pop(dialogContext, true),
             style: FilledButton.styleFrom(
               backgroundColor: AppTheme.statusError,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 48),
             ),
             child: Text(l10n.delete),
           ),
@@ -1174,7 +1176,7 @@ class _FarmerCardState extends State<_FarmerCard> {
               children: [
                 CircleAvatar(
                   radius: 22,
-                  backgroundColor: const Color(0xFFE3EEE6),
+                  backgroundColor: context.roleColors.tint,
                   child: Text(
                     initials,
                     style: TextStyle(

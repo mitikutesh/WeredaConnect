@@ -194,6 +194,21 @@ class AppTheme {
   /// The decorative header sketch's stroke.
   static const Color sketch = Color(0xFFC9BEB5);
 
+  /// The drawn map's ground (live trip, deliveries card, route preview).
+  static const Color mapGround = Color(0xFFDCD5C9);
+
+  /// The pale roads drawn over [mapGround] on the route preview.
+  static const Color mapRoad = Color(0xFFEFEBE4);
+
+  /// The dashed edge of the halo around a truck's last check-in.
+  static const Color haloEdge = Color(0xFFA85518);
+
+  /// The selected entry's ground in the desktop sidebar.
+  static const Color sidebarSelected = Color(0xFFEFE3DC);
+
+  /// The soft shadow under a raised card, a floating button and the bar.
+  static const Color shadowSoft = Color(0x241A1516);
+
   /// The Latin face of the boards (bundled, see pubspec.yaml).
   static const String fontFamily = 'BricolageGrotesque';
 
@@ -268,7 +283,7 @@ class AppTheme {
       onSurfaceVariant: slate,
       outline: line,
       outlineVariant: segmentTrack,
-      shadow: const Color(0x241A1516),
+      shadow: shadowSoft,
       inverseSurface: ink,
       onInverseSurface: Colors.white,
       inversePrimary: colors.mid,
@@ -365,6 +380,11 @@ class AppTheme {
     required Color snackBarBackground,
     required Color snackBarForeground,
   }) {
+    final isDark = colorScheme.brightness == Brightness.dark;
+    // The pieces that have no slot in the colour scheme.
+    final handle = isDark ? darkBorder : sketch;
+    final emptyTrack = isDark ? inkTrack : track;
+    final selection = isDark ? inkCard : sand;
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
@@ -570,26 +590,240 @@ class AppTheme {
           fontFamily: fontFamily,
           fontFamilyFallback: ethiopicFontFallback,
         ),
+        actionTextColor: orange,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(18),
         ),
         behavior: SnackBarBehavior.floating,
       ),
 
-      // ── Dialog ────────────────────────────────────────────────────
+      // Bottom sheets
+      // The boards' sheet: white, 28 px top corners, a 40 by 4 handle.
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: surface,
+        modalBackgroundColor: surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        modalElevation: 0,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        dragHandleColor: handle,
+        dragHandleSize: const Size(40, 4),
+      ),
+
+      // Dialog (replaces the current dialogTheme)
       dialogTheme: DialogThemeData(
         backgroundColor: surface,
         surfaceTintColor: Colors.transparent,
+        elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(28),
         ),
         titleTextStyle: TextStyle(
-          fontSize: 18,
+          fontSize: 22,
           fontWeight: FontWeight.w800,
+          letterSpacing: -0.5,
+          height: 1.15,
           color: text,
           fontFamily: fontFamily,
           fontFamilyFallback: ethiopicFontFallback,
         ),
+        contentTextStyle: TextStyle(
+          fontSize: 14,
+          height: 1.45,
+          color: muted,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      ),
+
+      // Selection controls: the chosen one is black
+      checkboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? text : Colors.transparent,
+        ),
+        checkColor: WidgetStatePropertyAll(surface),
+        side: BorderSide(color: fieldBorder, width: 1.5),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+      ),
+      radioTheme: RadioThemeData(
+        fillColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? text : fieldBorder,
+        ),
+      ),
+      switchTheme: SwitchThemeData(
+        trackColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? text : emptyTrack,
+        ),
+        thumbColor: WidgetStatePropertyAll(surface),
+        trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+      ),
+
+      // Progress: the role's colour on the empty track
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: colorScheme.primary,
+        linearTrackColor: emptyTrack,
+        circularTrackColor: Colors.transparent,
+        linearMinHeight: 4,
+        borderRadius: BorderRadius.circular(999),
+      ),
+
+      // Tabs: black label and line, slate for the others
+      tabBarTheme: TabBarThemeData(
+        labelColor: text,
+        unselectedLabelColor: muted,
+        indicatorColor: text,
+        indicatorSize: TabBarIndicatorSize.label,
+        dividerColor: border,
+        labelStyle: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
+        unselectedLabelStyle: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
+      ),
+
+      // List tiles
+      listTileTheme: ListTileThemeData(
+        iconColor: text,
+        textColor: text,
+        titleTextStyle: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+          color: text,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
+        subtitleTextStyle: TextStyle(
+          fontSize: 13,
+          height: 1.3,
+          color: muted,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+
+      // Tooltip and popup menu
+      tooltipTheme: TooltipThemeData(
+        decoration: BoxDecoration(
+          color: colorScheme.inverseSurface,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        textStyle: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: colorScheme.onInverseSurface,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 6,
+        shadowColor: colorScheme.shadow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: border),
+        ),
+        textStyle: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+          color: text,
+          fontFamily: fontFamily,
+          fontFamilyFallback: ethiopicFontFallback,
+        ),
+      ),
+
+      // Text selection: black caret, sand highlight
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: text,
+        selectionColor: selection,
+        selectionHandleColor: text,
+      ),
+
+      // Badge: something new is orange with black ink
+      badgeTheme: const BadgeThemeData(
+        backgroundColor: orange,
+        textColor: ink,
+      ),
+
+      // Date and time pickers: the chosen day or hour is black
+      datePickerTheme: DatePickerThemeData(
+        backgroundColor: surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(28),
+        ),
+        headerForegroundColor: text,
+        dividerColor: border,
+        dayForegroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? surface
+              : states.contains(WidgetState.disabled)
+                  ? fieldBorder
+                  : text,
+        ),
+        dayBackgroundColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? text : Colors.transparent,
+        ),
+        todayForegroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? surface : text,
+        ),
+        todayBackgroundColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? text : Colors.transparent,
+        ),
+        todayBorder: BorderSide(color: text),
+        yearForegroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? surface : text,
+        ),
+        yearBackgroundColor: WidgetStateProperty.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? text : Colors.transparent,
+        ),
+        cancelButtonStyle: TextButton.styleFrom(foregroundColor: text),
+        confirmButtonStyle: TextButton.styleFrom(foregroundColor: text),
+      ),
+      timePickerTheme: TimePickerThemeData(
+        backgroundColor: surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(28),
+        ),
+        dialBackgroundColor: inputFill,
+        dialHandColor: text,
+        dialTextColor: WidgetStateColor.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? surface : text,
+        ),
+        hourMinuteColor: WidgetStateColor.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? text : inputFill,
+        ),
+        hourMinuteTextColor: WidgetStateColor.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? surface : text,
+        ),
+        dayPeriodColor: WidgetStateColor.resolveWith(
+          (states) =>
+              states.contains(WidgetState.selected) ? text : Colors.transparent,
+        ),
+        dayPeriodTextColor: WidgetStateColor.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? surface : text,
+        ),
+        cancelButtonStyle: TextButton.styleFrom(foregroundColor: text),
+        confirmButtonStyle: TextButton.styleFrom(foregroundColor: text),
       ),
     );
   }

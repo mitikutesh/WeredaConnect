@@ -107,6 +107,9 @@ Future<StepUpOutcome> showFaydaStepUpDialog(
           child: Text(l10n.cancel),
         ),
         FilledButton.icon(
+          // Beside Cancel, not stacked under it: the theme's button is
+          // full width.
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
           key: const Key('fayda_step_up_verify_button'),
           onPressed: () => Navigator.of(dialogContext).pop(true),
           icon: const Icon(Icons.fingerprint),
@@ -248,6 +251,9 @@ class _StepUpDialogState extends State<_StepUpDialog> {
           child: Text(l10n.cancel),
         ),
         FilledButton(
+          // Beside Cancel, not stacked under it: the theme's button is
+          // full width.
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
           key: const Key('step_up_confirm_button'),
           onPressed:
               (_busy || _passwordController.text.isEmpty) ? null : _confirm,

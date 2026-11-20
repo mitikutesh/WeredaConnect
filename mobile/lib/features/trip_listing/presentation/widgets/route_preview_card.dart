@@ -199,7 +199,7 @@ class _RoutePreviewPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = _ground);
+    canvas.drawRect(Offset.zero & size, Paint()..color = AppTheme.mapGround);
     final project = _fit(size);
     final a = project(from);
     final b = project(to);
@@ -276,12 +276,6 @@ class _RoutePreviewPainter extends CustomPainter {
       old.toLabel != toLabel;
 }
 
-/// The drawn map's ground and the pale roads over it, from the Create trip
-/// board (CreateTripM: the route preview). Page M has no token for either:
-/// needs a token.
-const Color _ground = Color(0xFFDCD5C9);
-const Color _road = Color(0xFFEFEBE4);
-
 /// Both preview cards: the raised paper card of page M (radius 28, the soft
 /// shadow, the quiet edge).
 final BoxDecoration _previewCardDecoration = BoxDecoration(
@@ -343,7 +337,7 @@ Rect? _paintLabel(
     Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3
-      ..color = _ground,
+      ..color = AppTheme.mapGround,
   );
   final fill = build(null);
   final wanted = alignEnd ? at - Offset(fill.width, 0) : at;
@@ -475,7 +469,7 @@ class _PlacePreviewPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()..color = _ground);
+    canvas.drawRect(Offset.zero & size, Paint()..color = AppTheme.mapGround);
     final cos = math.cos(lat * math.pi / 180);
     final scale = size.width / _spanKm;
     Offset project(double pLat, double pLng) => Offset(
@@ -491,7 +485,7 @@ class _PlacePreviewPainter extends CustomPainter {
           width: size.width * 0.46,
           height: size.height * 0.54,
         ),
-        Paint()..color = _road,
+        Paint()..color = AppTheme.mapRoad,
       )
       ..drawOval(
         Rect.fromCenter(
@@ -499,7 +493,7 @@ class _PlacePreviewPainter extends CustomPainter {
           width: size.width * 0.24,
           height: size.height * 0.26,
         ),
-        Paint()..color = _road,
+        Paint()..color = AppTheme.mapRoad,
       );
 
     for (final town in towns) {

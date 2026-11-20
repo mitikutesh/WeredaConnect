@@ -39,6 +39,9 @@ Future<bool> showKycRequiredDialog(
         ),
         actions: [
           FilledButton(
+            // Beside Cancel, not stacked under it: the theme's button is
+            // full width.
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
             key: const Key('kyc_ok_button'),
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: Text(l10n.ok),
@@ -65,6 +68,9 @@ Future<bool> showKycRequiredDialog(
           child: Text(l10n.cancel),
         ),
         FilledButton.icon(
+          // Beside Cancel, not stacked under it: the theme's button is
+          // full width.
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
           key: const Key('kyc_verify_button'),
           onPressed: () => Navigator.of(dialogContext).pop(true),
           icon: const Icon(Icons.fingerprint),

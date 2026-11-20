@@ -360,8 +360,12 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
                 _lastDispute = event;
                 context.read<EscrowBloc>().add(event);
               },
+              // Beside Cancel, not stacked under it: the theme's button is
+              // full width.
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.onStatusWarningContainer,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(0, 48),
               ),
               child: Text(dl10n.escrowDisputeSubmit),
             ),

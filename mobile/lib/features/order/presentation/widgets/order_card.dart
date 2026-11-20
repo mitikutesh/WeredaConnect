@@ -202,7 +202,7 @@ class OrderCard extends StatelessWidget {
                       onPressed: actionsEnabled ? onReject : null,
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppTheme.ink,
-                        side: const BorderSide(color: Color(0xFFD6D3C8)),
+                        side: const BorderSide(color: AppTheme.fieldBorder),
                         minimumSize: const Size.fromHeight(48),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),

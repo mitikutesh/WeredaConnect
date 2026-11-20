@@ -754,7 +754,7 @@ class FwCard extends StatelessWidget {
         borderRadius: radius,
         boxShadow: const [
           BoxShadow(
-            color: Color(0x241A1516),
+            color: AppTheme.shadowSoft,
             blurRadius: 30,
             offset: Offset(0, 14),
           ),
