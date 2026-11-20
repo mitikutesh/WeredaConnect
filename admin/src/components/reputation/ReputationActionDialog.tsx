@@ -83,12 +83,12 @@ export function ReputationActionDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={helpId}
-        className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl"
+        className="w-full max-w-lg rounded-[22px] bg-ground p-6 shadow-xl"
       >
         <h3 id={titleId} className="text-lg font-semibold">
           {title}
         </h3>
-        <p id={helpId} className="mt-1 text-sm text-text-muted">
+        <p id={helpId} className="mt-1 text-sm text-slate">
           {help}
         </p>
         <form onSubmit={submit} className="mt-4 space-y-4" noValidate>
@@ -101,9 +101,9 @@ export function ReputationActionDialog({
               maxLength={REASON_MAX}
               rows={3}
               aria-invalid={touched && problem === "reason"}
-              className="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-primary focus:outline-none"
+              className="w-full rounded-[10px] border border-field px-2 py-1 text-sm focus:border-ink focus:outline-none"
             />
-            <span className="mt-1 block text-xs text-text-muted">
+            <span className="mt-1 block text-xs text-slate">
               {reason.trim().length}/{REASON_MAX}
             </span>
           </label>
@@ -117,9 +117,9 @@ export function ReputationActionDialog({
                 min={dayOffset(today, 1)}
                 max={dayOffset(today, maxDays - 1)}
                 aria-invalid={touched && problem === "until"}
-                className="rounded border border-gray-300 px-2 py-1 text-sm focus:border-primary focus:outline-none"
+                className="rounded-[10px] border border-field px-2 py-1 text-sm focus:border-ink focus:outline-none"
               />
-              <span className="mt-1 block text-xs text-text-muted">
+              <span className="mt-1 block text-xs text-slate">
                 {fill(t("reputation.untilHint"), { days: String(maxDays) })}
               </span>
             </label>
@@ -132,7 +132,7 @@ export function ReputationActionDialog({
             </p>
           )}
           {error && (
-            <p role="alert" className="rounded border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+            <p role="alert" className="rounded-[10px] border border-danger/30 bg-danger-tint px-3 py-2 text-sm text-danger">
               {error}
             </p>
           )}
@@ -141,15 +141,15 @@ export function ReputationActionDialog({
               type="button"
               onClick={onCancel}
               disabled={busy}
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+              className="rounded-[10px] border border-field px-3 py-1.5 text-sm hover:bg-paper disabled:opacity-50"
             >
               {t("common.cancel")}
             </button>
             <button
               type="submit"
               disabled={busy}
-              className={`rounded px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-50 ${
-                danger ? "bg-danger" : "bg-primary"
+              className={`rounded-[10px] px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-50 ${
+                danger ? "bg-danger" : "bg-ink"
               }`}
             >
               {confirmLabel}

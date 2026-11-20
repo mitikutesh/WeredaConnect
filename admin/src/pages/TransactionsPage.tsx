@@ -55,7 +55,7 @@ export function TransactionsPage() {
         row.truckerName || row.truckerId ? (
           partyName(row.truckerName, row.truckerId, locale)
         ) : (
-          <span className="text-text-muted">{t("transactions.noTrucker")}</span>
+          <span className="text-slate">{t("transactions.noTrucker")}</span>
         ),
     },
     {
@@ -103,8 +103,8 @@ export function TransactionsPage() {
 
   return (
     <div>
-      <h2 className="mb-1 text-xl font-bold">{t("transactions.title")}</h2>
-      <p className="mb-6 text-sm text-text-muted">{t("transactions.subtitle")}</p>
+      <h2 className="mb-1 text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("transactions.title")}</h2>
+      <p className="mb-6 text-sm text-slate">{t("transactions.subtitle")}</p>
       <Card>
         <div className="mb-4 max-w-full md:max-w-sm">
           <SearchInput

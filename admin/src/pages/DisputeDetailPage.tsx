@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
-import { ArrowLeft, Lock } from "lucide-react";
+import { Link, useParams, useSearchParams } from "react-router";
+import { Lock } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { DispositionChoiceCard, VerdictMessages } from "@/components/disputes/DisputeVerdict";
@@ -17,6 +17,7 @@ import { useDisputeVerdict } from "@/components/disputes/verdictFlow";
 import { TripTrailTab } from "@/components/trail/TripTrailTab";
 import { useLocale } from "@/hooks/useLocale";
 import { useDisputeEvidence, useEscrowDetail } from "@/hooks/useQuery";
+import { disputeReasonTitle } from "@/lib/disputes";
 import { photosOf } from "@/lib/evidence";
 import { formatDateTime, formatETB } from "@/lib/i18n";
 import { heldLegs } from "@/lib/legs";
@@ -40,9 +41,9 @@ const tabLabelKey: Record<Tab, string> = {
 /** An evidence tab with the page's own cards (Decide) in the right column, as the Trip trail has them. */
 function WithAside({ children, aside }: { children: ReactNode; aside: ReactNode }) {
   return (
-    <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-      <div className="flex min-w-0 flex-col gap-6 lg:flex-[3]">{children}</div>
-      {aside && <aside className="flex min-w-0 flex-col gap-6 lg:flex-[2]">{aside}</aside>}
+    <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
+      <div className="flex min-w-0 flex-col gap-5 lg:flex-[3_1_560px]">{children}</div>
+      {aside && <aside className="flex min-w-0 flex-col gap-5 lg:flex-[1_1_320px]">{aside}</aside>}
     </div>
   );
 }
@@ -55,7 +56,6 @@ function WithAside({ children, aside }: { children: ReactNode; aside: ReactNode 
 export function DisputeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { t, locale } = useLocale();
-  const navigate = useNavigate();
   const { data, isLoading, isError, error } = useEscrowDetail(id || "");
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>("trail");
@@ -65,17 +65,20 @@ export function DisputeDetailPage() {
   const evidence = useDisputeEvidence(id || "");
 
   if (isLoading) {
-    return <div className="text-text-muted">{t("common.loading")}</div>;
+    return <div className="text-slate">{t("common.loading")}</div>;
   }
 
+  // The board's breadcrumb: "Disputes / <this case>".
   const back = (
-    <button
-      type="button"
-      onClick={() => navigate("/disputes")}
-      className="mb-4 inline-flex items-center gap-1 text-sm text-text-muted hover:text-text"
-    >
-      <ArrowLeft size={16} /> {t("common.back")}
-    </button>
+    <nav aria-label={t("disputes.breadcrumb")} className="mb-1.5 text-[13px] text-slate">
+      <Link
+        to="/disputes"
+        className="font-semibold text-ink underline decoration-field underline-offset-2 hover:decoration-ink"
+      >
+        {t("disputes.title")}
+      </Link>
+      {id ? <span className="font-mono text-xs"> / {id}</span> : null}
+    </nav>
   );
 
   if (isError) {
@@ -85,7 +88,7 @@ export function DisputeDetailPage() {
     return (
       <div>
         {back}
-        <div role="alert" className="rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
+        <div role="alert" className="rounded-[14px] border border-danger/30 bg-danger-tint px-4 py-3 text-sm text-danger-ink">
           {text !== key ? text : t("common.error")}
         </div>
       </div>
@@ -96,11 +99,13 @@ export function DisputeDetailPage() {
   const dispute = escrow.dispute as Row | undefined;
   const status = String(escrow.status || "");
   const statusText = t(`escrows.${status}`);
+  // Page M board: the reason is the heading. A reason with no title (free text, a new code) keeps "Dispute".
+  const reasonTitle = disputeReasonTitle(dispute?.reason, t);
   // Admin trip evidence board: the parties as chips, the frozen money with its split.
   const parties = [
-    { label: t("transactions.party_buyer"), name: escrow.buyerName, id: escrow.buyerId, tone: "bg-blue-50 text-blue-900" },
-    { label: t("transactions.party_farmer"), name: escrow.farmerName, id: escrow.farmerId, tone: "bg-green-50 text-green-900" },
-    { label: t("transactions.party_trucker"), name: escrow.truckerName, id: escrow.truckerId, tone: "bg-amber-50 text-amber-900" },
+    { label: t("transactions.party_buyer"), name: escrow.buyerName, id: escrow.buyerId, tone: "bg-buyer-tint text-buyer" },
+    { label: t("transactions.party_farmer"), name: escrow.farmerName, id: escrow.farmerId, tone: "bg-farmer-tint text-farmer" },
+    { label: t("transactions.party_trucker"), name: escrow.truckerName, id: escrow.truckerId, tone: "bg-trucker-tint text-trucker" },
   ].filter((party) => party.name || party.id);
   const split = [
     { label: t("transactions.crop"), amount: escrow.farmerPayout },
@@ -114,13 +119,13 @@ export function DisputeDetailPage() {
     status === "disputed" ? (
       <>
         <Card>
-          <h3 className="font-semibold">{t("disputes.decide")}</h3>
-          <div className="mt-3 flex flex-col gap-2">
+          <h3 className="text-[15px] font-extrabold">{t("disputes.decide")}</h3>
+          <div className="mt-3 flex flex-col gap-2.5">
             <button
               type="button"
               onClick={() => verdictFlow.submit(String(escrow.escrowId || id || ""), "farmer_wins")}
               disabled={verdictFlow.resolvingId !== null}
-              className="rounded-lg bg-success px-3 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              className="btn-ink min-h-12"
             >
               {t("disputes.farmerWins")}
             </button>
@@ -128,7 +133,7 @@ export function DisputeDetailPage() {
               type="button"
               onClick={() => verdictFlow.submit(String(escrow.escrowId || id || ""), "buyer_wins")}
               disabled={verdictFlow.resolvingId !== null}
-              className="rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50"
+              className="btn-outline min-h-12"
             >
               {t("disputes.buyerWins")}
             </button>
@@ -138,13 +143,13 @@ export function DisputeDetailPage() {
                 type="button"
                 onClick={() => setSplitOpen(true)}
                 disabled={verdictFlow.resolvingId !== null || splitOpen}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-3 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50"
+                className="btn-outline min-h-12"
               >
                 {t("legs.decidePerLeg")}
               </button>
             )}
           </div>
-          <p className="mt-3 text-xs text-text-muted">{t("disputes.auditNote")}</p>
+          <p className="mt-3 text-xs text-slate">{t("disputes.auditNote")}</p>
         </Card>
         {splitOpen && !verdictFlow.choice && (
           <SplitVerdictCard
@@ -161,12 +166,15 @@ export function DisputeDetailPage() {
 
   return (
     <div>
-      {back}
-      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
+          {back}
+          {reasonTitle && <p className="mb-0.5 text-[13px] font-bold text-slate">{t("disputes.detailTitle")}</p>}
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-2xl font-bold">{t("disputes.detailTitle")}</h2>
-            <span className="font-mono text-xs text-text-muted">{String(escrow.escrowId || id || "")}</span>
+            <h2 className="text-[28px] font-extrabold leading-tight tracking-[-0.03em]">
+              {reasonTitle ?? t("disputes.detailTitle")}
+            </h2>
+            <span className="font-mono text-xs text-slate">{String(escrow.escrowId || id || "")}</span>
             {status && (
               <Badge variant={status === "disputed" ? "warning" : "default"}>
                 {statusText !== `escrows.${status}` ? statusText : status}
@@ -174,9 +182,9 @@ export function DisputeDetailPage() {
             )}
           </div>
           {parties.length > 0 && (
-            <ul className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+            <ul className="mt-2.5 flex flex-wrap gap-2 text-xs font-bold">
               {parties.map((party) => (
-                <li key={party.label} className={`rounded-md px-2 py-1 ${party.tone}`}>
+                <li key={party.label} className={`inline-flex min-h-7 items-center rounded-lg px-2.5 ${party.tone}`}>
                   {party.label} · {partyName(party.name, party.id, locale)}
                 </li>
               ))}
@@ -184,44 +192,44 @@ export function DisputeDetailPage() {
           )}
         </div>
         {status === "disputed" && (
-          <Card className="lg:min-w-[320px]">
-            <div className="flex items-start gap-3">
-              <Lock size={18} className="mt-1 shrink-0 text-info" aria-hidden="true" />
+          <div className="rounded-[16px] border border-line bg-ground px-[18px] py-3.5 lg:min-w-[320px]">
+            <div className="flex items-center gap-3">
+              <Lock size={20} className="shrink-0 text-slate" aria-hidden="true" />
               <div>
-                <span className="text-lg font-bold">
+                <span className="block text-xl font-extrabold leading-tight">
                   {fill(t("disputes.frozen"), { amount: formatETB(Number(escrow.amount) || 0, locale) })}
                 </span>
-                {split && <p className="mt-1 text-xs text-text-muted">{split}</p>}
+                {split && <p className="text-xs text-slate">{split}</p>}
               </div>
             </div>
-          </Card>
+          </div>
         )}
       </div>
 
-      <Card className="mb-6">
+      <Card className="mb-5">
         <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
           <div className="flex justify-between gap-3">
-            <dt className="text-text-muted">{t("disputes.reason")}</dt>
+            <dt className="text-slate">{t("disputes.reason")}</dt>
             <dd className="text-right">{String(dispute?.reason ?? "")}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-text-muted">{t("disputes.raisedAt")}</dt>
+            <dt className="text-slate">{t("disputes.raisedAt")}</dt>
             <dd className="text-right">{dispute?.createdAt ? formatDateTime(String(dispute.createdAt)) : ""}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-text-muted">{t("escrows.buyer")}</dt>
+            <dt className="text-slate">{t("escrows.buyer")}</dt>
             <dd className="text-right">{partyName(escrow.buyerName, escrow.buyerId, locale)}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-text-muted">{t("escrows.seller")}</dt>
+            <dt className="text-slate">{t("escrows.seller")}</dt>
             <dd className="text-right">{partyName(escrow.farmerName, escrow.farmerId, locale)}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-text-muted">{t("escrows.amount")}</dt>
+            <dt className="text-slate">{t("escrows.amount")}</dt>
             <dd className="text-right font-medium">{formatETB(Number(escrow.amount) || 0, locale)}</dd>
           </div>
           <div className="flex justify-between gap-3">
-            <dt className="text-text-muted">{t("disputes.delivery")}</dt>
+            <dt className="text-slate">{t("disputes.delivery")}</dt>
             <dd className="text-right font-mono text-xs">
               {String(escrow.deliveryId || "") || t("common.notAvailable")}
             </dd>
@@ -238,7 +246,7 @@ export function DisputeDetailPage() {
       <div
         role="tablist"
         aria-label={t("disputes.evidence")}
-        className="mb-4 inline-flex gap-1 rounded-lg bg-gray-100 p-1"
+        className="mb-5 inline-flex flex-wrap gap-1 rounded-[14px] bg-track p-1"
       >
         {tabs.map((value) => (
           <button
@@ -249,8 +257,8 @@ export function DisputeDetailPage() {
             aria-selected={tab === value}
             aria-controls={`dispute-panel-${value}`}
             onClick={() => setTab(value)}
-            className={`rounded-md px-4 py-2 text-sm ${
-              tab === value ? "bg-white font-semibold shadow-sm" : "text-text-muted hover:text-text"
+            className={`min-h-11 rounded-[11px] px-4 text-[13px] ${
+              tab === value ? "bg-ground font-bold text-ink" : "font-semibold text-ink-soft hover:text-ink"
             }`}
           >
             {value === "photos" && photosOf(evidence.data).length > 0
@@ -272,7 +280,7 @@ export function DisputeDetailPage() {
           <WithAside aside={decide}>
             {evidence.isLoading ? (
               <Card>
-                <p role="status" className="text-sm text-text-muted">
+                <p role="status" className="text-sm text-slate">
                   {t("evidence.loading")}
                 </p>
               </Card>

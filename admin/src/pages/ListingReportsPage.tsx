@@ -149,7 +149,7 @@ export function ListingReportsPage() {
   function listingSummary(group: ListingGroup) {
     const listing = group.listing;
     if (!listing || !listing.found) {
-      return <p className="text-sm text-warning">{t("listingReports.listingGone")}</p>;
+      return <p className="text-sm text-orange-ink">{t("listingReports.listingGone")}</p>;
     }
     return (
       <div className="space-y-1 text-sm">
@@ -159,18 +159,18 @@ export function ListingReportsPage() {
           <p className="font-semibold">
             {fill(t("listingReports.route"), { from: listing.fromWoreda ?? "", to: listing.toWoreda ?? "" })}
             {listing.departureDate && (
-              <span className="ml-2 font-normal text-text-muted">
+              <span className="ml-2 font-normal text-slate">
                 {fill(t("listingReports.departs"), { date: formatDate(listing.departureDate) })}
               </span>
             )}
           </p>
         )}
         {listing.status && (
-          <p className="text-text-muted">{fill(t("listingReports.listingStatus"), { status: listing.status })}</p>
+          <p className="text-slate">{fill(t("listingReports.listingStatus"), { status: listing.status })}</p>
         )}
         {listing.description && <p className="max-w-3xl whitespace-pre-line">{listing.description}</p>}
         {listing.audioNoteRef && (
-          <p className="text-warning">{fill(t("listingReports.audioNote"), { ref: listing.audioNoteRef })}</p>
+          <p className="text-orange-ink">{fill(t("listingReports.audioNote"), { ref: listing.audioNoteRef })}</p>
         )}
       </div>
     );
@@ -181,8 +181,8 @@ export function ListingReportsPage() {
       type="button"
       aria-pressed={tab === value}
       onClick={() => changeTab(value)}
-      className={`rounded px-3 py-1 text-sm ${
-        tab === value ? "bg-primary text-white" : "border border-gray-300 hover:bg-gray-50"
+      className={`rounded-[10px] px-3 py-1 text-sm ${
+        tab === value ? "bg-ink text-white" : "border border-field hover:bg-paper"
       }`}
     >
       {text}
@@ -193,13 +193,13 @@ export function ListingReportsPage() {
   if (isLoading) {
     body = (
       <Card>
-        <div className="flex items-center justify-center py-12 text-text-muted">{t("common.loading")}</div>
+        <div className="flex items-center justify-center py-12 text-slate">{t("common.loading")}</div>
       </Card>
     );
   } else if (groups.length === 0) {
     body = isError ? null : (
       <Card>
-        <div className="flex items-center justify-center py-12 text-text-muted">
+        <div className="flex items-center justify-center py-12 text-slate">
           {t(tab === "open" ? "listingReports.emptyOpen" : "listingReports.emptyDecided")}
         </div>
       </Card>
@@ -219,21 +219,21 @@ export function ListingReportsPage() {
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="info">{label(`listingReports.${group.listingType}`, group.listingType)}</Badge>
-                  <span className="text-xs text-text-muted">{group.listingId}</span>
+                  <span className="text-xs text-slate">{group.listingId}</span>
                   <Badge variant={group.reports.length > 1 ? "danger" : "warning"}>
                     {fill(t("listingReports.reportCount"), { count: String(group.reports.length) })}
                   </Badge>
                 </div>
                 <p className="text-sm">
                   {t("listingReports.owner")}:{" "}
-                  <Link to={`/users/${group.ownerId}`} className="font-medium text-primary hover:underline">
+                  <Link to={`/users/${group.ownerId}`} className="font-medium text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
                     {ownerLabel}
                   </Link>
                 </p>
               </div>
             </div>
             {listingSummary(group)}
-            <ul className="mt-3 divide-y divide-gray-100 border-t border-gray-100 text-sm">
+            <ul className="mt-3 divide-y divide-track border-t border-track text-sm">
               {group.reports.map((report) => (
                 <li key={report.reporterId} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
                   <Badge variant={reasonVariant[report.reason] ?? "default"}>
@@ -241,13 +241,13 @@ export function ListingReportsPage() {
                   </Badge>
                   <span>
                     {t("listingReports.reporter")}:{" "}
-                    <Link to={`/users/${report.reporterId}`} className="text-primary hover:underline">
+                    <Link to={`/users/${report.reporterId}`} className="text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
                       {report.reporterId}
                     </Link>
                   </span>
-                  <span className="text-text-muted">{formatDateTime(report.createdAt)}</span>
+                  <span className="text-slate">{formatDateTime(report.createdAt)}</span>
                   {report.status !== "open" && (
-                    <span className="text-text-muted">
+                    <span className="text-slate">
                       {fill(t("listingReports.decided"), {
                         status: label(`listingReports.status_${report.status}`, report.status),
                         date: report.reviewedAt ? formatDateTime(report.reviewedAt) : "",
@@ -259,7 +259,7 @@ export function ListingReportsPage() {
               ))}
             </ul>
             {tab === "open" && (
-              <div className="mt-3 flex flex-col gap-2 border-t border-gray-100 pt-3 md:flex-row md:items-start">
+              <div className="mt-3 flex flex-col gap-2 border-t border-track pt-3 md:flex-row md:items-start">
                 <textarea
                   value={notes[group.listingId] ?? ""}
                   onChange={(e) => setNotes((prev) => ({ ...prev, [group.listingId]: e.target.value }))}
@@ -267,14 +267,14 @@ export function ListingReportsPage() {
                   placeholder={t("listingReports.note")}
                   maxLength={NOTE_MAX}
                   rows={2}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-primary focus:outline-none md:max-w-md"
+                  className="w-full rounded-[10px] border border-field px-2 py-1 text-sm focus:border-ink focus:outline-none md:max-w-md"
                 />
                 <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => decide(group, "dismissed")}
                     disabled={busy}
-                    className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
+                    className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
                   >
                     {t("listingReports.dismiss")}
                   </button>
@@ -282,7 +282,7 @@ export function ListingReportsPage() {
                     type="button"
                     onClick={() => decide(group, "actioned")}
                     disabled={busy}
-                    className="rounded bg-primary px-3 py-1 text-sm text-white hover:opacity-90 disabled:opacity-50"
+                    className="rounded-[10px] bg-ink px-3 py-1 text-sm text-white hover:opacity-90 disabled:opacity-50"
                   >
                     {t("listingReports.markActioned")}
                   </button>
@@ -297,25 +297,25 @@ export function ListingReportsPage() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold">{t("listingReports.title")}</h2>
-      <p className="mb-4 mt-1 max-w-3xl text-sm text-text-muted">{t("listingReports.subtitle")}</p>
+      <h2 className="text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("listingReports.title")}</h2>
+      <p className="mb-4 mt-1 max-w-3xl text-sm text-slate">{t("listingReports.subtitle")}</p>
       <div className="mb-4 flex flex-wrap gap-2">
         {tabButton("open", t("listingReports.tab_open"))}
         {tabButton("dismissed", t("listingReports.tab_dismissed"))}
         {tabButton("actioned", t("listingReports.tab_actioned"))}
       </div>
       {errorMsg && (
-        <div role="alert" className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
+        <div role="alert" className="mb-4 rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger">
           {errorMsg}
         </div>
       )}
       {isError && (
-        <div role="alert" className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
+        <div role="alert" className="mb-4 rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger">
           {t("listingReports.loadFailed")}
         </div>
       )}
       {notice && (
-        <div role="status" className="mb-4 rounded border border-success/30 bg-success/10 px-4 py-2 text-sm text-success">
+        <div role="status" className="mb-4 rounded-[10px] border border-success/30 bg-success-tint px-4 py-2 text-sm text-success">
           {notice}
         </div>
       )}
@@ -326,7 +326,7 @@ export function ListingReportsPage() {
             type="button"
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
+            className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
           >
             {t("listingReports.loadMore")}
           </button>

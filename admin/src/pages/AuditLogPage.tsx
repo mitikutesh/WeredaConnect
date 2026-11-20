@@ -114,7 +114,7 @@ export function AuditLogPage() {
 
   return (
     <div>
-      <h2 className="mb-6 text-xl font-bold">{t("audit.title")}</h2>
+      <h2 className="mb-6 text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("audit.title")}</h2>
       <Card>
         <div className="mb-4 max-w-full md:max-w-sm">
           <SearchInput value={search} onChange={setSearch} />
