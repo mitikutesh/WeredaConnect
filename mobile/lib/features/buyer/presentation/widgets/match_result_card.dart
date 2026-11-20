@@ -16,7 +16,7 @@ import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// Card showing a matching crop listing with trip info and estimated total.
 ///
-/// The Market board's listing card (crop tile, "Teff · 50 quintals left",
+/// The Market board's listing card (crop tile, "Teff · 5,000 kg left",
 /// farmer and place, the price large, the transport pill), then the
 /// why-this-matched chips, the estimated total and the order actions.
 ///
@@ -127,14 +127,17 @@ class MatchResultCard extends StatelessWidget {
     // listing carries the server's copy (no call per card).
     final reputation = OwnerReputation.ofListing(listing);
 
-    // The Market listing card ("Teff · 50 quintals left", the farmer and the
+    // The Market listing card ("Teff · 5,000 kg left", the farmer and the
     // place, the price large, the transport pill), with why it matched, the
     // estimate and the order actions under it.
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: ListingCard(
         title: '${cropType.displayName(l10n)} · '
-            '${l10n.marketQuintalsLeft(formatQuintals(listing.quantity))}',
+            '${l10n.marketKgLeft(kgQuantityText(listing.quantity * kgPerQuintal, l10n))}',
+        titleSuffix:
+            quintalsInParensText(listing.quantity * kgPerQuintal, l10n),
+        priceUnitBelow: true,
         // SIM-33: never an id or a junk place; an unnamed seller is
         // "Farmer", as on Find Crops.
         location: placeDisplayName(listing.locationName),

@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
@@ -217,13 +219,27 @@ class _MatchResultsBody extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        '${cropType.displayName(l10n)} · '
-                        '${intent.quantityNeeded.toStringAsFixed(0)} ${l10n.quintals} · '
-                        '$budget',
+                      // Kilograms lead, the quintals follow small (page M).
+                      Text.rich(
+                        TextSpan(
+                          text: '${cropType.displayName(l10n)} · '
+                              '${kgQuantityText(intent.quantityNeeded * kgPerQuintal, l10n)}',
+                          children: [
+                            TextSpan(
+                              text:
+                                  ' ${quintalsInParensText(intent.quantityNeeded * kgPerQuintal, l10n).replaceAll(' ', '\u00A0')}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: AppTheme.slate,
+                              ),
+                            ),
+                            TextSpan(text: ' · $budget'),
+                          ],
+                        ),
                         style: const TextStyle(
                           fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w800,
                           color: AppTheme.ink,
                         ),
                       ),

@@ -3204,7 +3204,7 @@
   "placeOrderFitsTripKg": "imala kana keessa gala, {quantity} hafe",
   "placeOrderExceedsTripKg": "iddoo imalli kun qabuu ol, {quantity} hafe",
   "perQuintalInParens": "({price}/kuntaala)",
-  "transportPricePerKgAndQuintal": "kg tokkoof ETB {perKg} (kuntaala tokkoof {perQuintal})",
+  "transportPricePerKgAndQuintal": "kg tokkoof Birrii {perKg} (kuntaala tokkoof {perQuintal})",
   "quantityNeededKg": "Baay'ina barbaadamu (kg)",
   "marketKgLeft": "{quantity} hafe",
   "marketKgRoom": "bakka {quantity}",

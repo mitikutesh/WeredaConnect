@@ -202,7 +202,7 @@ void main() {
   testWidgets('the quantity line leads with kg, the quintals in parentheses',
       (tester) async {
     await open(tester, quintals: 15);
-    expect(find.text('1,500 kg (15 quintals)'), findsOneWidget);
+    expect(find.text('1,500 kg (15\u00A0quintals)'), findsOneWidget);
     expect(find.textContaining('15.0 quintals'), findsNothing);
   });
 
@@ -284,7 +284,7 @@ void main() {
     // PlaceOrderM: kg first, with the room left on the trip.
     expect(
       find.text(
-        '500 kg (5 quintals) · fits this trip, 12,000 kg left (120 quintals)',
+        '500 kg (5\u00A0quintals) · fits this trip, 12,000 kg left (120\u00A0quintals)',
       ),
       findsOneWidget,
     );
@@ -368,7 +368,7 @@ void main() {
       // 30 quintals listed, 12 free on the truck: 1,200 kg.
       expect(find.text('1,200'), findsOneWidget);
       expect(
-        find.textContaining('fits this trip, 1,200 kg left (12 quintals)'),
+        find.textContaining('fits this trip, 1,200 kg left (12\u00A0quintals)'),
         findsOneWidget,
       );
     });

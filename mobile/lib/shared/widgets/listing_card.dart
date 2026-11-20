@@ -114,7 +114,9 @@ class ListingCard extends StatelessWidget {
     final line = subtitle ??
         [sellerName, location].where((part) => part.isNotEmpty).join(', ');
 
-    final l10n = AppLocalizations.of(context)!;
+    // Read only where a string is needed: a card without a rating count or
+    // an escrow pill builds without the app's localizations.
+    AppLocalizations l10n() => AppLocalizations.of(context)!;
     final titleSuffix = this.titleSuffix;
     final priceText = Text(
       price,
@@ -205,7 +207,7 @@ class ListingCard extends StatelessWidget {
                               text: (ratingCount == null
                                       ? rating!.toStringAsFixed(1)
                                       : '${rating!.toStringAsFixed(1)} '
-                                          '(${l10n.ratingsCount(ratingCount!)})')
+                                          '(${l10n().ratingsCount(ratingCount!)})')
                                   .replaceAll(' ', '\u00A0'),
                             ),
                           ],
@@ -230,7 +232,7 @@ class ListingCard extends StatelessWidget {
                       Align(
                         alignment: Alignment.centerLeft,
                         child: FwPill(
-                          label: l10n.escrow,
+                          label: l10n().escrow,
                           icon: Icons.verified_user_outlined,
                           background: context.roleColors.tint,
                           foreground: context.roleColors.primary,

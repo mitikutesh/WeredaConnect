@@ -211,7 +211,10 @@ void main() {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      expect(find.text('4.6 (12 ratings)'), findsOneWidget);
+      expect(
+        find.textContaining('4.6\u00A0(12\u00A0ratings)'),
+        findsOneWidget,
+      );
       expect(find.text('4.5'), findsNothing);
       expect(find.text('Escrow'), findsNothing);
     });
@@ -402,8 +405,14 @@ void main() {
         await tester.pumpWidget(buildTestWidget());
         await tester.pumpAndSettle();
 
-        expect(find.text('4.8 (3 ratings)'), findsOneWidget);
-        expect(find.text('4.4 (12 ratings)'), findsOneWidget);
+        expect(
+          find.textContaining('4.8\u00A0(3\u00A0ratings)'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('4.4\u00A0(12\u00A0ratings)'),
+          findsOneWidget,
+        );
         expect(find.text('Low reputation'), findsNothing);
         verify(() => ratingRepo.getRatingSummary('farmer-plain')).called(1);
         verifyNever(() => ratingRepo.getRatingSummary('farmer-copied'));
@@ -427,7 +436,10 @@ void main() {
         await tester.pumpWidget(buildTestWidget(ownerMode: true));
         await tester.pumpAndSettle();
 
-        expect(find.text('4.4 (12 ratings)'), findsOneWidget);
+        expect(
+          find.textContaining('4.4\u00A0(12\u00A0ratings)'),
+          findsOneWidget,
+        );
         expect(find.text('Low reputation'), findsNothing);
         verifyNever(() => ratingRepo.getRatingSummary(any()));
       });
@@ -797,7 +809,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byType(ListingCard),
-          matching: find.text('Teff · 1,000 kg left (10 quintals)'),
+          matching: find.text('Teff · 1,000 kg left (10\u00A0quintals)'),
         ),
         findsOneWidget,
       );

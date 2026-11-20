@@ -5286,7 +5286,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String transportPricePerKgAndQuintal(String perKg, String perQuintal) {
-    return 'kg tokkoof ETB $perKg (kuntaala tokkoof $perQuintal)';
+    return 'kg tokkoof Birrii $perKg (kuntaala tokkoof $perQuintal)';
   }
 
   @override
