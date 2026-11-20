@@ -700,6 +700,22 @@ void main() {
       });
     }
 
+    testWidgets('a prompt for something else names nothing here',
+        (tester) async {
+      // The checkout is not waiting for a confirmation (the server refused
+      // the payment): a step-up the shell finished for another order or a
+      // dispute is not this payment's.
+      fails('ESCROW_032', 409);
+      await open(tester);
+
+      events.stepUpCompleted(method: StepUpMethod.fayda);
+      await tester.pump();
+      await tester.pump();
+
+      expect(pill, findsNothing);
+      await leave(tester);
+    });
+
     testWidgets('a completion that names no method shows nothing',
         (tester) async {
       await openQueuedForStepUp(tester, withFayda: false);

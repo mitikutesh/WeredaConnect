@@ -142,10 +142,14 @@ class _OrderCheckoutScreenState extends State<OrderCheckoutScreen>
     _confirmedWith = widget.confirmedWith;
     final securityEvents = widget.securityEvents ?? SecurityEvents.instance;
     // Also a prompt this screen did not open (the shell's, for a queued
-    // payment) while the checkout shows.
+    // payment) while the checkout shows, but only while this payment waits
+    // for one: a prompt for another order or a dispute names nothing here.
     _stepUpSub = securityEvents.onStepUpCompleted.listen((_) {
       final method = securityEvents.lastStepUpMethod;
-      if (mounted && method != null) setState(() => _confirmedWith = method);
+      final waiting = _bloc.state;
+      if (!mounted || method == null) return;
+      if (waiting is! CheckoutWaitingToSend || !waiting.stepUpPending) return;
+      setState(() => _confirmedWith = method);
     });
     _linkSub = (widget.returnLinks ?? _appReturnLinks()).listen(
       (uri) {
