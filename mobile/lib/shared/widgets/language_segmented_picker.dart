@@ -6,8 +6,9 @@ import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
-/// Inline language switch: English, Amharic and Afaan Oromoo side by side,
-/// each in its own script (the Join · Welcome and login board).
+/// Inline language switch: English, Amharic and Afaan Oromoo as three
+/// pills, each in its own script, the picked one black (the WelcomeM
+/// board).
 ///
 /// One tap changes the app language through [LanguageProvider], which
 /// persists it, so a user can switch before they log in, offline too.
@@ -23,44 +24,29 @@ class LanguageSegmentedPicker extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          l10n.language,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: AppTheme.inkSoft,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          // The track's top and bottom 4 px belong to each segment's 48 tall
-          // hit area ([_Segment]).
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          decoration: BoxDecoration(
-            color: AppTheme.segmentTrack,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          // Equal heights when one name wraps to a second line.
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final entry in languageProvider.availableLanguages) ...[
-                  if (entry.key !=
-                      languageProvider.availableLanguages.first.key)
-                    const SizedBox(width: 6),
-                  Expanded(
-                    child: _Segment(
-                      key: ValueKey('language-${entry.key.languageCode}'),
-                      label: entry.value,
-                      selected: entry.key == current,
-                      onTap: () => languageProvider.setLocale(entry.key),
-                    ),
-                  ),
-                ],
-              ],
+        Row(
+          children: [
+            const ExcludeSemantics(
+              child: Icon(Icons.language, size: 16, color: AppTheme.slate),
             ),
-          ),
+            const SizedBox(width: 8),
+            Expanded(child: FwSectionLabel(l10n.language)),
+          ],
+        ),
+        const SizedBox(height: 6),
+        // The pills hug their names; a narrow screen or large text wraps
+        // them to a second row.
+        Wrap(
+          spacing: 8,
+          children: [
+            for (final entry in languageProvider.availableLanguages)
+              _Segment(
+                key: ValueKey('language-${entry.key.languageCode}'),
+                label: entry.value,
+                selected: entry.key == current,
+                onTap: () => languageProvider.setLocale(entry.key),
+              ),
+          ],
         ),
       ],
     );
@@ -90,38 +76,35 @@ class _Segment extends StatelessWidget {
       label: label,
       // excludeSemantics drops the InkWell's tap action: give it back.
       onTap: tap,
-      // The track's padding is part of the target: a tap there selects too.
-      child: GestureDetector(
+      // A 44 tall pill in a 48 tall hit area.
+      child: FwTapTarget(
         onTap: tap,
-        behavior: HitTestBehavior.opaque,
-        excludeFromSemantics: true,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Material(
-            color: selected ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(11),
-            child: InkWell(
-              onTap: tap,
-              borderRadius: BorderRadius.circular(11),
-              // The board's segment: 40 tall in the track. Large text or a
-              // long name wraps to a second line instead of shrinking.
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 40),
+        child: Material(
+          color: selected ? AppTheme.ink : Colors.transparent,
+          shape: StadiumBorder(
+            side: BorderSide(
+              color: selected ? AppTheme.ink : AppTheme.fieldBorder,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: tap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 44),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
-                    ),
-                    child: FwWordFitText(
-                      label,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight:
-                            selected ? FontWeight.w700 : FontWeight.w600,
-                        color: selected ? AppTheme.ink : AppTheme.inkSoft,
-                        fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                      ),
+                  widthFactor: 1,
+                  heightFactor: 1,
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: selected ? Colors.white : AppTheme.inkSoft,
+                      fontFamilyFallback: AppTheme.ethiopicFontFallback,
                     ),
                   ),
                 ),

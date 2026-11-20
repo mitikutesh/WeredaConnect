@@ -294,6 +294,51 @@ class AppLocalizationsEn extends AppLocalizations {
   String get forgotPassword => 'Forgot Password?';
 
   @override
+  String get loginYourRole => 'Your role';
+
+  @override
+  String get loginAsFarmer => 'Login as Farmer';
+
+  @override
+  String get loginAsTrucker => 'Login as Trucker';
+
+  @override
+  String get loginAsBuyer => 'Login as Buyer';
+
+  @override
+  String get loginTaglineFarmer => 'Sell your harvest and follow every order';
+
+  @override
+  String get loginTaglineTrucker => 'Fill your truck and get paid on delivery';
+
+  @override
+  String get loginTaglineBuyer => 'Find crops and transport in one place';
+
+  @override
+  String get orderCheckoutApproveNote =>
+      'You need to approve the payment in Telebirr. Then the money is held in escrow until you confirm delivery.';
+
+  @override
+  String get paymentNotPaidPill => 'Not paid';
+
+  @override
+  String get paymentFailedTitle => 'Payment did not go through';
+
+  @override
+  String get paymentFailedBody =>
+      'No money was taken from your Telebirr account, and your order is still saved.';
+
+  @override
+  String get paymentTryAgain => 'Try payment again';
+
+  @override
+  String get paymentOfflineBody =>
+      'Payment needs a connection. Your order is saved on this phone.';
+
+  @override
+  String get paymentBackToOrder => 'Back to order';
+
+  @override
   String get getStarted => 'Get Started';
 
   @override
@@ -2166,7 +2211,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get splashSubtitle =>
-      'One platform for farmers, truckers, and buyers — with secure escrow.';
+      'One platform for farmers, truckers, and buyers, with secure escrow.';
 
   @override
   String get orderFunded => 'Funded';

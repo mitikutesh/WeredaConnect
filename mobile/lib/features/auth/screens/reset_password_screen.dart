@@ -139,6 +139,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                   final isLoading =
                       context.watch<AuthBloc>().state is AuthLoading;
                   return JoinPage(
+                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 28),
                     body: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -146,12 +147,12 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                           alignment: AlignmentDirectional.centerStart,
                           child: JoinBackButton(onTap: _back),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 22),
                         const Align(
                           alignment: AlignmentDirectional.centerStart,
                           child: JoinIconTile(icon: Icons.lock_reset),
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 16),
                         JoinTitle(
                           title: l10n.resetPassword,
                           subtitle: l10n.enterResetCode,
@@ -241,7 +242,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                       ],
                     ),
                     footer: SizedBox(
-                      height: 52,
+                      // The orange pill, 54 tall (the theme's button).
                       child: ElevatedButton(
                         onPressed: isLoading ? null : _handleResetPassword,
                         child: isLoading
@@ -255,7 +256,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
                                       valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.white,
+                                        AppTheme.ink,
                                       ),
                                     ),
                                   ),

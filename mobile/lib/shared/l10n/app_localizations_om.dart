@@ -296,6 +296,53 @@ class AppLocalizationsOm extends AppLocalizations {
   String get forgotPassword => 'Jecha Icciitii Irraanfatteettaa?';
 
   @override
+  String get loginYourRole => 'Gahee kee';
+
+  @override
+  String get loginAsFarmer => 'Akka Qotee Bulaatti Seeni';
+
+  @override
+  String get loginAsTrucker => 'Akka Konkolaachisaatti Seeni';
+
+  @override
+  String get loginAsBuyer => 'Akka Bitaatti Seeni';
+
+  @override
+  String get loginTaglineFarmer => 'Oomisha kee gurguri, ajaja hunda hordofi';
+
+  @override
+  String get loginTaglineTrucker =>
+      'Konkolaataa kee guuti, yeroo geessitu kaffaltii kee argadhu';
+
+  @override
+  String get loginTaglineBuyer =>
+      'Midhaanii fi geejjiba bakka tokkotti argadhu';
+
+  @override
+  String get orderCheckoutApproveNote =>
+      'Kaffaltii Telebirr keessatti mirkaneessuu qabdu. Sana booda hanga geessuu mirkaneessitanitti maallaqni Eeskiroo keessatti qabama.';
+
+  @override
+  String get paymentNotPaidPill => 'Hin kaffalamne';
+
+  @override
+  String get paymentFailedTitle => 'Kaffaltiin hin milkoofne';
+
+  @override
+  String get paymentFailedBody =>
+      'Herrega Telebirr keessan irraa maallaqni hin fudhatamne, ajajni keessanis akkuma olkaa\'ametti jira.';
+
+  @override
+  String get paymentTryAgain => 'Kaffaltii irra deebi\'aa yaalaa';
+
+  @override
+  String get paymentOfflineBody =>
+      'Kaffaltiin neetworkii barbaada. Ajajni keessan bilbila kana irratti olkaa\'ameera.';
+
+  @override
+  String get paymentBackToOrder => 'Gara ajajaatti deebi\'i';
+
+  @override
   String get getStarted => 'Jalqabi';
 
   @override

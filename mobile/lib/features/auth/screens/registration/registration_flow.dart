@@ -4,6 +4,7 @@ import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:image_picker/image_picker.dart' show ImagePicker;
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:wereda_connect/core/auth/fayda_callback_links.dart';
@@ -23,6 +24,7 @@ import 'package:wereda_connect/features/auth/screens/registration/personal_info_
 import 'package:wereda_connect/features/auth/screens/registration/role_details_screen.dart';
 import 'package:wereda_connect/features/auth/screens/registration/role_selection_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/providers/settings_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/join_chrome.dart';
@@ -77,6 +79,9 @@ class _RegistrationFlowState extends State<RegistrationFlow>
 
   // Collected data across steps
   UserRole? _selectedRole;
+
+  /// The theme of the picked role's colours; the brand's black before.
+  ThemeData _roleTheme = AppTheme.light();
   String? _drivingLicensePath;
   String _buyerType = 'private';
   String _companyName = '';
@@ -504,131 +509,153 @@ class _RegistrationFlowState extends State<RegistrationFlow>
             );
         }
         if (state is AuthAuthenticated) {
-          // Registration succeeded — pop back to AuthGate
+          // The login screen opens in this role's colours next time.
+          unawaited(
+            Provider.of<SettingsProvider?>(context, listen: false)
+                ?.rememberSignInRole(state.role),
+          );
+          // Registration succeeded, pop back to AuthGate
           while (Navigator.of(context).canPop()) {
             Navigator.of(context).pop();
           }
         }
       },
-      child: Scaffold(
-        backgroundColor: AppTheme.ground,
-        body: SafeArea(
-          child: FwContentWidth(
-            maxWidth: 480,
-            child: Column(
-              children: [
-                _StepHeader(
-                  current: _currentStep,
-                  total: _totalSteps,
-                  verified: _faydaVerified && _currentStep >= 2,
-                  onBack: _back,
-                ),
-
-                // Step content
-                Expanded(
-                  child: PageView(
-                    controller: _pageController,
-                    physics: const NeverScrollableScrollPhysics(),
-                    children: [
-                      // Step 0: Role selection
-                      RoleSelectionScreen(
-                        selectedRole: _selectedRole,
-                        onRoleSelected: (role) {
-                          setState(() => _selectedRole = role);
-                        },
-                      ),
-                      // Step 1: Fayda OIDC verification
-                      FayidaIdScreen(
-                        onFaydaVerifyRequested: _handleFaydaVerify,
-                        onCancelVerification:
-                            _faydaVerifying ? _cancelFaydaVerification : null,
-                        isVerifying: _faydaVerifying,
-                        verifyingMessage: _faydaProgressMessage,
-                        isVerified: _faydaVerified,
-                        verifiedName: _faydaVerifiedName,
-                        errorMessage: _faydaError,
-                      ),
-                      // Step 2: Role-specific details
-                      if (_selectedRole != null &&
-                          _selectedRole != UserRole.farmer)
-                        RoleDetailsScreen(
-                          role: _selectedRole!,
-                          drivingLicensePath: _drivingLicensePath,
-                          buyerType: _buyerType,
-                          companyName: _companyName,
-                          onDrivingLicenseChanged: (v) =>
-                              setState(() => _drivingLicensePath = v),
-                          onBuyerTypeChanged: (v) =>
-                              setState(() => _buyerType = v),
-                          onCompanyNameChanged: (v) =>
-                              setState(() => _companyName = v),
-                          imagePicker: widget.imagePicker,
-                        )
-                      else
-                        const SizedBox.shrink(),
-                      // Step 3: Personal info
-                      PersonalInfoScreen(
-                        phone: _phone,
-                        name: _name,
-                        woreda: _woreda,
-                        password: _password,
-                        confirmPassword: _confirmPassword,
-                        formKey: _personalInfoFormKey,
-                        faydaVerified: _faydaVerified,
-                        faydaVerifiedName: _faydaVerifiedName,
-                        onPhoneChanged: (v) => _phone = v,
-                        onNameChanged: (v) => _name = v,
-                        onWeredaChanged: (v) => _woreda = v,
-                        onPasswordChanged: (v) => _password = v,
-                        onConfirmPasswordChanged: (v) => _confirmPassword = v,
-                      ),
-                    ],
+      // Once a role is picked the steps wear its colours (the Identity
+      // Verified and From Fayda pills, the focused field); black before.
+      child: Theme(
+        data: _roleTheme,
+        child: Scaffold(
+          backgroundColor: AppTheme.ground,
+          body: SafeArea(
+            child: FwContentWidth(
+              maxWidth: 480,
+              child: Column(
+                children: [
+                  _StepHeader(
+                    current: _currentStep,
+                    total: _totalSteps,
+                    verified: _faydaVerified && _currentStep >= 2,
+                    onBack: _back,
                   ),
-                ),
 
-                // The board's dark button at the foot. Hidden while the step
-                // shows its own action there (Verify with Fayda until Fayda
-                // has verified the user, Scan License until the trucker has
-                // a photo).
-                if (!_stepOwnsAction)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
-                    child: Builder(
-                      builder: (context) {
-                        final isLoading =
-                            context.watch<AuthBloc>().state is AuthLoading;
-                        final isLastStep = _currentStep == _totalSteps - 1;
-
-                        return SizedBox(
-                          width: double.infinity,
-                          height: 56,
-                          child: FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppTheme.ink,
-                              foregroundColor: Colors.white,
-                            ),
-                            onPressed:
-                                (_canContinue && !isLoading) ? _nextStep : null,
-                            child: isLoading
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : Text(
-                                    isLastStep
-                                        ? l10n.register
-                                        : l10n.continueButton,
-                                  ),
-                          ),
-                        );
-                      },
+                  // Step content
+                  Expanded(
+                    child: PageView(
+                      controller: _pageController,
+                      physics: const NeverScrollableScrollPhysics(),
+                      children: [
+                        // Step 0: Role selection
+                        RoleSelectionScreen(
+                          selectedRole: _selectedRole,
+                          onRoleSelected: (role) {
+                            setState(() {
+                              _selectedRole = role;
+                              _roleTheme = AppTheme.light(role: role);
+                            });
+                          },
+                        ),
+                        // Step 1: Fayda OIDC verification
+                        FayidaIdScreen(
+                          onFaydaVerifyRequested: _handleFaydaVerify,
+                          onCancelVerification:
+                              _faydaVerifying ? _cancelFaydaVerification : null,
+                          isVerifying: _faydaVerifying,
+                          verifyingMessage: _faydaProgressMessage,
+                          isVerified: _faydaVerified,
+                          verifiedName: _faydaVerifiedName,
+                          errorMessage: _faydaError,
+                        ),
+                        // Step 2: Role-specific details
+                        if (_selectedRole != null &&
+                            _selectedRole != UserRole.farmer)
+                          RoleDetailsScreen(
+                            role: _selectedRole!,
+                            drivingLicensePath: _drivingLicensePath,
+                            buyerType: _buyerType,
+                            companyName: _companyName,
+                            onDrivingLicenseChanged: (v) =>
+                                setState(() => _drivingLicensePath = v),
+                            onBuyerTypeChanged: (v) =>
+                                setState(() => _buyerType = v),
+                            onCompanyNameChanged: (v) =>
+                                setState(() => _companyName = v),
+                            imagePicker: widget.imagePicker,
+                          )
+                        else
+                          const SizedBox.shrink(),
+                        // Step 3: Personal info
+                        PersonalInfoScreen(
+                          phone: _phone,
+                          name: _name,
+                          woreda: _woreda,
+                          password: _password,
+                          confirmPassword: _confirmPassword,
+                          formKey: _personalInfoFormKey,
+                          faydaVerified: _faydaVerified,
+                          faydaVerifiedName: _faydaVerifiedName,
+                          onPhoneChanged: (v) => _phone = v,
+                          onNameChanged: (v) => _name = v,
+                          onWeredaChanged: (v) => _woreda = v,
+                          onPasswordChanged: (v) => _password = v,
+                          onConfirmPasswordChanged: (v) => _confirmPassword = v,
+                        ),
+                      ],
                     ),
                   ),
-              ],
+
+                  // The board's dark button at the foot. Hidden while the step
+                  // shows its own action there (Verify with Fayda until Fayda
+                  // has verified the user, Scan License until the trucker has
+                  // a photo).
+                  if (!_stepOwnsAction)
+                    Container(
+                      // The last step's form is long: its Register button is
+                      // pinned on a hairline, as on the RegisterPersonalM
+                      // board.
+                      padding: _currentStep == _totalSteps - 1
+                          ? const EdgeInsets.fromLTRB(20, 12, 20, 16)
+                          : const EdgeInsets.fromLTRB(20, 8, 20, 28),
+                      decoration: _currentStep == _totalSteps - 1
+                          ? const BoxDecoration(
+                              border: Border(
+                                top: BorderSide(color: AppTheme.line),
+                              ),
+                            )
+                          : null,
+                      child: Builder(
+                        builder: (context) {
+                          final isLoading =
+                              context.watch<AuthBloc>().state is AuthLoading;
+                          final isLastStep = _currentStep == _totalSteps - 1;
+
+                          return SizedBox(
+                            width: double.infinity,
+                            // The orange pill, 54 tall (the theme's button).
+                            child: FilledButton(
+                              onPressed: (_canContinue && !isLoading)
+                                  ? _nextStep
+                                  : null,
+                              child: isLoading
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: AppTheme.ink,
+                                      ),
+                                    )
+                                  : Text(
+                                      isLastStep
+                                          ? l10n.register
+                                          : l10n.continueButton,
+                                    ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -656,7 +683,7 @@ class _StepHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -671,7 +698,7 @@ class _StepHeader extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w500,
                     color: AppTheme.slate,
                   ),
                 ),
@@ -695,17 +722,18 @@ class _StepHeader extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
+          // Steps done and the current one black, the rest on the track.
           Row(
             children: List.generate(total, (index) {
               final isActive = index <= current;
               return Expanded(
                 child: Container(
+                  key: ValueKey('join_step_bar_$index'),
                   height: 4,
                   margin: EdgeInsets.only(right: index < total - 1 ? 6 : 0),
                   decoration: BoxDecoration(
-                    color:
-                        isActive ? context.roleColors.primary : AppTheme.line,
+                    color: isActive ? AppTheme.ink : AppTheme.track,
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),

@@ -346,6 +346,34 @@
   "@forgotPassword": {
     "description": "Forgot password link"
   },
+  "loginYourRole": "Your role",
+  "@loginYourRole": {"description": "Design canvas page M, login screen. am and om machine drafted, native review owed. Screen reader name of the Farmer, Trucker, Buyer switch; the switch only dresses the screen"},
+  "loginAsFarmer": "Login as Farmer",
+  "@loginAsFarmer": {"description": "Design canvas page M, login screen. am and om machine drafted, native review owed. Login button while the Farmer look is picked"},
+  "loginAsTrucker": "Login as Trucker",
+  "@loginAsTrucker": {"description": "Design canvas page M, login screen. am and om machine drafted, native review owed. Login button while the Trucker look is picked"},
+  "loginAsBuyer": "Login as Buyer",
+  "@loginAsBuyer": {"description": "Design canvas page M, login screen. am and om machine drafted, native review owed. Login button while the Buyer look is picked"},
+  "loginTaglineFarmer": "Sell your harvest and follow every order",
+  "@loginTaglineFarmer": {"description": "Design canvas page M, login screen. am and om machine drafted, native review owed. Line above the welcome title while the Farmer look is picked"},
+  "loginTaglineTrucker": "Fill your truck and get paid on delivery",
+  "@loginTaglineTrucker": {"description": "Design canvas page M, login screen. am and om machine drafted, native review owed. Line above the welcome title while the Trucker look is picked"},
+  "loginTaglineBuyer": "Find crops and transport in one place",
+  "@loginTaglineBuyer": {"description": "Design canvas page M, login screen. am and om machine drafted, native review owed. Line above the welcome title while the Buyer look is picked"},
+  "orderCheckoutApproveNote": "You need to approve the payment in Telebirr. Then the money is held in escrow until you confirm delivery.",
+  "@orderCheckoutApproveNote": {"description": "Design canvas page M, Telebirr payment. am and om machine drafted, native review owed. Status card while the app waits for the buyer to approve in Telebirr"},
+  "paymentNotPaidPill": "Not paid",
+  "@paymentNotPaidPill": {"description": "Design canvas page M, payment failed state. am and om machine drafted, native review owed. Pill above the title"},
+  "paymentFailedTitle": "Payment did not go through",
+  "@paymentFailedTitle": {"description": "Design canvas page M, payment failed state. am and om machine drafted, native review owed. Title"},
+  "paymentFailedBody": "No money was taken from your Telebirr account, and your order is still saved.",
+  "@paymentFailedBody": {"description": "Design canvas page M, payment failed state. am and om machine drafted, native review owed. Explanation under the title"},
+  "paymentTryAgain": "Try payment again",
+  "@paymentTryAgain": {"description": "Design canvas page M, payment failed state. am and om machine drafted, native review owed. Main button: start the payment again"},
+  "paymentOfflineBody": "Payment needs a connection. Your order is saved on this phone.",
+  "@paymentOfflineBody": {"description": "Design canvas page M, payment offline state. am and om machine drafted, native review owed. Explanation under the title No internet connection"},
+  "paymentBackToOrder": "Back to order",
+  "@paymentBackToOrder": {"description": "Design canvas page M, payment offline state. am and om machine drafted, native review owed. Second button: leave the payment and show the order"},
   "getStarted": "Get Started",
   "@getStarted": {
     "description": "Get started button"
@@ -2850,7 +2878,7 @@
   "@splashHeadline": {
     "description": "Main headline on splash/landing screen"
   },
-  "splashSubtitle": "One platform for farmers, truckers, and buyers — with secure escrow.",
+  "splashSubtitle": "One platform for farmers, truckers, and buyers, with secure escrow.",
   "@splashSubtitle": {
     "description": "Subtitle on splash/landing screen"
   },

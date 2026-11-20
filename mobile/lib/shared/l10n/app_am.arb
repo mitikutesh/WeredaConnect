@@ -336,6 +336,20 @@
   "@forgotPassword": {
     "description": "Forgot password link"
   },
+  "loginYourRole": "የእርስዎ ሚና",
+  "loginAsFarmer": "እንደ ገበሬ ግባ",
+  "loginAsTrucker": "እንደ ሹፌር ግባ",
+  "loginAsBuyer": "እንደ ገዢ ግባ",
+  "loginTaglineFarmer": "ምርትዎን ይሽጡ፣ እያንዳንዱን ትዕዛዝ ይከታተሉ",
+  "loginTaglineTrucker": "መኪናዎን ይሙሉ፣ ሲያደርሱ ክፍያዎን ያግኙ",
+  "loginTaglineBuyer": "ሰብልና ትራንስፖርት በአንድ ቦታ ያግኙ",
+  "orderCheckoutApproveNote": "ክፍያውን በቴሌብር ማጽደቅ አለብዎት። ከዚያ ርክክቡን እስኪያረጋግጡ ድረስ ገንዘቡ በኢስክሮ ይያዛል።",
+  "paymentNotPaidPill": "አልተከፈለም",
+  "paymentFailedTitle": "ክፍያው አልተሳካም",
+  "paymentFailedBody": "ከቴሌብር ሂሳብዎ ምንም ገንዘብ አልተወሰደም፣ ትዕዛዝዎም እንደተቀመጠ ነው።",
+  "paymentTryAgain": "ክፍያውን እንደገና ይሞክሩ",
+  "paymentOfflineBody": "ክፍያ ኔትወርክ ያስፈልገዋል። ትዕዛዝዎ በዚህ ስልክ ላይ ተቀምጧል።",
+  "paymentBackToOrder": "ወደ ትዕዛዙ ተመለስ",
   "getStarted": "ጀምር",
   "@getStarted": {
     "description": "Get started button"

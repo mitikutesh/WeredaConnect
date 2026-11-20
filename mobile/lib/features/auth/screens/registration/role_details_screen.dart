@@ -54,7 +54,7 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
   late TextEditingController _companyController;
   late final _picker = widget.imagePicker ?? ImagePicker();
 
-  static const _stepPadding = EdgeInsets.fromLTRB(20, 22, 20, 16);
+  static const _stepPadding = EdgeInsets.fromLTRB(20, 16, 20, 16);
 
   @override
   void initState() {
@@ -109,13 +109,13 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
                   title: l10n.drivingLicense,
                   subtitle: l10n.drivingLicenseInstructions,
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
                 _CameraFrame(
                   imagePath: widget.drivingLicensePath,
                   placeholder: l10n.placeLicenseHere,
                   onTap: _pickLicenseImage,
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 18),
                 JoinNote.warning(text: l10n.drivingLicenseRequired),
                 if (hasImage) ...[
                   const SizedBox(height: 14),
@@ -146,13 +146,9 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
             child: SizedBox(
               width: double.infinity,
-              height: 56,
+              // The orange pill (the theme's button).
               child: FilledButton.icon(
                 onPressed: _pickLicenseImage,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.ink,
-                  foregroundColor: Colors.white,
-                ),
                 icon: const Icon(Icons.camera_alt_outlined, size: 20),
                 label: Text(l10n.scanLicense),
               ),
@@ -174,19 +170,29 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
             title: l10n.buyerType,
             subtitle: l10n.buyerTypeDescription,
           ),
-          const SizedBox(height: 24),
-          // Private / Company options
-          _BuyerTypeOption(
+          const SizedBox(height: 20),
+          // Private / Company options, drawn like the role cards.
+          JoinChoiceCard(
             title: l10n.privateBuyer,
-            icon: Icons.person_outline,
-            isSelected: buyerType == 'private',
+            icon: Icon(
+              Icons.person_outline,
+              size: 26,
+              color: context.roleColors.primary,
+            ),
+            iconBackground: context.roleColors.tint,
+            selected: buyerType == 'private',
             onTap: () => widget.onBuyerTypeChanged('private'),
           ),
           const SizedBox(height: 12),
-          _BuyerTypeOption(
+          JoinChoiceCard(
             title: l10n.companyBuyer,
-            icon: Icons.business_outlined,
-            isSelected: buyerType == 'company',
+            icon: Icon(
+              Icons.business_outlined,
+              size: 26,
+              color: context.roleColors.primary,
+            ),
+            iconBackground: context.roleColors.tint,
+            selected: buyerType == 'company',
             onTap: () => widget.onBuyerTypeChanged('company'),
           ),
           if (buyerType == 'company') ...[
@@ -216,8 +222,9 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
   }
 }
 
-/// The board's camera frame: a dark slate panel, 230 tall, with a dashed
-/// guide and gold corner brackets; shows the photo once one is taken.
+/// The board's camera frame: a black panel, 230 tall, raised on the soft
+/// shadow, with a dashed guide and orange corner brackets; shows the photo
+/// once one is taken.
 class _CameraFrame extends StatelessWidget {
   final String? imagePath;
   final String placeholder;
@@ -241,8 +248,9 @@ class _CameraFrame extends StatelessWidget {
           width: double.infinity,
           height: 230,
           decoration: BoxDecoration(
-            color: AppTheme.inkCard,
-            borderRadius: BorderRadius.circular(24),
+            color: AppTheme.ink,
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: joinRaisedShadow,
           ),
           clipBehavior: Clip.antiAlias,
           child: path != null
@@ -262,8 +270,8 @@ class _CameraFrame extends StatelessWidget {
                     // Dashed guide in the middle.
                     CustomPaint(
                       painter: const _DashedRoundedRectPainter(
-                        color: Color(0xFF6F7D76),
-                        radius: 14,
+                        color: AppTheme.fieldBorder,
+                        radius: 16,
                       ),
                       child: SizedBox(
                         width: 260,
@@ -272,15 +280,15 @@ class _CameraFrame extends StatelessWidget {
                           child: Text(
                             placeholder,
                             style: const TextStyle(
-                              color: AppTheme.inkMuted,
+                              color: AppTheme.track,
                               fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
                       ),
                     ),
-                    // Gold corner brackets.
+                    // Orange corner brackets.
                     const Positioned(
                       left: 44,
                       top: 26,
@@ -318,7 +326,7 @@ class _Bracket extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const side = BorderSide(color: AppTheme.orange, width: 4);
-    const corner = Radius.circular(6);
+    const corner = Radius.circular(8);
     return Container(
       width: 26,
       height: 26,
@@ -340,7 +348,7 @@ class _Bracket extends StatelessWidget {
   }
 }
 
-/// A 2 px dashed rounded rectangle along the child's edge.
+/// A 1.5 px dashed rounded rectangle along the child's edge.
 class _DashedRoundedRectPainter extends CustomPainter {
   final Color color;
   final double radius;
@@ -352,7 +360,7 @@ class _DashedRoundedRectPainter extends CustomPainter {
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
+      ..strokeWidth = 1.5;
     final path = Path()
       ..addRRect(
         RRect.fromRectAndRadius(
@@ -375,93 +383,4 @@ class _DashedRoundedRectPainter extends CustomPainter {
   @override
   bool shouldRepaint(_DashedRoundedRectPainter oldDelegate) =>
       oldDelegate.color != color || oldDelegate.radius != radius;
-}
-
-/// A buyer type choice, drawn like the role cards: white, radius 16, a dark
-/// border and dot when selected.
-class _BuyerTypeOption extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _BuyerTypeOption({
-    required this.title,
-    required this.icon,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      selected: isSelected,
-      inMutuallyExclusiveGroup: true,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            padding: EdgeInsets.all(isSelected ? 15 : 16),
-            decoration: BoxDecoration(
-              color: AppTheme.surfaceWhite,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: isSelected ? AppTheme.ink : AppTheme.line,
-                width: isSelected ? 2 : 1,
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: AppTheme.dropoffSlateTint,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, size: 22, color: AppTheme.dropoffSlate),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.ink,
-                    ),
-                  ),
-                ),
-                Container(
-                  width: 22,
-                  height: 22,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: isSelected ? AppTheme.ink : AppTheme.fieldBorder,
-                      width: 2,
-                    ),
-                  ),
-                  child: isSelected
-                      ? Container(
-                          width: 12,
-                          height: 12,
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppTheme.ink,
-                          ),
-                        )
-                      : null,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
