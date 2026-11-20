@@ -216,31 +216,37 @@ class RoleCreateButton extends StatelessWidget {
     const foreground = AppTheme.ink;
 
     if (expanded) {
+      // Web · Buyer deliveries board: the sidebar's button is black with
+      // white ink, 44 tall, radius 14. Orange stays the page's one action.
       return SizedBox(
-        height: 46,
+        height: 44,
         width: double.infinity,
         child: FilledButton.icon(
           onPressed: onPressed,
           style: FilledButton.styleFrom(
-            backgroundColor: AppTheme.orange,
-            foregroundColor: foreground,
-            minimumSize: const Size.fromHeight(46),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            shape: const StadiumBorder(),
+            backgroundColor: AppTheme.ink,
+            foregroundColor: Colors.white,
+            minimumSize: const Size.fromHeight(44),
+            // 10, not the board's 16: "New Buying Intent" has to fit the
+            // 180 px the sidebar leaves it.
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
           ).copyWith(
-            // A visible ring for keyboard focus (A-7).
+            // A visible ring for keyboard focus (A-7), in the role's colour.
             side: WidgetStateProperty.resolveWith(
               (states) => states.contains(WidgetState.focused)
-                  ? const BorderSide(color: foreground, width: 2)
+                  ? BorderSide(color: context.roleColors.primary, width: 3)
                   : null,
             ),
           ),
-          icon: const Icon(Icons.add, size: 20),
+          icon: const Icon(Icons.add, size: 18),
           label: Text(
             name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
           ),
         ),
       );
