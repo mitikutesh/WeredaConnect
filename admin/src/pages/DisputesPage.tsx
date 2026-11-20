@@ -9,6 +9,7 @@ import { type Verdict, useDisputeVerdict } from "@/components/disputes/verdictFl
 import { useLocale } from "@/hooks/useLocale";
 import { useDisputes, useEscrowPages } from "@/hooks/useQuery";
 import { formatETB, formatDate } from "@/lib/i18n";
+import { isOpenDispute } from "@/lib/disputes";
 import { heldLegs, recordedSplit } from "@/lib/legs";
 import { partyName } from "@/lib/user";
 
@@ -104,7 +105,7 @@ export function DisputesPage() {
       key: "actions",
       header: t("common.actions"),
       render: (row: Row) => {
-        if (row.status === "resolved") return null;
+        if (!isOpenDispute(row)) return null;
         const id = String(row.escrowId || "");
         const isResolving = resolvingId === id;
         return (

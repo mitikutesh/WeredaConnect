@@ -17,6 +17,7 @@ import { useDisputeVerdict } from "@/components/disputes/verdictFlow";
 import { TripTrailTab } from "@/components/trail/TripTrailTab";
 import { useLocale } from "@/hooks/useLocale";
 import { useDisputeEvidence, useEscrowDetail } from "@/hooks/useQuery";
+import { disputeReasonTitle } from "@/lib/disputes";
 import { photosOf } from "@/lib/evidence";
 import { formatDateTime, formatETB } from "@/lib/i18n";
 import { heldLegs } from "@/lib/legs";
@@ -98,6 +99,8 @@ export function DisputeDetailPage() {
   const dispute = escrow.dispute as Row | undefined;
   const status = String(escrow.status || "");
   const statusText = t(`escrows.${status}`);
+  // Page M board: the reason is the heading. A reason with no title (free text, a new code) keeps "Dispute".
+  const reasonTitle = disputeReasonTitle(dispute?.reason, t);
   // Admin trip evidence board: the parties as chips, the frozen money with its split.
   const parties = [
     { label: t("transactions.party_buyer"), name: escrow.buyerName, id: escrow.buyerId, tone: "bg-buyer-tint text-buyer" },
@@ -166,8 +169,11 @@ export function DisputeDetailPage() {
       <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           {back}
+          {reasonTitle && <p className="mb-0.5 text-[13px] font-bold text-slate">{t("disputes.detailTitle")}</p>}
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("disputes.detailTitle")}</h2>
+            <h2 className="text-[28px] font-extrabold leading-tight tracking-[-0.03em]">
+              {reasonTitle ?? t("disputes.detailTitle")}
+            </h2>
             <span className="font-mono text-xs text-slate">{String(escrow.escrowId || id || "")}</span>
             {status && (
               <Badge variant={status === "disputed" ? "warning" : "default"}>

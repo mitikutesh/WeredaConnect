@@ -1,5 +1,7 @@
+import { useEffect, useRef } from "react";
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { countOpenDisputes } from "@/lib/disputes";
 import type { DisputeEvidence } from "@/lib/evidence";
 import type { LedgerPage, StuckOrderPage, StuckSource } from "@/lib/legs";
 import type { DeliveryTrail } from "@/lib/trail";
@@ -86,6 +88,48 @@ export function useDisputes() {
       ),
     getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
   });
+}
+
+/** The most pages of the Disputes list the nav's count reads; with more behind them it shows no count. */
+export const OPEN_DISPUTE_COUNT_MAX_PAGES = 10;
+
+/**
+ * The open dispute count beside "Disputes" in the nav, from the Disputes list's own call. A page can
+ * come back short with a nextToken, so every page is read (up to OPEN_DISPUTE_COUNT_MAX_PAGES). Read
+ * once when the shell mounts and again when the admin enters or leaves a dispute page; a verdict
+ * refreshes it too, through the ["admin", "disputes"] key it shares with the list. Null while it
+ * loads, when the read failed, and when the list is longer than the pages read: no count is shown
+ * rather than a wrong one.
+ */
+export function useOpenDisputeCount(onDisputePage: boolean): number | null {
+  const query = useQuery({
+    queryKey: ["admin", "disputes", "open-count"],
+    queryFn: async () => {
+      let count = 0;
+      let nextToken: string | null = null;
+      for (let page = 0; page < OPEN_DISPUTE_COUNT_MAX_PAGES; page++) {
+        const result: { disputes?: unknown[]; nextToken?: string | null } = await api.get(
+          `/admin/disputes${nextToken ? `?nextToken=${encodeURIComponent(nextToken)}` : ""}`,
+        );
+        count += countOpenDisputes(result.disputes ?? []);
+        nextToken = result.nextToken ?? null;
+        if (!nextToken) return count;
+      }
+      return null;
+    },
+    staleTime: Infinity,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+  const { refetch } = query;
+  const last = useRef(onDisputePage);
+  useEffect(() => {
+    if (last.current === onDisputePage) return;
+    last.current = onDisputePage;
+    void refetch();
+  }, [onDisputePage, refetch]);
+  return query.isSuccess ? query.data : null;
 }
 
 /** FUP-16: escrows in one status, page by page (the disputes page's awaiting-settlement tab). */

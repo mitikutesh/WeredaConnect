@@ -1,4 +1,4 @@
-import { NavLink } from "react-router";
+import { NavLink, useLocation } from "react-router";
 import {
   LayoutDashboard,
   Wallet,
@@ -19,7 +19,9 @@ import {
   X,
 } from "lucide-react";
 import { useLocale } from "@/hooks/useLocale";
+import { useOpenDisputeCount } from "@/hooks/useQuery";
 import { useSidebar } from "@/hooks/useSidebar";
+import { fill } from "@/lib/trail";
 
 const navItems = [
   { path: "/", icon: LayoutDashboard, labelKey: "nav.dashboard" },
@@ -43,6 +45,9 @@ const navItems = [
 export function Sidebar() {
   const { t } = useLocale();
   const { isOpen, close } = useSidebar();
+  const { pathname } = useLocation();
+  // Page M board: "Disputes · 3". Nothing while it loads, on an error, or with no open dispute.
+  const openDisputes = useOpenDisputeCount(pathname === "/disputes" || pathname.startsWith("/disputes/"));
 
   const sidebarContent = (
     <>
@@ -66,25 +71,30 @@ export function Sidebar() {
       </div>
       <nav aria-label={t("nav.label")} className="flex-1 overflow-y-auto px-3 pb-4">
         <ul className="space-y-1">
-          {navItems.map(({ path, icon: Icon, labelKey }) => (
-            <li key={path}>
-              <NavLink
-                to={path}
-                end={path === "/"}
-                onClick={close}
-                className={({ isActive }) =>
-                  `flex min-h-11 items-center gap-3 rounded-[10px] px-3.5 text-sm transition-colors ${
-                    isActive
-                      ? "bg-nav-selected font-bold text-white"
-                      : "font-semibold text-nav-text hover:bg-nav-selected hover:text-white"
-                  }`
-                }
-              >
-                <Icon size={18} />
-                {t(labelKey)}
-              </NavLink>
-            </li>
-          ))}
+          {navItems.map(({ path, icon: Icon, labelKey }) => {
+            const count = path === "/disputes" && openDisputes ? openDisputes : null;
+            return (
+              <li key={path}>
+                <NavLink
+                  to={path}
+                  end={path === "/"}
+                  onClick={close}
+                  aria-label={count ? fill(t("nav.disputesOpen"), { count }) : undefined}
+                  className={({ isActive }) =>
+                    `flex min-h-11 items-center gap-3 rounded-[10px] px-3.5 text-sm transition-colors ${
+                      isActive
+                        ? "bg-nav-selected font-bold text-white"
+                        : "font-semibold text-nav-text hover:bg-nav-selected hover:text-white"
+                    }`
+                  }
+                >
+                  <Icon size={18} />
+                  {t(labelKey)}
+                  {count ? ` · ${count}` : null}
+                </NavLink>
+              </li>
+            );
+          })}
         </ul>
       </nav>
     </>

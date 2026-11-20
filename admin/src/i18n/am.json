@@ -9,6 +9,7 @@
     "dashboard": "ዳሽቦርድ",
     "escrows": "ኢስክሮዎች",
     "disputes": "ክርክሮች",
+    "disputesOpen": "ክርክሮች፣ {count} ክፍት",
     "manualPayouts": "በእጅ የሚከፈሉ ክፍያዎች",
     "unappliedPayments": "ያልተተገበሩ ክፍያዎች",
     "fraudReview": "ማጭበርበሪያ ግምገማ",
@@ -149,7 +150,15 @@
     "decide": "ይወስኑ",
     "frozen": "{amount} ታግዷል",
     "auditNote": "እያንዳንዱ ውሳኔ በአስተዳዳሪ መለያዎ ስር በኦዲት መዝገብ ውስጥ ይጻፋል።",
-    "verdict_partial_refund": "በክፍል የተከፋፈለ"
+    "verdict_partial_refund": "በክፍል የተከፋፈለ",
+    "reasonTitle_damaged_goods": "የተበላሸ ዕቃ",
+    "reasonTitle_wrong_quantity": "የተሳሳተ መጠን",
+    "reasonTitle_wrong_crop": "የተሳሳተ የሰብል ዓይነት",
+    "reasonTitle_not_delivered": "አልደረሰም",
+    "reasonTitle_quality_mismatch": "ጥራት አይዛመድም",
+    "reasonTitle_delivery_overdue": "ማድረስ ዘግይቷል",
+    "reasonTitle_silent_buyer": "ገዢው ዝም ብሏል",
+    "reasonTitle_dropoff_out_of_range": "አጓጓዡ ከማውረጃው ከ5 ኪ.ሜ በላይ ርቆ ምዝገባ አድርጓል"
   },
   "trail": {
     "tab": "የጉዞ መስመር",

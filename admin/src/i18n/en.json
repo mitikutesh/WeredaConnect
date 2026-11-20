@@ -9,6 +9,7 @@
     "dashboard": "Dashboard",
     "escrows": "Escrows",
     "disputes": "Disputes",
+    "disputesOpen": "Disputes, {count} open",
     "manualPayouts": "Manual Payouts",
     "unappliedPayments": "Unapplied Payments",
     "fraudReview": "Fraud Review",
@@ -149,7 +150,15 @@
     "decide": "Decide",
     "frozen": "{amount} frozen",
     "auditNote": "Every verdict is written to the audit log under your admin account.",
-    "verdict_partial_refund": "Split per leg"
+    "verdict_partial_refund": "Split per leg",
+    "reasonTitle_damaged_goods": "Damaged goods",
+    "reasonTitle_wrong_quantity": "Wrong quantity",
+    "reasonTitle_wrong_crop": "Wrong crop type",
+    "reasonTitle_not_delivered": "Not delivered",
+    "reasonTitle_quality_mismatch": "Quality mismatch",
+    "reasonTitle_delivery_overdue": "Delivery overdue",
+    "reasonTitle_silent_buyer": "Silent buyer",
+    "reasonTitle_dropoff_out_of_range": "The trucker checked in more than 5 km from the drop-off"
   },
   "trail": {
     "tab": "Trip trail",

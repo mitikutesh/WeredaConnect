@@ -216,6 +216,30 @@ describe("DisputeDetailPage Trip trail tab (LT-13)", () => {
     expect(mocks.trailIds).toContain("del-101");
   });
 
+  it("heads the page with the reason when it is a known code, under a Dispute eyebrow", () => {
+    mocks.escrow.data = { escrow: { ...escrow().escrow, dispute: { reason: "wrong_quantity", createdAt: "2026-10-27T09:50:00Z" } } };
+    renderPage();
+
+    const heading = screen.getByRole("heading", { name: "Wrong quantity" });
+    expect(heading.tagName).toBe("H2");
+    expect(screen.queryByRole("heading", { name: "Dispute" })).toBeNull();
+    expect(heading.parentElement?.previousElementSibling?.textContent).toBe("Dispute");
+    // The case card still shows the reason as the server sent it.
+    expect(screen.getByText("wrong_quantity")).toBeTruthy();
+  });
+
+  it("keeps Dispute as the heading, with no eyebrow, for other, free text or no reason", () => {
+    for (const reason of ["other", "The sacks were wet.", undefined]) {
+      mocks.escrow.data = { escrow: { ...escrow().escrow, dispute: { reason, createdAt: "2026-10-27T09:50:00Z" } } };
+      const { unmount } = renderPage();
+
+      const heading = screen.getByRole("heading", { name: "Dispute" });
+      expect(heading.parentElement?.previousElementSibling?.getAttribute("aria-label")).toBe("Breadcrumb");
+      expect(screen.getAllByText("Dispute")).toHaveLength(1);
+      unmount();
+    }
+  });
+
   it("says the trail is loading", () => {
     mocks.trail.isLoading = true;
     renderPage();
