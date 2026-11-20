@@ -441,9 +441,6 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                     color: AppTheme.onStatusWarningContainer,
                   ),
                   minimumSize: const Size.fromHeight(52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
                 ),
               ),
             ],
@@ -503,7 +500,7 @@ class _AwaitingPaymentBanner extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppTheme.orangeTint,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -540,7 +537,8 @@ class _AwaitingPaymentBanner extends StatelessWidget {
                   onOpenAgain!();
                 },
                 style: TextButton.styleFrom(
-                    foregroundColor: context.roleColors.primary,),
+                  foregroundColor: context.roleColors.primary,
+                ),
                 icon: const Icon(Icons.open_in_new, size: 18),
                 label: Text(l10n.escrowOpenPaymentAgain),
               ),
@@ -564,7 +562,7 @@ class _DisputeInfoCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppTheme.statusErrorContainer,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
