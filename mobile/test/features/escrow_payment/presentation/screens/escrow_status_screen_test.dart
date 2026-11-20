@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
@@ -11,6 +12,8 @@ import 'package:wereda_connect/features/escrow_payment/presentation/screens/escr
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_timeline.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 class MockEscrowBloc extends Mock implements EscrowBloc {}
 
@@ -128,6 +131,52 @@ void main() {
       expect(find.byType(EscrowStatusBadge), findsOneWidget);
       expect(find.byType(EscrowTimeline), findsOneWidget);
     });
+
+    for (final role in UserRole.values) {
+      testWidgets(
+          '${role.name}: the summary is the raised card, the amount in the '
+          'role colour, a 32 px title and no app bar', (tester) async {
+        when(() => escrowBloc.state)
+            .thenReturn(EscrowDetailLoaded(payment: _makePayment()));
+        when(() => escrowBloc.stream)
+            .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+        await tester.pumpWidget(
+          BlocProvider<EscrowBloc>.value(
+            value: escrowBloc,
+            child: MaterialApp(
+              theme: AppTheme.light(role: role),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: const EscrowStatusScreen(escrowId: 'esc-001'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AppBar), findsNothing);
+        expect(
+          tester.widget<Text>(find.text('Payment Status')).style?.fontSize,
+          32,
+        );
+        final card = tester.widget<FwCard>(
+          find.byKey(const Key('escrow_summary_card')),
+        );
+        expect(card.raised, isTrue);
+        final amount = tester.widget<Text>(
+          find.byKey(const Key('escrow_summary_amount')),
+        );
+        expect(amount.style?.color, RoleColors.forRole(role).primary);
+        // The status pill sits inside the summary card.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('escrow_summary_card')),
+            matching: find.byType(EscrowStatusBadge),
+          ),
+          findsOneWidget,
+        );
+      });
+    }
 
     testWidgets('shows amount breakdown', (WidgetTester tester) async {
       final payment = _makePayment();

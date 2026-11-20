@@ -191,6 +191,8 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener>
 }
 
 /// The heads-up card itself: sender, preview, and the linked crop/trip.
+/// Black with white ink, like the floating nav pill, with the orange
+/// "something new" mark; it floats over any screen and stays readable.
 class _ArrivalBanner extends StatelessWidget {
   final List<Message> messages;
   final ConversationContextResolver? contextResolver;
@@ -207,8 +209,6 @@ class _ArrivalBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-
     final single = messages.map((m) => m.conversationId).toSet().length == 1;
     final last = messages.last;
     // Names as the other screens show them: never an id (FUP-130).
@@ -238,24 +238,29 @@ class _ArrivalBanner extends StatelessWidget {
               direction: DismissDirection.up,
               onDismissed: (_) => onDismiss(),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: Material(
-                  elevation: 6,
-                  borderRadius: BorderRadius.circular(14),
-                  color: theme.colorScheme.surface,
+                  elevation: 8,
+                  shadowColor: Theme.of(context).colorScheme.shadow,
+                  borderRadius: BorderRadius.circular(24),
+                  color: AppTheme.ink,
+                  clipBehavior: Clip.antiAlias,
                   child: InkWell(
                     onTap: onTap,
-                    borderRadius: BorderRadius.circular(14),
                     child: Padding(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.fromLTRB(12, 12, 16, 12),
                       child: Row(
                         children: [
-                          CircleAvatar(
-                            radius: 18,
-                            backgroundColor: context.roleColors.primary,
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: const BoxDecoration(
+                              color: AppTheme.orange,
+                              shape: BoxShape.circle,
+                            ),
                             child: const Icon(
                               Icons.chat_bubble_outline,
-                              color: Colors.white,
+                              color: AppTheme.ink,
                               size: 18,
                             ),
                           ),
@@ -268,8 +273,11 @@ class _ArrivalBanner extends StatelessWidget {
                                   title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w700,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.15,
+                                    color: Colors.white,
                                   ),
                                 ),
                                 const SizedBox(height: 2),
@@ -277,7 +285,10 @@ class _ArrivalBanner extends StatelessWidget {
                                   preview,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodySmall,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: AppTheme.inkMuted,
+                                  ),
                                 ),
                                 if (single) ...[
                                   const SizedBox(height: 4),
@@ -285,6 +296,7 @@ class _ArrivalBanner extends StatelessWidget {
                                     contextType: last.contextType,
                                     contextId: last.contextId,
                                     resolver: contextResolver,
+                                    color: AppTheme.inkMuted,
                                   ),
                                 ],
                               ],

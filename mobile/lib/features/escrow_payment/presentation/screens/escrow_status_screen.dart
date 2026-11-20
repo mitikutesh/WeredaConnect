@@ -22,10 +22,13 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// Escrow detail screen showing status, amount, timeline, and actions, laid
-/// out like the boards' pushed pages: a back square and the title, then
-/// white cards with uppercase section labels, in the phone-width column.
+/// out like the boards' pushed pages: the round back button and a 32 px
+/// title, the summary as the raised card (the status pill, the amount in
+/// the role's colour, what the status means), then the split and the
+/// details as sand tiles under uppercase section labels.
 ///
 /// Loads a single escrow by ID or delivery ID. Supports pull-to-refresh
 /// and shows a stale data indicator when cache is older than 1 hour.
@@ -165,38 +168,17 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
         child: FwContentWidth(
           child: Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: Row(
-                  children: [
-                    FwSquareButton(
-                      onTap: () => Navigator.of(context).maybePop(),
-                      semanticLabel:
-                          MaterialLocalizations.of(context).backButtonTooltip,
-                      child: const Icon(
-                        Icons.arrow_back,
-                        size: 20,
-                        color: AppTheme.ink,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FwPageHeader(
-                        padding: EdgeInsets.zero,
-                        title: l10n.escrowPaymentStatus,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    FwSquareButton(
-                      onTap: _loadEscrow,
-                      semanticLabel: l10n.retry,
-                      child: const Icon(
-                        Icons.refresh,
-                        size: 22,
-                        color: AppTheme.ink,
-                      ),
-                    ),
-                  ],
+              FwStackedHeader(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+                title: l10n.escrowPaymentStatus,
+                trailing: FwSquareButton(
+                  onTap: _loadEscrow,
+                  semanticLabel: l10n.retry,
+                  child: const Icon(
+                    Icons.refresh,
+                    size: 20,
+                    color: AppTheme.ink,
+                  ),
                 ),
               ),
               Expanded(
@@ -232,10 +214,10 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                             children: [
                               const Icon(
                                 Icons.error_outline,
-                                size: 56,
+                                size: 40,
                                 color: AppTheme.statusError,
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 12),
                               Text(
                                 localizeEscrowError(
                                   l10n,
@@ -301,34 +283,71 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
               const SizedBox(height: 12),
             ],
 
-            // Status badge (large)
-            EscrowStatusBadge(
-              status: payment.status,
-              large: true,
-              refundPending: payment.isRefundPending,
+            // The summary, the card this screen leads with: the status
+            // pill, the amount in the role's colour, what the status means.
+            FwCard(
+              key: const Key('escrow_summary_card'),
+              raised: true,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: EscrowStatusBadge(
+                      status: payment.status,
+                      refundPending: payment.isRefundPending,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  FwSectionLabel(l10n.escrowTotalAmount),
+                  const SizedBox(height: 4),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      etb(payment.amount),
+                      key: const Key('escrow_summary_amount'),
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.9,
+                        height: 1.1,
+                        color: context.roleColors.primary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    escrowStatusDescription(
+                      payment.status,
+                      l10n,
+                      refundPending: payment.isRefundPending,
+                    ),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      height: 1.45,
+                      color: AppTheme.inkSoft,
+                    ),
+                  ),
+                  // FRD-13: the payee's expected payout day. Only the
+                  // farmer's and the trucker's reads carry the date.
+                  if (expectedPayoutAt(payment) case final payoutAt?) ...[
+                    const SizedBox(height: 8),
+                    PayoutExpectedText(payoutAt: payoutAt),
+                  ],
+                ],
+              ),
             ),
-            // FRD-13: the payee's expected payout day. Only the farmer's and
-            // the trucker's reads carry the date.
-            if (expectedPayoutAt(payment) case final payoutAt?) ...[
-              const SizedBox(height: 12),
-              PayoutExpectedText(payoutAt: payoutAt, center: true),
-            ],
             const SizedBox(height: 20),
 
-            // Amount breakdown
+            // Who gets what, on a sand tile.
             FwSectionLabel(
-              l10n.escrowTotalAmount,
+              l10n.priceBreakdown,
               padding: const EdgeInsets.only(bottom: 8),
             ),
-            FwCard(
+            FwCard.sand(
               child: Column(
                 children: [
-                  _DetailRow(
-                    label: l10n.escrowTotalAmount,
-                    value: etb(payment.amount),
-                    emphasis: true,
-                  ),
-                  const Divider(height: 20, color: AppTheme.segmentTrack),
                   // SIM-30: no rate in the label. An order escrow's commission
                   // is a rate of the crop cost, not of this amount, and the
                   // stored commissionRate is not reliable on every row.
@@ -340,7 +359,6 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                   _DetailRow(
                     label: l10n.escrowFarmerReceives,
                     value: etb(payment.farmerPayout),
-                    valueColor: context.roleColors.primary,
                   ),
                   // Transport leg (SIM-15): total = commission + farmer +
                   // trucker. Hidden for orders without a trucker split.
@@ -349,7 +367,6 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                     _DetailRow(
                       label: l10n.escrowTruckerReceives,
                       value: etb(payment.truckerPayout),
-                      valueColor: context.roleColors.primary,
                     ),
                   ],
                 ],
@@ -362,7 +379,7 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
               l10n.escrowDeliveryLabel,
               padding: const EdgeInsets.only(bottom: 8),
             ),
-            FwCard(
+            FwCard.sand(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Column(
                 children: [
@@ -435,16 +452,6 @@ class _EscrowStatusScreenState extends State<EscrowStatusScreen>
                 },
                 icon: const Icon(Icons.warning_amber),
                 label: Text(l10n.escrowRaiseDispute),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.onStatusWarningContainer,
-                  side: const BorderSide(
-                    color: AppTheme.onStatusWarningContainer,
-                  ),
-                  minimumSize: const Size.fromHeight(52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
               ),
             ],
 
@@ -500,31 +507,32 @@ class _AwaitingPaymentBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
       decoration: BoxDecoration(
         color: AppTheme.orangeTint,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              SizedBox(
+              const SizedBox(
                 height: 20,
                 width: 20,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: context.roleColors.primary,
+                  color: AppTheme.orangeInk,
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   l10n.escrowAwaitingPayment,
                   style: const TextStyle(
                     fontSize: 14,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
+                    height: 1.4,
                     color: AppTheme.orangeInk,
                   ),
                 ),
@@ -540,7 +548,8 @@ class _AwaitingPaymentBanner extends StatelessWidget {
                   onOpenAgain!();
                 },
                 style: TextButton.styleFrom(
-                    foregroundColor: context.roleColors.primary,),
+                  foregroundColor: AppTheme.ink,
+                ),
                 icon: const Icon(Icons.open_in_new, size: 18),
                 label: Text(l10n.escrowOpenPaymentAgain),
               ),
@@ -564,7 +573,7 @@ class _DisputeInfoCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppTheme.statusErrorContainer,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -616,20 +625,12 @@ class _DisputeInfoCard extends StatelessWidget {
   }
 }
 
+/// One line of the split on the sand tile: who, then how much.
 class _DetailRow extends StatelessWidget {
   final String label;
   final String value;
-  final Color? valueColor;
 
-  /// The total: bigger value, like the boards' "You receive" line.
-  final bool emphasis;
-
-  const _DetailRow({
-    required this.label,
-    required this.value,
-    this.valueColor,
-    this.emphasis = false,
-  });
+  const _DetailRow({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -641,21 +642,20 @@ class _DetailRow extends StatelessWidget {
         Flexible(
           child: Text(
             label,
-            style: TextStyle(
-              fontSize: emphasis ? 13 : 14,
+            style: const TextStyle(
+              fontSize: 14,
               fontWeight: FontWeight.w500,
-              color: emphasis ? AppTheme.slate : AppTheme.inkSoft,
+              color: AppTheme.inkSoft,
             ),
           ),
         ),
         const SizedBox(width: 12),
         Text(
           value,
-          style: TextStyle(
-            fontSize: emphasis ? 22 : 14,
-            fontWeight: emphasis ? FontWeight.w800 : FontWeight.w700,
-            letterSpacing: emphasis ? -0.4 : 0,
-            color: valueColor ?? AppTheme.ink,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: AppTheme.ink,
           ),
         ),
       ],
@@ -685,18 +685,21 @@ class _InfoRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: AppTheme.slate),
+          Icon(icon, size: 18, color: AppTheme.inkSoft),
           const SizedBox(width: 12),
           SizedBox(
             width: 84,
-            child: Text(label, style: FwText.body),
+            child: Text(
+              label,
+              style: FwText.body.copyWith(color: AppTheme.inkSoft),
+            ),
           ),
           Expanded(
             child: ClockText(
               clock ?? ClockLabel.text(value),
               style: const TextStyle(
                 fontSize: 14,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
                 color: AppTheme.ink,
               ),
             ),

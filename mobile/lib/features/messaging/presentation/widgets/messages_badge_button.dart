@@ -8,6 +8,7 @@ import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_event.
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/messages_inbox_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// An app-bar action that opens the messages inbox and shows an unread badge.
 /// Reachable from every role's home header.
@@ -52,6 +53,9 @@ class _MessagesBadgeButtonState extends State<MessagesBadgeButton> {
         final unread = state is InboxLoaded ? state.totalUnread : 0;
         if (unread <= 0) return button;
         return Badge(
+          // Something new: orange with black ink, as the bell's dot.
+          backgroundColor: AppTheme.orange,
+          textColor: AppTheme.ink,
           label: Text('$unread'),
           offset: const Offset(-6, 6),
           child: button,

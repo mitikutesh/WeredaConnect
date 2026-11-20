@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -15,12 +16,17 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
 /// The conversations inbox — the current user's chats across all roles.
 ///
-/// Drawn in the Fieldway boards' language (no board of its own): the page
-/// header on the chalk ground, the threads in one white card. One
-/// composition at every width, centred by [FwContentWidth] on wide windows.
+/// Drawn in the boards' language (no board of its own): the 42 px page
+/// header with the role's sketch, the threads as rows of one raised paper
+/// card (the Contact card of the order boards), an unread count as the
+/// orange pill. One composition at every width, centred by
+/// [FwContentWidth] on wide windows.
 class MessagesInboxScreen extends StatefulWidget {
   const MessagesInboxScreen({super.key});
 
@@ -43,10 +49,24 @@ class _MessagesInboxScreenState extends State<MessagesInboxScreen> {
     final l10n = AppLocalizations.of(context)!;
     final authState = context.read<AuthBloc>().state;
     final me = authState is AuthAuthenticated ? authState.userId : '';
+    final role = authState is AuthAuthenticated ? authState.role : null;
 
-    final header = FwPageHeader(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-      title: l10n.messages,
+    // Pushed from the account sheet on the phone; a route of its own on web.
+    final header = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (Navigator.of(context).canPop())
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+            child: FwBackButton(),
+          ),
+        FwPageHeader(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+          eyebrow: fwPersonPlaceEyebrow(authState, ''),
+          title: l10n.messages,
+          sketchRole: role,
+        ),
+      ],
     );
 
     return Scaffold(
@@ -63,6 +83,7 @@ class _MessagesInboxScreenState extends State<MessagesInboxScreen> {
                         child: _EmptyInbox(
                           title: l10n.noConversationsYet,
                           hint: l10n.noConversationsHint,
+                          role: role,
                         ),
                       ),
                     ],
@@ -78,7 +99,8 @@ class _MessagesInboxScreenState extends State<MessagesInboxScreen> {
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: FwCard(
-                          padding: EdgeInsets.zero,
+                          raised: true,
+                          padding: const EdgeInsets.symmetric(vertical: 4),
                           child: Column(
                             children: [
                               for (var i = 0;
@@ -122,6 +144,7 @@ class _MessagesInboxScreenState extends State<MessagesInboxScreen> {
                       child: _EmptyInbox(
                         title: l10n.messages,
                         hint: state.message,
+                        role: role,
                       ),
                     ),
                   ],
@@ -178,15 +201,22 @@ class _ConversationTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CircleAvatar(
-              radius: 22,
-              backgroundColor: context.roleColors.tint,
-              child: Text(
-                _initials(l10n),
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  color: context.roleColors.primary,
+            ExcludeSemantics(
+              child: Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: context.roleColors.tint,
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  _initials(l10n),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: context.roleColors.primary,
+                  ),
                 ),
               ),
             ),
@@ -202,6 +232,7 @@ class _ConversationTile extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: hasUnread ? FontWeight.w800 : FontWeight.w700,
+                      letterSpacing: -0.15,
                       color: AppTheme.ink,
                     ),
                   ),
@@ -219,9 +250,9 @@ class _ConversationTile extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: hasUnread ? FontWeight.w600 : FontWeight.w500,
-                      color: hasUnread ? AppTheme.inkSoft : AppTheme.slate,
+                      fontSize: 14,
+                      fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w400,
+                      color: hasUnread ? AppTheme.ink : AppTheme.slate,
                     ),
                   ),
                 ],
@@ -234,30 +265,19 @@ class _ConversationTile extends StatelessWidget {
                 Text(
                   time,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: FontWeight.w500,
                     color: AppTheme.slate,
                   ),
                 ),
                 if (hasUnread) ...[
                   const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 7,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: context.roleColors.primary,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      '${summary.unreadCount}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+                  // Something new: the orange pill, as the bell's dot.
+                  FwPill(
+                    key: const Key('inbox_unread_pill'),
+                    label: '${summary.unreadCount}',
+                    background: AppTheme.orange,
+                    foreground: AppTheme.ink,
                   ),
                 ],
               ],
@@ -269,37 +289,44 @@ class _ConversationTile extends StatelessWidget {
   }
 }
 
+/// The empty and the failed inbox: the role's large line drawing (only an
+/// empty state gets one), the title and one line of help.
 class _EmptyInbox extends StatelessWidget {
   final String title;
   final String hint;
+  final UserRole? role;
 
-  const _EmptyInbox({required this.title, required this.hint});
+  const _EmptyInbox({required this.title, required this.hint, this.role});
 
   @override
   Widget build(BuildContext context) {
+    final role = this.role;
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: context.roleColors.tint,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Icon(
+            if (role != null)
+              RoleSketch.emptyState(role: role)
+            else
+              const Icon(
                 Icons.forum_outlined,
-                size: 30,
-                color: context.roleColors.primary,
+                size: 48,
+                color: AppTheme.sketch,
+              ),
+            const SizedBox(height: 16),
+            Text(title, style: FwText.detailTitle.copyWith(fontSize: 26)),
+            const SizedBox(height: 8),
+            Text(
+              hint,
+              style: const TextStyle(
+                fontSize: 16,
+                height: 1.5,
+                color: AppTheme.inkSoft,
               ),
             ),
-            const SizedBox(height: 16),
-            Text(title, style: FwText.cardTitle, textAlign: TextAlign.center),
-            const SizedBox(height: 8),
-            Text(hint, textAlign: TextAlign.center, style: FwText.body),
           ],
         ),
       ),

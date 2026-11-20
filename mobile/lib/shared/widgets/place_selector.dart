@@ -335,7 +335,7 @@ class _PlaceSelectorState extends State<PlaceSelector>
             // The suggestion list: white, radius 16, the quiet card edge.
             elevation: 6,
             color: AppTheme.ground,
-            shadowColor: const Color(0x241A1516),
+            shadowColor: Theme.of(context).colorScheme.shadow,
             clipBehavior: Clip.antiAlias,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
