@@ -2266,9 +2266,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get transportCost => 'Baasii Geejjibaa';
 
   @override
-  String get platformCommission => 'Komishiinii Waltajjii (5%)';
-
-  @override
   String get orderTotal => 'Waliigala';
 
   @override
@@ -2542,9 +2539,6 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get transportCostLabel => 'Gatii Geejjibaa';
-
-  @override
-  String get commissionLabel => 'Komishinii (5%)';
 
   @override
   String syncedAgo(String time) {

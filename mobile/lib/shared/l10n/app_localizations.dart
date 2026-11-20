@@ -4186,12 +4186,6 @@ abstract class AppLocalizations {
   /// **'Transport Cost'**
   String get transportCost;
 
-  /// Label for platform commission in price breakdown
-  ///
-  /// In en, this message translates to:
-  /// **'Platform Commission (5%)'**
-  String get platformCommission;
-
   /// Label for total order amount
   ///
   /// In en, this message translates to:
@@ -4659,12 +4653,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Transport Cost'**
   String get transportCostLabel;
-
-  /// Label for commission in price breakdown
-  ///
-  /// In en, this message translates to:
-  /// **'Commission (5%)'**
-  String get commissionLabel;
 
   /// Stale data indicator
   ///

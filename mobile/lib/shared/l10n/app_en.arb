@@ -2922,10 +2922,6 @@
   "@transportCost": {
     "description": "Label for transport cost in price breakdown"
   },
-  "platformCommission": "Platform Commission (5%)",
-  "@platformCommission": {
-    "description": "Label for platform commission in price breakdown"
-  },
   "orderTotal": "Total",
   "@orderTotal": {
     "description": "Label for total order amount"
@@ -3200,8 +3196,6 @@
   "@cropCostLabel": { "description": "Label for crop cost in price breakdown" },
   "transportCostLabel": "Transport Cost",
   "@transportCostLabel": { "description": "Label for transport cost in price breakdown" },
-  "commissionLabel": "Commission (5%)",
-  "@commissionLabel": { "description": "Label for commission in price breakdown" },
   "syncedAgo": "Updated {time} ago",
   "@syncedAgo": { "description": "Stale data indicator", "placeholders": { "time": { "type": "String" } } },
   "browseAllListings": "Browse All Listings",
