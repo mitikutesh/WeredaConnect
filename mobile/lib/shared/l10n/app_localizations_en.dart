@@ -4209,7 +4209,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get liveTripMapStartsAtPickup =>
-      'The map appears when the driver scans the farmer\'s QR.';
+      'The map appears once the driver scans the farmer\'s QR.';
 
   @override
   String liveTripDurationMinutes(int minutes) {
@@ -4277,6 +4277,96 @@ class AppLocalizationsEn extends AppLocalizations {
   String liveTripKmToGo(String km) {
     return 'About $km km to go, from the last check-in';
   }
+
+  @override
+  String get liveTripWholeRoute => 'Whole route';
+
+  @override
+  String get liveTripNearTruck => 'Near the truck';
+
+  @override
+  String get liveTripLegendLabel => 'Map legend';
+
+  @override
+  String get liveTripLegendDriven => 'Driven';
+
+  @override
+  String get liveTripLegendAhead => 'Road ahead';
+
+  @override
+  String get liveTripLegendTruck => 'Truck is about here';
+
+  @override
+  String get liveTripCall => 'Call';
+
+  @override
+  String liveTripNothingToDoWindow(String time) {
+    return 'Nothing for you to do. The payment is released when the check window ends, $time, unless you report a problem.';
+  }
+
+  @override
+  String liveTripFarmerNothingToDo(String buyer) {
+    return 'Nothing for you to do now. $buyer must confirm delivery. Then the 48 h check window runs and the money is paid out to you.';
+  }
+
+  @override
+  String liveTripFarmerNothingToDoWindow(String time) {
+    return 'Nothing for you to do. You are paid when the check window ends, $time, unless the buyer reports a problem.';
+  }
+
+  @override
+  String liveTripNextScanAt(String place) {
+    return 'Next: you scan the driver\'s QR at $place.';
+  }
+
+  @override
+  String get liveTripNextScan =>
+      'Next: you scan the driver\'s QR when the truck arrives.';
+
+  @override
+  String liveTripQuintalsCount(String count) {
+    return '$count quintals';
+  }
+
+  @override
+  String get delivOpenMap => 'Open map';
+
+  @override
+  String get delivOpen => 'Open';
+
+  @override
+  String delivNothingToDoReleased(String time) {
+    return 'Nothing for you to do. The payment is released after $time unless you report a problem.';
+  }
+
+  @override
+  String delivNothingToDoPaid(String time) {
+    return 'Nothing for you to do. You are paid after $time unless the buyer reports a problem.';
+  }
+
+  @override
+  String get delivEmptyTitle => 'Nothing on the road yet';
+
+  @override
+  String get delivEmptyBodyBuyer =>
+      'When a driver picks up one of your orders, you can follow the truck here.';
+
+  @override
+  String get delivEmptyBodyFarmer =>
+      'When a driver picks up one of your crops, you can follow the truck here.';
+
+  @override
+  String get delivEmptyBodyTrucker =>
+      'When you pick up a load, its delivery shows here.';
+
+  @override
+  String get delivEmptyFindCrops => 'Find crops';
+
+  @override
+  String get delivEmptySeeOrders => 'See my orders';
+
+  @override
+  String get delivEmptySeeTrips => 'See my trips';
 
   @override
   String get liveTripWiderWindow => 'Wider window: no check-in for a while';

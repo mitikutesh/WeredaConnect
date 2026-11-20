@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
 import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
 import 'package:wereda_connect/features/live_trip/presentation/screens/farmer_trip_screen.dart';
@@ -118,6 +119,58 @@ void main() {
       );
     }
     expect(tracks.fetches, 0);
+  });
+
+  // Design canvas page M, the Farmer journey board.
+  testWidgets('on the road there is nothing for the farmer to do',
+      (tester) async {
+    await pumpFarmer(tester);
+    expect(
+      find.text(
+        'Nothing for you to do now. Selam Traders must confirm delivery. '
+        'Then the 48 h check window runs and the money is paid out to you.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Message and Call for the buyer and for the driver',
+      (tester) async {
+    await pumpFarmer(tester);
+    expect(find.text('Message'), findsNWidgets(2));
+    expect(find.text('Call'), findsNWidgets(2));
+    for (final party in [buyerId, truckerId]) {
+      expect(find.byKey(Key('party_message_$party')), findsOneWidget);
+      expect(find.byKey(Key('party_call_$party')), findsOneWidget);
+    }
+  });
+
+  testWidgets('no Message or Call before the order opens contact',
+      (tester) async {
+    deps.order = liveOrder(status: OrderStatus.pendingPayment);
+    await pumpFarmer(tester);
+    expect(find.text('Selam Traders'), findsOneWidget);
+    expect(find.text('Message'), findsNothing);
+    expect(find.text('Call'), findsNothing);
+  });
+
+  testWidgets('delivered, inside the window: paid when it ends',
+      (tester) async {
+    tracks.track = DeliveryTrack.fromJson(endedTrackJson());
+    await pumpFarmer(
+      tester,
+      delivery: liveDelivery(
+        status: DeliveryStatus.delivered,
+        confirmedAt: asOf.subtract(const Duration(hours: 1)),
+      ),
+    );
+    expect(
+      find.textContaining(
+        'Nothing for you to do. You are paid when the check window ends, ',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Nothing for you to do now.'), findsNothing);
   });
 
   testWidgets('after delivery: sharing ended, no map', (tester) async {

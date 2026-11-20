@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
@@ -13,8 +15,7 @@ import 'package:wereda_connect/features/order/presentation/widgets/order_commitm
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
-import 'package:wereda_connect/shared/widgets/status_chip.dart';
-import 'package:wereda_connect/shared/widgets/wc_card.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// The buyer's trip log (LT-11, the Buyer · Trip log board): the check-ins of
 /// the buyer's window with their times on the viewer's clock and the town
@@ -65,7 +66,8 @@ class TripLogScreen extends StatelessWidget {
     ];
 
     // The board: the back button beside the title, then one card per
-    // section, 14 apart.
+    // section, 18 apart: the check-ins, the price and the help raised on
+    // paper, the proof flat on sand.
     return Scaffold(
       backgroundColor: AppTheme.ground,
       body: SafeArea(
@@ -85,19 +87,22 @@ class TripLogScreen extends StatelessWidget {
                         child: Text(
                           l10n.liveTripTripLogTitle,
                           style: const TextStyle(
-                            fontSize: 22,
+                            fontSize: 30,
                             fontWeight: FontWeight.w800,
-                            letterSpacing: -0.4,
+                            letterSpacing: -1,
+                            height: 1.05,
                             color: AppTheme.ink,
                           ),
                         ),
                       ),
+                      const SizedBox(height: 2),
                       Text(
                         subtitle,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 13,
+                          fontWeight: FontWeight.w500,
                           color: AppTheme.slate,
                         ),
                       ),
@@ -106,7 +111,7 @@ class TripLogScreen extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 18),
             LiveTripStats(
               cards: true,
               stats: [
@@ -126,13 +131,15 @@ class TripLogScreen extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 14),
-            WcCard(
+            const SizedBox(height: 18),
+            FwCard(
+              raised: true,
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const CheckInsTitle(),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
                   TripCheckInList(
                     track: track,
                     places: places,
@@ -142,29 +149,35 @@ class TripLogScreen extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 18),
             _PickupProof(delivery: delivery, track: track),
             if (o != null) ...[
-              const SizedBox(height: 14),
-              _PriceBreakdown(order: o, delivery: delivery),
-              const SizedBox(height: 14),
+              const SizedBox(height: 18),
+              _PriceBreakdown(
+                order: o,
+                delivery: delivery,
+                dropoffNote: track.dropoffNote,
+                isBuyer: currentUserId == delivery.buyerId,
+              ),
+              const SizedBox(height: 18),
               OrderCommitmentSection(
                 order: o,
                 userId: currentUserId,
                 showAfterPickup: true,
               ),
             ],
-            const SizedBox(height: 14),
-            WcCard(
+            const SizedBox(height: 18),
+            FwCard(
+              raised: true,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _CardTitle(l10n.liveTripHelpTitle),
+                  _CardTitle(l10n.liveTripHelpTitle, large: true),
                   const SizedBox(height: 10),
                   Text(
                     l10n.liveTripHelpBody(trucker, farmer),
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 14,
                       height: 1.5,
                       color: AppTheme.inkSoft,
                     ),
@@ -178,42 +191,21 @@ class TripLogScreen extends StatelessWidget {
                         for (final (i, party) in parties.indexed) ...[
                           if (i > 0) const SizedBox(width: 8),
                           Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => openOrderChat(
+                            child: _MessageButton(
+                              key: Key('trip_log_message_${party.id}'),
+                              // The board: the first one black, the
+                              // second outlined.
+                              filled: i == 0,
+                              label: l10n.liveTripMessageParty(
+                                firstNameOf(
+                                  partyDisplayName(party.name, l10n),
+                                ),
+                              ),
+                              onTap: () => openOrderChat(
                                 context,
                                 order: o!,
                                 partyId: party.id,
                                 partyName: party.name,
-                              ),
-                              icon: const Icon(Icons.chat_outlined, size: 18),
-                              label: Text(
-                                l10n.liveTripMessageParty(
-                                  firstNameOf(
-                                    partyDisplayName(party.name, l10n),
-                                  ),
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppTheme.ink,
-                                side: const BorderSide(
-                                  color: Color(0xFFD6D3C8),
-                                ),
-                                minimumSize: const Size.fromHeight(44),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                ),
-                                textStyle: const TextStyle(
-                                  fontFamily: AppTheme.fontFamily,
-                                  fontFamilyFallback:
-                                      AppTheme.ethiopicFontFallback,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
                               ),
                             ),
                           ),
@@ -224,7 +216,7 @@ class TripLogScreen extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 18),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Row(
@@ -243,7 +235,7 @@ class TripLogScreen extends StatelessWidget {
                     child: Text(
                       l10n.liveTripPrivacyNote(farmer),
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 13,
                         height: 1.5,
                         color: AppTheme.slate,
                       ),
@@ -259,42 +251,161 @@ class TripLogScreen extends StatelessWidget {
   }
 }
 
-/// A card's title (15, extra bold).
-class _CardTitle extends StatelessWidget {
-  const _CardTitle(this.text);
+/// "Message Dawit" under the help text: a 46 px pill, black or outlined.
+class _MessageButton extends StatelessWidget {
+  const _MessageButton({
+    required this.label,
+    required this.filled,
+    required this.onTap,
+    super.key,
+  });
 
-  final String text;
+  final String label;
+  final bool filled;
+  final VoidCallback onTap;
+
+  static const _text = TextStyle(
+    fontFamily: AppTheme.fontFamily,
+    fontFamilyFallback: AppTheme.ethiopicFontFallback,
+    fontSize: 14,
+    fontWeight: FontWeight.w800,
+  );
 
   @override
-  Widget build(BuildContext context) => Semantics(
+  Widget build(BuildContext context) {
+    final child = Text(
+      label,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      textAlign: TextAlign.center,
+    );
+    const padding = EdgeInsets.symmetric(horizontal: 10, vertical: 4);
+    return filled
+        ? FilledButton(
+            onPressed: onTap,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.ink,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(48),
+              padding: padding,
+              textStyle: _text,
+            ),
+            child: child,
+          )
+        : OutlinedButton(
+            onPressed: onTap,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+              padding: padding,
+              textStyle: _text,
+            ),
+            child: child,
+          );
+  }
+}
+
+/// A card's title: an uppercase section label with its icon (the board's
+/// "CHECK-INS", "PRICE BREAKDOWN"), or [large] a 19 px heading ("Something
+/// wrong on the way?").
+class _CardTitle extends StatelessWidget {
+  const _CardTitle(
+    this.text, {
+    this.icon,
+    this.large = false,
+    this.color = AppTheme.slate,
+  });
+
+  final String text;
+  final IconData? icon;
+  final bool large;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    if (large) {
+      return Semantics(
         header: true,
         child: Text(
           text,
           style: const TextStyle(
-            fontSize: 15,
+            fontSize: 19,
             fontWeight: FontWeight.w800,
+            letterSpacing: -0.4,
             color: AppTheme.ink,
           ),
         ),
       );
+    }
+    return Semantics(
+      header: true,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (icon != null) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Icon(icon, size: 16, color: color),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Flexible(
+            child: Text(
+              text.toUpperCase(),
+              style: FwText.sectionLabel.copyWith(color: color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// "Check-ins" with "about every hour" at the end of the line (the trip
-/// log and the wide live trip's check-ins card).
+/// log and the wide live trip's check-ins card; [web] keeps the web
+/// board's plain 15 px title).
 class CheckInsTitle extends StatelessWidget {
-  const CheckInsTitle({super.key});
+  const CheckInsTitle({this.web = false, super.key});
+
+  final bool web;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Expanded(child: _CardTitle(l10n.liveTripCheckInsTitle)),
+        Flexible(
+          child: web
+              ? Semantics(
+                  header: true,
+                  child: Text(
+                    l10n.liveTripCheckInsTitle,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.ink,
+                    ),
+                  ),
+                )
+              : _CardTitle(
+                  l10n.liveTripCheckInsTitle,
+                  icon: Icons.schedule,
+                ),
+        ),
         const SizedBox(width: 8),
-        Text(
-          l10n.liveTripAboutEveryHour,
-          style: const TextStyle(fontSize: 12, color: AppTheme.slate),
+        // Its own share of the line: long words (Afaan Oromoo) wrap.
+        Flexible(
+          child: Text(
+            l10n.liveTripAboutEveryHour,
+            textAlign: TextAlign.end,
+            style: TextStyle(
+              fontSize: web ? 12 : 14,
+              height: 1.35,
+              color: AppTheme.slate,
+            ),
+          ),
         ),
       ],
     );
@@ -523,12 +634,9 @@ class _LogRow extends StatelessWidget {
                 row.time,
                 style: TextStyle(
                   fontSize: 13,
-                  fontWeight: row.latest
-                      ? FontWeight.w800
-                      : row.done
-                          ? FontWeight.w700
-                          : FontWeight.w600,
-                  color: row.done ? AppTheme.ink : AppTheme.slate,
+                  fontWeight: row.done ? FontWeight.w800 : FontWeight.w500,
+                  // The board: the times driven in the role colour.
+                  color: row.done ? context.roleColors.primary : AppTheme.slate,
                 ),
               ),
             ),
@@ -562,17 +670,19 @@ class _LogRow extends StatelessWidget {
                     Text(
                       title,
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight:
-                            row.latest ? FontWeight.w800 : FontWeight.w700,
+                            row.muted ? FontWeight.w700 : FontWeight.w800,
+                        letterSpacing: -0.15,
                         color: titleColor,
                       ),
                     ),
+                  const SizedBox(height: 2),
                   Text(
                     row.description,
                     style: const TextStyle(
-                      fontSize: 12,
-                      height: 1.4,
+                      fontSize: 14,
+                      height: 1.35,
                       color: AppTheme.slate,
                     ),
                   ),
@@ -588,19 +698,13 @@ class _LogRow extends StatelessWidget {
                             DotPill(
                               label: row.sentLate!,
                               background: AppTheme.orangeTint,
-                              foreground: context.roleColors.primary,
-                              height: 22,
-                              radius: 6,
-                              fontSize: 11,
+                              foreground: AppTheme.orangeInk,
                             ),
                           if (title == null && row.tag != null)
                             DotPill(
                               label: row.tag!,
                               background: AppTheme.segmentTrack,
                               foreground: AppTheme.inkSoft,
-                              height: 22,
-                              radius: 6,
-                              fontSize: 11,
                             ),
                         ],
                       ),
@@ -668,10 +772,11 @@ class _CompactLogRow extends StatelessWidget {
               child: DotPill(
                 label: row.sentLateShort ?? row.sentLate!,
                 background: AppTheme.orangeTint,
-                foreground: context.roleColors.primary,
+                foreground: AppTheme.orangeInk,
                 height: 22,
                 radius: 6,
                 fontSize: 11,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -690,7 +795,8 @@ class _LineBox extends StatelessWidget {
   Widget build(BuildContext context) {
     if (line == _Line.solid) {
       return Center(
-          child: Container(width: 2, color: context.roleColors.primary),);
+        child: Container(width: 2, color: context.roleColors.primary),
+      );
     }
     return const Center(
       child: CustomPaint(
@@ -708,7 +814,7 @@ class _DashPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFFC9C6BB)
+      ..color = AppTheme.fieldBorder
       ..strokeWidth = 2;
     for (var y = 0.0; y < size.height; y += 8) {
       canvas.drawLine(
@@ -736,15 +842,27 @@ class _MarkerBox extends StatelessWidget {
           height: 16,
           decoration: BoxDecoration(
             color: context.roleColors.primary,
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(5),
           ),
         ),
+      // The latest check-in: the truck's own mark, a black square with an
+      // orange dot.
       _Marker.latest => Container(
           width: 18,
           height: 18,
+          alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: AppTheme.orange,
+            color: AppTheme.ink,
             borderRadius: BorderRadius.circular(6),
+          ),
+          child: Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppTheme.orange,
+              border: Border.all(color: AppTheme.ink, width: 1.5),
+            ),
           ),
         ),
       _Marker.dropoff => Container(
@@ -753,7 +871,7 @@ class _MarkerBox extends StatelessWidget {
           alignment: Alignment.center,
           decoration: const BoxDecoration(
             shape: BoxShape.circle,
-            color: AppTheme.dropoffSlate,
+            color: AppTheme.ink,
           ),
           child: Container(
             width: 6,
@@ -775,7 +893,7 @@ class _MarkerBox extends StatelessWidget {
               border: Border.all(
                 color: marker == _Marker.ring
                     ? context.roleColors.primary
-                    : const Color(0xFF7A827D),
+                    : AppTheme.slate,
                 width: 3,
               ),
             ),
@@ -802,19 +920,20 @@ class _PickupProof extends StatelessWidget {
     final gps = delivery.gpsPickup != null || track.pickup != null
         ? l10n.liveTripGpsRecorded
         : '${l10n.deliveryGpsLabel}: ${l10n.deliveryGpsNotCaptured}';
-    return WcCard(
+    return FwCard.sand(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
           Container(
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              color: context.roleColors.tint,
+              color: AppTheme.paper,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(
+            child: const Icon(
               Icons.verified_outlined,
-              color: context.roleColors.primary,
+              color: AppTheme.slate,
               size: 26,
             ),
           ),
@@ -823,13 +942,14 @@ class _PickupProof extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _CardTitle(l10n.liveTripPickupProof),
+                _CardTitle(l10n.liveTripPickupProof, color: AppTheme.inkSoft),
                 const SizedBox(height: 4),
                 Text(
                   '${l10n.liveTripQrScannedAt(clock.time(pickedUpAt))} · $gps',
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.inkSoft,
+                    height: 1.4,
+                    color: AppTheme.ink,
                   ),
                 ),
               ],
@@ -841,34 +961,69 @@ class _PickupProof extends StatelessWidget {
   }
 }
 
-/// The order's price rows in one card with the escrow chip, the total and
-/// who is paid what (the board).
+/// The order's price rows in one raised card with the escrow pill, the
+/// total, the buyer's next step and who is paid what (the board). Amounts
+/// are in the role colour. Kilograms lead: the crop row multiplies them by
+/// the unit price, the transport row names them and puts the quintals and
+/// the rate per quintal after, in parentheses.
 class _PriceBreakdown extends StatelessWidget {
-  const _PriceBreakdown({required this.order, required this.delivery});
+  const _PriceBreakdown({
+    required this.order,
+    required this.delivery,
+    required this.dropoffNote,
+    required this.isBuyer,
+  });
 
   final Order order;
   final Delivery delivery;
 
+  /// The buyer's drop-off landmark ("Merkato"), when the order has one.
+  final String? dropoffNote;
+  final bool isBuyer;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final amountColor = context.roleColors.primary;
     String etb(double amount) => l10n.etbCurrency(birrText(amount));
     final crop = order.cropCost ?? order.totalPrice;
     final transport = order.transportCost;
     final farmer = partyDisplayName(delivery.farmerName, l10n);
     final trucker = partyDisplayName(delivery.truckerName, l10n);
+    final kg = kgQuantityText(order.quantity, l10n);
     // "Crop cost · 2,000 kg × 42 ETB" when the order has a unit price.
     final cropLabel = order.pricePerUnit > 0
-        ? '${l10n.cropCost} · ${l10n.quantityKg(birrText(order.quantity))} × '
-            '${etb(order.pricePerUnit)}'
+        ? '${l10n.cropCost} · $kg × ${etb(order.pricePerUnit)}'
         : l10n.cropCost;
-    Widget row(String label, double amount) => Padding(
+    // "(20 quintals × 150 ETB)": the rate is what the transport cost comes
+    // to per quintal of this order.
+    final quintals = order.quantity / kgPerQuintal;
+    final transportDetail = transport != null && transport > 0 && quintals > 0
+        ? '(${l10n.liveTripQuintalsCount(birrText(quintals))} × '
+            '${etb(transport / quintals)})'
+        : null;
+    final place = dropoffNote?.trim() ?? '';
+    Widget row(String label, double amount, {String? detail}) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 5),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(
-                  label,
+                child: Text.rich(
+                  TextSpan(
+                    text: label,
+                    children: [
+                      if (detail != null)
+                        TextSpan(
+                          text: ' $detail',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: AppTheme.slate,
+                          ),
+                        ),
+                    ],
+                  ),
                   style: const TextStyle(
                     fontSize: 14,
                     color: AppTheme.inkSoft,
@@ -878,25 +1033,32 @@ class _PriceBreakdown extends StatelessWidget {
               const SizedBox(width: 12),
               Text(
                 etb(amount),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.ink,
+                  fontWeight: FontWeight.w800,
+                  color: amountColor,
                 ),
               ),
             ],
           ),
         );
-    return WcCard(
+    return FwCard(
+      raised: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 6,
             children: [
-              Expanded(child: _CardTitle(l10n.priceBreakdown)),
-              StatusChip(
+              _CardTitle(
+                l10n.priceBreakdown,
+                icon: Icons.receipt_long_outlined,
+              ),
+              FwPill(
                 label: l10n.liveTripInEscrow,
-                kind: StatusKind.success,
                 icon: Icons.shield_outlined,
               ),
             ],
@@ -904,37 +1066,59 @@ class _PriceBreakdown extends StatelessWidget {
           const SizedBox(height: 6),
           row(cropLabel, crop),
           if (transport != null && transport > 0)
-            row(l10n.transportCost, transport),
+            row(
+              '${l10n.marketTransport} · $kg',
+              transport,
+              detail: transportDetail,
+            ),
           row(l10n.platformCommission, order.commissionAmount ?? 0),
           Container(
             margin: const EdgeInsets.only(top: 5),
             padding: const EdgeInsets.only(top: 10),
             decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: AppTheme.line)),
+              border: Border(top: BorderSide(color: AppTheme.sketch)),
             ),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Expanded(
                   child: Text(
                     l10n.orderTotal,
                     style: const TextStyle(
-                      fontSize: 16,
+                      fontSize: 17,
                       fontWeight: FontWeight.w800,
+                      letterSpacing: -0.2,
                       color: AppTheme.ink,
                     ),
                   ),
                 ),
                 Text(
                   etb(order.orderTotal ?? order.totalPrice),
-                  style: const TextStyle(
-                    fontSize: 16,
+                  style: TextStyle(
+                    fontSize: 19,
                     fontWeight: FontWeight.w800,
-                    color: AppTheme.ink,
+                    letterSpacing: -0.4,
+                    color: amountColor,
                   ),
                 ),
               ],
             ),
           ),
+          if (isBuyer) ...[
+            const SizedBox(height: 10),
+            // The buyer's own next step, in ink above the payout note.
+            Text(
+              place.isEmpty
+                  ? l10n.liveTripNextScan
+                  : l10n.liveTripNextScanAt(place),
+              key: const Key('trip_log_next_step'),
+              style: const TextStyle(
+                fontSize: 14,
+                height: 1.45,
+                color: AppTheme.ink,
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           Text(
             transport != null && transport > 0
@@ -946,8 +1130,8 @@ class _PriceBreakdown extends StatelessWidget {
                   )
                 : l10n.liveTripPayoutNoteFarmerOnly(farmer, etb(crop)),
             style: const TextStyle(
-              fontSize: 12,
-              height: 1.5,
+              fontSize: 14,
+              height: 1.45,
               color: AppTheme.slate,
             ),
           ),

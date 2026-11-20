@@ -169,6 +169,62 @@ void main() {
     );
   });
 
+  // Design canvas page M, the Buyer trip log board: kilograms lead, the
+  // quintals and the rate follow in parentheses; then the buyer's next step.
+  testWidgets('transport by kg with the quintals after, and the next step',
+      (tester) async {
+    await pumpLog(tester);
+    expect(
+      find.text('Transport · 2,000 kg (20 quintals × 150 ETB)'),
+      findsOneWidget,
+    );
+    expect(find.text('Crop Cost · 2,000 kg × 42 ETB'), findsOneWidget);
+    expect(
+      find.text("Next: you scan the driver's QR when the truck arrives."),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the next step names the drop-off place when there is one',
+      (tester) async {
+    final base = logTrack();
+    final track = DeliveryTrack(
+      deliveryId: base.deliveryId,
+      sharing: base.sharing,
+      asOf: base.asOf,
+      lastFix: base.lastFix,
+      trail: base.trail,
+      pickup: base.pickup,
+      pickedUpAt: base.pickedUpAt,
+      dropoff: base.dropoff,
+      dropoffNote: 'Merkato',
+      eta: base.eta,
+      remainingKm: base.remainingKm,
+    );
+    tester.view.physicalSize = const Size(420, 3200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      liveTripApp(
+        deps: deps,
+        tracks: FakeTrackRepository(),
+        home: TripLogScreen(
+          delivery: liveDelivery(),
+          currentUserId: buyerId,
+          track: track,
+          order: liveOrder(),
+          places: corridorPlaces,
+          now: asOf,
+        ),
+      ),
+    );
+    await settleReads(tester);
+    expect(
+      find.text("Next: you scan the driver's QR at Merkato."),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('om: the times on the Ethiopian clock', (tester) async {
     await pumpLog(tester, locale: const Locale('om'));
     expect(find.text('2:05 ganama'), findsOneWidget);

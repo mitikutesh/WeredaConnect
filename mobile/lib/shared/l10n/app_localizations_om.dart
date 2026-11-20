@@ -4323,6 +4323,96 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get liveTripWholeRoute => 'Karaa guutuu agarsiisi';
+
+  @override
+  String get liveTripNearTruck => 'Naannoo konkolaataa';
+
+  @override
+  String get liveTripLegendLabel => 'Hiika kaartaa';
+
+  @override
+  String get liveTripLegendDriven => 'Kan deemame';
+
+  @override
+  String get liveTripLegendAhead => 'Karaa hafe';
+
+  @override
+  String get liveTripLegendTruck => 'Konkolaataan naannoo kana jira';
+
+  @override
+  String get liveTripCall => 'Bilbili';
+
+  @override
+  String liveTripNothingToDoWindow(String time) {
+    return 'Wanti isin irraa eegamu hin jiru. Yoo rakkoo hin gabaasin, kaffaltiin yeroo mirkaneessaa xumuramu, $time, ni gadhiifama.';
+  }
+
+  @override
+  String liveTripFarmerNothingToDo(String buyer) {
+    return 'Amma wanti isin irraa eegamu hin jiru. $buyer geessuu mirkaneessuu qaba. Sana booda yeroon mirkaneessaa sa\'aatii 48 ni darba, maallaqichis isiniif kaffalama.';
+  }
+
+  @override
+  String liveTripFarmerNothingToDoWindow(String time) {
+    return 'Wanti isin irraa eegamu hin jiru. Yoo bitaan rakkoo hin gabaasin, yeroo mirkaneessaa xumuramu, $time, isiniif kaffalama.';
+  }
+
+  @override
+  String liveTripNextScanAt(String place) {
+    return 'Itti aansee: ${place}tti QR konkolaachisaa iskaan gootu.';
+  }
+
+  @override
+  String get liveTripNextScan =>
+      'Itti aansee: yeroo konkolaataan ga\'u QR konkolaachisaa iskaan gootu.';
+
+  @override
+  String liveTripQuintalsCount(String count) {
+    return 'kuntaala $count';
+  }
+
+  @override
+  String get delivOpenMap => 'Kaartaa bani';
+
+  @override
+  String get delivOpen => 'Bani';
+
+  @override
+  String delivNothingToDoReleased(String time) {
+    return 'Wanti isin irraa eegamu hin jiru. Yoo rakkoo hin gabaasin, kaffaltiin $time booda ni gadhiifama.';
+  }
+
+  @override
+  String delivNothingToDoPaid(String time) {
+    return 'Wanti isin irraa eegamu hin jiru. Yoo bitaan rakkoo hin gabaasin, $time booda isiniif kaffalama.';
+  }
+
+  @override
+  String get delivEmptyTitle => 'Hanga ammaatti wanti karaa irra jiru hin jiru';
+
+  @override
+  String get delivEmptyBodyBuyer =>
+      'Yeroo konkolaachisaan ajaja keessan keessaa tokko fe\'u, konkolaataa sana asitti hordofuu dandeessu.';
+
+  @override
+  String get delivEmptyBodyFarmer =>
+      'Yeroo konkolaachisaan midhaan keessan keessaa tokko fe\'u, konkolaataa sana asitti hordofuu dandeessu.';
+
+  @override
+  String get delivEmptyBodyTrucker =>
+      'Yeroo fe\'umsa fuutan, geessiin isaa asitti mul\'ata.';
+
+  @override
+  String get delivEmptyFindCrops => 'Midhaan barbaadi';
+
+  @override
+  String get delivEmptySeeOrders => 'Ajaja koo ilaali';
+
+  @override
+  String get delivEmptySeeTrips => 'Imala koo ilaali';
+
+  @override
   String get liveTripWiderWindow =>
       'Yeroon bal\'ateera: yeroo muraasaaf gabaasni hin dhufne';
 

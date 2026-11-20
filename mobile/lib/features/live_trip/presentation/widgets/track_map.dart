@@ -22,6 +22,7 @@ class TrackMap extends StatefulWidget {
     required this.now,
     this.places,
     this.style,
+    this.focus = TrackMapFocus.wholeRoute,
     this.semanticLabel,
     super.key,
   });
@@ -32,6 +33,9 @@ class TrackMap extends StatefulWidget {
 
   /// The role's colours ([TrackMapStyle.forRole]) when null.
   final TrackMapStyle? style;
+
+  /// What the map frames; the whole route by default.
+  final TrackMapFocus focus;
 
   /// What a screen reader says for the map (the screen's summary of it).
   final String? semanticLabel;
@@ -80,6 +84,7 @@ class _TrackMapState extends State<TrackMap> {
       places: widget.places ?? _bundled,
       languageCode: Localizations.maybeLocaleOf(context)?.languageCode ?? 'en',
       style: widget.style ?? TrackMapStyle.forRole(context.roleColors),
+      focus: widget.focus,
       textDirection: Directionality.of(context),
       textScaler: MediaQuery.textScalerOf(context),
       labelCache: _labelCache,
