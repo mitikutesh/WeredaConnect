@@ -5,22 +5,22 @@ interface Props {
   title: string;
   description: string;
   icon: IconName;
-  /** Card fill: cream on white sections, white on cream sections. */
-  tone?: 'cream' | 'white';
+  /** Card fill: white on paper sections, paper on white sections. */
+  tone?: 'white' | 'paper';
 }
 
-const { title, description, icon, tone = 'cream' } = Astro.props;
+const { title, description, icon, tone = 'white' } = Astro.props;
 ---
 
 <article
   class:list={[
-    'flex flex-col gap-4 rounded-[20px] border border-border-light p-7 animate-on-scroll',
-    tone === 'cream' ? 'bg-cream' : 'bg-white',
+    'flex flex-col gap-4 rounded-3xl border border-line p-7 animate-on-scroll',
+    tone === 'white' ? 'bg-white' : 'bg-paper',
   ]}
 >
-  <span class="flex h-12 w-12 items-center justify-center rounded-[14px] bg-primary-tint text-primary">
+  <span class="flex h-12 w-12 items-center justify-center rounded-[14px] bg-sand text-ink">
     <Icon name={icon} strokeWidth={1.8} />
   </span>
   <h3 class="m-0 text-xl font-bold tracking-[-0.01em]">{title}</h3>
-  <p class="m-0 text-[15px] leading-[1.6] text-text-muted">{description}</p>
+  <p class="m-0 text-[15px] leading-[1.6] text-slate">{description}</p>
 </article>

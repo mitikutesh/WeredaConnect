@@ -2,6 +2,7 @@
 import type { Locale } from '../i18n';
 import { t, initials } from '../i18n';
 import SectionHeading from './SectionHeading.astro';
+import { roleTones, type RoleKey } from './roles';
 
 interface Props {
   locale: Locale;
@@ -9,10 +10,10 @@ interface Props {
 
 const { locale } = Astro.props;
 
-const testimonials = ['farmer', 'trucker', 'buyer'];
+const testimonials: RoleKey[] = ['farmer', 'trucker', 'buyer'];
 ---
 
-<section aria-labelledby="voices-title" class="bg-white px-6 py-24">
+<section aria-labelledby="voices-title" class="bg-paper px-6 py-24">
   <div class="mx-auto max-w-[1200px] flex flex-col gap-12">
     <SectionHeading
       id="voices-title"
@@ -24,16 +25,16 @@ const testimonials = ['farmer', 'trucker', 'buyer'];
       {testimonials.map((key) => {
         const name = t(locale, `testimonials.${key}.name`);
         return (
-          <figure class="m-0 flex flex-col justify-between gap-6 rounded-3xl border border-border-light bg-cream p-8 animate-on-scroll">
+          <figure class="m-0 flex flex-col justify-between gap-6 rounded-3xl border border-line bg-white p-8 animate-on-scroll">
             <blockquote class="m-0 text-[19px] font-semibold leading-[1.5] tracking-[-0.01em]">
-              <span aria-hidden="true" class="mb-3 block text-5xl leading-[0.6] text-accent">“</span>
+              <span aria-hidden="true" class:list={['mb-3 block text-5xl leading-[0.6]', roleTones[key].text]}>“</span>
               {t(locale, `testimonials.${key}.quote`)}
             </blockquote>
             <figcaption class="flex items-center gap-3">
-              <span aria-hidden="true" class="flex h-11 w-11 items-center justify-center rounded-full bg-primary text-sm font-extrabold text-white">{initials(name)}</span>
+              <span aria-hidden="true" class:list={['flex h-11 w-11 items-center justify-center rounded-full text-sm font-extrabold', roleTones[key].tint]}>{initials(name)}</span>
               <span class="flex flex-col gap-0.5">
                 <span class="text-[15px] font-bold">{name}</span>
-                <span class="text-sm text-text-muted">{t(locale, `testimonials.${key}.role`)}</span>
+                <span class="text-sm text-slate">{t(locale, `testimonials.${key}.role`)}</span>
               </span>
             </figcaption>
           </figure>

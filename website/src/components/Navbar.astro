@@ -21,9 +21,9 @@ const navLinks = [
 // drawn on the redesign canvas.
 ---
 
-<header class="bg-surface border-b border-border-light">
+<header class="bg-white border-b border-line">
   <div class="mx-auto max-w-[1200px] min-h-[72px] px-6 py-3 flex flex-wrap items-center gap-x-8 gap-y-3 md:justify-end">
-    <Logo href={localePath(locale, '/')} label={t(locale, 'nav.homeLabel')} class="mr-auto text-primary" />
+    <Logo href={localePath(locale, '/')} label={t(locale, 'nav.homeLabel')} class="mr-auto text-ink" />
 
     <nav aria-label={t(locale, 'nav.mainLabel')} class="flex flex-wrap items-center gap-x-2 gap-y-1">
       {navLinks.map((link) => {
@@ -34,8 +34,8 @@ const navLinks = [
             href={href}
             aria-current={isActive ? 'page' : undefined}
             class:list={[
-              'px-3 py-2 rounded-lg text-[15px] font-semibold no-underline transition-colors hover:text-text-dark',
-              isActive ? 'text-text-dark shadow-[inset_0_-2px_0_var(--color-accent)]' : 'text-text-muted',
+              'px-3 py-2 rounded-lg text-[15px] font-semibold no-underline transition-colors hover:text-ink',
+              isActive ? 'text-ink shadow-[inset_0_-3px_0_var(--color-orange)]' : 'text-slate',
             ]}
           >
             {t(locale, link.key)}
@@ -45,7 +45,7 @@ const navLinks = [
     </nav>
 
     <div class="flex flex-wrap items-center gap-3">
-      <div role="group" aria-label={t(locale, 'nav.languageLabel')} class="flex items-center gap-0.5 p-[3px] rounded-full border border-border-light bg-cream">
+      <div role="group" aria-label={t(locale, 'nav.languageLabel')} class="flex items-center gap-0.5 p-[3px] rounded-full border border-line bg-paper">
         {locales.map((loc) => {
           const href = localePath(loc.code, currentPath.replace(/^\/(am|om)/, '') || '/');
           return (
@@ -57,7 +57,7 @@ const navLinks = [
               class:list={[
                 'inline-flex items-center min-h-[30px] px-3 py-1.5 rounded-full text-[13px] font-bold no-underline transition-colors',
                 loc.code === 'am' && 'font-ethiopic',
-                locale === loc.code ? 'bg-primary text-white' : 'text-text-muted hover:text-text-dark',
+                locale === loc.code ? 'bg-ink text-white' : 'text-slate hover:text-ink',
               ]}
             >
               {loc.label}
@@ -67,7 +67,7 @@ const navLinks = [
       </div>
       <a
         href={localePath(locale, '/#download')}
-        class="inline-flex items-center gap-2 min-h-[44px] px-[18px] py-[11px] rounded-[10px] bg-accent text-white text-[15px] font-bold no-underline transition-colors hover:bg-accent-dark"
+        class="inline-flex items-center gap-2 min-h-[44px] px-5 py-[11px] rounded-full bg-orange text-ink text-[15px] font-extrabold no-underline transition-colors hover:bg-orange-deep"
       >
         <Icon name="download" size={18} />
         <span>{t(locale, 'nav.download')}</span>
