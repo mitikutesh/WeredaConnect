@@ -1064,7 +1064,8 @@ void main() {
     ]) {
       testWidgets(
           '${role.name}, expanded (the desktop sidebar): the full name on '
-          'an orange pill', (tester) async {
+          'a black button (the page keeps the one orange action)',
+          (tester) async {
         window(tester, const Size(1300, 900));
         var presses = 0;
         await tester.pumpWidget(
@@ -1080,11 +1081,14 @@ void main() {
         expect(tester.takeException(), isNull);
         expect(find.text(full), findsOneWidget);
         final filled = find.byWidgetPredicate((w) => w is FilledButton);
-        expect(tester.getSize(filled), const Size(220, 46));
+        expect(tester.getSize(filled), const Size(220, 44));
         final style = tester.widget<FilledButton>(filled).style!;
-        expect(style.backgroundColor!.resolve({}), AppTheme.orange);
-        expect(style.foregroundColor!.resolve({}), AppTheme.ink);
-        expect(style.shape!.resolve({}), isA<StadiumBorder>());
+        expect(style.backgroundColor!.resolve({}), AppTheme.ink);
+        expect(style.foregroundColor!.resolve({}), Colors.white);
+        expect(
+          style.shape!.resolve({}),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        );
         await tester.tap(find.text(full));
         expect(presses, 1);
       });

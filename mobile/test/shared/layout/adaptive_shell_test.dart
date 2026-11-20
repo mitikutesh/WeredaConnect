@@ -589,7 +589,7 @@ void main() {
     });
   });
 
-  // Desktop sidebar footer: "Meki · Farmer" under the name, in the user's
+  // Desktop sidebar footer: "Farmer · Meki" under the name, in the user's
   // language (it showed a lone " · " when the user had a wereda).
   group('sidebar footer', () {
     void desktop(WidgetTester tester) {
@@ -606,7 +606,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Almaz'), findsOneWidget);
-      expect(find.text('Meki · Farmer'), findsOneWidget);
+      expect(find.text('Farmer · Meki'), findsOneWidget);
       expect(find.text(' · '), findsNothing);
     });
 
