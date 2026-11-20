@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -18,6 +19,7 @@ import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
@@ -25,11 +27,43 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
+
+/// The smallest and largest capacity a trip takes, in kilograms: the
+/// 0.1 to 1000 quintals the server and the sync contract check
+/// (trip-listing-api.md), written in the unit the form asks for.
+const int minTripCapacityKg = 10;
+const int maxTripCapacityKg = 100000;
+
+/// The kilograms typed into the capacity field, or null when [text] is not
+/// a whole number of kilograms. Grouping commas and spaces are ignored.
+int? tripCapacityKgFromText(String text) {
+  final digits = text.replaceAll(RegExp(r'[,\s]'), '');
+  if (digits.isEmpty || !RegExp(r'^\d+$').hasMatch(digits)) return null;
+  return int.tryParse(digits);
+}
+
+/// Whether [kg] is a capacity the server takes ([minTripCapacityKg] to
+/// [maxTripCapacityKg]).
+bool isValidTripCapacityKg(int kg) =>
+    kg >= minTripCapacityKg && kg <= maxTripCapacityKg;
+
+/// The capacity as it is stored and sent: quintals. The form asks for
+/// kilograms (design canvas page M leads with kilograms); the trip row, the
+/// sync queue and the API keep quintals, so the conversion happens here, at
+/// the form's edge, and nowhere else.
+double tripCapacityQuintalsFromKg(int kg) => kg / kgPerQuintal;
+
+/// The kilograms the capacity field shows for a stored capacity in
+/// quintals (Repeat trip): whole kilograms, as the field takes them.
+String tripCapacityKgText(double quintals) =>
+    (quintals * kgPerQuintal).round().toString();
 
 /// Screen for creating a new trip listing (the Trucker · Create trip board).
 ///
 /// One page: Repeat Last Trip, From and To with a swap button, a route
-/// preview drawn on the phone, the departure date, capacity, price and the
+/// preview drawn on the phone, the departure date, capacity (typed in
+/// kilograms, stored in quintals), price per 100 kg (one quintal) and the
 /// vehicle. The driver's name and phone come from the profile and only show
 /// as fields when the profile could not fill them, so the page asks for
 /// seven things instead of the nine the old wizard split over three steps.
@@ -123,7 +157,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
       _toWoredaController.text = widget.toWoreda!;
     }
     if (widget.capacity != null) {
-      _capacityController.text = widget.capacity!.toStringAsFixed(0);
+      _capacityController.text = tripCapacityKgText(widget.capacity!);
     }
     if (widget.pricePerQuintal != null) {
       _priceController.text = widget.pricePerQuintal!.toStringAsFixed(0);
@@ -310,7 +344,9 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
             fromWoreda: _fromWoredaController.text.trim(),
             toWoreda: _toWoredaController.text.trim(),
             departureDate: _selectedDepartureDate!,
-            capacity: double.parse(_capacityController.text),
+            capacity: tripCapacityQuintalsFromKg(
+              tripCapacityKgFromText(_capacityController.text)!,
+            ),
             pricePerQuintal: double.parse(_priceController.text),
             fromPlaceId: _fromPlace?.id,
             toPlaceId: _toPlace?.id,
@@ -355,9 +391,9 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        FwDetailHeader(title: l10n.createTrip),
+                        _CreateTripHeader(title: l10n.createTrip),
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
                           child: Form(
                             key: _formKey,
                             child: _buildForm(l10n),
@@ -376,36 +412,36 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
         bottomNavigationBar: BlocBuilder<TripListingBloc, TripListingState>(
           builder: (context, state) {
             final isLoading = state is TripListingLoading;
-            return FwBottomActions(
-              children: [
-                FilledButton(
-                  onPressed: isLoading ? null : _handleSaveTapped,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppTheme.ink,
-                    minimumSize: const Size.fromHeight(56),
-                    textStyle: const TextStyle(
-                      fontFamily: AppTheme.fontFamily,
-                      fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  child: isLoading
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
+            // The board's foot: white, a hairline above, the orange Save.
+            return DecoratedBox(
+              decoration: const BoxDecoration(
+                color: AppTheme.ground,
+                border: Border(top: BorderSide(color: AppTheme.line)),
+              ),
+              child: FwBottomActions(
+                children: [
+                  const SizedBox(height: 4),
+                  FilledButton(
+                    key: const Key('create_trip_save'),
+                    onPressed: isLoading ? null : _handleSaveTapped,
+                    child: isLoading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                AppTheme.ink,
+                              ),
                             ),
-                          ),
-                        )
-                      : Text(l10n.save),
-                ),
-                // Web posts straight to the API: nothing waits on the device.
-                if (!kIsWeb) FwActionNote(l10n.savedOnPhoneFirstNote),
-              ],
+                          )
+                        : Text(l10n.save),
+                  ),
+                  // Web posts straight to the API: nothing waits on the
+                  // device.
+                  if (!kIsWeb) FwActionNote(l10n.savedOnPhoneFirstNote),
+                ],
+              ),
             );
           },
         ),
@@ -509,27 +545,23 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                 ),
               ].reversed.toList(),
             ),
-            // Centred on the gap between From and To, as on the board.
+            // Centred on the gap between From and To, as on the board: a
+            // black circle with the white arrows.
             PositionedDirectional(
-              end: 10,
-              top: 62,
+              end: 12,
+              top: 60,
               child: Tooltip(
                 message: l10n.createTripSwapRoute,
-                child: OutlinedButton(
+                child: FwSquareButton(
                   key: const Key('create_trip_swap'),
-                  onPressed: _swapRoute,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(44, 44),
-                    fixedSize: const Size(44, 44),
-                    padding: EdgeInsets.zero,
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppTheme.ink,
-                    side: const BorderSide(color: Color(0xFFD6D3C8)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
+                  onTap: _swapRoute,
+                  semanticLabel: l10n.createTripSwapRoute,
+                  background: AppTheme.ink,
+                  child: const Icon(
+                    Icons.swap_vert,
+                    size: 20,
+                    color: Colors.white,
                   ),
-                  child: const Icon(Icons.swap_vert, size: 20),
                 ),
               ),
             ),
@@ -551,7 +583,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
           field: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              DateFieldButton(
+              _DepartureDateField(
                 key: const Key('create_trip_departure_date'),
                 text: _selectedDepartureDate != null
                     ? formatBoardDate(_selectedDepartureDate!)
@@ -560,10 +592,7 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
                 onTap: _pickDepartureDate,
               ),
               const SizedBox(height: 6),
-              Text(
-                l10n.createTripBookingCutoffNote,
-                style: LabeledField.helperStyle,
-              ),
+              Text(l10n.createTripBookingCutoffNote, style: _helperStyle),
             ],
           ),
         ),
@@ -572,49 +601,85 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
         // wraps instead of being cut (Afaan Oromoo labels run long).
         LabeledFieldPair(
           first: LabeledField(
-            label: l10n.capacity,
-            field: TextFormField(
-              key: const Key('create_trip_capacity'),
-              controller: _capacityController,
-              decoration: labeledFieldDecoration(suffixText: l10n.quintals),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+            // Typed in kilograms, kept in quintals
+            // ([tripCapacityQuintalsFromKg]).
+            label: l10n.capacityKg,
+            field: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextFormField(
+                  key: const Key('create_trip_capacity'),
+                  controller: _capacityController,
+                  decoration: labeledFieldDecoration(),
+                  keyboardType: TextInputType.number,
+                  // Whole kilograms: 0.01 quintal, the finest step the old
+                  // quintal field took.
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return l10n.capacityRequired;
+                    }
+                    final kg = tripCapacityKgFromText(value);
+                    if (kg == null || !isValidTripCapacityKg(kg)) {
+                      return l10n.invalidCapacityKg;
+                    }
+                    return null;
+                  },
+                ),
+                // "(50 quintals)" under the field, following what is typed.
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _capacityController,
+                  builder: (context, value, _) {
+                    final kg = tripCapacityKgFromText(value.text);
+                    final quintals = kg == null || !isValidTripCapacityKg(kg)
+                        ? ''
+                        : quintalsInParensText(kg, l10n);
+                    if (quintals.isEmpty) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        quintals,
+                        key: const Key('create_trip_capacity_quintals'),
+                        style: _helperStyle,
+                      ),
+                    );
+                  },
+                ),
               ],
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return l10n.capacityRequired;
-                }
-                final capacity = double.tryParse(value);
-                if (capacity == null || capacity < 0.1 || capacity > 1000) {
-                  return l10n.invalidCapacity;
-                }
-                return null;
-              },
             ),
           ),
           second: LabeledField(
-            label: l10n.pricePerQuintal,
-            field: TextFormField(
-              key: const Key('create_trip_price'),
-              controller: _priceController,
-              decoration: labeledFieldDecoration(suffixText: 'ETB'),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
+            // 100 kg is one quintal: the number is the price per quintal
+            // the trip stores, only the label leads with kilograms.
+            label: l10n.pricePer100Kg,
+            field: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextFormField(
+                  key: const Key('create_trip_price'),
+                  controller: _priceController,
+                  decoration: labeledFieldDecoration(),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                      RegExp(r'^\d+\.?\d{0,2}'),
+                    ),
+                  ],
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return l10n.priceRequired;
+                    }
+                    final price = double.tryParse(value);
+                    if (price == null || price < 0.01 || price > 10000) {
+                      return l10n.invalidPrice;
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 6),
+                Text(l10n.perQuintalInParens, style: _helperStyle),
               ],
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return l10n.priceRequired;
-                }
-                final price = double.tryParse(value);
-                if (price == null || price < 0.01 || price > 10000) {
-                  return l10n.invalidPrice;
-                }
-                return null;
-              },
             ),
           ),
         ),
@@ -692,42 +757,124 @@ class _CreateTripScreenState extends State<CreateTripScreen> {
   }
 }
 
-/// The board's dashed amber "Repeat Last Trip" button.
-class _RepeatLastTripButton extends StatelessWidget {
-  const _RepeatLastTripButton({required this.label, required this.onPressed});
+/// The small muted line the board puts under a field (13 px, as page M).
+const TextStyle _helperStyle = TextStyle(
+  fontSize: 13,
+  fontWeight: FontWeight.w500,
+  color: AppTheme.slate,
+);
 
-  final String label;
-  final VoidCallback onPressed;
+/// The board's header: the round Back, the title (30 px) and the truck
+/// sketch at the end when the title leaves it room (never under the title,
+/// hidden with large text: [RoleSketch.sketchesShown]).
+class _CreateTripHeader extends StatelessWidget {
+  const _CreateTripHeader({required this.title});
+
+  final String title;
+
+  static const TextStyle _titleStyle = TextStyle(
+    fontSize: 30,
+    fontWeight: FontWeight.w800,
+    letterSpacing: -1.05,
+    height: 1.05,
+    color: AppTheme.ink,
+  );
+
+  static const double _sketchWidth = 88;
+  static const double _sketchGap = 12;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFFFAEED8),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: Color(0xFFD9922B)),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final painter = TextPainter(
+            text: TextSpan(
+              text: title,
+              style: DefaultTextStyle.of(context).style.merge(_titleStyle),
+            ),
+            textDirection: Directionality.of(context),
+            textScaler: MediaQuery.textScalerOf(context),
+            maxLines: 1,
+          )..layout();
+          // Back (48 hit area) and its gap, then the title on one line.
+          final room = constraints.maxWidth - 48 - 12 - painter.width;
+          painter.dispose();
+          final showSketch = RoleSketch.sketchesShown(context) &&
+              room >= _sketchWidth + _sketchGap;
+          return Row(
+            children: [
+              const FwBackButton(),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Semantics(
+                  header: true,
+                  child: Text(title, style: _titleStyle),
+                ),
+              ),
+              if (showSketch) ...[
+                const SizedBox(width: _sketchGap),
+                const RoleSketch(role: UserRole.trucker, width: _sketchWidth),
+              ],
+            ],
+          );
+        },
       ),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(12),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 48),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+    );
+  }
+}
+
+/// The departure date as the board draws a field: paper ground, radius 16,
+/// 52 tall, the day in bold and a calendar glyph at the end.
+class _DepartureDateField extends StatelessWidget {
+  const _DepartureDateField({
+    required this.text,
+    required this.onTap,
+    required this.placeholder,
+    super.key,
+  });
+
+  final String text;
+  final VoidCallback onTap;
+
+  /// Whether [text] is the prompt rather than a picked day.
+  final bool placeholder;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      child: Material(
+        color: AppTheme.paper,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: AppTheme.fieldBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 52),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
-              mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.replay, size: 18, color: Color(0xFF6B400B)),
-                const SizedBox(width: 8),
-                Flexible(
+                Expanded(
                   child: Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF6B400B),
+                    text,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight:
+                          placeholder ? FontWeight.w500 : FontWeight.w700,
+                      color: placeholder ? AppTheme.slate : AppTheme.ink,
                     ),
                   ),
+                ),
+                const SizedBox(width: 8),
+                const Icon(
+                  Icons.calendar_today_outlined,
+                  size: 18,
+                  color: AppTheme.slate,
                 ),
               ],
             ),
@@ -738,8 +885,57 @@ class _RepeatLastTripButton extends StatelessWidget {
   }
 }
 
-/// The board's marker inside From and To: a green ring for the origin, a
-/// blue dot for the destination (the colours the route preview uses).
+/// The board's "Repeat Last Trip" pill: outlined, 44 tall, the replay glyph
+/// before the last route.
+class _RepeatLastTripButton extends StatelessWidget {
+  const _RepeatLastTripButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FwTapTarget(
+      onTap: onPressed,
+      child: Material(
+        color: Colors.transparent,
+        shape: const StadiumBorder(
+          side: BorderSide(color: AppTheme.fieldBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Padding(
+              padding: const EdgeInsetsDirectional.fromSTEB(12, 6, 16, 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.replay, size: 16, color: AppTheme.ink),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.ink,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The board's marker inside From and To: a ring in the role's colour for
+/// the origin, a black dot for the destination (as the route preview).
 class _RouteEndDot extends StatelessWidget {
   const _RouteEndDot({required this.origin});
 
@@ -758,7 +954,7 @@ class _RouteEndDot extends StatelessWidget {
           height: 12,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: origin ? Colors.white : AppTheme.dropoffSlate,
+            color: origin ? Colors.transparent : AppTheme.ink,
             border: origin
                 ? Border.all(color: context.roleColors.primary, width: 3)
                 : null,

@@ -38,9 +38,11 @@ const Set<OrderStatus> tripBookingStatuses = {
 
 /// ESC-15: the paid orders booked on the trucker's own trip, as the Trucker
 /// · Trip and bookings board draws them: one card per order (crop and
-/// weight, who sends it to whom, the trucker's pay), a transport request the
-/// trucker must answer outlined in gold with Decline and Accept transport
-/// inline, and a status pill on the others. Tapping a card opens the order.
+/// weight, who sends it to whom, the trucker's pay in the role's colour), a
+/// transport request the trucker must answer on the raised card with the
+/// deadline, "It is your turn to answer", Accept transport and Decline, and
+/// a status pill on the others (accepted on sand, waiting for the farmer in
+/// a dashed outline). Tapping a card opens the order.
 ///
 /// Reads the trucker's orders through the app's order repository (Isar on
 /// mobile, `GET /orders?truckerId` on web). The inline answer goes through a
@@ -178,11 +180,18 @@ class _TripBookingsSectionState extends State<TripBookingsSection> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Semantics(
-              header: true,
-              child: Text(l10n.tripBookings, style: _sectionTitle),
+            Row(
+              children: [
+                const Icon(
+                  Icons.assignment_outlined,
+                  size: 16,
+                  color: AppTheme.slate,
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: FwSectionLabel(l10n.tripBookings)),
+              ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             if (snapshot.hasError)
               Row(
                 children: [
@@ -213,7 +222,7 @@ class _TripBookingsSectionState extends State<TripBookingsSection> {
             else
               for (final order in orders)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.only(bottom: 10),
                   child: _BookingCard(
                     order: order,
                     trip: widget.trip,
@@ -239,20 +248,14 @@ class _TripBookingsSectionState extends State<TripBookingsSection> {
   }
 }
 
-const TextStyle _sectionTitle = TextStyle(
-  fontSize: 15,
-  fontWeight: FontWeight.w800,
-  color: AppTheme.ink,
-);
-
 /// A stamped place, or null when it is missing or blank.
 String? _place(String? value) {
   final trimmed = value?.trim() ?? '';
   return trimmed.isEmpty ? null : trimmed;
 }
 
-/// One booked order. A request the trucker must answer gets the gold
-/// outline, the farmer's accept with the deadline, and the two buttons.
+/// One booked order. A request the trucker must answer gets the raised
+/// card, the farmer's accept with the deadline, and the two buttons.
 class _BookingCard extends StatelessWidget {
   final Order order;
   final Trip trip;
@@ -291,93 +294,127 @@ class _BookingCard extends StatelessWidget {
         trip.toWoreda;
     final pay = order.transportCost ?? 0;
 
-    return Material(
-      color: AppTheme.surfaceWhite,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: asked
-            ? const BorderSide(color: AppTheme.orange, width: 2)
-            : const BorderSide(color: AppTheme.line),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onOpen,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
+    // The board's three grounds: the request to answer leads on the
+    // raised card, an accepted booking sits on sand, one still with the
+    // farmer is only outlined (dashed).
+    final waitingFarmer = !asked &&
+        order.status == OrderStatus.funded &&
+        farmerResponseOf(order) == CommitmentResponse.pending;
+    final accepted = !asked && order.status == OrderStatus.accepted;
+    final muted = accepted ? AppTheme.inkSoft : AppTheme.slate;
+
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${CropType.labelFor(order.cropType, l10n)} · '
-                          '${kgQuantityText(order.quantity, l10n)}',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.ink,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        // The order's farm and drop-off (order-lifecycle
-                        // 2.2.0), the trip's ends on an older order.
-                        Text(
-                          '$farmer, $from → $buyer, $to',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppTheme.slate,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        etbAmountText(pay, l10n),
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
+                      Padding(
+                        padding: EdgeInsets.only(top: asked ? 3 : 1),
+                        child: const Icon(
+                          Icons.inventory_2_outlined,
+                          size: 20,
                           color: AppTheme.ink,
                         ),
                       ),
-                      Text(
-                        l10n.detailYourPay,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: AppTheme.slate,
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          '${CropType.labelFor(order.cropType, l10n)} · '
+                          '${kgQuantityText(order.quantity, l10n)}',
+                          style: TextStyle(
+                            fontSize: asked ? 19 : 15,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: asked ? -0.4 : -0.15,
+                            color: AppTheme.ink,
+                          ),
                         ),
                       ),
                     ],
                   ),
+                  const SizedBox(height: 3),
+                  // The order's farm and drop-off (order-lifecycle
+                  // 2.2.0), the trip's ends on an older order.
+                  Text(
+                    '$farmer, $from → $buyer, $to',
+                    style: TextStyle(fontSize: 14, height: 1.35, color: muted),
+                  ),
                 ],
               ),
-              const SizedBox(height: 10),
-              if (asked)
-                _TransportRequest(
-                  order: order,
-                  answering: answering,
-                  locked: locked,
-                  onAccept: onAccept,
-                  onDecline: onDecline,
-                )
-              else
-                Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: _bookingPill(order, l10n),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  etbAmountText(pay, l10n),
+                  style: TextStyle(
+                    fontSize: asked ? 17 : 15,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.15,
+                    color: context.roleColors.primary,
+                  ),
                 ),
-            ],
+                const SizedBox(height: 1),
+                Text(
+                  l10n.detailYourPay,
+                  style: TextStyle(fontSize: 13, color: muted),
+                ),
+              ],
+            ),
+          ],
+        ),
+        SizedBox(height: asked ? 12 : 10),
+        if (asked)
+          _TransportRequest(
+            order: order,
+            answering: answering,
+            locked: locked,
+            onAccept: onAccept,
+            onDecline: onDecline,
+          )
+        else
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: _bookingPill(order, l10n),
+          ),
+      ],
+    );
+
+    if (asked) {
+      return FwCard(
+        raised: true,
+        onTap: onOpen,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+        child: content,
+      );
+    }
+    if (accepted) return FwCard.sand(onTap: onOpen, child: content);
+    if (waitingFarmer) {
+      return CustomPaint(
+        foregroundPainter: const _DashedEdgePainter(),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(24),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onOpen,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              child: content,
+            ),
           ),
         ),
-      ),
-    );
+      );
+    }
+    return FwCard(onTap: onOpen, child: content);
   }
 
   /// The booking's state in the board's words: accepted (contact open),
@@ -388,7 +425,7 @@ class _BookingCard extends StatelessWidget {
       return FwPill(
         label: '${l10n.detailBookingWaitingFarmer} · '
             '${l10n.detailBookingAskedNext}',
-        background: AppTheme.segmentTrack,
+        background: AppTheme.sand,
         foreground: AppTheme.inkSoft,
       );
     }
@@ -406,8 +443,8 @@ class _BookingCard extends StatelessWidget {
   }
 }
 
-/// The farmer accepted and the trucker is asked: the deadline line and
-/// Decline / Accept transport side by side.
+/// The farmer accepted and the trucker is asked: the deadline line, whose
+/// turn it is, Accept transport and Decline under it.
 class _TransportRequest extends StatelessWidget {
   final Order order;
   final bool answering;
@@ -437,83 +474,108 @@ class _TransportRequest extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Icon(Icons.schedule,
-                  size: 16, color: context.roleColors.primary,),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: ClockText(
-                line,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  height: 1.35,
-                  color: context.roleColors.primary,
+        // The deadline on the orange tint: the one thing that is urgent.
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppTheme.orangeTint,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 1),
+                child:
+                    Icon(Icons.schedule, size: 16, color: AppTheme.orangeInk),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ClockText(
+                  line,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    height: 1.35,
+                    color: AppTheme.orangeInk,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                key: Key('booking_decline_${order.orderId}'),
-                onPressed: locked ? null : onDecline,
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+        // Whose move it is, and what the answer opens.
+        Text(
+          l10n.tripYourTurnNote,
+          key: Key('booking_your_turn_${order.orderId}'),
+          style: const TextStyle(
+            fontSize: 14,
+            height: 1.35,
+            color: AppTheme.slate,
+          ),
+        ),
+        const SizedBox(height: 12),
+        // The one orange action, then the quiet way out under it.
+        FilledButton(
+          key: Key('booking_accept_${order.orderId}'),
+          onPressed: locked ? null : onAccept,
+          child: answering
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppTheme.ink,
                   ),
-                  textStyle: const TextStyle(
-                    fontFamily: AppTheme.fontFamily,
-                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                child: Text(l10n.truckerDeclineRequest),
-              ),
+                )
+              : Text(l10n.truckerAcceptRequest),
+        ),
+        const SizedBox(height: 12),
+        Center(
+          child: OutlinedButton(
+            key: Key('booking_decline_${order.orderId}'),
+            onPressed: locked ? null : onDecline,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(48, 48),
+              padding: const EdgeInsets.symmetric(horizontal: 28),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: FilledButton(
-                key: Key('booking_accept_${order.orderId}'),
-                onPressed: locked ? null : onAccept,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.ink,
-                  minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  textStyle: const TextStyle(
-                    fontFamily: AppTheme.fontFamily,
-                    fontFamilyFallback: AppTheme.ethiopicFontFallback,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                child: answering
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : Text(l10n.truckerAcceptRequest),
-              ),
-            ),
-          ],
+            child: Text(l10n.truckerDeclineRequest),
+          ),
         ),
       ],
     );
   }
+}
+
+/// The dashed edge of a booking that still waits for the farmer (the
+/// board: 1.5 px dashes, radius 24).
+class _DashedEdgePainter extends CustomPainter {
+  const _DashedEdgePainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = AppTheme.fieldBorder
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    final path = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          (Offset.zero & size).deflate(0.75),
+          const Radius.circular(24),
+        ),
+      );
+    for (final metric in path.computeMetrics()) {
+      for (var d = 0.0; d < metric.length; d += 10) {
+        canvas.drawPath(
+          metric.extractPath(d, (d + 5).clamp(0, metric.length)),
+          paint,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

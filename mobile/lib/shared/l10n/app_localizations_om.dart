@@ -4904,6 +4904,94 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get invalidCapacityKg =>
+      'Dandeettiin kg 10 hanga 100,000 gidduu ta\'uu qaba';
+
+  @override
+  String get capacityKg => 'Dandeettii (kg)';
+
+  @override
+  String get pricePer100Kg => 'Gatii kg 100 (Birrii)';
+
+  @override
+  String get perQuintalInParens => '(kuntaala tokkoof)';
+
+  @override
+  String get quintalInParens => '(kuntaala)';
+
+  @override
+  String tripPricePer100KgValue(String price) {
+    return 'kg 100f Birrii $price';
+  }
+
+  @override
+  String get etbPer100KgShort => 'Birrii/kg 100';
+
+  @override
+  String tripKgOfKg(String amount, String capacity) {
+    return 'kg $capacity keessaa $amount';
+  }
+
+  @override
+  String tripKgLeft(String left) {
+    return 'kg $left hafe';
+  }
+
+  @override
+  String tripKgBooked(String booked, String capacity) {
+    return 'kg $capacity keessaa $booked qabameera';
+  }
+
+  @override
+  String tripKgFree(String kg) {
+    return 'kg $kg duwwaa';
+  }
+
+  @override
+  String get tripYourTurnNote =>
+      'Deebii kennuuf dabareen kan keeti. Erga fudhattee booda quunnamtiin ni banama.';
+
+  @override
+  String get tripOpenLink => 'Bani';
+
+  @override
+  String get tripModeCheckInSends => 'Bakka amma jirtu erga.';
+
+  @override
+  String tripModeNextDueBy(String time) {
+    return 'Gabaasni itti aanu hanga $time tti ergamuu qaba.';
+  }
+
+  @override
+  String tripModeAboutTime(String time) {
+    return 'naannoo $time';
+  }
+
+  @override
+  String tripModeAboutKm(String km) {
+    return 'gara km $km';
+  }
+
+  @override
+  String get qrFailedTitle => 'Iskaaniin hin hojjenne';
+
+  @override
+  String get qrFailedNothingLost => 'Wanti bade hin jiru.';
+
+  @override
+  String get qrFailedBackToTrip => 'Gara imalaatti deebi\'i';
+
+  @override
+  String get qrFailedOfflineNote =>
+      'Iskaan gochuun neetworkii malees ni hojjata.';
+
+  @override
+  String get qrFailedPickupScan => 'Iskaanii fudhachuu';
+
+  @override
+  String get qrFailedDeliveryScan => 'Iskaanii geejjibaa';
+
+  @override
   String get tripBookedTermsNote =>
       'Imalli qabaman guyyaa, gatii fi karaa isaanii hin jijjiiran.';
 

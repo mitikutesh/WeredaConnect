@@ -109,12 +109,27 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text(en.tripBookings), findsOneWidget);
+    expect(find.text(en.tripBookings.toUpperCase()), findsOneWidget);
     expect(find.textContaining('Asked Farmer'), findsOneWidget);
     expect(find.textContaining('Disputed Farmer'), findsOneWidget);
     expect(find.textContaining('Other Trip'), findsNothing);
     expect(find.textContaining('Ended Farmer'), findsNothing);
     expect(find.text(en.actionAnswerTransport), findsOneWidget);
+    // Whose move it is sits above Accept transport, on that card only.
+    expect(find.text(en.tripYourTurnNote), findsOneWidget);
+    expect(find.byKey(const Key('booking_your_turn_asked')), findsOneWidget);
+    expect(
+      tester.getBottomLeft(find.text(en.tripYourTurnNote)).dy,
+      lessThan(
+        tester.getTopLeft(find.byKey(const Key('booking_accept_asked'))).dy,
+      ),
+    );
+    expect(
+      tester.getBottomLeft(find.byKey(const Key('booking_accept_asked'))).dy,
+      lessThan(
+        tester.getTopLeft(find.byKey(const Key('booking_decline_asked'))).dy,
+      ),
+    );
   });
 
   // Trip detail board: "Almaz Bekele, Meki → Selam Traders, Merkato", the
@@ -228,6 +243,10 @@ void main() {
       ),
     ).thenAnswer((_) => pending.future);
 
+    // Two requests, each with its note and both buttons: a tall page.
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(
       _app(TripBookingsSection(trip: _trip()), bloc: bloc),
     );
@@ -309,7 +328,8 @@ void main() {
         expect(find.text(en.chooseTrip), findsOneWidget);
         expect(find.text('Trucker: Dawit'), findsOneWidget);
         expect(find.text('Trucker: Eyob'), findsOneWidget);
-        expect(find.textContaining('120 quintals free'), findsOneWidget);
+        expect(find.textContaining('12,000 kg free (120 quintals)'),
+            findsOneWidget);
         expect(done, isFalse);
         return chosen;
       };
@@ -337,9 +357,11 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
       expect(find.text(en.chooseTrip), findsOneWidget);
-      expect(find.textContaining('120 quintals free'), findsOneWidget);
+      expect(
+          find.textContaining('12,000 kg free (120 quintals)'), findsOneWidget);
       // A trip nobody booked has its whole capacity free.
-      expect(find.textContaining('200 quintals free'), findsOneWidget);
+      expect(
+          find.textContaining('20,000 kg free (200 quintals)'), findsOneWidget);
 
       await tester.tap(find.text('Trucker: Eyob'));
       await tester.pumpAndSettle();

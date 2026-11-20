@@ -10,13 +10,17 @@ import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_s
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
-import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 import 'package:wereda_connect/shared/widgets/low_reputation_pill.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
-/// One trip in a list, a sibling of the Trip detail board's header: the
-/// route as the title, the departure day and the price per quintal under
-/// it, the status pill, and the booked share as the boards' load bar.
+/// One trip in a list, in the language of the My Crops board (MyCropsM):
+/// the truck tile, the route as the title with the departure day under it,
+/// the price per 100 kg (one quintal) in the role's colour over the status
+/// pill, then the load bar in the role's colour with the booked load under
+/// it, kilograms first and the quintals after in parentheses.
+///
+/// [lead] (the first card of a list) draws the raised card with the black
+/// tile, as the board leads with one.
 ///
 /// [onCancel] (the trucker's own open or matched trips only) adds a plain
 /// Cancel Trip action inside the card.
@@ -39,6 +43,7 @@ class TripCard extends StatelessWidget {
   final VoidCallback? onCancel;
   final bool departureDayPassed;
   final bool showTrucker;
+  final bool lead;
 
   const TripCard({
     required this.trip,
@@ -47,6 +52,7 @@ class TripCard extends StatelessWidget {
     this.onCancel,
     this.departureDayPassed = false,
     this.showTrucker = false,
+    this.lead = false,
   });
 
   /// Paid quintals on the trip: the server's count, else the gap between
@@ -63,9 +69,6 @@ class TripCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final day = boardDayInEthiopia(trip.departureDate);
-    final price = l10n.tripPricePerQuintalValue(
-      formatEtbAmount(trip.pricePerQuintal),
-    );
     final booked = bookedQuintals(trip);
     final beforePickup =
         trip.status == TripStatus.open || trip.status == TripStatus.matched;
@@ -77,24 +80,53 @@ class TripCard extends StatelessWidget {
         showTrucker ? OwnerReputation.ofTrip(trip) : OwnerReputation.none;
     final rating = reputation.rating;
 
+    final capacityKg = trip.capacity * kgPerQuintal;
+    final bookedKg = booked * kgPerQuintal;
+    final statusLabel = datePassed
+        ? l10n.tripStatusDatePassed
+        : tripStatusLabel(trip.status, l10n);
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
       child: FwCard(
         onTap: onTap,
-        padding: const EdgeInsets.all(14),
+        raised: lead,
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // The My Crops board's tile: black with the orange glyph on
+                // the card the list leads with, sand on the rest.
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: lead ? AppTheme.ink : AppTheme.sand,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    Icons.local_shipping_outlined,
+                    size: 20,
+                    color: lead ? AppTheme.orange : AppTheme.ink,
+                  ),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         '${trip.fromWoreda} → ${trip.toWoreda}',
-                        style: FwText.cardTitle,
+                        style: const TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.4,
+                          height: 1.15,
+                          color: AppTheme.ink,
+                        ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -106,8 +138,8 @@ class TripCard extends StatelessWidget {
                               child: Text(
                                 '${l10n.trucker}: $trucker',
                                 style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
                                   color: AppTheme.ink,
                                 ),
                                 maxLines: 1,
@@ -137,12 +169,11 @@ class TripCard extends StatelessWidget {
                       ],
                       const SizedBox(height: 3),
                       // Two lines: the Ethiopian date in Amharic and Afaan
-                      // Oromoo (FUP-545) must not push the price out.
+                      // Oromoo (FUP-545) must not be cut.
                       Text(
-                        '$day · $price',
+                        day,
                         style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
+                          fontSize: 14,
                           color: AppTheme.slate,
                         ),
                         maxLines: 2,
@@ -151,42 +182,107 @@ class TripCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(width: 10),
-                StatusChip(
-                  label: datePassed
-                      ? l10n.tripStatusDatePassed
-                      : tripStatusLabel(trip.status, l10n),
-                  kind: datePassed
-                      ? StatusKind.warning
-                      : tripStatusKind(trip.status),
+                const SizedBox(width: 12),
+                // The price in the role's colour over the status pill.
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 120),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text.rich(
+                        TextSpan(
+                          text: formatEtbAmount(trip.pricePerQuintal),
+                          children: [
+                            TextSpan(
+                              text: ' ${l10n.etbPer100KgShort}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0,
+                                color: AppTheme.slate,
+                              ),
+                            ),
+                          ],
+                        ),
+                        textAlign: TextAlign.end,
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.2,
+                          color: context.roleColors.primary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      // Open is the plain state: the role's tint pill, as
+                      // "Active" on My Crops. Any other state keeps its
+                      // own colour and icon.
+                      if (trip.status == TripStatus.open && !datePassed)
+                        FwPill(label: statusLabel)
+                      else
+                        StatusChip(
+                          label: statusLabel,
+                          kind: datePassed
+                              ? StatusKind.warning
+                              : tripStatusKind(trip.status),
+                        ),
+                    ],
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            FwLoadBar(
-              fraction: trip.capacity > 0 ? booked / trip.capacity : 0,
-              // Nothing booked: the whole truck is free (ESC-15 wording).
-              caption: booked > 0
-                  ? l10n.listsTripBooked(
-                      formatQuintals(booked),
-                      formatQuintals(trip.capacity),
-                    )
-                  : l10n.tripRemainingCapacity(formatQuintals(trip.capacity)),
+            const SizedBox(height: 14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: trip.capacity > 0
+                    ? (booked / trip.capacity).clamp(0.0, 1.0)
+                    : 0,
+                minHeight: 4,
+                backgroundColor: AppTheme.track,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  context.roleColors.primary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // Kilograms lead, the quintals follow in parentheses, muted.
+            // Nothing booked: the whole truck is free (ESC-15 wording).
+            Text.rich(
+              TextSpan(
+                text: booked > 0
+                    ? l10n.tripKgBooked(
+                        wholeNumber(bookedKg.round()),
+                        wholeNumber(capacityKg.round()),
+                      )
+                    : l10n.tripKgFree(wholeNumber(capacityKg.round())),
+                children: [
+                  TextSpan(
+                    text: booked > 0
+                        ? ' (${l10n.detailBookedOf(
+                            formatQuintals(booked),
+                            formatQuintals(trip.capacity),
+                          )})'
+                        : ' ${quintalsInParensText(capacityKg, l10n)}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.slate,
+                    ),
+                  ),
+                ],
+              ),
+              key: const Key('trip_card_load'),
+              style: const TextStyle(fontSize: 14, color: AppTheme.ink),
             ),
             if (canCancel) ...[
               const SizedBox(height: 12),
               Align(
-                alignment: Alignment.centerRight,
+                alignment: AlignmentDirectional.centerEnd,
                 child: OutlinedButton(
                   onPressed: onCancel,
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.ink,
-                    side: const BorderSide(color: Color(0xFFD6D3C8)),
-                    minimumSize: const Size(0, 40),
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    minimumSize: const Size(48, 44),
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
                     textStyle: const TextStyle(
                       fontFamily: AppTheme.fontFamily,
                       fontFamilyFallback: AppTheme.ethiopicFontFallback,

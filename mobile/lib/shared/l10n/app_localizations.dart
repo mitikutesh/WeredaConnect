@@ -8387,6 +8387,144 @@ abstract class AppLocalizations {
   /// **'{loaded} of {capacity} quintals loaded'**
   String tripLoadedOf(String loaded, String capacity);
 
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: the capacity typed in kilograms is outside the limits (the same limits as 0.1 to 1000 quintals)
+  ///
+  /// In en, this message translates to:
+  /// **'Capacity must be between 10 and 100,000 kg'**
+  String get invalidCapacityKg;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: label of the capacity field, entered in kilograms
+  ///
+  /// In en, this message translates to:
+  /// **'Capacity (kg)'**
+  String get capacityKg;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: label of the price field; 100 kg is one quintal
+  ///
+  /// In en, this message translates to:
+  /// **'Price per 100 kg (ETB)'**
+  String get pricePer100Kg;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: small muted line under the price field
+  ///
+  /// In en, this message translates to:
+  /// **'(per quintal)'**
+  String get perQuintalInParens;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail: small muted word after a price per 100 kg
+  ///
+  /// In en, this message translates to:
+  /// **'(quintal)'**
+  String get quintalInParens;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail and trip card: the trip's price
+  ///
+  /// In en, this message translates to:
+  /// **'{price} ETB per 100 kg'**
+  String tripPricePer100KgValue(String price);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip card: the unit after the price number
+  ///
+  /// In en, this message translates to:
+  /// **'ETB/100 kg'**
+  String get etbPer100KgShort;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail and trip mode: kilograms booked or loaded out of the truck's capacity; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} of {capacity} kg'**
+  String tripKgOfKg(String amount, String capacity);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail: room left on the truck in kilograms; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{left} kg left'**
+  String tripKgLeft(String left);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip card: kilograms booked out of the capacity; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{booked} of {capacity} kg booked'**
+  String tripKgBooked(String booked, String capacity);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip card and trip tile: room left on a trip in kilograms; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{kg} kg free'**
+  String tripKgFree(String kg);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail: above Accept transport on the booking that waits for the trucker
+  ///
+  /// In en, this message translates to:
+  /// **'It is your turn to answer. After you accept, contact opens.'**
+  String get tripYourTurnNote;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail: the link at the end of the pickup scan note
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get tripOpenLink;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip mode: under Check in now, what the button does
+  ///
+  /// In en, this message translates to:
+  /// **'Sends where you are now.'**
+  String get tripModeCheckInSends;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip mode: under Check in now, when the next check-in is due (a clock time)
+  ///
+  /// In en, this message translates to:
+  /// **'Next check-in is due by {time}.'**
+  String tripModeNextDueBy(String time);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip mode: the estimated arrival at the next stop (a clock time)
+  ///
+  /// In en, this message translates to:
+  /// **'about {time}'**
+  String tripModeAboutTime(String time);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip mode: the distance left to the next stop; a number
+  ///
+  /// In en, this message translates to:
+  /// **'about {km} km'**
+  String tripModeAboutKm(String km);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: title
+  ///
+  /// In en, this message translates to:
+  /// **'The scan did not work'**
+  String get qrFailedTitle;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: after the reason
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing was lost.'**
+  String get qrFailedNothingLost;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: the trucker leaves the scan
+  ///
+  /// In en, this message translates to:
+  /// **'Back to trip'**
+  String get qrFailedBackToTrip;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: note under the actions
+  ///
+  /// In en, this message translates to:
+  /// **'Scanning also works without network.'**
+  String get qrFailedOfflineNote;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: line beside Back at a pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup scan'**
+  String get qrFailedPickupScan;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: line beside Back at a delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery scan'**
+  String get qrFailedDeliveryScan;
+
   /// Fieldway design alignment (specs/design-canvas). Trip detail: under the capacity once paid orders are booked (trip-listing-api 2.0.0 freezes them)
   ///
   /// In en, this message translates to:

@@ -22,10 +22,31 @@ import 'package:wereda_connect/shared/widgets/account_menu.dart';
 import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
-/// The trips list, a sibling of the My Crops and Market boards: page header
-/// (person · place, title, profile square), the route filter, then one
-/// [TripCard] per trip inside the phone-width column at every window size.
+/// Which of the trucker's own trips My Trips lists (the pill switch, as
+/// My Crops has Active, Reserved and Sold). Only what is shown changes: the
+/// trips are the ones the bloc loaded.
+enum TripListFilter {
+  all,
+  open,
+  onTheRoad,
+  delivered;
+
+  bool matches(Trip trip) => switch (this) {
+        TripListFilter.all => true,
+        TripListFilter.open =>
+          trip.status == TripStatus.open || trip.status == TripStatus.matched,
+        TripListFilter.onTheRoad => trip.status == TripStatus.inTransit,
+        TripListFilter.delivered => trip.status == TripStatus.delivered,
+      };
+}
+
+/// The trips list, in the language of the My Crops board (MyCropsM): page
+/// header (person · place, the 42 px title, the role's sketch), for the
+/// trucker the status pill switch, the route filter, then one [TripCard]
+/// per trip (the first one raised) inside the phone-width column at every
+/// window size.
 ///
 /// A trucker sees only their own trips and may cancel an open one here; a
 /// buyer sees every open trip from every trucker (CLAUDE.md visibility).
@@ -51,6 +72,9 @@ class BrowseTripsScreen extends StatefulWidget {
 class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
   final _fromWoredaFilterController = TextEditingController();
   final _toWoredaFilterController = TextEditingController();
+
+  /// The trucker's status pill; a buyer's list has no switch.
+  TripListFilter _filter = TripListFilter.all;
 
   @override
   void initState() {
@@ -162,6 +186,9 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
         isOwner ? l10n.trucker : l10n.marketTransport,
       ),
       title: isOwner ? l10n.myTrips : l10n.trips,
+      // The viewer's own sketch: the truck on My Trips, the scale when a
+      // buyer browses every trip.
+      sketchRole: _getRole(),
       trailing: const HeaderActions(),
     );
     // A tab child draws under the status bar; a pushed screen has SafeArea.
@@ -178,7 +205,7 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
                   semanticLabel:
                       MaterialLocalizations.of(context).backButtonTooltip,
                   child: const Icon(
-                    Icons.arrow_back,
+                    Icons.arrow_back_ios_new_rounded,
                     size: 20,
                     color: AppTheme.ink,
                   ),
@@ -237,20 +264,55 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
     );
   }
 
+  /// The trucker's pill switch over the list, with how many trips are open
+  /// and on the road.
+  Widget _buildStatusSwitch(AppLocalizations l10n, List<Trip> trips) {
+    int count(TripListFilter f) => trips.where(f.matches).length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 2, 20, 12),
+      child: FwSegmented<TripListFilter>(
+        key: const Key('my_trips_status_switch'),
+        segments: [
+          FwSegment(value: TripListFilter.all, label: l10n.all),
+          FwSegment(
+            value: TripListFilter.open,
+            label: l10n.tripStatusOpen,
+            count: count(TripListFilter.open),
+          ),
+          FwSegment(
+            value: TripListFilter.onTheRoad,
+            label: l10n.tripStatusInTransit,
+            count: count(TripListFilter.onTheRoad),
+          ),
+          FwSegment(
+            value: TripListFilter.delivered,
+            label: l10n.tripStatusDelivered,
+          ),
+        ],
+        selected: _filter,
+        onChanged: (value) => setState(() => _filter = value),
+      ),
+    );
+  }
+
   Widget _buildEmpty(AppLocalizations l10n, {String? detail}) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.local_shipping_outlined,
-              size: 56,
-              color: AppTheme.slate,
+            // The large drawing is for empty states only (the canvas's
+            // sketch rules); it hides itself with large text.
+            if (RoleSketch.sketchesShown(context)) ...[
+              RoleSketch.emptyState(role: _getRole(), width: 160),
+              const SizedBox(height: 20),
+            ],
+            Text(
+              l10n.noTripsFound,
+              style: FwText.cardTitle,
+              textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 16),
-            Text(l10n.noTripsFound, style: FwText.cardTitle),
             const SizedBox(height: 4),
             Text(
               detail ?? l10n.dataWillSyncWhenOnline,
@@ -276,7 +338,9 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
     // L-7: My Trips keeps the trips whose day passed, after the ones still
     // ahead and marked "Date passed"; buyers are never sent them.
     final now = DateTime.now();
-    final trips = isOwner ? upcomingTripsFirst(loaded, now) : loaded;
+    final ordered = isOwner ? upcomingTripsFirst(loaded, now) : loaded;
+    // The pill only narrows what the trucker's own list shows.
+    final trips = isOwner ? ordered.where(_filter.matches).toList() : ordered;
     // The last row is the note the boards end their lists with: who else
     // sees these trips.
     final note = Padding(
@@ -285,13 +349,15 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
           ? FwInfoNote(
               icon: Icons.lock_outline,
               text: l10n.listsMyTripsPrivacyNote,
+              background: AppTheme.sand,
+              foreground: AppTheme.inkSoft,
             )
           : Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: Text(l10n.listsAllTripsNote, style: FwText.body),
             ),
     );
-    return RefreshIndicator(
+    final list = RefreshIndicator(
       onRefresh: () async {
         _loadTrips();
       },
@@ -302,10 +368,25 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
         ),
         itemCount: trips.length + 1,
         itemBuilder: (context, index) {
-          if (index == trips.length) return note;
+          if (index == trips.length) {
+            // A pill with nothing under it says so above the note.
+            if (trips.isNotEmpty) return note;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+                  child: Text(l10n.noTripsFound, style: FwText.body),
+                ),
+                note,
+              ],
+            );
+          }
           final trip = trips[index];
           return TripCard(
             trip: trip,
+            // The list leads with its first card, as My Crops does.
+            lead: index == 0,
             onTap: () {
               Navigator.push(
                 context,
@@ -321,6 +402,13 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
           );
         },
       ),
+    );
+    if (!isOwner) return list;
+    return Column(
+      children: [
+        _buildStatusSwitch(l10n, ordered),
+        Expanded(child: list),
+      ],
     );
   }
 

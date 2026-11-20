@@ -4,11 +4,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
-import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
-/// The trip card as a sibling of the Trip detail board's header: route
-/// title, day and price line, the booked share as a load bar, the status
-/// pill, and Cancel Trip as a plain action for the trucker's open trips.
+/// The trip card in the language of the My Crops board (design canvas page
+/// M): route title, the day under it, the price per 100 kg over the status
+/// pill, the booked load as a bar with kilograms first and the quintals in
+/// parentheses, and Cancel Trip as a plain action for the trucker's open
+/// trips.
 void main() {
   Trip trip({
     TripStatus status = TripStatus.open,
@@ -46,17 +48,28 @@ void main() {
     await tester.pumpWidget(wrap(TripCard(trip: trip())));
 
     expect(find.text('Meki → Addis Ababa'), findsOneWidget);
-    expect(find.text('Fri 30 Oct · 150 ETB per quintal'), findsOneWidget);
+    expect(find.text('Fri 30 Oct'), findsOneWidget);
+    expect(find.text('150 ETB/100 kg'), findsOneWidget);
     expect(find.text('Open'), findsOneWidget);
+  });
+
+  testWidgets('the card a list leads with is raised', (tester) async {
+    await tester.pumpWidget(wrap(TripCard(trip: trip(), lead: true)));
+    expect(tester.widget<FwCard>(find.byType(FwCard)).raised, isTrue);
+
+    await tester.pumpWidget(wrap(TripCard(trip: trip())));
+    expect(tester.widget<FwCard>(find.byType(FwCard)).raised, isFalse);
   });
 
   testWidgets('a trip nobody booked shows its capacity and an empty bar',
       (tester) async {
     await tester.pumpWidget(wrap(TripCard(trip: trip())));
 
-    expect(find.text('50 quintals free'), findsOneWidget);
-    expect(find.byType(FwLoadBar), findsOneWidget);
-    expect(find.byType(FractionallySizedBox), findsNothing);
+    expect(find.text('5,000 kg free (50 quintals)'), findsOneWidget);
+    final bar = tester.widget<LinearProgressIndicator>(
+      find.byType(LinearProgressIndicator),
+    );
+    expect(bar.value, 0);
   });
 
   testWidgets(
@@ -64,11 +77,14 @@ void main() {
       'sends only that', (tester) async {
     await tester.pumpWidget(wrap(TripCard(trip: trip(remaining: 20))));
 
-    expect(find.text('30 of 50 quintals booked'), findsOneWidget);
-    final fill = tester.widget<FractionallySizedBox>(
-      find.byType(FractionallySizedBox),
+    expect(
+      find.text('3,000 of 5,000 kg booked (30 of 50 quintals)'),
+      findsOneWidget,
     );
-    expect(fill.widthFactor, closeTo(0.6, 0.001));
+    final bar = tester.widget<LinearProgressIndicator>(
+      find.byType(LinearProgressIndicator),
+    );
+    expect(bar.value, closeTo(0.6, 0.001));
   });
 
   testWidgets('the server booked count wins over the room left',
@@ -77,7 +93,10 @@ void main() {
       wrap(TripCard(trip: trip(booked: 47, remaining: 3))),
     );
 
-    expect(find.text('47 of 50 quintals booked'), findsOneWidget);
+    expect(
+      find.text('4,700 of 5,000 kg booked (47 of 50 quintals)'),
+      findsOneWidget,
+    );
   });
 
   group('Cancel Trip', () {
@@ -156,7 +175,7 @@ void main() {
       await tester.pumpWidget(wrap(TripCard(trip: trip(), showTrucker: true)));
 
       expect(find.text('Trucker: Dawit'), findsOneWidget);
-      expect(find.text('Fri 30 Oct · 150 ETB per quintal'), findsOneWidget);
+      expect(find.text('Fri 30 Oct'), findsOneWidget);
     });
 
     testWidgets("the trucker's own list leaves their name out", (tester) async {

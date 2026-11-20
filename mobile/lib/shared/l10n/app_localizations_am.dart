@@ -4719,6 +4719,92 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get invalidCapacityKg => 'አቅም ከ10 እስከ 100,000 ኪግ መሆን አለበት';
+
+  @override
+  String get capacityKg => 'አቅም (ኪግ)';
+
+  @override
+  String get pricePer100Kg => 'ዋጋ በ100 ኪግ (ብር)';
+
+  @override
+  String get perQuintalInParens => '(በኩንታል)';
+
+  @override
+  String get quintalInParens => '(ኩንታል)';
+
+  @override
+  String tripPricePer100KgValue(String price) {
+    return 'በ100 ኪግ $price ብር';
+  }
+
+  @override
+  String get etbPer100KgShort => 'ብር/100 ኪግ';
+
+  @override
+  String tripKgOfKg(String amount, String capacity) {
+    return 'ከ$capacity ኪግ $amount';
+  }
+
+  @override
+  String tripKgLeft(String left) {
+    return '$left ኪግ ቀርቷል';
+  }
+
+  @override
+  String tripKgBooked(String booked, String capacity) {
+    return 'ከ$capacity ኪግ $booked ተይዟል';
+  }
+
+  @override
+  String tripKgFree(String kg) {
+    return '$kg ኪግ ክፍት';
+  }
+
+  @override
+  String get tripYourTurnNote =>
+      'መልስ የመስጠት ተራው የእርስዎ ነው። ከተቀበሉ በኋላ መገናኛ ይከፈታል።';
+
+  @override
+  String get tripOpenLink => 'ክፈት';
+
+  @override
+  String get tripModeCheckInSends => 'አሁን ያሉበትን ቦታ ይልካል።';
+
+  @override
+  String tripModeNextDueBy(String time) {
+    return 'ቀጣዩ ሪፖርት እስከ $time መላክ አለበት።';
+  }
+
+  @override
+  String tripModeAboutTime(String time) {
+    return '$time ገደማ';
+  }
+
+  @override
+  String tripModeAboutKm(String km) {
+    return '$km ኪ.ሜ ገደማ';
+  }
+
+  @override
+  String get qrFailedTitle => 'ስካኑ አልሰራም';
+
+  @override
+  String get qrFailedNothingLost => 'ምንም አልጠፋም።';
+
+  @override
+  String get qrFailedBackToTrip => 'ወደ ጉዞው ተመለስ';
+
+  @override
+  String get qrFailedOfflineNote => 'ስካን ማድረግ ያለ ኔትወርክም ይሰራል።';
+
+  @override
+  String get qrFailedPickupScan => 'የማንሳት ስካን';
+
+  @override
+  String get qrFailedDeliveryScan => 'የማድረሻ ስካን';
+
+  @override
   String get tripBookedTermsNote => 'የተያዙ ጉዞዎች ቀናቸውን፣ ዋጋቸውንና መንገዳቸውን ይይዛሉ።';
 
   @override
