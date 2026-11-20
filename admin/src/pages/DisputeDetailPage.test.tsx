@@ -382,6 +382,19 @@ describe("DisputeDetailPage Decide", () => {
     expect(screen.getByText("Every verdict is written to the audit log under your admin account.")).toBeTruthy();
   });
 
+  // Page M board: the admin wears black. Farmer wins is the black button, Buyer wins the outlined one.
+  it("draws Farmer Wins as the black button and Buyer Wins as the outlined one", () => {
+    renderPage();
+    expect(screen.getByRole("button", { name: "Farmer Wins" }).className).toContain("btn-ink");
+    expect(screen.getByRole("button", { name: "Buyer Wins" }).className).toContain("btn-outline");
+  });
+
+  it("links back to the Disputes list from the breadcrumb", () => {
+    renderPage();
+    const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(crumb).getByRole("link", { name: "Disputes" }).getAttribute("href")).toBe("/disputes");
+  });
+
   it("sends the verdict, then says it was saved", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -423,9 +436,10 @@ describe("DisputeDetailPage Decide", () => {
     };
     renderPage();
 
-    expect(screen.getByText("Buyer · Sara")).toBeTruthy();
-    expect(screen.getByText("Farmer · Abebe")).toBeTruthy();
-    expect(screen.getByText("Trucker · Dawit")).toBeTruthy();
+    // Each party in its role colour: buyer green, farmer plum, trucker blue.
+    expect(screen.getByText("Buyer · Sara").className).toContain("text-buyer");
+    expect(screen.getByText("Farmer · Abebe").className).toContain("text-farmer");
+    expect(screen.getByText("Trucker · Dawit").className).toContain("text-trucker");
     expect(
       screen.getByText(
         `Crop ${formatETB(28000, "en")} · Trucker ${formatETB(1500, "en")} · Commission ${formatETB(1400, "en")}`,

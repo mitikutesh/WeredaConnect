@@ -181,7 +181,7 @@ export function UnappliedPaymentsPage() {
       header: t("unapplied.order"),
       render: (row: Row) => (
         <div className="space-y-1">
-          <Link to={`/transactions/${row.payment.orderId}`} className="font-medium text-primary hover:underline">
+          <Link to={`/transactions/${row.payment.orderId}`} className="font-medium text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
             {row.payment.orderId}
           </Link>
           {row.payment.orderStatus ? (
@@ -191,7 +191,7 @@ export function UnappliedPaymentsPage() {
               </Badge>
             </div>
           ) : (
-            <p className="text-xs text-text-muted">{t("unapplied.orderMissing")}</p>
+            <p className="text-xs text-slate">{t("unapplied.orderMissing")}</p>
           )}
         </div>
       ),
@@ -203,7 +203,7 @@ export function UnappliedPaymentsPage() {
         row.payment.paymentOrderId ? (
           <span className="font-medium">{row.payment.paymentOrderId}</span>
         ) : (
-          <p className="max-w-56 text-xs text-warning">
+          <p className="max-w-56 text-xs text-orange-ink">
             {fill(t("unapplied.paymentUnknown"), { merchOrderId: row.payment.merchOrderId ?? "" })}
           </p>
         ),
@@ -221,7 +221,7 @@ export function UnappliedPaymentsPage() {
             </div>
           ))}
           {row.payment.reasons.length > 0 && (
-            <p className="max-w-56 text-xs text-text-muted">{row.payment.reasons.map(reasonLabel).join(", ")}</p>
+            <p className="max-w-56 text-xs text-slate">{row.payment.reasons.map(reasonLabel).join(", ")}</p>
           )}
         </div>
       ),
@@ -233,7 +233,7 @@ export function UnappliedPaymentsPage() {
         row.payment.capturedAmount != null ? (
           <span className="font-semibold">{formatETB(Number(row.payment.capturedAmount) || 0, locale)}</span>
         ) : (
-          <p className="max-w-48 text-xs text-warning">{t("unapplied.capturedUnknown")}</p>
+          <p className="max-w-48 text-xs text-orange-ink">{t("unapplied.capturedUnknown")}</p>
         ),
     },
     {
@@ -247,7 +247,7 @@ export function UnappliedPaymentsPage() {
       render: (row: Row) => {
         if (row.payment.mayStillApply) {
           return (
-            <p role="note" className="max-w-56 text-xs text-warning">
+            <p role="note" className="max-w-56 text-xs text-orange-ink">
               {t("unapplied.mayStillApply")}
             </p>
           );
@@ -270,7 +270,7 @@ export function UnappliedPaymentsPage() {
                   type="button"
                   onClick={() => submit(row)}
                   disabled={busy}
-                  className="rounded bg-success px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
+                  className="rounded-[10px] bg-ink px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
                 >
                   {t("unapplied.confirm")}
                 </button>
@@ -278,7 +278,7 @@ export function UnappliedPaymentsPage() {
                   type="button"
                   onClick={() => setConfirming(null)}
                   disabled={busy}
-                  className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
+                  className="rounded-[10px] border border-field px-2 py-1 text-xs hover:bg-paper disabled:opacity-50"
                 >
                   {t("unapplied.cancel")}
                 </button>
@@ -288,7 +288,7 @@ export function UnappliedPaymentsPage() {
         }
 
         const inputClass =
-          "w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-primary focus:outline-none";
+          "w-full rounded-[10px] border border-field px-2 py-1 text-sm focus:border-ink focus:outline-none";
         return (
           <div className="flex flex-col gap-2 md:min-w-64">
             {!row.payment.paymentOrderId && (
@@ -333,7 +333,7 @@ export function UnappliedPaymentsPage() {
               type="button"
               onClick={() => setConfirming(row.key)}
               disabled={!isComplete(form) || busy}
-              className="rounded bg-primary px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
+              className="rounded-[10px] bg-ink px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
             >
               {t("unapplied.recordRefund")}
             </button>
@@ -346,13 +346,13 @@ export function UnappliedPaymentsPage() {
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-xl font-bold">{t("unapplied.title")}</h2>
-        <p className="mt-1 max-w-2xl text-sm text-text-muted">{t("unapplied.subtitle")}</p>
+        <h2 className="text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("unapplied.title")}</h2>
+        <p className="mt-1 max-w-2xl text-sm text-slate">{t("unapplied.subtitle")}</p>
       </div>
       {errorMsg && (
         <div
           role="alert"
-          className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger"
+          className="mb-4 rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger"
         >
           {errorMsg}
         </div>
@@ -360,7 +360,7 @@ export function UnappliedPaymentsPage() {
       {isError && (
         <div
           role="alert"
-          className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger"
+          className="mb-4 rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger"
         >
           {t("unapplied.loadFailed")}
         </div>
@@ -368,7 +368,7 @@ export function UnappliedPaymentsPage() {
       {notice && (
         <div
           role="status"
-          className="mb-4 rounded border border-success/30 bg-success/10 px-4 py-2 text-sm text-success"
+          className="mb-4 rounded-[10px] border border-success/30 bg-success-tint px-4 py-2 text-sm text-success"
         >
           {notice}
         </div>
@@ -376,19 +376,19 @@ export function UnappliedPaymentsPage() {
       {!isError && (
         <Card>
           {!isLoading && rows.length === 0 ? (
-            <div className="flex items-center justify-center py-12 text-text-muted">
+            <div className="flex items-center justify-center py-12 text-slate">
               {t(hasNextPage ? "unapplied.emptySoFar" : "unapplied.empty")}
             </div>
           ) : (
             <DataTable columns={columns} data={rows} isLoading={isLoading} />
           )}
           {hasNextPage && (
-            <div className="flex justify-center border-t border-gray-200 p-4">
+            <div className="flex justify-center border-t border-line p-4">
               <button
                 type="button"
                 onClick={() => fetchNextPage()}
                 disabled={isFetchingNextPage}
-                className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
+                className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
               >
                 {t("unapplied.loadMore")}
               </button>

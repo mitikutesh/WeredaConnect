@@ -24,7 +24,7 @@ export function DataTable<T extends Record<string, unknown>>({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12 text-text-muted">
+      <div className="flex items-center justify-center py-12 text-slate">
         {t("common.loading")}
       </div>
     );
@@ -32,7 +32,7 @@ export function DataTable<T extends Record<string, unknown>>({
 
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center py-12 text-text-muted">
+      <div className="flex items-center justify-center py-12 text-slate">
         {t("common.noData")}
       </div>
     );
@@ -44,11 +44,11 @@ export function DataTable<T extends Record<string, unknown>>({
       <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-gray-200">
+            <tr className="border-b border-line">
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className="px-4 py-3 font-medium text-text-muted"
+                  className="px-4 py-3 font-medium text-slate"
                 >
                   {col.header}
                 </th>
@@ -60,7 +60,7 @@ export function DataTable<T extends Record<string, unknown>>({
               <tr
                 key={i}
                 onClick={() => onRowClick?.(row)}
-                className={`border-b border-gray-100 ${onRowClick ? "cursor-pointer hover:bg-gray-50" : ""}`}
+                className={`border-b border-track ${onRowClick ? "cursor-pointer hover:bg-paper" : ""}`}
               >
                 {columns.map((col) => (
                   <td key={col.key} className="px-4 py-3">
@@ -81,14 +81,14 @@ export function DataTable<T extends Record<string, unknown>>({
           <div
             key={i}
             onClick={() => onRowClick?.(row)}
-            className={`rounded-lg border border-gray-200 bg-white p-4 shadow-sm ${onRowClick ? "cursor-pointer active:bg-gray-50" : ""}`}
+            className={`rounded-[14px] border border-line bg-ground p-4 ${onRowClick ? "cursor-pointer active:bg-paper" : ""}`}
           >
             {columns.map((col) => (
               <div
                 key={col.key}
                 className="flex justify-between gap-2 py-1 text-sm"
               >
-                <span className="font-medium text-text-muted shrink-0">
+                <span className="font-medium text-slate shrink-0">
                   {col.header}
                 </span>
                 <span className="text-right">

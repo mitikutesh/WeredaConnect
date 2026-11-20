@@ -32,7 +32,7 @@ export function EvidenceError({ error, fallbackKey, onRetry }: { error: unknown;
       <button
         type="button"
         onClick={onRetry}
-        className="mt-3 rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50"
+        className="mt-3 rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper"
       >
         {t("common.retry")}
       </button>
@@ -65,20 +65,20 @@ function HandoffItem({ handoff, who }: { handoff: Handoff; who: (id: string | un
   const distanceKey = handoff.leg === "dropoff" ? "evidence.fromDestination" : "evidence.fromListing";
 
   return (
-    <li className="rounded-lg border border-gray-200 p-3">
+    <li className="rounded-[14px] border border-line p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-semibold">{label(t, `evidence.leg_${handoff.leg}`, handoff.leg)}</span>
-        {handoff.at && <span className="text-sm text-text-muted">{formatDateTime(handoff.at)}</span>}
+        {handoff.at && <span className="text-sm text-slate">{formatDateTime(handoff.at)}</span>}
       </div>
       <p className="mt-1 text-sm">{how}</p>
       {handoff.capturedAt && (
-        <p className="text-xs text-text-muted">
+        <p className="text-xs text-slate">
           {fill(t("evidence.capturedAt"), { time: formatDateTime(handoff.capturedAt) })}
         </p>
       )}
       {place ? (
         <p className="mt-1 flex flex-wrap items-center gap-1 text-sm">
-          <MapPin size={14} aria-hidden="true" className="text-text-muted" />
+          <MapPin size={14} aria-hidden="true" className="text-slate" />
           <span className="font-mono text-xs">{place}</span>
           {handoff.distanceKm != null && (
             <Badge variant={handoff.distanceKm > 5 ? "warning" : "default"}>
@@ -87,7 +87,7 @@ function HandoffItem({ handoff, who }: { handoff: Handoff; who: (id: string | un
           )}
         </p>
       ) : (
-        <p className="mt-1 text-sm text-text-muted">{t("evidence.noGps")}</p>
+        <p className="mt-1 text-sm text-slate">{t("evidence.noGps")}</p>
       )}
     </li>
   );
@@ -119,16 +119,16 @@ function StampedLeg({
     ? fill(t(`evidence.method_${method === "qr" || method === "code" ? method : "unknown"}`), { who: by })
     : t("evidence.whoUnknown");
   return (
-    <li className="rounded-lg border border-gray-200 p-3">
+    <li className="rounded-[14px] border border-line p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-semibold">{t(legKey)}</span>
-        {typeof at === "string" && at && <span className="text-sm text-text-muted">{formatDateTime(at)}</span>}
+        {typeof at === "string" && at && <span className="text-sm text-slate">{formatDateTime(at)}</span>}
       </div>
       <p className="mt-1 text-sm">{how}</p>
       <p className="mt-1 flex flex-wrap items-center gap-1 text-sm">
         {fix === true ? (
           <>
-            <MapPin size={14} aria-hidden="true" className="text-text-muted" />
+            <MapPin size={14} aria-hidden="true" className="text-slate" />
             <span>{t("evidence.gpsSent")}</span>
             {distanceKm != null && (
               <Badge variant={distanceKm > 5 ? "warning" : "default"}>{fill(t(distanceKey), { km: distanceKm })}</Badge>
@@ -161,14 +161,14 @@ export function StampedHandoffEvidence({ escrow, evidence }: { escrow: Row; evid
 
   return (
     <Card className="mb-6">
-      <h3 className="mb-3 font-semibold">{t("evidence.stampedTitle")}</h3>
+      <h3 className="mb-3 text-[15px] font-extrabold">{t("evidence.stampedTitle")}</h3>
       {stamped.confirmedByDisputer === true &&
         (confirmContradictsReason(escrow.dispute as Row | undefined) ? (
-          <p role="note" className="mb-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm font-semibold">
+          <p role="note" className="mb-3 rounded-[10px] border border-orange/60 bg-orange-tint px-3 py-2 text-sm font-semibold">
             {t("evidence.confirmedByDisputer")}
           </p>
         ) : (
-          <p className="mb-3 text-sm text-text-muted">{t("evidence.confirmedByDisputerFact")}</p>
+          <p className="mb-3 text-sm text-slate">{t("evidence.confirmedByDisputerFact")}</p>
         ))}
       <ul className="space-y-3">
         {!selfPickup && text(stamped.pickedUpAt) && (
@@ -194,7 +194,7 @@ export function StampedHandoffEvidence({ escrow, evidence }: { escrow: Row; evid
           />
         )}
       </ul>
-      {!text(stamped.confirmedAt) && <p className="mt-3 text-sm text-text-muted">{t("evidence.notConfirmed")}</p>}
+      {!text(stamped.confirmedAt) && <p className="mt-3 text-sm text-slate">{t("evidence.notConfirmed")}</p>}
     </Card>
   );
 }
@@ -210,9 +210,9 @@ export function TimelineTab({ evidence }: { evidence: DisputeEvidence }) {
   return (
     <>
       <Card>
-        <h3 className="mb-3 font-semibold">{t("evidence.handoffs")}</h3>
+        <h3 className="mb-3 text-[15px] font-extrabold">{t("evidence.handoffs")}</h3>
         {evidence.handoffs.length === 0 ? (
-          <p className="text-sm text-text-muted">{t("evidence.noHandoffs")}</p>
+          <p className="text-sm text-slate">{t("evidence.noHandoffs")}</p>
         ) : (
           <ul className="space-y-3">
             {evidence.handoffs.map((handoff) => (
@@ -222,7 +222,7 @@ export function TimelineTab({ evidence }: { evidence: DisputeEvidence }) {
         )}
       </Card>
       <Card>
-        <h3 className="mb-4 font-semibold">{t("transactions.timeline")}</h3>
+        <h3 className="mb-4 text-[15px] font-extrabold">{t("transactions.timeline")}</h3>
         <TransactionTimeline timeline={evidence.timeline as unknown as Record<string, unknown>[]} />
       </Card>
     </>
@@ -264,14 +264,14 @@ export function PhotosTab({ evidence }: { evidence: DisputeEvidence }) {
                   size="h-56 w-full max-w-sm"
                 />
               ) : (
-                <p className="flex h-24 items-center text-sm text-text-muted">{t(`evidence.noPhoto_${leg}`)}</p>
+                <p className="flex h-24 items-center text-sm text-slate">{t(`evidence.noPhoto_${leg}`)}</p>
               )}
               <figcaption className="mt-2 text-sm">
                 <span className="font-semibold">{name}</span>
-                {handoff?.at ? <span className="text-text-muted"> · {formatDateTime(handoff.at)}</span> : null}
-                {lateAt ? <span className="text-text-muted"> · {formatDateTime(lateAt)}</span> : null}
+                {handoff?.at ? <span className="text-slate"> · {formatDateTime(handoff.at)}</span> : null}
+                {lateAt ? <span className="text-slate"> · {formatDateTime(lateAt)}</span> : null}
                 {handoff?.gps ? (
-                  <span className="block font-mono text-xs text-text-muted">{formatGps(handoff.gps)}</span>
+                  <span className="block font-mono text-xs text-slate">{formatGps(handoff.gps)}</span>
                 ) : null}
                 {lateAt ? (
                   <span className="mt-1 block">
@@ -283,7 +283,7 @@ export function PhotosTab({ evidence }: { evidence: DisputeEvidence }) {
           );
         })}
       </div>
-      <p className="mt-4 text-xs text-text-muted">{t("evidence.photosNote")}</p>
+      <p className="mt-4 text-xs text-slate">{t("evidence.photosNote")}</p>
     </Card>
   );
 }
@@ -306,7 +306,7 @@ export function MessagesTab({ escrowId, evidence }: { escrowId: string; evidence
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+          className="mt-4 rounded-[14px] bg-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
         >
           {t("evidence.showMessages")}
         </button>
@@ -317,7 +317,7 @@ export function MessagesTab({ escrowId, evidence }: { escrowId: string; evidence
   if (isLoading) {
     return (
       <Card>
-        <p role="status" className="text-sm text-text-muted">
+        <p role="status" className="text-sm text-slate">
           {t("evidence.messagesLoading")}
         </p>
       </Card>
@@ -331,14 +331,14 @@ export function MessagesTab({ escrowId, evidence }: { escrowId: string; evidence
   const messages = data.messages ?? [];
   return (
     <Card>
-      <p className="mb-4 text-xs text-text-muted">{t("evidence.messagesAudited")}</p>
+      <p className="mb-4 text-xs text-slate">{t("evidence.messagesAudited")}</p>
       {data.messagesTruncated && (
-        <p className="mb-4 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm">
+        <p className="mb-4 rounded-[10px] border border-orange/60 bg-orange-tint px-3 py-2 text-sm">
           {t("evidence.messagesTruncated")}
         </p>
       )}
       {messages.length === 0 ? (
-        <p className="text-sm text-text-muted">{t("evidence.noMessages")}</p>
+        <p className="text-sm text-slate">{t("evidence.noMessages")}</p>
       ) : (
         <ol aria-label={t("evidence.tabMessages")} className="space-y-3">
           {messages.map((m) => (
@@ -363,10 +363,10 @@ function MessageItem({
     to: who(message.recipientId, message.recipientName),
   });
   return (
-    <li className="rounded-lg border border-gray-200 p-3">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
+    <li className="rounded-[14px] border border-line p-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slate">
         <Badge>{label(t, `evidence.context_${message.contextType}`, message.contextType)}</Badge>
-        <span className="font-medium text-text">{header}</span>
+        <span className="font-medium text-ink">{header}</span>
         <span>· {formatDateTime(message.createdAt)}</span>
       </div>
       <p className="mt-2 whitespace-pre-wrap break-words text-sm">{message.body}</p>

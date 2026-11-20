@@ -1,31 +1,96 @@
 @import "tailwindcss";
 
 /*
- * WeredaConnect tokens — must match mobile/lib/shared/theme/app_theme.dart
- * and website/src/styles/global.css (design brief 2026-07-06).
- * Money (#A64B1A) is reserved for money-moving actions only.
+ * WeredaConnect admin tokens: design canvas page M ("White, role colours"),
+ * board specs/design-canvas/AdminDisputeM.dc.html. The names and values of
+ * the shared ones match mobile/lib/shared/theme/app_theme.dart.
+ *
+ * The admin is not a role: it wears the black brand (ink). Orange is the one
+ * action of a page. A party is shown in its role colour (farmer, trucker,
+ * buyer). The public website (website/) is not part of this design.
  */
 @theme {
-  --color-primary: #1a6b5c;
-  --color-primary-light: #2d9b89;
-  --color-primary-dark: #14524a;
-  --color-money: #a64b1a;
-  --color-accent: #d4804a;
-  --color-accent-light: #e09a6c;
-  --color-cream: #f5f3f0;
-  --color-surface: #ffffff;
-  --color-text: #1e293b;
-  --color-text-muted: #526071;
-  --color-border: #e2e8f0;
-  --color-danger: #dc2626;
-  --color-success: #15803d;
-  --color-warning: #b45309;
-  --color-info: #1d4ed8;
-  --color-transit: #6d28d9;
+  --font-sans: "Bricolage Grotesque", "Noto Sans Ethiopic", system-ui, -apple-system, sans-serif;
+
+  /* Text and grounds */
+  --color-ink: #1a1516;
+  --color-ink-soft: #4a4340; /* unselected controls, text on sand */
+  --color-slate: #5c5450; /* secondary text, 7:1 on white */
+  --color-ground: #ffffff;
+  --color-paper: #f5f3f1; /* hover, table head, quiet fill */
+  --color-sand: #e4d5c7; /* flat note */
+  --color-line: #ddd5ce; /* card edge, rule */
+  --color-field: #8e857e; /* input and outlined control edge, 3:1 on white */
+  --color-track: #e5ddd8; /* tab track, row rule */
+  --color-chip: #ebeaea; /* neutral chip */
+  --color-map: #e2dbd5; /* the trail map ground */
+
+  /* The dark chrome of the board's nav */
+  --color-nav: #1a1516;
+  --color-nav-selected: #2a2526;
+  --color-nav-text: #cac9c9;
+
+  /* The one action, and what waits */
+  --color-orange: #f0873a;
+  --color-orange-tint: #fbe6d6;
+  --color-orange-ink: #8a4510;
+  --color-orange-wash: #fdf6f0; /* a table row that needs a look */
+
+  /* Status (as the mobile status tokens) */
+  --color-danger: #b3261e;
+  --color-danger-tint: #fbe9e7;
+  --color-danger-ink: #7a1c14;
+  --color-success: #18775f;
+  --color-success-tint: #e3f0eb;
+  --color-success-ink: #105443;
+
+  /* A party in its role colour */
+  --color-farmer: #9a45a0;
+  --color-farmer-tint: #f4e6f3;
+  --color-trucker: #2b62c4;
+  --color-trucker-tint: #e4ecfa;
+  --color-buyer: #18775f;
+  --color-buyer-tint: #e3f0eb;
 }
 
-/* Self-hosted variable font (400-700) — Amharic/fidäl must render
- * consistently without a CDN round-trip. Latin uses system-ui. */
+/* Self-hosted fonts: no CDN round trip. Bricolage Grotesque for Latin (SIL
+ * OFL 1.1, public/fonts/BricolageGrotesque-OFL.txt), Noto Sans Ethiopic for
+ * the fidel. */
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/BricolageGrotesque-Regular.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/BricolageGrotesque-Medium.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/BricolageGrotesque-SemiBold.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/BricolageGrotesque-Bold.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/BricolageGrotesque-ExtraBold.ttf") format("truetype");
+}
 @font-face {
   font-family: "Noto Sans Ethiopic";
   font-style: normal;
@@ -38,11 +103,32 @@
 
 body {
   margin: 0;
-  font-family:
-    system-ui,
-    -apple-system,
-    "Noto Sans Ethiopic",
-    sans-serif;
-  background-color: var(--color-cream);
-  color: var(--color-text);
+  font-family: var(--font-sans);
+  background-color: var(--color-ground);
+  color: var(--color-ink);
+}
+
+/* Keyboard focus is always visible: a 2 px ink ring with a gap, so it shows
+ * on white, on paper and on the dark nav (where the ring is white). */
+:where(a, button, input, select, textarea, summary, [tabindex], [role="tab"]):focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+.on-dark :where(a, button):focus-visible {
+  outline-color: #ffffff;
+}
+
+@layer components {
+  /* The one action of a page: orange, black ink. */
+  .btn-action {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-[14px] bg-orange px-4 text-sm font-bold text-ink hover:brightness-95 disabled:opacity-50;
+  }
+  /* The strong button: black, white ink (the board's "Farmer wins"). */
+  .btn-ink {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-[14px] bg-ink px-4 text-sm font-bold text-white hover:bg-nav-selected disabled:opacity-50;
+  }
+  /* The outlined button (the board's "Buyer wins"). */
+  .btn-outline {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-[14px] border border-field bg-ground px-4 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50;
+  }
 }

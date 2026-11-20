@@ -11,40 +11,40 @@ export function CompliancePage() {
   const compliance = (data as Record<string, unknown>) || {};
 
   if (isLoading) {
-    return <div className="text-text-muted">{t("common.loading")}</div>;
+    return <div className="text-slate">{t("common.loading")}</div>;
   }
 
   return (
     <div>
-      <h2 className="mb-6 text-xl font-bold">{t("compliance.title")}</h2>
+      <h2 className="mb-6 text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("compliance.title")}</h2>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
-          <h3 className="mb-4 font-semibold">{t("compliance.overview")}</h3>
+          <h3 className="mb-4 text-[15px] font-extrabold">{t("compliance.overview")}</h3>
           <dl className="space-y-3">
             <div className="flex justify-between">
-              <dt className="text-text-muted">{t("compliance.totalTransactions")}</dt>
+              <dt className="text-slate">{t("compliance.totalTransactions")}</dt>
               <dd className="font-medium">{Number(compliance.totalTransactions) || 0}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-text-muted">{t("compliance.totalVolume")}</dt>
+              <dt className="text-slate">{t("compliance.totalVolume")}</dt>
               <dd className="font-medium">
                 {formatETB(Number(compliance.totalVolume) || 0, locale)}
               </dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-text-muted">{t("compliance.disputesOpen")}</dt>
+              <dt className="text-slate">{t("compliance.disputesOpen")}</dt>
               <dd className="font-medium">{Number(compliance.disputesOpen) || 0}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-text-muted">{t("compliance.disputesResolved")}</dt>
+              <dt className="text-slate">{t("compliance.disputesResolved")}</dt>
               <dd className="font-medium">{Number(compliance.disputesResolved) || 0}</dd>
             </div>
           </dl>
         </Card>
 
         <Card>
-          <h3 className="mb-4 font-semibold">{t("compliance.kycTracker")}</h3>
+          <h3 className="mb-4 text-[15px] font-extrabold">{t("compliance.kycTracker")}</h3>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm">{t("compliance.verified")}</span>

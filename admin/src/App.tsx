@@ -40,7 +40,7 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center text-text-muted">
+      <div className="flex h-screen items-center justify-center text-slate">
         Loading...
       </div>
     );
