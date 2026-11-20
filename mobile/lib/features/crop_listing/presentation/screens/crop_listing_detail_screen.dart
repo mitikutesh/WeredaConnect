@@ -408,6 +408,8 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
                           key: const Key('listing_not_sent_pill'),
                           label: l10n.listingNotSentYet,
                           icon: Icons.cloud_upload_outlined,
+                          // The orange tint, as the same mark on My Crops.
+                          background: AppTheme.orangeTint,
                           foreground: AppTheme.orangeInk,
                         )
                       else
@@ -676,7 +678,9 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
           onPressed: _deleting ? null : _confirmDelete,
           style: OutlinedButton.styleFrom(
             minimumSize: const Size.fromHeight(48),
+            // An outlined pill in the error colour: edge and label.
             foregroundColor: AppTheme.statusError,
+            side: const BorderSide(color: AppTheme.statusError),
             textStyle:
                 label.copyWith(fontSize: 14, fontWeight: FontWeight.w700),
           ),
