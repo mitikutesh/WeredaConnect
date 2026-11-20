@@ -374,8 +374,9 @@ class CheckInsTitle extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Expanded(
+        Flexible(
           child: web
               ? Semantics(
                   header: true,

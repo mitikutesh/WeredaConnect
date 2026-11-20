@@ -242,9 +242,8 @@ class _DeliveriesTabScreenState extends State<DeliveriesTabScreen> {
               title: l10n.deliveries,
               // One sketch per screen: the empty state draws the large
               // one, so the header leaves its own out.
-              role: state is DeliveriesLoaded && all.isEmpty
-                  ? null
-                  : _auth?.role,
+              role:
+                  state is DeliveriesLoaded && all.isEmpty ? null : _auth?.role,
               trailing: _profileButton(context, l10n),
             ),
             const OfflineBanner(),

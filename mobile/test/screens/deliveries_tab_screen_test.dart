@@ -104,7 +104,7 @@ void main() {
 
       await pumpWide(tester);
 
-      expect(find.text('No deliveries yet'), findsOneWidget);
+      expect(find.text('Nothing on the road yet'), findsOneWidget);
       expect(find.textContaining('Selam Traders'), findsNothing);
       expect(find.textContaining('Almaz Bekele'), findsNothing);
     });

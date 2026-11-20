@@ -341,9 +341,14 @@ class _OnTheRoadCardState extends State<OnTheRoadCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Flexible(child: _mapChip(context, track, view.now)),
+                      // Both shrink with large text; the check-in gets
+                      // the larger share.
+                      Flexible(
+                        flex: 3,
+                        child: _mapChip(context, track, view.now),
+                      ),
                       const SizedBox(width: 8),
-                      const _OpenMapPill(),
+                      const Flexible(flex: 2, child: _OpenMapPill()),
                     ],
                   ),
                 ),
@@ -556,12 +561,16 @@ class _OpenMapPill extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            l10n.delivOpenMap,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
+          Flexible(
+            child: Text(
+              l10n.delivOpenMap,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
             ),
           ),
           const SizedBox(width: 5),
