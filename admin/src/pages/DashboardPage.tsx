@@ -11,12 +11,12 @@ export function DashboardPage() {
   const stats = (data as Record<string, number>) || {};
 
   if (isLoading) {
-    return <div className="text-slate">{t("common.loading")}</div>;
+    return <div className="text-text-muted">{t("common.loading")}</div>;
   }
 
   return (
     <div>
-      <h2 className="mb-6 text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("dashboard.title")}</h2>
+      <h2 className="mb-6 text-xl font-bold">{t("dashboard.title")}</h2>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label={t("dashboard.activeEscrows")}

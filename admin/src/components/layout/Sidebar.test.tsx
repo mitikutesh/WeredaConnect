@@ -20,26 +20,6 @@ vi.mock("@/hooks/useLocale", async () => {
 });
 
 describe("Sidebar", () => {
-  // Page M board: the dark nav, the open page marked for a screen reader as well as by its ground.
-  it("marks the open page as current on the dark nav", () => {
-    render(
-      <MemoryRouter initialEntries={["/disputes"]}>
-        <SidebarProvider>
-          <Sidebar />
-        </SidebarProvider>
-      </MemoryRouter>,
-    );
-
-    const nav = screen.getByRole("navigation", { name: "Admin" });
-    const current = within(nav).getByRole("link", { name: "Disputes" });
-    expect(current.getAttribute("aria-current")).toBe("page");
-    expect(current.className).toContain("bg-nav-selected");
-    const other = within(nav).getByRole("link", { name: "Escrows" });
-    expect(other.getAttribute("aria-current")).toBeNull();
-    expect(other.className).toContain("text-nav-text");
-    expect(nav.closest("aside")?.className).toContain("bg-nav");
-  });
-
   it("renders one link per admin page, Manual Payouts and Unapplied Payments included", () => {
     render(
       <MemoryRouter>

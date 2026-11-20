@@ -19,7 +19,7 @@ export function AnalyticsPage() {
   const stats = (data as Record<string, unknown>) || {};
 
   if (isLoading) {
-    return <div className="text-slate">{t("common.loading")}</div>;
+    return <div className="text-text-muted">{t("common.loading")}</div>;
   }
 
   // The server returns aggregate status counts (no daily time series), so the chart
@@ -33,7 +33,7 @@ export function AnalyticsPage() {
 
   return (
     <div>
-      <h2 className="mb-6 text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("analytics.title")}</h2>
+      <h2 className="mb-6 text-xl font-bold">{t("analytics.title")}</h2>
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
@@ -59,14 +59,14 @@ export function AnalyticsPage() {
       </div>
 
       <Card>
-        <h3 className="mb-4 text-[15px] font-extrabold">{t("analytics.statusBreakdown")}</h3>
+        <h3 className="mb-4 font-semibold">{t("analytics.statusBreakdown")}</h3>
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="status" />
             <YAxis />
             <Tooltip />
-            <Bar dataKey="count" fill="#1A1516" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="count" fill="#1A6B5C" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </Card>

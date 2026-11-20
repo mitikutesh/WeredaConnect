@@ -205,7 +205,7 @@ function allowedOps(escrow: HeldEscrow): HeldOp[] {
 
 function Alert({ children }: { children: string }) {
   return (
-    <div role="alert" className="mb-4 rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger">
+    <div role="alert" className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
       {children}
     </div>
   );
@@ -220,8 +220,8 @@ export function FraudReviewPage() {
       type="button"
       aria-pressed={tab === value}
       onClick={() => setTab(value)}
-      className={`rounded-[10px] px-3 py-1 text-sm ${
-        tab === value ? "bg-ink text-white" : "border border-field hover:bg-paper"
+      className={`rounded px-3 py-1 text-sm ${
+        tab === value ? "bg-primary text-white" : "border border-gray-300 hover:bg-gray-50"
       }`}
     >
       {label}
@@ -230,8 +230,8 @@ export function FraudReviewPage() {
 
   return (
     <div>
-      <h2 className="text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("fraud.title")}</h2>
-      <p className="mb-4 mt-1 max-w-3xl text-sm text-slate">{t("fraud.subtitle")}</p>
+      <h2 className="text-xl font-bold">{t("fraud.title")}</h2>
+      <p className="mb-4 mt-1 max-w-3xl text-sm text-text-muted">{t("fraud.subtitle")}</p>
       <div className="mb-4 flex flex-wrap gap-2">
         {tabButton("pending", t("fraud.tabPending"))}
         {tabButton("reviewed", t("fraud.tabReviewed"))}
@@ -307,12 +307,12 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
       render: (row: SignalRow) => (
         <div className="space-y-1">
           {row.entityId ? (
-            <p className="text-xs text-slate">
+            <p className="text-xs text-text-muted">
               {String(row.entityType ?? "")} {String(row.entityId)}
             </p>
           ) : null}
           {row.orderId ? (
-            <Link to={`/transactions/${String(row.orderId)}`} className="text-xs text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
+            <Link to={`/transactions/${String(row.orderId)}`} className="text-xs text-primary hover:underline">
               {t("fraud.timeline")}
             </Link>
           ) : null}
@@ -349,7 +349,7 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
                   e.stopPropagation();
                   handleAction(id, "reject");
                 }}
-                className="rounded-[10px] bg-danger px-2 py-1 text-xs text-white hover:opacity-90"
+                className="rounded bg-danger px-2 py-1 text-xs text-white hover:opacity-90"
               >
                 {t("fraud.confirmRejectButton")}
               </button>
@@ -358,7 +358,7 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
                   e.stopPropagation();
                   setConfirmingReject(null);
                 }}
-                className="rounded-[10px] border border-field px-2 py-1 text-xs hover:bg-paper"
+                className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
               >
                 {t("common.cancel")}
               </button>
@@ -372,7 +372,7 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
                 e.stopPropagation();
                 handleAction(id, "approve");
               }}
-              className="rounded-[10px] bg-ink px-2 py-1 text-xs text-white hover:opacity-90"
+              className="rounded bg-success px-2 py-1 text-xs text-white hover:opacity-90"
             >
               {t("fraud.approve")}
             </button>
@@ -381,7 +381,7 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
                 e.stopPropagation();
                 setConfirmingReject(id);
               }}
-              className="rounded-[10px] bg-danger px-2 py-1 text-xs text-white hover:opacity-90"
+              className="rounded bg-danger px-2 py-1 text-xs text-white hover:opacity-90"
             >
               {t("fraud.reject")}
             </button>
@@ -391,7 +391,7 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
                   e.stopPropagation();
                   handleAction(id, "whitelist");
                 }}
-                className="rounded-[10px] border border-field bg-ground px-2 py-1 text-xs text-ink hover:bg-paper"
+                className="rounded bg-gray-500 px-2 py-1 text-xs text-white hover:opacity-90"
               >
                 {t("fraud.whitelist")}
               </button>
@@ -419,9 +419,9 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
     return (
       <div className="space-y-2">
         <p>{fill(t("fraud.result_reject"), { userId: r.userId ?? "" })}</p>
-        {r.sessionsEnded === false && <p className="text-orange-ink">{t("fraud.result_sessionsNotEnded")}</p>}
+        {r.sessionsEnded === false && <p className="text-warning">{t("fraud.result_sessionsNotEnded")}</p>}
         <p className="font-semibold">{t("fraud.openEscrows")}</p>
-        <p className="text-slate">{t("fraud.openEscrowsHint")}</p>
+        <p className="text-text-muted">{t("fraud.openEscrowsHint")}</p>
         {escrows.length === 0 ? (
           <p>{t("fraud.noOpenEscrows")}</p>
         ) : (
@@ -434,7 +434,7 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
             ))}
           </ul>
         )}
-        {r.openEscrowsComplete === false && <p className="text-orange-ink">{t("fraud.openEscrowsIncomplete")}</p>}
+        {r.openEscrowsComplete === false && <p className="text-warning">{t("fraud.openEscrowsIncomplete")}</p>}
       </div>
     );
   }
@@ -456,7 +456,7 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
   function scoreBreakdown(user: SignalUser | undefined) {
     if (!user?.scoreAvailable || user.riskScore <= user.enforcementScore) return null;
     return (
-      <p className="mb-2 text-xs text-slate">
+      <p className="mb-2 text-xs text-text-muted">
         {fill(t("fraud.scoreBreakdown"), {
           rules: String(user.enforcementScore),
           ai: String(user.riskScore - user.enforcementScore),
@@ -474,7 +474,7 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
     return (
       <aside
         aria-label={t("fraud.aiAdvice")}
-        className="mb-3 rounded-[10px] border border-line bg-chip px-3 py-2 text-sm"
+        className="mb-3 rounded border border-info/30 bg-info/10 px-3 py-2 text-sm"
       >
         <div className="mb-1 flex flex-wrap items-center gap-2">
           <Badge variant="info">{t("fraud.aiAdvice")}</Badge>
@@ -496,7 +496,7 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
                     <span className="font-mono">{l.label}</span>
                     {": "}
                     {to ? (
-                      <Link to={to} className="text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
+                      <Link to={to} className="text-primary hover:underline">
                         {l.entityId}
                       </Link>
                     ) : (
@@ -508,7 +508,7 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
             </ul>
           </div>
         )}
-        <p className="mt-1 text-xs text-slate">
+        <p className="mt-1 text-xs text-text-muted">
           {t("fraud.aiAdviceNote")}
           {row.aiModel ? ` ${fill(t("fraud.aiModel"), { model: String(row.aiModel) })}` : ""}
         </p>
@@ -520,13 +520,13 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
   if (isLoading) {
     body = (
       <Card>
-        <div className="flex items-center justify-center py-12 text-slate">{t("common.loading")}</div>
+        <div className="flex items-center justify-center py-12 text-text-muted">{t("common.loading")}</div>
       </Card>
     );
   } else if (groups.length === 0) {
     body = isError ? null : (
       <Card>
-        <div className="flex items-center justify-center py-12 text-slate">
+        <div className="flex items-center justify-center py-12 text-text-muted">
           {t(status === "pending" ? "fraud.emptyPending" : "fraud.emptyReviewed")}
         </div>
       </Card>
@@ -537,10 +537,10 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
         <Card>
           <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
             <div>
-              <Link to={`/users/${group.userId}`} className="font-semibold text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
+              <Link to={`/users/${group.userId}`} className="font-semibold text-primary hover:underline">
                 {partyName(group.user?.displayName, group.userId, locale)}
               </Link>
-              {group.user?.displayName && <p className="text-xs text-slate">{group.userId}</p>}
+              {group.user?.displayName && <p className="text-xs text-text-muted">{group.userId}</p>}
             </div>
             {riskBadge(group.user)}
           </div>
@@ -555,10 +555,10 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
 
   return (
     <div>
-      <p className="mb-4 text-sm text-slate">{t("fraud.hourNote")}</p>
+      <p className="mb-4 text-sm text-text-muted">{t("fraud.hourNote")}</p>
       {errorMsg && <Alert>{errorMsg}</Alert>}
       {result && (
-        <div role="status" className="mb-4 rounded-[10px] border border-line bg-chip px-4 py-3 text-sm">
+        <div role="status" className="mb-4 rounded border border-info/30 bg-info/10 px-4 py-3 text-sm">
           {renderResult(result)}
         </div>
       )}
@@ -570,7 +570,7 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
             type="button"
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
+            className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
           >
             {t("fraud.loadMore")}
           </button>
@@ -623,12 +623,12 @@ function HeldEscrowQueue({ t, locale }: { t: Translate; locale: Locale }) {
       header: t("fraud.escrow"),
       render: (row: HeldEscrow) => (
         <div className="space-y-1">
-          <Link to={`/escrows/${row.escrowId}`} className="font-medium text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
+          <Link to={`/escrows/${row.escrowId}`} className="font-medium text-primary hover:underline">
             {row.escrowId}
           </Link>
           {row.orderId && (
             <div>
-              <Link to={`/transactions/${row.orderId}`} className="text-xs text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
+              <Link to={`/transactions/${row.orderId}`} className="text-xs text-primary hover:underline">
                 {t("fraud.timeline")}
               </Link>
             </div>
@@ -669,11 +669,11 @@ function HeldEscrowQueue({ t, locale }: { t: Translate; locale: Locale }) {
             </p>
           )}
           {row.heldFromStatus && (
-            <p className="text-xs text-slate">
+            <p className="text-xs text-text-muted">
               {t("fraud.heldFrom")}: {labelOf(t, `escrows.${row.heldFromStatus}`) ?? row.heldFromStatus}
             </p>
           )}
-          {row.heldAt && <p className="text-xs text-slate">{formatDateTime(row.heldAt)}</p>}
+          {row.heldAt && <p className="text-xs text-text-muted">{formatDateTime(row.heldAt)}</p>}
         </div>
       ),
     },
@@ -698,8 +698,8 @@ function HeldEscrowQueue({ t, locale }: { t: Translate; locale: Locale }) {
                   type="button"
                   onClick={() => submit(row, op)}
                   disabled={busy}
-                  className={`rounded-[10px] px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50 ${
-                    op === "release" ? "bg-success" : "bg-orange"
+                  className={`rounded px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50 ${
+                    op === "release" ? "bg-success" : "bg-warning"
                   }`}
                 >
                   {t(`fraud.confirmButton_${op}`)}
@@ -708,7 +708,7 @@ function HeldEscrowQueue({ t, locale }: { t: Translate; locale: Locale }) {
                   type="button"
                   onClick={() => setConfirming(null)}
                   disabled={busy}
-                  className="rounded-[10px] border border-field px-2 py-1 text-xs hover:bg-paper disabled:opacity-50"
+                  className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
                 >
                   {t("common.cancel")}
                 </button>
@@ -720,7 +720,7 @@ function HeldEscrowQueue({ t, locale }: { t: Translate; locale: Locale }) {
         return (
           <div className="flex flex-col gap-2 md:min-w-56">
             {/* A wrapping label: the table renders each row twice (desktop and mobile), so no ids. */}
-            <label className="flex flex-col gap-1 text-xs text-slate">
+            <label className="flex flex-col gap-1 text-xs text-text-muted">
               {t("fraud.reason")}
               <textarea
                 value={reason}
@@ -728,17 +728,17 @@ function HeldEscrowQueue({ t, locale }: { t: Translate; locale: Locale }) {
                 placeholder={t("fraud.reasonPlaceholder")}
                 maxLength={REASON_MAX}
                 rows={2}
-                className="w-full rounded-[10px] border border-field px-2 py-1 text-sm text-ink focus:border-ink focus:outline-none"
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm text-text focus:border-primary focus:outline-none"
               />
             </label>
-            {ops.length === 1 && <p className="text-xs text-orange-ink">{t(`fraud.verdictOnly_${ops[0]}`)}</p>}
+            {ops.length === 1 && <p className="text-xs text-warning">{t(`fraud.verdictOnly_${ops[0]}`)}</p>}
             <div className="flex gap-2">
               {ops.includes("release") && (
                 <button
                   type="button"
                   onClick={() => setConfirming({ escrowId: row.escrowId, op: "release" })}
                   disabled={!reasonOk || busy}
-                  className="rounded-[10px] bg-ink px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
+                  className="rounded bg-success px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
                 >
                   {t("fraud.release")}
                 </button>
@@ -748,7 +748,7 @@ function HeldEscrowQueue({ t, locale }: { t: Translate; locale: Locale }) {
                   type="button"
                   onClick={() => setConfirming({ escrowId: row.escrowId, op: "refund" })}
                   disabled={!reasonOk || busy}
-                  className="rounded-[10px] border border-field bg-ground px-2 py-1 text-xs text-ink hover:bg-paper disabled:opacity-50"
+                  className="rounded bg-warning px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
                 >
                   {t("fraud.refund")}
                 </button>
@@ -762,13 +762,13 @@ function HeldEscrowQueue({ t, locale }: { t: Translate; locale: Locale }) {
 
   return (
     <div>
-      <p className="mb-4 max-w-3xl text-sm text-slate">{t("fraud.heldHint")}</p>
+      <p className="mb-4 max-w-3xl text-sm text-text-muted">{t("fraud.heldHint")}</p>
       {errorMsg && <Alert>{errorMsg}</Alert>}
       {isError && <Alert>{t("fraud.loadFailed")}</Alert>}
       {notice && (
         <div
           role="status"
-          className="mb-4 rounded-[10px] border border-success/30 bg-success-tint px-4 py-2 text-sm text-success"
+          className="mb-4 rounded border border-success/30 bg-success/10 px-4 py-2 text-sm text-success"
         >
           {notice}
         </div>
@@ -776,17 +776,17 @@ function HeldEscrowQueue({ t, locale }: { t: Translate; locale: Locale }) {
       {!isError && (
         <Card>
           {!isLoading && escrows.length === 0 ? (
-            <div className="flex items-center justify-center py-12 text-slate">{t("fraud.emptyHeld")}</div>
+            <div className="flex items-center justify-center py-12 text-text-muted">{t("fraud.emptyHeld")}</div>
           ) : (
             <DataTable columns={columns} data={escrows} isLoading={isLoading} />
           )}
           {hasNextPage && (
-            <div className="flex justify-center border-t border-line p-4">
+            <div className="flex justify-center border-t border-gray-200 p-4">
               <button
                 type="button"
                 onClick={() => fetchNextPage()}
                 disabled={isFetchingNextPage}
-                className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
+                className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
               >
                 {t("fraud.loadMore")}
               </button>

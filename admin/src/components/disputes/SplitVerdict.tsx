@@ -42,10 +42,10 @@ export function SplitVerdictCard({
   const valid = preview.errors.length === 0 && reasonValid;
   const busy = flow.resolvingId === escrowId;
   const inputClass =
-    "mt-1 w-full rounded-[10px] border border-field px-2 py-1 text-sm focus:border-ink focus:outline-none disabled:bg-paper";
+    "mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-primary focus:outline-none disabled:bg-gray-100";
 
   const result = (
-    <div role="group" aria-label={t("legs.splitResult")} className="mt-4 rounded-[14px] bg-paper p-3 text-sm">
+    <div role="group" aria-label={t("legs.splitResult")} className="mt-4 rounded-lg bg-gray-50 p-3 text-sm">
       <dl className="space-y-1">
       <div className="flex justify-between gap-3">
         <dt>{t("legs.farmerGets")}</dt>
@@ -60,7 +60,7 @@ export function SplitVerdictCard({
         <dd className="font-medium">{cents(Math.max(preview.buyerRefund, 0), locale)}</dd>
       </div>
       {held.commission > 0 && (
-        <div className="flex justify-between gap-3 text-slate">
+        <div className="flex justify-between gap-3 text-text-muted">
           <dt>{t(preview.commissionKept > 0 ? "legs.commissionKept" : "legs.commissionReturned")}</dt>
           <dd>{cents(held.commission, locale)}</dd>
         </div>
@@ -71,15 +71,15 @@ export function SplitVerdictCard({
 
   return (
     <Card>
-      <h3 className="text-[15px] font-extrabold">{t("legs.splitTitle")}</h3>
-      <p className="mt-1 text-sm text-slate">{t("legs.splitIntro")}</p>
+      <h3 className="font-semibold">{t("legs.splitTitle")}</h3>
+      <p className="mt-1 text-sm text-text-muted">{t("legs.splitIntro")}</p>
 
       {reviewing ? (
         <>
           <p className="mt-3 text-sm font-medium">{t("legs.splitConfirmQuestion")}</p>
           {result}
           <p className="mt-3 text-sm">
-            <span className="text-slate">{t("disputes.dispositionReason")}:</span> {trimmedReason}
+            <span className="text-text-muted">{t("disputes.dispositionReason")}:</span> {trimmedReason}
           </p>
           <div className="mt-4 flex gap-2">
             <button
@@ -88,7 +88,7 @@ export function SplitVerdictCard({
                 flow.submit(escrowId, "partial_refund", undefined, { ...splitAmounts(preview), notes: trimmedReason })
               }
               disabled={!valid || busy}
-              className="rounded-[10px] bg-ink px-3 py-1 text-sm text-white hover:opacity-90 disabled:opacity-50"
+              className="rounded bg-primary px-3 py-1 text-sm text-white hover:opacity-90 disabled:opacity-50"
             >
               {t("legs.splitConfirm")}
             </button>
@@ -96,7 +96,7 @@ export function SplitVerdictCard({
               type="button"
               onClick={() => setReviewing(false)}
               disabled={busy}
-              className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
+              className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
             >
               {t("common.back")}
             </button>
@@ -115,7 +115,7 @@ export function SplitVerdictCard({
             aria-describedby="split-farmer-hint"
             className={inputClass}
           />
-          <p id="split-farmer-hint" className="text-xs text-slate">
+          <p id="split-farmer-hint" className="text-xs text-text-muted">
             {t("legs.splitHeld").replace("{amount}", cents(held.crop, locale))}
           </p>
 
@@ -131,7 +131,7 @@ export function SplitVerdictCard({
             aria-describedby="split-trucker-hint"
             className={inputClass}
           />
-          <p id="split-trucker-hint" className="text-xs text-slate">
+          <p id="split-trucker-hint" className="text-xs text-text-muted">
             {held.truckerPayable
               ? t("legs.splitHeld").replace("{amount}", cents(held.transport, locale))
               : t(held.transport > 0 ? "legs.errorNoTrucker" : "legs.splitNoTransport")}
@@ -158,7 +158,7 @@ export function SplitVerdictCard({
             aria-describedby="split-reason-hint"
             className={inputClass}
           />
-          <p id="split-reason-hint" className="text-xs text-slate">
+          <p id="split-reason-hint" className="text-xs text-text-muted">
             {t("disputes.dispositionReasonHint")}
           </p>
           <div className="mt-4 flex gap-2">
@@ -166,14 +166,14 @@ export function SplitVerdictCard({
               type="button"
               onClick={() => setReviewing(true)}
               disabled={!valid}
-              className="rounded-[10px] bg-ink px-3 py-1 text-sm text-white hover:opacity-90 disabled:opacity-50"
+              className="rounded bg-primary px-3 py-1 text-sm text-white hover:opacity-90 disabled:opacity-50"
             >
               {t("legs.splitReview")}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper"
+              className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50"
             >
               {t("common.cancel")}
             </button>

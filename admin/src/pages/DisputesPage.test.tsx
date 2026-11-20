@@ -124,10 +124,10 @@ describe("DisputesPage", () => {
     const plain = rows.find((row) => row.textContent?.includes("wrong_crop"))!;
     const usual = rows.find((row) => row.textContent?.includes("damaged_goods"))!;
     // A warning only where the confirmation contradicts the complaint (not delivered, wrong quantity).
-    expect(within(flagged).getByText("Disputer confirmed receipt").className).toContain("text-orange-ink");
+    expect(within(flagged).getByText("Disputer confirmed receipt").className).toContain("text-warning");
     expect(within(plain).queryByText("Disputer confirmed receipt")).toBeNull();
     // Damage after a confirm is the normal path: the same fact, neutral.
-    expect(within(usual).getByText("Disputer confirmed receipt").className).not.toContain("text-orange-ink");
+    expect(within(usual).getByText("Disputer confirmed receipt").className).not.toContain("text-warning");
   });
 
   it("sends a plain verdict, and on ADMIN_015 offers the goods choices for buyer_wins", async () => {

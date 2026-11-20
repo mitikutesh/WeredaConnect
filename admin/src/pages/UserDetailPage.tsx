@@ -46,26 +46,26 @@ function ProfileHistory({
 }) {
   let body;
   if (deleted) {
-    body = <p className="text-sm text-slate">{t("users.profileHistoryDeleted")}</p>;
+    body = <p className="text-sm text-text-muted">{t("users.profileHistoryDeleted")}</p>;
   } else if (!history) {
-    body = <p className="text-sm text-slate">{t("users.profileHistoryUnavailable")}</p>;
+    body = <p className="text-sm text-text-muted">{t("users.profileHistoryUnavailable")}</p>;
   } else if (history.length === 0) {
-    body = <p className="text-sm text-slate">{t("users.profileHistoryEmpty")}</p>;
+    body = <p className="text-sm text-text-muted">{t("users.profileHistoryEmpty")}</p>;
   } else {
     body = (
       <ol className="space-y-3" aria-label={t("users.profileHistory")}>
         {history.map((edit, i) => {
           const changes = Array.isArray(edit.changes) ? edit.changes : [];
           return (
-            <li key={`${edit.editedAt}-${i}`} className="border-b border-track pb-3 last:border-0 last:pb-0">
-              <div className="text-xs text-slate">{edit.editedAt ? formatDateTime(edit.editedAt) : ""}</div>
+            <li key={`${edit.editedAt}-${i}`} className="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+              <div className="text-xs text-text-muted">{edit.editedAt ? formatDateTime(edit.editedAt) : ""}</div>
               {changes.length === 0 ? (
-                <p className="mt-1 text-sm text-slate">{t("users.profileHistoryNoDetail")}</p>
+                <p className="mt-1 text-sm text-text-muted">{t("users.profileHistoryNoDetail")}</p>
               ) : (
                 <dl className="mt-1 space-y-1 text-sm">
                   {changes.map((change) => (
                     <div key={change.field} className="flex flex-wrap gap-x-2">
-                      <dt className="text-slate">
+                      <dt className="text-text-muted">
                         {FIELD_LABELS[change.field] ? t(FIELD_LABELS[change.field]) : change.field}
                       </dt>
                       <dd>
@@ -86,10 +86,10 @@ function ProfileHistory({
 
   return (
     <Card>
-      <h3 className="mb-4 text-[15px] font-extrabold">{t("users.profileHistory")}</h3>
+      <h3 className="mb-4 font-semibold">{t("users.profileHistory")}</h3>
       {body}
       {!deleted && history && more && (
-        <p className="mt-3 text-xs text-slate">{t("users.profileHistoryMore")}</p>
+        <p className="mt-3 text-xs text-text-muted">{t("users.profileHistoryMore")}</p>
       )}
     </Card>
   );
@@ -114,7 +114,7 @@ export function UserDetailPage() {
     resp?.profileHistoryHidden === true || isDeletedUser(resp?.user as Record<string, unknown> | undefined);
 
   if (isLoading) {
-    return <div className="text-slate">{t("common.loading")}</div>;
+    return <div className="text-text-muted">{t("common.loading")}</div>;
   }
 
   function handleAction(action: string) {
@@ -135,9 +135,9 @@ export function UserDetailPage() {
 
   return (
     <div>
-      <h2 className="mb-6 text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("users.detail")}</h2>
+      <h2 className="mb-6 text-xl font-bold">{t("users.detail")}</h2>
       {errorMsg && (
-        <div className="mb-4 rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger">
+        <div className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
           {errorMsg}
         </div>
       )}
@@ -145,28 +145,28 @@ export function UserDetailPage() {
         <Card>
           <dl className="space-y-3">
             <div className="flex justify-between">
-              <dt className="text-slate">{t("users.name")}</dt>
+              <dt className="text-text-muted">{t("users.name")}</dt>
               <dd className="font-medium">{userName(user, locale)}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-slate">{t("users.phone")}</dt>
+              <dt className="text-text-muted">{t("users.phone")}</dt>
               <dd>{userPhone(user, locale)}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-slate">{t("users.role")}</dt>
+              <dt className="text-text-muted">{t("users.role")}</dt>
               <dd><Badge>{String(user.role || "")}</Badge></dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-slate">{t("users.woreda")}</dt>
+              <dt className="text-text-muted">{t("users.woreda")}</dt>
               <dd>{String(user.woreda || "")}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-slate">{t("users.joined")}</dt>
+              <dt className="text-text-muted">{t("users.joined")}</dt>
               <dd>{user.createdAt ? formatDate(String(user.createdAt)) : ""}</dd>
             </div>
             {Boolean(user.suspended) && suspendReason && (
               <div className="flex justify-between gap-4">
-                <dt className="text-slate">{t("users.suspendReason")}</dt>
+                <dt className="text-text-muted">{t("users.suspendReason")}</dt>
                 <dd className="text-right">
                   {suspendReason === "fraud_confirmed" ? t("users.suspendReason_fraud_confirmed") : suspendReason}
                 </dd>
@@ -177,13 +177,13 @@ export function UserDetailPage() {
           <div className="mt-6 flex flex-wrap gap-2">
             <button
               onClick={() => handleAction(user.suspended ? "unsuspend" : "suspend")}
-              className={`rounded-[10px] px-3 py-1.5 text-sm text-white ${user.suspended ? "bg-success" : "bg-danger"}`}
+              className={`rounded px-3 py-1.5 text-sm text-white ${user.suspended ? "bg-success" : "bg-danger"}`}
             >
               {user.suspended ? t("users.activate") : t("users.suspend")}
             </button>
             <button
               onClick={() => handleAction("verify")}
-              className="rounded-[10px] bg-ink px-3 py-1.5 text-sm text-white"
+              className="rounded bg-primary px-3 py-1.5 text-sm text-white"
             >
               {t("users.verify")}
             </button>
@@ -191,8 +191,8 @@ export function UserDetailPage() {
         </Card>
 
         <Card>
-          <h3 className="mb-4 text-[15px] font-extrabold">{t("users.transactionHistory")}</h3>
-          <p className="text-sm text-slate">{t("common.noData")}</p>
+          <h3 className="mb-4 font-semibold">{t("users.transactionHistory")}</h3>
+          <p className="text-sm text-text-muted">{t("common.noData")}</p>
         </Card>
 
         <div className="lg:col-span-2">

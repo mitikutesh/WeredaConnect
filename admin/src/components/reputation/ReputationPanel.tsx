@@ -102,13 +102,13 @@ export function ReputationPanel({ userId }: { userId: string }) {
     }
   }
 
-  const heading = <h3 className="mb-4 text-[15px] font-extrabold">{t("reputation.title")}</h3>;
+  const heading = <h3 className="mb-4 font-semibold">{t("reputation.title")}</h3>;
 
   if (isLoading) {
     return (
       <Card>
         {heading}
-        <p className="text-sm text-slate">{t("common.loading")}</p>
+        <p className="text-sm text-text-muted">{t("common.loading")}</p>
       </Card>
     );
   }
@@ -143,7 +143,7 @@ export function ReputationPanel({ userId }: { userId: string }) {
     return (
       <Card>
         {heading}
-        <p className="text-sm text-slate">{t("reputation.buyerNone")}</p>
+        <p className="text-sm text-text-muted">{t("reputation.buyerNone")}</p>
       </Card>
     );
   }
@@ -180,8 +180,8 @@ export function ReputationPanel({ userId }: { userId: string }) {
         type="button"
         onClick={() => openDialog({ kind: "action", action })}
         disabled={!writable || busy}
-        className={`rounded-[10px] px-3 py-1.5 text-sm disabled:opacity-50 ${
-          danger ? "bg-danger text-white hover:opacity-90" : "border border-field hover:bg-paper"
+        className={`rounded px-3 py-1.5 text-sm disabled:opacity-50 ${
+          danger ? "bg-danger text-white hover:opacity-90" : "border border-gray-300 hover:bg-gray-50"
         }`}
       >
         {t(`reputation.action_${action}`)}
@@ -196,11 +196,11 @@ export function ReputationPanel({ userId }: { userId: string }) {
           {label(`reputation.status_${row.status}`, row.status)}
         </Badge>
         <span className="font-medium">{label(`reputation.cause_${row.cause}`, row.cause)}</span>
-        <span className="text-slate">{restrictionText(row)}</span>
+        <span className="text-text-muted">{restrictionText(row)}</span>
         {row.reason && <span>{row.reason}</span>}
-        {row.by && <span className="text-slate">{fill(t("reputation.setBy"), { by: row.by })}</span>}
+        {row.by && <span className="text-text-muted">{fill(t("reputation.setBy"), { by: row.by })}</span>}
         {row.liftedAt && (
-          <span className="text-slate">
+          <span className="text-text-muted">
             {fill(t("reputation.liftedBy"), { date: formatDateTime(row.liftedAt), by: row.liftedBy ?? "" })}
           </span>
         )}
@@ -228,16 +228,16 @@ export function ReputationPanel({ userId }: { userId: string }) {
     const appeal = event.appeal;
     const points = event.points ?? 0;
     return (
-      <tr key={event.eventId} className="border-t border-track align-top">
-        <td className="whitespace-nowrap py-2 pr-3 text-slate">
+      <tr key={event.eventId} className="border-t border-gray-100 align-top">
+        <td className="whitespace-nowrap py-2 pr-3 text-text-muted">
           {event.occurredAt ? formatDateTime(event.occurredAt) : ""}
         </td>
         <td className="py-2 pr-3">
           <span className="font-medium">{label(`reputation.code_${event.code}`, event.code)}</span>
           {system ? (
-            <p className="text-xs text-slate">{systemDetail(event)}</p>
+            <p className="text-xs text-text-muted">{systemDetail(event)}</p>
           ) : (
-            <p className="text-xs text-slate">
+            <p className="text-xs text-text-muted">
               {event.tripId
                 ? `${t("reputation.trip")} ${event.tripId}`
                 : event.orderId
@@ -247,7 +247,7 @@ export function ReputationPanel({ userId }: { userId: string }) {
                 <>
                   {" · "}
                   {t("reputation.buyer")}{" "}
-                  <Link to={`/users/${event.buyerId}`} className="text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
+                  <Link to={`/users/${event.buyerId}`} className="text-primary hover:underline">
                     {event.buyerId}
                   </Link>
                 </>
@@ -263,10 +263,10 @@ export function ReputationPanel({ userId }: { userId: string }) {
                 points: String(points),
               })}
               {points === 0 && event.zeroReason && (
-                <p className="text-xs text-slate">{label(`reputation.zero_${event.zeroReason}`, event.zeroReason)}</p>
+                <p className="text-xs text-text-muted">{label(`reputation.zero_${event.zeroReason}`, event.zeroReason)}</p>
               )}
               {event.basePoints !== undefined && event.basePoints !== points && (
-                <p className="text-xs text-slate">
+                <p className="text-xs text-text-muted">
                   {fill(t("reputation.basePoints"), { points: String(event.basePoints) })}
                 </p>
               )}
@@ -286,7 +286,7 @@ export function ReputationPanel({ userId }: { userId: string }) {
               {appeal.text && <p className="whitespace-pre-line">{appeal.text}</p>}
               {appeal.hasPhoto && <AppealPhoto url={appeal.appealPhotoUrl} />}
               {appeal.note && (
-                <p className="text-xs text-slate">
+                <p className="text-xs text-text-muted">
                   {fill(t("reputation.decidedLine"), {
                     date: appeal.decidedAt ? formatDateTime(appeal.decidedAt) : "",
                     by: appeal.decidedBy ?? "",
@@ -305,7 +305,7 @@ export function ReputationPanel({ userId }: { userId: string }) {
                 onClick={() => openDialog({ kind: "decision", decision: "excuse", event })}
                 disabled={!writable || busy}
                 aria-label={`${t("reputation.excuse")} ${event.eventId}`}
-                className="rounded-[10px] bg-ink px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
+                className="rounded bg-primary px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50"
               >
                 {t("reputation.excuse")}
               </button>
@@ -316,7 +316,7 @@ export function ReputationPanel({ userId }: { userId: string }) {
                 onClick={() => openDialog({ kind: "decision", decision: "uphold", event })}
                 disabled={!writable || busy}
                 aria-label={`${t("reputation.uphold")} ${event.eventId}`}
-                className="rounded-[10px] border border-field px-2 py-1 text-xs hover:bg-paper disabled:opacity-50"
+                className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
               >
                 {t("reputation.uphold")}
               </button>
@@ -370,31 +370,31 @@ export function ReputationPanel({ userId }: { userId: string }) {
     <Card>
       <section aria-label={t("reputation.title")}>
         <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="text-[15px] font-extrabold">{t("reputation.title")}</h3>
-          <span className="text-xs text-slate">
+          <h3 className="font-semibold">{t("reputation.title")}</h3>
+          <span className="text-xs text-text-muted">
             {fill(t("reputation.asOf"), { date: formatDateTime(reputation.asOf) })}
           </span>
         </div>
 
         {!writable && (
-          <p role="status" className="mb-4 rounded-[10px] border border-orange/60 bg-orange-tint px-4 py-2 text-sm text-orange-ink">
+          <p role="status" className="mb-4 rounded border border-warning/30 bg-warning/10 px-4 py-2 text-sm text-warning">
             {t("reputation.penaltiesOff")}
           </p>
         )}
         {notice && (
-          <p role="status" className="mb-4 rounded-[10px] border border-success/30 bg-success-tint px-4 py-2 text-sm text-success">
+          <p role="status" className="mb-4 rounded border border-success/30 bg-success/10 px-4 py-2 text-sm text-success">
             {notice}
           </p>
         )}
         {changed && (
-          <p role="alert" className="mb-4 rounded-[10px] border border-orange/60 bg-orange-tint px-4 py-2 text-sm text-orange-ink">
+          <p role="alert" className="mb-4 rounded border border-warning/30 bg-warning/10 px-4 py-2 text-sm text-warning">
             {changed}
           </p>
         )}
 
         <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm md:grid-cols-2">
           <div className="flex justify-between gap-4">
-            <dt className="text-slate">{t("reputation.tier")}</dt>
+            <dt className="text-text-muted">{t("reputation.tier")}</dt>
             <dd>
               <Badge variant={tierVariant(reputation.tier)}>
                 {label(`reputation.tier_${reputation.tier}`, reputation.tier ?? "")}
@@ -402,11 +402,11 @@ export function ReputationPanel({ userId }: { userId: string }) {
             </dd>
           </div>
           <div className="flex justify-between gap-4">
-            <dt className="text-slate">{t("reputation.activePoints")}</dt>
+            <dt className="text-text-muted">{t("reputation.activePoints")}</dt>
             <dd className="text-right">
               <span className="font-medium">{reputation.activePoints ?? 0}</span>
               {thresholds && (
-                <span className="ml-2 text-xs text-slate">
+                <span className="ml-2 text-xs text-text-muted">
                   {fill(t("reputation.thresholds"), {
                     warning: String(thresholds.warning),
                     low: String(thresholds.low),
@@ -417,31 +417,31 @@ export function ReputationPanel({ userId }: { userId: string }) {
             </dd>
           </div>
           <div className="flex justify-between gap-4">
-            <dt className="text-slate">{t("reputation.effectiveRating")}</dt>
+            <dt className="text-text-muted">{t("reputation.effectiveRating")}</dt>
             <dd className="text-right">{ratingText}</dd>
           </div>
           <div className="flex justify-between gap-4">
-            <dt className="text-slate">{t("reputation.reliability")}</dt>
+            <dt className="text-text-muted">{t("reputation.reliability")}</dt>
             <dd className="text-right">
               {reputation.reliabilityPct === undefined ? t("reputation.reliabilityNone") : `${reputation.reliabilityPct}%`}
-              <span className="ml-2 text-xs text-slate">{reliabilityCounts}</span>
+              <span className="ml-2 text-xs text-text-muted">{reliabilityCounts}</span>
             </dd>
           </div>
           {reputation.nextPointExpiryAt && (
             <div className="flex justify-between gap-4">
-              <dt className="text-slate">{t("reputation.nextExpiry")}</dt>
+              <dt className="text-text-muted">{t("reputation.nextExpiry")}</dt>
               <dd>{formatDate(reputation.nextPointExpiryAt)}</dd>
             </div>
           )}
           <div className="flex justify-between gap-4">
-            <dt className="text-slate">{t("reputation.restriction")}</dt>
+            <dt className="text-text-muted">{t("reputation.restriction")}</dt>
             <dd className="text-right">
               {reputation.restriction ? (
                 <>
                   <span className="font-medium text-danger">
                     {label(`reputation.cause_${reputation.restriction.cause}`, reputation.restriction.cause)}
                   </span>
-                  <span className="ml-2 text-xs text-slate">{restrictionText(reputation.restriction)}</span>
+                  <span className="ml-2 text-xs text-text-muted">{restrictionText(reputation.restriction)}</span>
                 </>
               ) : (
                 t("reputation.restrictionNone")
@@ -450,7 +450,7 @@ export function ReputationPanel({ userId }: { userId: string }) {
           </div>
           {reputation.override && (
             <div className="flex justify-between gap-4 md:col-span-2">
-              <dt className="text-slate">
+              <dt className="text-text-muted">
                 {t(reputation.override.tag === "clear" ? "reputation.tagClear" : "reputation.tagLow")}
               </dt>
               <dd className="text-right">
@@ -473,18 +473,18 @@ export function ReputationPanel({ userId }: { userId: string }) {
         {restrictions.length > 0 && (
           <>
             <h4 className="mb-1 mt-6 text-sm font-semibold">{t("reputation.restrictionsHistory")}</h4>
-            <ul className="divide-y divide-track text-sm">{restrictions.map(restrictionRow)}</ul>
+            <ul className="divide-y divide-gray-100 text-sm">{restrictions.map(restrictionRow)}</ul>
           </>
         )}
 
         <h4 className="mb-1 mt-6 text-sm font-semibold">{t("reputation.events")}</h4>
         {events.length === 0 ? (
-          <p className="text-sm text-slate">{t("reputation.noEvents")}</p>
+          <p className="text-sm text-text-muted">{t("reputation.noEvents")}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="text-xs text-slate">
+                <tr className="text-xs text-text-muted">
                   <th className="py-2 pr-3 font-medium">{t("common.date")}</th>
                   <th className="py-2 pr-3 font-medium">{t("reputation.colEvent")}</th>
                   <th className="py-2 pr-3 font-medium">{t("reputation.colPoints")}</th>
@@ -503,7 +503,7 @@ export function ReputationPanel({ userId }: { userId: string }) {
               type="button"
               onClick={() => fetchNextPage()}
               disabled={isFetchingNextPage}
-              className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
+              className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
             >
               {t("reputation.loadMore")}
             </button>

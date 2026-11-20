@@ -10,8 +10,8 @@ export function AppShell() {
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Header />
-          <main className="flex-1 overflow-y-auto bg-ground px-4 py-6 md:px-8 md:pb-10">
-            <div className="mx-auto max-w-[1360px]">
+          <main className="flex-1 overflow-y-auto p-4 md:p-6">
+            <div className="mx-auto max-w-7xl">
               <Outlet />
             </div>
           </main>

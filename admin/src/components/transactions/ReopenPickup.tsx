@@ -111,7 +111,7 @@ export function ReopenPickup({
               setExit(exits[0]);
               setStep("form");
             }}
-            className="rounded-[10px] border border-field px-2 py-1 text-xs hover:bg-paper"
+            className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
           >
             {text("action")}
           </button>
@@ -122,20 +122,20 @@ export function ReopenPickup({
 
   if (step === "confirm") {
     return (
-      <div className="mt-3 max-w-md space-y-2 rounded-[10px] border border-orange/60 bg-orange-wash p-2 text-left text-xs">
+      <div className="mt-3 max-w-md space-y-2 rounded border border-warning/40 bg-warning/5 p-2 text-left text-xs">
         <p className="text-sm font-medium">
           {exit === "pending" ? fill(text("confirmPending"), { hours }) : text("confirmHandoff")}
         </p>
-        <p className="text-slate">
+        <p className="text-text-muted">
           {text("reason")}: {reason.trim()}
         </p>
-        <p className="text-slate">{text("hint")}</p>
+        <p className="text-text-muted">{text("hint")}</p>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={submit}
             disabled={busy}
-            className="rounded-[10px] bg-ink px-2 py-1 text-white hover:opacity-90 disabled:opacity-50"
+            className="rounded bg-primary px-2 py-1 text-white hover:opacity-90 disabled:opacity-50"
           >
             {text("confirm")}
           </button>
@@ -143,7 +143,7 @@ export function ReopenPickup({
             type="button"
             onClick={() => setStep("form")}
             disabled={busy}
-            className="rounded-[10px] border border-field px-2 py-1 hover:bg-paper disabled:opacity-50"
+            className="rounded border border-gray-300 px-2 py-1 hover:bg-gray-50 disabled:opacity-50"
           >
             {text("back")}
           </button>
@@ -153,9 +153,9 @@ export function ReopenPickup({
   }
 
   return (
-    <div className="mt-3 max-w-md space-y-2 rounded-[10px] border border-line p-2 text-left text-xs">
+    <div className="mt-3 max-w-md space-y-2 rounded border border-gray-200 p-2 text-left text-xs">
       <p className="font-medium">{text("title")}</p>
-      <p className="text-slate">{text("hint")}</p>
+      <p className="text-text-muted">{text("hint")}</p>
       {error && (
         <p role="alert" className="text-danger">
           {error}
@@ -175,7 +175,7 @@ export function ReopenPickup({
             />
             <span>
               <span className="block">{t(`pickup.exit_${option}`)}</span>
-              <span className="block text-slate">
+              <span className="block text-text-muted">
                 {text(option === "pending" ? "exitPendingHelp" : "exitHandoffHelp")}
               </span>
             </span>
@@ -191,7 +191,7 @@ export function ReopenPickup({
             id={`${id}-hours`}
             value={hours}
             onChange={(e) => setHours(Number(e.target.value))}
-            className="rounded-[10px] border border-field px-2 py-1 text-sm focus:border-ink focus:outline-none"
+            className="rounded border border-gray-300 px-2 py-1 text-sm focus:border-primary focus:outline-none"
           >
             {DEADLINE_HOURS.map((h) => (
               <option key={h} value={h}>
@@ -212,9 +212,9 @@ export function ReopenPickup({
           rows={3}
           maxLength={500}
           aria-describedby={`${id}-reason-hint`}
-          className="w-full rounded-[10px] border border-field px-2 py-1 text-sm focus:border-ink focus:outline-none"
+          className="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-primary focus:outline-none"
         />
-        <p id={`${id}-reason-hint`} className="text-slate">
+        <p id={`${id}-reason-hint`} className="text-text-muted">
           {text("reasonHint")}
         </p>
       </div>
@@ -226,7 +226,7 @@ export function ReopenPickup({
             setStep("confirm");
           }}
           disabled={!isValidReopenReason(reason)}
-          className="rounded-[10px] bg-ink px-2 py-1 text-white hover:opacity-90 disabled:opacity-50"
+          className="rounded bg-primary px-2 py-1 text-white hover:opacity-90 disabled:opacity-50"
         >
           {text("review")}
         </button>
@@ -236,7 +236,7 @@ export function ReopenPickup({
             setError(null);
             close();
           }}
-          className="rounded-[10px] border border-field px-2 py-1 hover:bg-paper"
+          className="rounded border border-gray-300 px-2 py-1 hover:bg-gray-50"
         >
           {text("cancel")}
         </button>

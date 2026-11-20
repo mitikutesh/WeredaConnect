@@ -16,7 +16,7 @@ export function VerdictMessages({ flow }: { flow: DisputeVerdictFlow }) {
       {flow.errorMsg && (
         <div
           role="alert"
-          className="mb-4 rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger"
+          className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger"
         >
           {flow.errorMsg}
         </div>
@@ -24,7 +24,7 @@ export function VerdictMessages({ flow }: { flow: DisputeVerdictFlow }) {
       {flow.notice && (
         <div
           role="status"
-          className="mb-4 rounded-[10px] border border-success/30 bg-success-tint px-4 py-2 text-sm text-success"
+          className="mb-4 rounded border border-success/30 bg-success/10 px-4 py-2 text-sm text-success"
         >
           {flow.notice}
         </div>
@@ -57,8 +57,8 @@ function DispositionForm({
 
   return (
     <Card className="mb-4">
-      <h3 className="text-[15px] font-extrabold">{t("disputes.dispositionTitle")}</h3>
-      <p className="mt-1 text-sm text-slate">
+      <h3 className="font-semibold">{t("disputes.dispositionTitle")}</h3>
+      <p className="mt-1 text-sm text-text-muted">
         {t("escrows.id")}: {choice.id} · {t(`disputes.verdict_${choice.verdict}`)}
       </p>
       <p className="mt-2 text-sm">
@@ -66,7 +66,7 @@ function DispositionForm({
       </p>
       {/* FUP-64: the exit when the order or delivery is missing, carries another verdict or was closed. */}
       {dispositionsFor[choice.verdict].includes("settle_as_is") && (
-        <p className="mt-1 text-sm text-slate">{t("disputes.caseNoFit")}</p>
+        <p className="mt-1 text-sm text-text-muted">{t("disputes.caseNoFit")}</p>
       )}
       <fieldset className="mt-4">
         <legend className="text-sm font-medium">{t("disputes.dispositionLegend")}</legend>
@@ -83,7 +83,7 @@ function DispositionForm({
               />
               <span>
                 <span className="font-medium">{t(`disputes.disposition_${d}`)}</span>
-                <span className="block text-slate">{t(`disputes.dispositionHint_${d}`)}</span>
+                <span className="block text-text-muted">{t(`disputes.dispositionHint_${d}`)}</span>
               </span>
             </label>
           ))}
@@ -99,9 +99,9 @@ function DispositionForm({
         maxLength={REASON_MAX}
         rows={3}
         aria-describedby="disposition-reason-hint"
-        className="mt-1 w-full rounded-[10px] border border-field px-2 py-1 text-sm focus:border-ink focus:outline-none"
+        className="mt-1 w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-primary focus:outline-none"
       />
-      <p id="disposition-reason-hint" className="text-xs text-slate">
+      <p id="disposition-reason-hint" className="text-xs text-text-muted">
         {t("disputes.dispositionReasonHint")}
       </p>
       <div className="mt-4 flex gap-2">
@@ -112,14 +112,14 @@ function DispositionForm({
             flow.submit(choice.id, choice.verdict, { disposition, reason: trimmedReason }, choice.split)
           }
           disabled={!disposition || !reasonValid || flow.resolvingId === choice.id}
-          className="rounded-[10px] bg-ink px-3 py-1 text-sm text-white hover:opacity-90 disabled:opacity-50"
+          className="rounded bg-primary px-3 py-1 text-sm text-white hover:opacity-90 disabled:opacity-50"
         >
           {t("disputes.confirmDisposition")}
         </button>
         <button
           type="button"
           onClick={flow.closeChoice}
-          className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper"
+          className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50"
         >
           {t("common.cancel")}
         </button>

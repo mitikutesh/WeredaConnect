@@ -7,7 +7,7 @@ interface CardProps {
 
 export function Card({ children, className = "" }: CardProps) {
   return (
-    <div className={`rounded-[22px] border border-line bg-ground p-5 ${className}`}>
+    <div className={`rounded-xl bg-white p-6 shadow-sm ${className}`}>
       {children}
     </div>
   );
@@ -25,8 +25,8 @@ export function KpiCard({ label, value, icon, trend }: KpiCardProps) {
     <Card>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-slate">{label}</p>
-          <p className="mt-1 text-2xl font-extrabold tracking-tight">{value}</p>
+          <p className="text-sm text-text-muted">{label}</p>
+          <p className="mt-1 text-2xl font-bold">{value}</p>
           {trend && (
             <p
               className={`mt-1 text-sm ${trend.positive ? "text-success" : "text-danger"}`}
@@ -35,7 +35,7 @@ export function KpiCard({ label, value, icon, trend }: KpiCardProps) {
             </p>
           )}
         </div>
-        <div className="rounded-[14px] bg-paper p-2 text-ink">{icon}</div>
+        <div className="rounded-lg bg-primary/10 p-2 text-primary">{icon}</div>
       </div>
     </Card>
   );

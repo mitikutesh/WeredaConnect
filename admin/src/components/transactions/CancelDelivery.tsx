@@ -44,7 +44,7 @@ export function CancelDelivery({
 
   if (!deliveryMoneyDecided(escrowStatus)) {
     return (
-      <p className="text-xs text-slate">
+      <p className="text-xs text-text-muted">
         {fill(t("cancelDelivery.moneyFirst"), { status: escrowStatusLabel(escrowStatus ?? "", t) })}
       </p>
     );
@@ -98,7 +98,7 @@ export function CancelDelivery({
             setError(null);
             setStep("form");
           }}
-          className="rounded-[10px] border border-danger/40 px-2 py-1 text-xs text-danger hover:bg-danger-tint"
+          className="rounded border border-danger/40 px-2 py-1 text-xs text-danger hover:bg-danger/5"
         >
           {t("cancelDelivery.action")}
         </button>
@@ -108,18 +108,18 @@ export function CancelDelivery({
 
   if (step === "confirm") {
     return (
-      <div className="max-w-sm space-y-2 rounded-[10px] border border-orange/60 bg-orange-wash p-2 text-left text-xs">
+      <div className="max-w-sm space-y-2 rounded border border-warning/40 bg-warning/5 p-2 text-left text-xs">
         <p className="text-sm font-medium">{t("cancelDelivery.confirmQuestion")}</p>
-        <p className="text-slate">
+        <p className="text-text-muted">
           {t("cancelDelivery.reason")}: {reason.trim()}
         </p>
-        <p className="text-slate">{t("cancelDelivery.hint")}</p>
+        <p className="text-text-muted">{t("cancelDelivery.hint")}</p>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={submit}
             disabled={busy}
-            className="rounded-[10px] bg-danger px-2 py-1 text-white hover:opacity-90 disabled:opacity-50"
+            className="rounded bg-danger px-2 py-1 text-white hover:opacity-90 disabled:opacity-50"
           >
             {t("cancelDelivery.confirm")}
           </button>
@@ -127,7 +127,7 @@ export function CancelDelivery({
             type="button"
             onClick={() => setStep("form")}
             disabled={busy}
-            className="rounded-[10px] border border-field px-2 py-1 hover:bg-paper disabled:opacity-50"
+            className="rounded border border-gray-300 px-2 py-1 hover:bg-gray-50 disabled:opacity-50"
           >
             {t("cancelDelivery.back")}
           </button>
@@ -137,9 +137,9 @@ export function CancelDelivery({
   }
 
   return (
-    <div className="max-w-sm space-y-2 rounded-[10px] border border-line p-2 text-left text-xs">
+    <div className="max-w-sm space-y-2 rounded border border-gray-200 p-2 text-left text-xs">
       <p className="font-medium">{t("cancelDelivery.title")}</p>
-      <p className="text-slate">{t("cancelDelivery.hint")}</p>
+      <p className="text-text-muted">{t("cancelDelivery.hint")}</p>
       {error && (
         <p role="alert" className="text-danger">
           {error}
@@ -156,9 +156,9 @@ export function CancelDelivery({
           rows={3}
           maxLength={500}
           aria-describedby={`${id}-reason-hint`}
-          className="w-full rounded-[10px] border border-field px-2 py-1 text-sm focus:border-ink focus:outline-none"
+          className="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-primary focus:outline-none"
         />
-        <p id={`${id}-reason-hint`} className="text-slate">
+        <p id={`${id}-reason-hint`} className="text-text-muted">
           {t("cancelDelivery.reasonHint")}
         </p>
       </div>
@@ -170,7 +170,7 @@ export function CancelDelivery({
             setStep("confirm");
           }}
           disabled={!isValidDeliveryCancelReason(reason)}
-          className="rounded-[10px] bg-ink px-2 py-1 text-white hover:opacity-90 disabled:opacity-50"
+          className="rounded bg-primary px-2 py-1 text-white hover:opacity-90 disabled:opacity-50"
         >
           {t("cancelDelivery.review")}
         </button>
@@ -180,7 +180,7 @@ export function CancelDelivery({
             setError(null);
             close();
           }}
-          className="rounded-[10px] border border-field px-2 py-1 hover:bg-paper"
+          className="rounded border border-gray-300 px-2 py-1 hover:bg-gray-50"
         >
           {t("cancelDelivery.cancel")}
         </button>

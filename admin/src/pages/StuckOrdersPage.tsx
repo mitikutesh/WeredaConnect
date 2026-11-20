@@ -37,7 +37,7 @@ export function StuckOrdersPage() {
       render: (row: Row) => (
         <Link
           to={`/transactions/${encodeURIComponent(order(row).orderId)}`}
-          className="font-medium text-ink underline decoration-field underline-offset-2 hover:decoration-ink"
+          className="font-medium text-primary hover:underline"
         >
           {order(row).orderId}
         </Link>
@@ -56,7 +56,7 @@ export function StuckOrdersPage() {
       render: (row: Row) => (
         <span>
           {stuckAge(order(row).ageHours, t)}
-          <span className="block text-xs text-slate">
+          <span className="block text-xs text-text-muted">
             {order(row).stuckSince ? formatDateTime(order(row).stuckSince) : ""}
           </span>
         </span>
@@ -95,8 +95,8 @@ export function StuckOrdersPage() {
 
   return (
     <div>
-      <h2 className="mb-2 text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("stuckOrders.title")}</h2>
-      <p className="mb-6 text-sm text-slate">{t("stuckOrders.subtitle")}</p>
+      <h2 className="mb-2 text-xl font-bold">{t("stuckOrders.title")}</h2>
+      <p className="mb-6 text-sm text-text-muted">{t("stuckOrders.subtitle")}</p>
       <div className="mb-4 flex gap-2">
         {sources.map((value) => (
           <button
@@ -104,8 +104,8 @@ export function StuckOrdersPage() {
             type="button"
             aria-pressed={source === value}
             onClick={() => setSource(value)}
-            className={`rounded-[10px] px-3 py-1 text-sm ${
-              source === value ? "bg-ink text-white" : "border border-field hover:bg-paper"
+            className={`rounded px-3 py-1 text-sm ${
+              source === value ? "bg-primary text-white" : "border border-gray-300 hover:bg-gray-50"
             }`}
           >
             {t(`stuckOrders.tab_${value}`)}
@@ -113,23 +113,23 @@ export function StuckOrdersPage() {
         ))}
       </div>
       <Card>
-        <p className="mb-3 text-sm text-slate">{t(`stuckOrders.hint_${source}`)}</p>
+        <p className="mb-3 text-sm text-text-muted">{t(`stuckOrders.hint_${source}`)}</p>
         {current.isError ? (
-          <div role="alert" className="rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger">
+          <div role="alert" className="rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
             {t("stuckOrders.loadFailed")}
           </div>
         ) : !current.isLoading && rows.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate">{t("stuckOrders.empty")}</p>
+          <p className="py-8 text-center text-sm text-text-muted">{t("stuckOrders.empty")}</p>
         ) : (
           <DataTable columns={columns} data={rows} isLoading={current.isLoading} />
         )}
         {current.hasNextPage && (
-          <div className="flex justify-center border-t border-line p-4">
+          <div className="flex justify-center border-t border-gray-200 p-4">
             <button
               type="button"
               onClick={() => current.fetchNextPage()}
               disabled={current.isFetchingNextPage}
-              className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
+              className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50 disabled:opacity-50"
             >
               {t("disputes.loadMore")}
             </button>

@@ -11,12 +11,12 @@ export function RevenuePage() {
   const stats = (data as Record<string, unknown>) || {};
 
   if (isLoading) {
-    return <div className="text-slate">{t("common.loading")}</div>;
+    return <div className="text-text-muted">{t("common.loading")}</div>;
   }
 
   return (
     <div>
-      <h2 className="mb-6 text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("revenue.title")}</h2>
+      <h2 className="mb-6 text-xl font-bold">{t("revenue.title")}</h2>
 
       {/*
         The server returns period aggregates only (no monthly time series), so this
