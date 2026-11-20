@@ -156,9 +156,10 @@ void main() {
         expect(painter.style, TrackMapStyle.forRole(colors));
         expect(painter.style.trail, colors.primary);
         expect(painter.style.pin, colors.primary);
-        // Late and paused keep their own colours: they are not "you".
-        expect(painter.style.late, const TrackMapStyle().late);
-        expect(painter.style.muted, const TrackMapStyle().muted);
+        // The halo and the paused truck keep their own colours: they are
+        // not "you".
+        expect(painter.style.halo, const TrackMapStyle().halo);
+        expect(painter.style.truckMuted, const TrackMapStyle().truckMuted);
       });
     }
 

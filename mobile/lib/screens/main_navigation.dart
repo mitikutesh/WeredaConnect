@@ -97,7 +97,13 @@ class _MainNavigationState extends State<MainNavigation> {
           RoleTab.myTrips => const BrowseTripsScreen(embedded: true),
           RoleTab.market => const MarketScreen(),
           RoleTab.orders => const OrdersTabScreen(),
-          RoleTab.deliveries => const DeliveriesTabScreen(),
+          RoleTab.deliveries => DeliveriesTabScreen(
+              // The empty state's buttons ("Find crops", "See my orders")
+              // switch tabs.
+              onNavigateToTab: (index) {
+                setState(() => _currentIndex = index);
+              },
+            ),
           RoleTab.payments => const PaymentsTabScreen(),
           // Never a bar tab (sidebar-extra only); reachable from the home
           // header on mobile. Handled here to keep the switch exhaustive.

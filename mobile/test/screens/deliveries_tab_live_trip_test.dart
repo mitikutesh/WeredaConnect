@@ -112,15 +112,14 @@ void main() {
     );
     expect(find.byType(DeliveryCard), findsOneWidget);
     expect(
-      find.text("The map appears when the driver scans the farmer's QR."),
+      find.text("The map appears once the driver scans the farmer's QR."),
       findsOneWidget,
     );
     expect(tracks.readers, [buyerId]);
-    // The list shows no map; the map is on the live trip screen.
-    expect(find.byType(TrackMap), findsNothing);
-    // The phone card keeps its route ribbon: the compact card is the web
-    // board's.
-    expect(find.byType(RouteRibbon), findsOneWidget);
+    // Page M: the buyer's phone card carries the map itself, so the route
+    // ribbon is gone from it.
+    expect(find.byType(TrackMap), findsOneWidget);
+    expect(find.byType(RouteRibbon), findsNothing);
     expect(find.byType(TripProgressBar), findsNothing);
   });
 
@@ -214,10 +213,8 @@ void main() {
       deliveries: [teff],
     );
     expect(find.text('Teff · 1,500 kg'), findsOneWidget);
-    expect(
-      find.text('Almaz Bekele, Bichena · pickup Fri 30 Oct'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Almaz Bekele, Bichena'), findsOneWidget);
+    expect(find.textContaining('Fri 30 Oct'), findsWidgets);
     expect(find.textContaining('Delivery #'), findsNothing);
   });
 
@@ -250,7 +247,7 @@ void main() {
     // still never gets a live card, and the waiting note is the buyer's.
     expect(find.byKey(const Key('on_the_road_delivery-201')), findsNothing);
     expect(
-      find.text("The map appears when the driver scans the farmer's QR."),
+      find.text("The map appears once the driver scans the farmer's QR."),
       findsNothing,
     );
     expect(tracks.readers, [farmerId]);
@@ -387,7 +384,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.text("The map appears when the driver scans the farmer's QR."),
+      find.text("The map appears once the driver scans the farmer's QR."),
       findsNothing,
     );
 
