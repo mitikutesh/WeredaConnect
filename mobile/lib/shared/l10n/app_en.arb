@@ -597,10 +597,6 @@
   "@selectCropType": {
     "description": "Crop type selection label"
   },
-  "quantityInQuintals": "Quantity (quintals)",
-  "@quantityInQuintals": {
-    "description": "Quantity input label in quintals"
-  },
   "priceInBirr": "Price (ETB/kg)",
   "@priceInBirr": {
     "description": "Price input label in Ethiopian Birr per kg"
@@ -763,14 +759,6 @@
   "@myTrips": {
     "description": "Navigation item for user's own trips"
   },
-  "listsTripBooked": "{booked} of {capacity} quintals booked",
-  "@listsTripBooked": {
-    "description": "Trip card load bar: paid quintals out of the truck's capacity",
-    "placeholders": {
-      "booked": {"type": "String"},
-      "capacity": {"type": "String"}
-    }
-  },
   "listsRouteFrom": "From",
   "@listsRouteFrom": {
     "description": "Short hint of the origin field in the trips route filter"
@@ -806,14 +794,6 @@
   "departureDate": "Departure Date",
   "@departureDate": {
     "description": "Label for departure date picker"
-  },
-  "capacity": "Capacity (quintals)",
-  "@capacity": {
-    "description": "Label for truck capacity input in quintals"
-  },
-  "pricePerQuintal": "Price per Quintal (ETB)",
-  "@pricePerQuintal": {
-    "description": "Label for price per quintal input in Ethiopian Birr"
   },
   "tripStatusOpen": "Open",
   "@tripStatusOpen": {
@@ -878,10 +858,6 @@
   "capacityRequired": "Capacity is required",
   "@capacityRequired": {
     "description": "Validation error when capacity is not entered"
-  },
-  "invalidCapacity": "Capacity must be between 0.1 and 1000 quintals",
-  "@invalidCapacity": {
-    "description": "Validation error for out-of-range capacity value"
   },
   "invalidPrice": "Price must be between 0.01 and 10000 ETB",
   "@invalidPrice": {
@@ -4282,8 +4258,6 @@
   "@tripBookings": {"description": "Trip detail: heading of the orders booked on the trip"},
   "tripNoBookings": "No orders booked yet",
   "@tripNoBookings": {"description": "Trip detail: no orders booked on the trip"},
-  "tripRemainingCapacity": "{quintals} quintals free",
-  "@tripRemainingCapacity": {"description": "Room left on a trip", "placeholders": {"quintals": {"type": "String"}}},
   "chooseTrip": "Choose a truck",
   "@chooseTrip": {"description": "Match results: sheet title to pick one of several suggested trips"},
   "notifGenericTitle": "Order update",
@@ -4952,8 +4926,6 @@
   "@homeTileActiveReserved": {"description": "Fieldway design alignment (specs/design-canvas). Farmer home My Crops tile: line under the count", "placeholders": {"active": {"type": "int"}, "reserved": {"type": "int"}}},
   "homeTileWaitingForYou": "waiting for you",
   "@homeTileWaitingForYou": {"description": "Fieldway design alignment (specs/design-canvas). Farmer home Pending Orders tile: line under the count"},
-  "homeTileHeldForYou": "held for you",
-  "@homeTileHeldForYou": {"description": "Fieldway design alignment (specs/design-canvas). Farmer home Escrow tile: line under the amount (the farmer's crop money in escrow)"},
   "homeTileHeldInEscrow": "held in escrow",
   "@homeTileHeldInEscrow": {"description": "Fieldway design alignment (specs/design-canvas). Buyer home Escrow tile: line under the amount (the buyer's money in escrow)"},
   "homeTileInTransit": "in transit",
@@ -4978,8 +4950,6 @@
   "@createTripDriverHint": {"description": "Fieldway design alignment (specs/design-canvas). Create trip: shown above the driver fields only when the profile did not prefill them"},
   "tripSpaceTitle": "Space on this trip",
   "@tripSpaceTitle": {"description": "Fieldway design alignment (specs/design-canvas). Trucker home trip card: heading over the load bar"},
-  "tripLoadedOf": "{loaded} of {capacity} quintals loaded",
-  "@tripLoadedOf": {"description": "Fieldway design alignment (specs/design-canvas). Trucker home trip card: booked quintals out of the truck's capacity; numbers", "placeholders": {"loaded": {"type": "String"}, "capacity": {"type": "String"}}},
   "invalidCapacityKg": "Capacity must be between 10 and 100,000 kg",
   "@invalidCapacityKg": {"description": "Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: the capacity typed in kilograms is outside the limits (the same limits as 0.1 to 1000 quintals)"},
   "capacityKg": "Capacity (kg)",

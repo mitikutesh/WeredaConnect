@@ -526,9 +526,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get selectCropType => 'Gosa Midhaan Filadhu';
 
   @override
-  String get quantityInQuintals => 'Hamma (kuntaala)';
-
-  @override
   String get priceInBirr => 'Gatii (Birrii/kg)';
 
   @override
@@ -654,11 +651,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get myTrips => 'Imala Koo';
 
   @override
-  String listsTripBooked(String booked, String capacity) {
-    return 'Kuntaala $capacity keessaa $booked qabameera';
-  }
-
-  @override
   String get listsRouteFrom => 'Irraa';
 
   @override
@@ -685,12 +677,6 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get departureDate => 'Guyyaa Ka\'umsaa';
-
-  @override
-  String get capacity => 'Dandeettii (Kuntaala)';
-
-  @override
-  String get pricePerQuintal => 'Gatii Kuntaala Tokkoo (Birrii)';
 
   @override
   String get tripStatusOpen => 'Banaa';
@@ -739,10 +725,6 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get capacityRequired => 'Dandeettiin barbaachisaadha';
-
-  @override
-  String get invalidCapacity =>
-      'Dandeettiin kuntaala 0.1 hanga 1000 ta\'uu qaba';
 
   @override
   String get invalidPrice =>
@@ -3707,11 +3689,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get tripNoBookings => 'Ammallee ajajni qabame hin jiru';
 
   @override
-  String tripRemainingCapacity(String quintals) {
-    return 'Kuntaala $quintals duwwaa';
-  }
-
-  @override
   String get chooseTrip => 'Konkolaataa filadhaa';
 
   @override
@@ -5000,9 +4977,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get homeTileWaitingForYou => 'isin eegaa jira';
 
   @override
-  String get homeTileHeldForYou => 'isiniif qabamee jira';
-
-  @override
   String get homeTileHeldInEscrow => 'eeskiroo keessa qabamee jira';
 
   @override
@@ -5046,11 +5020,6 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get tripSpaceTitle => 'Bakka imala kanarra jiru';
-
-  @override
-  String tripLoadedOf(String loaded, String capacity) {
-    return 'Kuntaala $capacity keessaa $loaded qabameera';
-  }
 
   @override
   String get invalidCapacityKg =>

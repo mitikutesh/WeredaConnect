@@ -1036,12 +1036,6 @@ abstract class AppLocalizations {
   /// **'Select Crop Type'**
   String get selectCropType;
 
-  /// Quantity input label in quintals
-  ///
-  /// In en, this message translates to:
-  /// **'Quantity (quintals)'**
-  String get quantityInQuintals;
-
   /// Price input label in Ethiopian Birr per kg
   ///
   /// In en, this message translates to:
@@ -1276,12 +1270,6 @@ abstract class AppLocalizations {
   /// **'My Trips'**
   String get myTrips;
 
-  /// Trip card load bar: paid quintals out of the truck's capacity
-  ///
-  /// In en, this message translates to:
-  /// **'{booked} of {capacity} quintals booked'**
-  String listsTripBooked(String booked, String capacity);
-
   /// Short hint of the origin field in the trips route filter
   ///
   /// In en, this message translates to:
@@ -1335,18 +1323,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Departure Date'**
   String get departureDate;
-
-  /// Label for truck capacity input in quintals
-  ///
-  /// In en, this message translates to:
-  /// **'Capacity (quintals)'**
-  String get capacity;
-
-  /// Label for price per quintal input in Ethiopian Birr
-  ///
-  /// In en, this message translates to:
-  /// **'Price per Quintal (ETB)'**
-  String get pricePerQuintal;
 
   /// Trip status label when trip is open for booking
   ///
@@ -1443,12 +1419,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Capacity is required'**
   String get capacityRequired;
-
-  /// Validation error for out-of-range capacity value
-  ///
-  /// In en, this message translates to:
-  /// **'Capacity must be between 0.1 and 1000 quintals'**
-  String get invalidCapacity;
 
   /// Validation error for out-of-range price value
   ///
@@ -6544,12 +6514,6 @@ abstract class AppLocalizations {
   /// **'No orders booked yet'**
   String get tripNoBookings;
 
-  /// Room left on a trip
-  ///
-  /// In en, this message translates to:
-  /// **'{quintals} quintals free'**
-  String tripRemainingCapacity(String quintals);
-
   /// Match results: sheet title to pick one of several suggested trips
   ///
   /// In en, this message translates to:
@@ -8555,12 +8519,6 @@ abstract class AppLocalizations {
   /// **'waiting for you'**
   String get homeTileWaitingForYou;
 
-  /// Fieldway design alignment (specs/design-canvas). Farmer home Escrow tile: line under the amount (the farmer's crop money in escrow)
-  ///
-  /// In en, this message translates to:
-  /// **'held for you'**
-  String get homeTileHeldForYou;
-
   /// Fieldway design alignment (specs/design-canvas). Buyer home Escrow tile: line under the amount (the buyer's money in escrow)
   ///
   /// In en, this message translates to:
@@ -8632,12 +8590,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Space on this trip'**
   String get tripSpaceTitle;
-
-  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card: booked quintals out of the truck's capacity; numbers
-  ///
-  /// In en, this message translates to:
-  /// **'{loaded} of {capacity} quintals loaded'**
-  String tripLoadedOf(String loaded, String capacity);
 
   /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: the capacity typed in kilograms is outside the limits (the same limits as 0.1 to 1000 quintals)
   ///

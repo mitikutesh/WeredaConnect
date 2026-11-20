@@ -573,10 +573,6 @@
   "@selectCropType": {
     "description": "Crop type selection label"
   },
-  "quantityInQuintals": "Hamma (kuntaala)",
-  "@quantityInQuintals": {
-    "description": "Quantity input label in quintals"
-  },
   "priceInBirr": "Gatii (Birrii/kg)",
   "@priceInBirr": {
     "description": "Price input label in Ethiopian Birr per kg"
@@ -739,7 +735,6 @@
   "@myTrips": {
     "description": "Navigation item for user's own trips"
   },
-  "listsTripBooked": "Kuntaala {capacity} keessaa {booked} qabameera",
   "listsRouteFrom": "Irraa",
   "listsRouteTo": "Gara",
   "listsMyTripsPrivacyNote": "Imala kee asitti si qofatu arga. Bitattoonni Gabaa keessatti argatu.",
@@ -760,14 +755,6 @@
   "departureDate": "Guyyaa Ka'umsaa",
   "@departureDate": {
     "description": "Label for departure date picker"
-  },
-  "capacity": "Dandeettii (Kuntaala)",
-  "@capacity": {
-    "description": "Label for truck capacity input in quintals"
-  },
-  "pricePerQuintal": "Gatii Kuntaala Tokkoo (Birrii)",
-  "@pricePerQuintal": {
-    "description": "Label for price per quintal input in Ethiopian Birr"
   },
   "tripStatusOpen": "Banaa",
   "@tripStatusOpen": {
@@ -832,10 +819,6 @@
   "capacityRequired": "Dandeettiin barbaachisaadha",
   "@capacityRequired": {
     "description": "Validation error when capacity is not entered"
-  },
-  "invalidCapacity": "Dandeettiin kuntaala 0.1 hanga 1000 ta'uu qaba",
-  "@invalidCapacity": {
-    "description": "Validation error for out-of-range capacity value"
   },
   "invalidPrice": "Gatiin Birrii 0.01 hanga Birrii 10000 ta'uu qaba",
   "@invalidPrice": {
@@ -2807,7 +2790,6 @@
   "actionDueBy": "Hanga {time}",
   "tripBookings": "Ajajoota qabaman",
   "tripNoBookings": "Ammallee ajajni qabame hin jiru",
-  "tripRemainingCapacity": "Kuntaala {quintals} duwwaa",
   "chooseTrip": "Konkolaataa filadhaa",
   "notifGenericTitle": "Haalli ajajaa jijjiirameera",
   "notifGenericBody": "Maal akka jijjiirame ilaaluuf ajaja banaa.",
@@ -3144,7 +3126,6 @@
   "homeTripMatchedLine": "Bakka fe'umsaatti QR qonnaan bulaa hundaa iskaanii godhaa",
   "homeTileActiveReserved": "{active} hojiirra, {reserved} qabame",
   "homeTileWaitingForYou": "isin eegaa jira",
-  "homeTileHeldForYou": "isiniif qabamee jira",
   "homeTileHeldInEscrow": "eeskiroo keessa qabamee jira",
   "homeTileInTransit": "geejjibamaa jira",
   "homeTileInProgress": "adeemsa irra",
@@ -3157,7 +3138,6 @@
   "createTripSwapRoute": "Ka'umsaa fi bakka gahumsaa wal jijjiiri",
   "createTripDriverHint": "Maqaa fi bilbila keessan piroofaayilii irraa guutuu hin dandeenye. Maaloo galchaa.",
   "tripSpaceTitle": "Bakka imala kanarra jiru",
-  "tripLoadedOf": "Kuntaala {capacity} keessaa {loaded} qabameera",
   "invalidCapacityKg": "Dandeettiin kg 10 hanga 100,000 gidduu ta'uu qaba",
   "capacityKg": "Dandeettii (kg)",
   "pricePer100Kg": "Gatii kg 100 (Birrii)",

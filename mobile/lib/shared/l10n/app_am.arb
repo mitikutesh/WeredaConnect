@@ -579,10 +579,6 @@
   "@selectCropType": {
     "description": "Crop type selection label"
   },
-  "quantityInQuintals": "መጠን (ኩንታል)",
-  "@quantityInQuintals": {
-    "description": "Quantity input label in quintals"
-  },
   "priceInBirr": "ዋጋ (ብር/ኪግ)",
   "@priceInBirr": {
     "description": "Price input label in Ethiopian Birr per kg"
@@ -745,7 +741,6 @@
   "@myTrips": {
     "description": "Navigation item for user's own trips"
   },
-  "listsTripBooked": "ከ{capacity} ኩንታል {booked} ተይዟል",
   "listsRouteFrom": "ከ",
   "listsRouteTo": "ወደ",
   "listsMyTripsPrivacyNote": "ጉዞዎችዎን እዚህ የሚያዩት እርስዎ ብቻ ነዎት። ገዢዎች በገበያ ውስጥ ያገኟቸዋል።",
@@ -766,14 +761,6 @@
   "departureDate": "የመነሻ ቀን",
   "@departureDate": {
     "description": "Label for departure date picker"
-  },
-  "capacity": "አቅም (ኩንታል)",
-  "@capacity": {
-    "description": "Label for truck capacity input in quintals"
-  },
-  "pricePerQuintal": "በኩንታል ዋጋ (ብር)",
-  "@pricePerQuintal": {
-    "description": "Label for price per quintal input in Ethiopian Birr"
   },
   "tripStatusOpen": "ክፍት",
   "@tripStatusOpen": {
@@ -838,10 +825,6 @@
   "capacityRequired": "አቅም ያስፈልጋል",
   "@capacityRequired": {
     "description": "Validation error when capacity is not entered"
-  },
-  "invalidCapacity": "አቅም ከ0.1 እስከ 1000 ኩንታል መሆን አለበት",
-  "@invalidCapacity": {
-    "description": "Validation error for out-of-range capacity value"
   },
   "invalidPrice": "ዋጋ ከ0.01 እስከ 10000 ብር መሆን አለበት",
   "@invalidPrice": {
@@ -2822,7 +2805,6 @@
   "actionDueBy": "እስከ {time}",
   "tripBookings": "የተያዙ ትዕዛዞች",
   "tripNoBookings": "ገና የተያዘ ትዕዛዝ የለም",
-  "tripRemainingCapacity": "{quintals} ኩንታል ክፍት",
   "chooseTrip": "የጭነት መኪና ይምረጡ",
   "notifGenericTitle": "የትዕዛዝ መረጃ",
   "notifGenericBody": "ምን እንደተለወጠ ለማየት ትዕዛዙን ይክፈቱ።",
@@ -3159,7 +3141,6 @@
   "homeTripMatchedLine": "በመጫኛ ቦታ የእያንዳንዱን ገበሬ QR ይቃኙ",
   "homeTileActiveReserved": "{active} ንቁ፣ {reserved} የተያዘ",
   "homeTileWaitingForYou": "እርስዎን ይጠብቃል",
-  "homeTileHeldForYou": "ለእርስዎ ተይዟል",
   "homeTileHeldInEscrow": "በኢስክሮ ተይዟል",
   "homeTileInTransit": "በመጓጓዝ ላይ",
   "homeTileInProgress": "በሂደት ላይ",
@@ -3172,7 +3153,6 @@
   "createTripSwapRoute": "መነሻና መድረሻን አቀያይር",
   "createTripDriverHint": "ስምዎንና ስልክዎን ከመገለጫዎ መሙላት አልቻልንም። እባክዎ ያስገቡ።",
   "tripSpaceTitle": "በዚህ ጉዞ ላይ ያለ ቦታ",
-  "tripLoadedOf": "ከ{capacity} ኩንታል {loaded} ተይዟል",
   "invalidCapacityKg": "አቅም ከ10 እስከ 100,000 ኪግ መሆን አለበት",
   "capacityKg": "አቅም (ኪግ)",
   "pricePer100Kg": "ዋጋ በ100 ኪግ (ብር)",

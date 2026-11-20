@@ -501,9 +501,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get selectCropType => 'የሰብል ዓይነት ይምረጡ';
 
   @override
-  String get quantityInQuintals => 'መጠን (ኩንታል)';
-
-  @override
   String get priceInBirr => 'ዋጋ (ብር/ኪግ)';
 
   @override
@@ -628,11 +625,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get myTrips => 'የእኔ ጉዞዎች';
 
   @override
-  String listsTripBooked(String booked, String capacity) {
-    return 'ከ$capacity ኩንታል $booked ተይዟል';
-  }
-
-  @override
   String get listsRouteFrom => 'ከ';
 
   @override
@@ -659,12 +651,6 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get departureDate => 'የመነሻ ቀን';
-
-  @override
-  String get capacity => 'አቅም (ኩንታል)';
-
-  @override
-  String get pricePerQuintal => 'በኩንታል ዋጋ (ብር)';
 
   @override
   String get tripStatusOpen => 'ክፍት';
@@ -713,9 +699,6 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get capacityRequired => 'አቅም ያስፈልጋል';
-
-  @override
-  String get invalidCapacity => 'አቅም ከ0.1 እስከ 1000 ኩንታል መሆን አለበት';
 
   @override
   String get invalidPrice => 'ዋጋ ከ0.01 እስከ 10000 ብር መሆን አለበት';
@@ -3560,11 +3543,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get tripNoBookings => 'ገና የተያዘ ትዕዛዝ የለም';
 
   @override
-  String tripRemainingCapacity(String quintals) {
-    return '$quintals ኩንታል ክፍት';
-  }
-
-  @override
   String get chooseTrip => 'የጭነት መኪና ይምረጡ';
 
   @override
@@ -4809,9 +4787,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get homeTileWaitingForYou => 'እርስዎን ይጠብቃል';
 
   @override
-  String get homeTileHeldForYou => 'ለእርስዎ ተይዟል';
-
-  @override
   String get homeTileHeldInEscrow => 'በኢስክሮ ተይዟል';
 
   @override
@@ -4855,11 +4830,6 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get tripSpaceTitle => 'በዚህ ጉዞ ላይ ያለ ቦታ';
-
-  @override
-  String tripLoadedOf(String loaded, String capacity) {
-    return 'ከ$capacity ኩንታል $loaded ተይዟል';
-  }
 
   @override
   String get invalidCapacityKg => 'አቅም ከ10 እስከ 100,000 ኪግ መሆን አለበት';

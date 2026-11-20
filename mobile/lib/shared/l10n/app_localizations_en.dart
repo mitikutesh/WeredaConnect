@@ -520,9 +520,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get selectCropType => 'Select Crop Type';
 
   @override
-  String get quantityInQuintals => 'Quantity (quintals)';
-
-  @override
   String get priceInBirr => 'Price (ETB/kg)';
 
   @override
@@ -648,11 +645,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get myTrips => 'My Trips';
 
   @override
-  String listsTripBooked(String booked, String capacity) {
-    return '$booked of $capacity quintals booked';
-  }
-
-  @override
   String get listsRouteFrom => 'From';
 
   @override
@@ -679,12 +671,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get departureDate => 'Departure Date';
-
-  @override
-  String get capacity => 'Capacity (quintals)';
-
-  @override
-  String get pricePerQuintal => 'Price per Quintal (ETB)';
 
   @override
   String get tripStatusOpen => 'Open';
@@ -733,10 +719,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get capacityRequired => 'Capacity is required';
-
-  @override
-  String get invalidCapacity =>
-      'Capacity must be between 0.1 and 1000 quintals';
 
   @override
   String get invalidPrice => 'Price must be between 0.01 and 10000 ETB';
@@ -3668,11 +3650,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tripNoBookings => 'No orders booked yet';
 
   @override
-  String tripRemainingCapacity(String quintals) {
-    return '$quintals quintals free';
-  }
-
-  @override
   String get chooseTrip => 'Choose a truck';
 
   @override
@@ -4945,9 +4922,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeTileWaitingForYou => 'waiting for you';
 
   @override
-  String get homeTileHeldForYou => 'held for you';
-
-  @override
   String get homeTileHeldInEscrow => 'held in escrow';
 
   @override
@@ -4991,11 +4965,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tripSpaceTitle => 'Space on this trip';
-
-  @override
-  String tripLoadedOf(String loaded, String capacity) {
-    return '$loaded of $capacity quintals loaded';
-  }
 
   @override
   String get invalidCapacityKg => 'Capacity must be between 10 and 100,000 kg';
