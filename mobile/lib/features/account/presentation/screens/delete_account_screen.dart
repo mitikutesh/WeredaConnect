@@ -14,7 +14,8 @@ import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
-import 'package:wereda_connect/shared/widgets/join_chrome.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// Profile > "Delete account" (specs/contracts/account-deletion.md), the
 /// same for Farmer, Trucker and Buyer on mobile and web.
@@ -111,10 +112,14 @@ class _DeleteAccountView extends StatelessWidget {
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: Text(l10n.cancel),
           ),
-          TextButton(
+          FilledButton(
             key: const Key('delete_account_confirm'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppTheme.statusError),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.statusError,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 48),
+            ),
             child: Text(l10n.delete),
           ),
         ],
@@ -138,9 +143,9 @@ class _DeleteAccountView extends StatelessWidget {
         final failed = state is AccountDeletionFailed ? state : null;
         final retry = failed != null && failed.canRetry;
 
-        // The Fieldway boards' language: page header, the warning as a
-        // red note, the deleted and kept lists as white cards under
-        // uppercase labels, the red button at the end.
+        // The boards' language: the round back button and a 32 px title,
+        // the warning as a red note, the deleted and kept lists as sand
+        // tiles under uppercase labels, the red button at the end.
         return Scaffold(
           body: SafeArea(
             child: FwContentWidth(
@@ -150,18 +155,12 @@ class _DeleteAccountView extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: JoinBackButton(),
-                    ),
-                    const SizedBox(height: 12),
-                    FwPageHeader(
-                      padding: EdgeInsets.zero,
+                    FwStackedHeader(
                       eyebrow: l10n.profile,
                       title: l10n.deleteAccount,
                     ),
                     const SizedBox(height: 16),
-                    JoinNote(
+                    FwInfoNote(
                       text: l10n.deleteAccountWarning,
                       background: AppTheme.statusErrorContainer,
                       foreground: AppTheme.onStatusErrorContainer,
@@ -170,10 +169,10 @@ class _DeleteAccountView extends StatelessWidget {
                     const SizedBox(height: 20),
                     FwSectionLabel(l10n.deleteAccountDeletedHeading),
                     const SizedBox(height: 8),
-                    FwCard(
+                    FwCard.sand(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
-                        vertical: 8,
+                        vertical: 10,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -204,10 +203,10 @@ class _DeleteAccountView extends StatelessWidget {
                     const SizedBox(height: 16),
                     FwSectionLabel(l10n.deleteAccountKeptHeading),
                     const SizedBox(height: 8),
-                    FwCard(
+                    FwCard.sand(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
-                        vertical: 8,
+                        vertical: 10,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -220,7 +219,9 @@ class _DeleteAccountView extends StatelessWidget {
                             padding: const EdgeInsets.only(left: 32, top: 2),
                             child: Text(
                               l10n.deleteAccountKeptReason,
-                              style: FwText.body,
+                              style: FwText.body.copyWith(
+                                color: AppTheme.inkSoft,
+                              ),
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -245,7 +246,6 @@ class _DeleteAccountView extends StatelessWidget {
                       ),
                     const SizedBox(height: 20),
                     SizedBox(
-                      height: 56,
                       child: FilledButton.icon(
                         key: const Key('delete_account_button'),
                         // Suspended, or another account holds the session:
@@ -333,10 +333,10 @@ class _BlockersCard extends StatelessWidget {
 
     return Container(
       key: const Key('delete_account_blockers'),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       decoration: BoxDecoration(
         color: AppTheme.statusErrorContainer,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -345,7 +345,7 @@ class _BlockersCard extends StatelessWidget {
             l10n.deleteAccountBlockedTitle,
             style: const TextStyle(
               fontSize: 15,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w800,
               color: AppTheme.onStatusErrorContainer,
             ),
           ),
@@ -393,7 +393,7 @@ class _Bullet extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: AppTheme.slate),
+          Icon(icon, size: 20, color: AppTheme.inkSoft),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -435,6 +435,11 @@ class _Notice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return JoinNote.error(text: text);
+    return FwInfoNote(
+      icon: Icons.error_outline,
+      text: text,
+      background: AppTheme.statusErrorContainer,
+      foreground: AppTheme.onStatusErrorContainer,
+    );
   }
 }

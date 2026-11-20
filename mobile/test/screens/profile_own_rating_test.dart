@@ -143,6 +143,7 @@ void main() {
     if (settle) await tester.pumpAndSettle();
   }
 
+  // The tile reads label first, then the value.
   String ratingTile(WidgetTester tester) => tester
       .widget<Text>(
         find
@@ -150,7 +151,7 @@ void main() {
               of: find.byKey(const Key('profile_rating')),
               matching: find.byType(Text),
             )
-            .first,
+            .last,
       )
       .data!;
 

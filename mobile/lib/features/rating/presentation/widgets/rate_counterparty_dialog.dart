@@ -7,6 +7,7 @@ import 'package:wereda_connect/features/rating/presentation/bloc/rating_event.da
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_state.dart';
 import 'package:wereda_connect/features/rating/presentation/widgets/star_rating.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Dialog for a buyer to rate a counterparty (farmer or trucker) after a
 /// completed order. Requires an ancestor [RatingBloc] provider.
@@ -48,7 +49,6 @@ class _RateCounterpartyDialogState extends State<RateCounterpartyDialog> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
     final title =
         widget.rateeRole == 'trucker' ? l10n.rateTrucker : l10n.rateFarmer;
 
@@ -82,7 +82,11 @@ class _RateCounterpartyDialogState extends State<RateCounterpartyDialog> {
             children: [
               Text(
                 widget.rateeName,
-                style: theme.textTheme.titleMedium,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.inkSoft,
+                ),
               ),
               const SizedBox(height: 16),
               Center(
@@ -98,10 +102,8 @@ class _RateCounterpartyDialogState extends State<RateCounterpartyDialog> {
                 maxLines: 3,
                 maxLength: 500,
                 textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  hintText: l10n.ratingCommentHint,
-                  border: const OutlineInputBorder(),
-                ),
+                // The theme's field: paper fill, radius 16.
+                decoration: InputDecoration(hintText: l10n.ratingCommentHint),
               ),
             ],
           ),
@@ -112,6 +114,8 @@ class _RateCounterpartyDialogState extends State<RateCounterpartyDialog> {
               child: Text(l10n.cancel),
             ),
             FilledButton(
+              // The dialog's one action: the orange pill, sized to its label.
+              style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
               onPressed: isSubmitting
                   ? null
                   : () => context.read<RatingBloc>().add(
@@ -128,7 +132,10 @@ class _RateCounterpartyDialogState extends State<RateCounterpartyDialog> {
                   ? const SizedBox(
                       height: 18,
                       width: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppTheme.ink,
+                      ),
                     )
                   : Text(l10n.submitRating),
             ),

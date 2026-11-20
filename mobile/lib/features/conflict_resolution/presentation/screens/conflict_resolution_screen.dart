@@ -6,6 +6,8 @@ import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/co
 import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_event.dart'
     as bloc_event;
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Localized label for a conflict entity type. Falls back to a humanized token
 /// (e.g. "buyer_intent" -> "Buyer Intent") for any unmapped type rather than
@@ -48,7 +50,7 @@ String _humanizeToken(String token) {
 /// Modal bottom sheet shown when a sync conflict is auto-resolved.
 ///
 /// Informs the user that their local data was updated by the server.
-/// The conflict is already resolved — this is purely informational.
+/// The conflict is already resolved: this is purely informational.
 ///
 /// Shows:
 /// - Entity type (crop listing, delivery, trip)
@@ -62,11 +64,13 @@ class ConflictResolutionScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
 
+    // A sheet in the boards' language: the handle, the title, what
+    // happened in one line, what it was about as a sand pill and the
+    // server's values on a sand tile, then the one orange action.
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -77,49 +81,60 @@ class ConflictResolutionScreen extends StatelessWidget {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(2),
+                  color: AppTheme.sketch,
+                  borderRadius: BorderRadius.circular(999),
                 ),
               ),
             ),
             const SizedBox(height: 16),
 
-            // Header with warning icon
             Row(
               children: [
-                Icon(
-                  Icons.sync_problem,
-                  color: theme.colorScheme.tertiary,
-                  size: 28,
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: const BoxDecoration(
+                    color: AppTheme.orangeTint,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.sync_problem,
+                    color: AppTheme.orangeInk,
+                    size: 20,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Text(
-                    l10n.conflictTitle,
-                    style: theme.textTheme.titleLarge,
+                  child: Semantics(
+                    header: true,
+                    child: Text(
+                      l10n.conflictTitle,
+                      style: FwText.detailTitle.copyWith(fontSize: 26),
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-
             // Explanation
             Text(
               l10n.conflictExplanation,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+              style: const TextStyle(
+                fontSize: 14,
+                height: 1.45,
+                color: AppTheme.inkSoft,
               ),
             ),
             const SizedBox(height: 16),
-
             // Entity type badge
-            _buildEntityBadge(context, l10n),
-            const SizedBox(height: 16),
-
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: _buildEntityBadge(context, l10n),
+            ),
+            const SizedBox(height: 12),
             // Field-level summary
             _buildFieldSummary(context, l10n),
-            const SizedBox(height: 24),
-
+            const SizedBox(height: 20),
             // Primary action
             FilledButton(
               onPressed: () {
@@ -133,7 +148,10 @@ class ConflictResolutionScreen extends StatelessWidget {
             const SizedBox(height: 8),
 
             // Secondary action
-            TextButton(
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
               onPressed: () {
                 context.read<ConflictBloc>().add(
                       const bloc_event.DismissConflict(),
@@ -149,67 +167,46 @@ class ConflictResolutionScreen extends StatelessWidget {
   }
 
   Widget _buildEntityBadge(BuildContext context, AppLocalizations l10n) {
-    final theme = Theme.of(context);
     final label = _entityTypeLabel(l10n);
     final shortId = conflict.entityId.length > 8
         ? conflict.entityId.substring(0, 8)
         : conflict.entityId;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            _entityTypeIcon(),
-            size: 20,
-            color: theme.colorScheme.onSecondaryContainer,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '$label #$shortId',
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: theme.colorScheme.onSecondaryContainer,
-            ),
-          ),
-        ],
-      ),
+    return FwPill(
+      label: '$label #$shortId',
+      icon: _entityTypeIcon(),
+      background: AppTheme.sand,
+      foreground: AppTheme.inkSoft,
     );
   }
 
   Widget _buildFieldSummary(BuildContext context, AppLocalizations l10n) {
-    final theme = Theme.of(context);
     final fields = _extractDisplayFields(l10n);
 
     if (fields.isEmpty) {
       return Text(
         l10n.conflictNoDetails,
-        style: theme.textTheme.bodySmall,
+        style: const TextStyle(fontSize: 13, color: AppTheme.slate),
       );
     }
 
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
+    return FwCard.sand(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             l10n.conflictServerValues,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.inkSoft,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           ...fields.entries.map(
             (entry) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
+              padding: const EdgeInsets.only(bottom: 6),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -217,15 +214,20 @@ class ConflictResolutionScreen extends StatelessWidget {
                     width: 120,
                     child: Text(
                       entry.key,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppTheme.inkSoft,
                       ),
                     ),
                   ),
                   Expanded(
                     child: Text(
                       entry.value,
-                      style: theme.textTheme.bodySmall,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.ink,
+                      ),
                     ),
                   ),
                 ],

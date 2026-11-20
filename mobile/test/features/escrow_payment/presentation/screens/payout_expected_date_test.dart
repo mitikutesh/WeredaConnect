@@ -264,10 +264,10 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          find.widgetWithText(EscrowStatusBadge, 'FUNDS HELD SAFELY'),
+          find.widgetWithText(EscrowStatusBadge, 'Funds Held Safely'),
           findsOneWidget,
         );
-        expect(find.text('REFUND PENDING'), findsNothing);
+        expect(find.text('Refund Pending'), findsNothing);
         expect(
           find.text(_expectedText),
           role == UserRole.buyer ? findsNothing : findsOneWidget,
@@ -319,7 +319,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('REFUND PENDING'), findsOneWidget);
+      expect(find.text('Refund Pending'), findsOneWidget);
     });
   });
 

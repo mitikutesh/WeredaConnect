@@ -15,6 +15,9 @@ import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_event.
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/messages_inbox_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -127,5 +130,54 @@ void main() {
     expect(find.text('Abebe Kebede'), findsOneWidget);
     expect(find.text('AK'), findsOneWidget);
     expect(find.text('User'), findsNothing);
+  });
+
+  testWidgets(
+      'the threads are rows of one raised card; unread is the orange pill',
+      (tester) async {
+    await tester.pumpWidget(
+      buildScreen(
+        [
+          ConversationSummary(
+            conversationId: 'c1',
+            contextType: 'order',
+            contextId: 'order-1',
+            counterpartId: _counterpartId,
+            counterpartName: 'Abebe Kebede',
+            lastMessageBody: 'Selam',
+            lastMessageAt: DateTime.utc(2026, 11, 1, 9),
+            lastMessageFromMe: false,
+            unreadCount: 3,
+          ),
+          _summary('c2', 'Dawit Tesfaye'),
+        ],
+        const Locale('en'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppBar), findsNothing);
+    expect(find.byType(FwPageHeader), findsOneWidget);
+    final card = tester.widget<FwCard>(find.byType(FwCard));
+    expect(card.raised, isTrue);
+
+    final pill = tester.widget<FwPill>(
+      find.byKey(const Key('inbox_unread_pill')),
+    );
+    expect(pill.label, '3');
+    expect(pill.background, AppTheme.orange);
+    expect(pill.foreground, AppTheme.ink);
+  });
+
+  testWidgets('no conversations: the role drawing, the title and the hint',
+      (tester) async {
+    await tester.pumpWidget(buildScreen(const [], const Locale('en')));
+    await tester.pumpAndSettle();
+
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    expect(find.byType(RoleSketch), findsWidgets);
+    expect(find.text(l10n.noConversationsYet), findsOneWidget);
+    expect(find.text(l10n.noConversationsHint), findsOneWidget);
+    expect(find.byType(FwCard), findsNothing);
   });
 }

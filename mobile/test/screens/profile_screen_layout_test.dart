@@ -159,7 +159,18 @@ void main() {
         expect(find.text('ACCOUNT'), findsOneWidget);
         expect(find.text('MONEY'), findsOneWidget);
         expect(find.text('APP'), findsOneWidget);
-        expect(find.byType(FwCard), findsNWidgets(6));
+        // The identity card, three stat tiles and four row groups.
+        expect(find.byType(FwCard), findsNWidgets(8));
+        // The identity card leads the screen: the one raised card.
+        final raised = tester
+            .widgetList<FwCard>(find.byType(FwCard))
+            .where((card) => card.raised);
+        expect(raised, hasLength(1));
+        // The stats are flat sand tiles.
+        final sand = tester
+            .widgetList<FwCard>(find.byType(FwCard))
+            .where((card) => card.color == AppTheme.sand);
+        expect(sand, hasLength(3));
         // Every role keeps the same entries.
         expect(find.byKey(const Key('profile_verify_fayda')), findsOneWidget);
         expect(find.byKey(const Key('profile_delete_account')), findsOneWidget);
@@ -187,11 +198,12 @@ void main() {
       final header = tester.getRect(find.byType(FwPageHeader));
       expect(header.width, lessThanOrEqualTo(FwContentWidth.defaultMaxWidth));
       expect((header.left - (1280 - header.right)).abs(), lessThan(2));
-      // The groups stack in one column.
+      // The groups stack in one column (the three stat tiles share a row).
       final cards = find.byType(FwCard);
       final lefts = <double>{
         for (final e in cards.evaluate())
-          tester.getRect(find.byWidget(e.widget)).left.roundToDouble(),
+          if ((e.widget as FwCard).color != AppTheme.sand)
+            tester.getRect(find.byWidget(e.widget)).left.roundToDouble(),
       };
       expect(lefts, hasLength(1));
     });

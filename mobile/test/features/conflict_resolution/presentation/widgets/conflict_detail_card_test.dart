@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/models/conflict_event.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/widgets/conflict_detail_card.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 ConflictEvent _makeConflict({
@@ -230,7 +231,7 @@ void main() {
       expect(dashFinder, findsNWidgets(4));
     });
 
-    testWidgets('card has correct shape with rounded corners',
+    testWidgets('card takes the theme\'s shape: no shadow of its own',
         (WidgetTester tester) async {
       final conflict = _makeConflict();
 
@@ -239,13 +240,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Paper grey, radius 24 and the quiet edge come from the card theme.
       final card = tester.widget<Card>(find.byType(Card));
-      expect(card.elevation, equals(1));
-      final shape = card.shape as RoundedRectangleBorder;
-      expect(
-        shape.borderRadius,
-        equals(BorderRadius.circular(12)),
-      );
+      expect(card.elevation, isNull);
+      expect(card.shape, isNull);
+      // The result is the shared success pill, icon and label.
+      final chip = tester.widget<StatusChip>(find.byType(StatusChip));
+      expect(chip.kind, StatusKind.success);
     });
   });
 }

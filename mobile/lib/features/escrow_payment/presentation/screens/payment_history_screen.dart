@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/utils/date_locale.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -22,11 +23,14 @@ import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
 /// Filterable list of the user's escrow transactions with pending intents,
-/// in the Fieldway list language: the escrow summary card (held, released),
-/// the Market's pill chips as the status filter, uppercase section labels
-/// and one white card per payment.
+/// in the boards' list language: the Market's pill chips as the status
+/// filter, the escrow summary as the raised card (held and released, the
+/// amounts in the role's colour), uppercase section labels and one paper
+/// card per payment.
 ///
 /// Features:
 /// - Status filter (All / Escrowed / Released / Completed / Disputed / Refunded)
@@ -52,6 +56,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
   /// The last unfiltered page of payments: the summary card sums these, so
   /// a status filter narrows the rows but not the totals.
+  List<Payment>? _unfilteredPayments;
 
   @override
   void initState() {
@@ -116,6 +121,9 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       },
       child: BlocBuilder<EscrowBloc, EscrowState>(
         builder: (context, state) {
+          if (state is PaymentHistoryLoaded && state.statusFilter == null) {
+            _unfilteredPayments = state.payments;
+          }
           return Column(
             children: [
               _buildFilterChips(l10n),
@@ -129,11 +137,32 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
     if (widget.embedded) return content;
 
+    // Pushed from the account sheet, Profile or Home: the boards' page
+    // header in place of an app bar.
+    final authState = context.read<AuthBloc>().state;
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.escrowPaymentHistory)),
-      body: Padding(
-        padding: const EdgeInsets.only(top: 12),
-        child: FwContentWidth(child: content),
+      body: SafeArea(
+        bottom: false,
+        child: FwContentWidth(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (Navigator.of(context).canPop())
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: FwBackButton(),
+                ),
+              FwPageHeader(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+                eyebrow: fwPersonPlaceEyebrow(authState, ''),
+                title: l10n.escrowPaymentHistory,
+                sketchRole:
+                    authState is AuthAuthenticated ? authState.role : null,
+              ),
+              Expanded(child: content),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -156,10 +185,10 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
             children: [
               const Icon(
                 Icons.error_outline,
-                size: 56,
+                size: 40,
                 color: AppTheme.statusError,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               Text(
                 localizeEscrowError(l10n, state.code, state.message),
                 style: FwText.cardTitle,
@@ -203,6 +232,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
     return _HistoryContent(
       state: state,
+      summaryPayments: _unfilteredPayments ?? state.payments,
       statusFilter: _statusFilter,
       roleFilter: _roleFilter,
       onCancelIntent: _showCancelConfirmation,
@@ -256,15 +286,18 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: Text(dl10n.cancel),
             ),
-            TextButton(
+            FilledButton(
               onPressed: () {
                 Navigator.of(dialogContext).pop();
                 context.read<EscrowBloc>().add(
                       CancelPaymentIntent(idempotencyKey: idempotencyKey),
                     );
               },
-              style:
-                  TextButton.styleFrom(foregroundColor: AppTheme.statusError),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.statusError,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(0, 48),
+              ),
               child: Text(dl10n.escrowCancelIntent),
             ),
           ],
@@ -276,12 +309,16 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
 class _HistoryContent extends StatelessWidget {
   final PaymentHistoryLoaded state;
+
+  /// What the summary card sums: the unfiltered page.
+  final List<Payment> summaryPayments;
   final String? statusFilter;
   final String? roleFilter;
   final void Function(String idempotencyKey) onCancelIntent;
 
   const _HistoryContent({
     required this.state,
+    required this.summaryPayments,
     required this.onCancelIntent,
     this.statusFilter,
     this.roleFilter,
@@ -307,6 +344,14 @@ class _HistoryContent extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.only(bottom: Breakpoints.fabClearance),
         children: [
+          if (summaryPayments.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+              child: _SummaryCard(
+                payments: summaryPayments,
+                viewerRole: roleFilter,
+              ),
+            ),
           // Pending intents section
           if (state.pendingIntents.isNotEmpty) ...[
             FwSectionLabel(
@@ -373,6 +418,106 @@ class _HistoryContent extends StatelessWidget {
   }
 }
 
+/// The escrow summary, the card this screen leads with (raised paper):
+/// what is held now, large and in the role's colour, and what has been
+/// released, each as the viewer's own leg of the money.
+class _SummaryCard extends StatelessWidget {
+  final List<Payment> payments;
+  final String? viewerRole;
+
+  const _SummaryCard({required this.payments, this.viewerRole});
+
+  static const _heldStatuses = {
+    PaymentStatus.escrowed,
+    PaymentStatus.held,
+    PaymentStatus.disputed,
+  };
+  static const _releasedStatuses = {
+    PaymentStatus.released,
+    PaymentStatus.completed,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final role = viewerRole ?? 'buyer';
+    var held = 0.0;
+    var released = 0.0;
+    for (final payment in payments) {
+      // A hold whose refund is on its way is no longer held for anyone.
+      if (payment.isRefundPending) continue;
+      if (_heldStatuses.contains(payment.status)) {
+        held += payment.payoutFor(role);
+      } else if (_releasedStatuses.contains(payment.status)) {
+        released += payment.payoutFor(role);
+      }
+    }
+    return FwCard(
+      key: const Key('payments_summary_card'),
+      raised: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.shield_outlined,
+                size: 16,
+                color: AppTheme.slate,
+              ),
+              const SizedBox(width: 8),
+              Expanded(child: FwSectionLabel(l10n.detailHeldInEscrow)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              l10n.etbCurrency(formatEtbAmount(held)),
+              key: const Key('payments_summary_held'),
+              style: TextStyle(
+                fontSize: 32,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.9,
+                height: 1.1,
+                color: context.roleColors.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Divider(height: 1, color: AppTheme.sketch),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.escrowStatusReleased,
+                  style: const TextStyle(fontSize: 14, color: AppTheme.inkSoft),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                l10n.etbCurrency(formatEtbAmount(released)),
+                key: const Key('payments_summary_released'),
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
+                  color: AppTheme.ink,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Nothing to list: the role's large line drawing (only an empty state
+/// gets one) when there are no payments at all, a plain glyph when the
+/// filter matches none.
 class _EmptyState extends StatelessWidget {
   final bool hasFilter;
 
@@ -381,24 +526,32 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final authState = context.read<AuthBloc>().state;
+    final role = authState is AuthAuthenticated ? authState.role : null;
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            hasFilter
-                ? Icons.filter_alt_off
-                : Icons.account_balance_wallet_outlined,
-            size: 56,
-            color: AppTheme.slate,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            hasFilter ? l10n.escrowNoMatchingPayments : l10n.escrowNoPayments,
-            style: FwText.cardTitle,
-            textAlign: TextAlign.center,
-          ),
-        ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (hasFilter || role == null)
+              Icon(
+                hasFilter
+                    ? Icons.filter_alt_off
+                    : Icons.account_balance_wallet_outlined,
+                size: 40,
+                color: AppTheme.sketch,
+              )
+            else
+              RoleSketch.emptyState(role: role, width: 160),
+            const SizedBox(height: 16),
+            Text(
+              hasFilter ? l10n.escrowNoMatchingPayments : l10n.escrowNoPayments,
+              style: FwText.detailTitle.copyWith(fontSize: 26),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -453,7 +606,7 @@ class _PaymentCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
       child: FwCard(
         onTap: onTap,
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -461,8 +614,10 @@ class _PaymentCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
+                  // An amount: the role's colour.
                   child: AmountDisplay(
                     amount: payment.payoutFor(viewerRole ?? 'buyer'),
+                    color: context.roleColors.primary,
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -472,8 +627,11 @@ class _PaymentCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 3),
-            Text(_subtitle(l10n), style: FwText.body),
+            const SizedBox(height: 4),
+            Text(
+              _subtitle(l10n),
+              style: const TextStyle(fontSize: 14, color: AppTheme.slate),
+            ),
             if (payoutAt != null) ...[
               const SizedBox(height: 4),
               PayoutExpectedText(payoutAt: payoutAt),

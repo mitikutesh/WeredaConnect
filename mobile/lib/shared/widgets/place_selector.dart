@@ -29,7 +29,7 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// - Keyboard navigable (up/down/enter to pick, escape to dismiss) and
 ///   accessible (labelled field + results region).
 ///
-/// Pure Flutter — works on mobile and web. The caller owns [controller] so
+/// Pure Flutter: works on mobile and web. The caller owns [controller] so
 /// existing form validators that read `controller.text` keep working unchanged.
 class PlaceSelector extends StatefulWidget {
   const PlaceSelector({
@@ -92,14 +92,14 @@ class PlaceSelector extends StatefulWidget {
   final int minQueryLength;
   final int maxResults;
 
-  /// Renders the field in a compact (dense) layout — used for tight filter rows.
+  /// Renders the field in a compact (dense) layout: used for tight filter rows.
   final bool isDense;
 
   /// Overrides the field's content padding. Defaults to a comfortable
   /// H16/V20 (or a compact H12/V10 when [isDense] is true and this is null).
   final EdgeInsetsGeometry? contentPadding;
 
-  /// The Fieldway boards' field: its label sits above it (the caller wraps
+  /// The boards' field: its label sits above it (the caller wraps
   /// it in a `LabeledField`), so no floating label, a 48 tall box with
   /// radius 14 and the hint inside.
   final bool labelAbove;
@@ -297,11 +297,6 @@ class _PlaceSelectorState extends State<PlaceSelector>
                   isDense: widget.isDense,
                   // Long validator texts (FUP-49 phone refusal) wrap, not clip.
                   errorMaxLines: 3,
-                  border: widget.isDense || widget.labelAbove
-                      ? OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        )
-                      : null,
                   contentPadding: widget.contentPadding ??
                       (widget.isDense
                           ? const EdgeInsets.symmetric(
@@ -310,8 +305,8 @@ class _PlaceSelectorState extends State<PlaceSelector>
                             )
                           : widget.labelAbove
                               ? const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 14,
+                                  horizontal: 16,
+                                  vertical: 15,
                                 )
                               : const EdgeInsets.symmetric(
                                   horizontal: 16,
@@ -337,8 +332,15 @@ class _PlaceSelectorState extends State<PlaceSelector>
         return Align(
           alignment: Alignment.topLeft,
           child: Material(
-            elevation: 4,
-            borderRadius: BorderRadius.circular(12),
+            // The suggestion list: white, radius 16, the quiet card edge.
+            elevation: 6,
+            color: AppTheme.ground,
+            shadowColor: Theme.of(context).colorScheme.shadow,
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: AppTheme.line),
+            ),
             child: Semantics(
               container: true,
               label: l10n.placeResultsLabel,
@@ -418,10 +420,8 @@ class _PlaceOptionTile extends StatelessWidget {
       // (up/down + enter).
       canRequestFocus: false,
       child: Container(
-        color: highlighted
-            ? context.roleColors.primary.withValues(alpha: 0.08)
-            : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        color: highlighted ? AppTheme.paper : Colors.transparent,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -438,7 +438,7 @@ class _PlaceOptionTile extends StatelessWidget {
                   Text(
                     title,
                     style: theme.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   if (subtitle.isNotEmpty)
                     Text(

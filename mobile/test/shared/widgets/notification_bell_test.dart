@@ -18,6 +18,7 @@ import 'package:wereda_connect/features/notifications/domain/base_notification_r
 import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
 import 'package:wereda_connect/features/reputation/presentation/screens/my_reputation_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/notification_bell.dart';
 
@@ -124,6 +125,26 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('something new: the orange dot in a ring of the paper grey',
+      (tester) async {
+    await pumpBell(tester);
+
+    final dot = tester.widget<Container>(
+      find.byKey(const Key('notification_bell_dot')),
+    );
+    final decoration = dot.decoration! as BoxDecoration;
+    expect(decoration.color, AppTheme.orange);
+    expect(decoration.shape, BoxShape.circle);
+    expect(decoration.border!.top.color, AppTheme.paper);
+    final button = tester.widget<FwSquareButton>(find.byType(FwSquareButton));
+    expect(button.background, AppTheme.paper);
+
+    // Opening the sheet marks the inbox seen: the dot goes.
+    await tester.tap(find.byIcon(Icons.notifications_outlined));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('notification_bell_dot')), findsNothing);
   });
 
   testWidgets('opens the inbox and marks it seen', (tester) async {

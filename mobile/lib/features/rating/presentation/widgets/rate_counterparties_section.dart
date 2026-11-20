@@ -93,7 +93,6 @@ class _RateCounterpartiesSectionState extends State<RateCounterpartiesSection> {
   Widget build(BuildContext context) {
     if (_loading) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
 
     // Everything already rated → confirmation line.
     if (_farmerRated && (!_hasTrucker || _truckerRated)) {
@@ -105,7 +104,16 @@ class _RateCounterpartiesSectionState extends State<RateCounterpartiesSection> {
             size: 18,
           ),
           const SizedBox(width: 8),
-          Text(l10n.alreadyRated, style: theme.textTheme.bodyMedium),
+          Expanded(
+            child: Text(
+              l10n.alreadyRated,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.ink,
+              ),
+            ),
+          ),
         ],
       );
     }
@@ -126,9 +134,6 @@ class _RateCounterpartiesSectionState extends State<RateCounterpartiesSection> {
             ),
             icon: const Icon(Icons.star_outline),
             label: Text(l10n.rateFarmer),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
           ),
           const SizedBox(height: 12),
         ],
@@ -143,9 +148,6 @@ class _RateCounterpartiesSectionState extends State<RateCounterpartiesSection> {
             ),
             icon: const Icon(Icons.star_outline),
             label: Text(l10n.rateTrucker),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
           ),
           const SizedBox(height: 12),
         ],

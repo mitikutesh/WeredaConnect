@@ -5,9 +5,8 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Stacked row showing the server value for one changed field.
 ///
-/// Uses green background with left border and checkmark to indicate
-/// the applied (current) version — consistent with the UX design spec's
-/// visual cues for low-literacy users.
+/// A success-tint tile with a check and the words "current version": the
+/// applied value is said twice, never by colour alone.
 class ConflictFieldDiff extends StatelessWidget {
   final String fieldName;
   final String serverValue;
@@ -25,12 +24,9 @@ class ConflictFieldDiff extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: AppTheme.statusSuccessContainer,
-        borderRadius: BorderRadius.circular(4),
-        border: const Border(
-          left: BorderSide(color: AppTheme.onStatusSuccessContainer, width: 4),
-        ),
+        borderRadius: BorderRadius.circular(16),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -41,7 +37,8 @@ class ConflictFieldDiff extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 12,
                   color: AppTheme.onStatusSuccessContainer,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.4,
                 ),
               ),
               const SizedBox(width: 4),
@@ -55,7 +52,11 @@ class ConflictFieldDiff extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '$fieldName: $serverValue',
-            style: const TextStyle(fontSize: 14),
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.ink,
+            ),
           ),
         ],
       ),
