@@ -92,8 +92,12 @@ class _MainNavigationState extends State<MainNavigation> {
                 setState(() => _currentIndex = index);
               },
             ),
-          RoleTab.myCrops =>
-            const BrowseListingsScreen(ownerMode: true, embedded: true),
+          RoleTab.myCrops => BrowseListingsScreen(
+              ownerMode: true,
+              embedded: true,
+              // The empty state's "Back to Home".
+              onBackToHome: () => setState(() => _currentIndex = 0),
+            ),
           RoleTab.myTrips => const BrowseTripsScreen(embedded: true),
           RoleTab.market => const MarketScreen(),
           RoleTab.orders => const OrdersTabScreen(),
