@@ -99,7 +99,7 @@ Built in the same language: profile, settings, data usage, edit profile, delete 
 
 The merged web build was run against the dev API as the three test users at 390 and 1280 px (reads only; writes were blocked in the browser). Farmer and trucker are sent away from Find Crops; the trucker sees only their own trips; the buyer sees every farmer's crops and every trucker's trips. Every API read returned 200; the only failed requests were crop photos the dev data names but S3 does not hold ("Photo not available yet"). Two defects were fixed from it: the header sketch cut the person and place line short on the Orders tab, and delivery detail coloured every party with the viewer's role colour.
 
-Seen there, older than this change and left as it was: Home's "Pending Orders" tile counts the farmer's funded orders while the Orders tab's Pending filter shows the `pending` status, so the two can disagree; the "(5%)" in "Platform Commission (5%)" on checkout and order detail is a fixed string (the trip log now reads the order's own rate).
+Seen there, older than this change and left as it was: Home's "Pending Orders" tile counts the farmer's funded orders while the Orders tab's Pending filter shows the `pending` status, so the two can disagree; the "(5%)" in "Platform Commission (5%)" on checkout and order detail is a fixed string (the trip log now reads the order's own rate). The old `/marketplace` web address (kept for bookmarks) opens Find Crops with no tab marked and no create button; the Market tab itself is `/find-crops`.
 
 ## Owed
 
