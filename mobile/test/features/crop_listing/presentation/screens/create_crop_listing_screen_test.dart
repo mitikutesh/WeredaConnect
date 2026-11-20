@@ -22,6 +22,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/screens/create
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import '../../../../helpers/crop_photo_fixtures.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
@@ -124,6 +125,20 @@ void main() {
 
       // Verify audio note placeholder
       expect(find.text('Record Audio Note'), findsOneWidget);
+    });
+
+    testWidgets('each crop pill draws its own glyph', (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      for (final crop in ['teff', 'chickpea', 'coffee', 'sesame']) {
+        final glyph = find.descendant(
+          of: find.byKey(Key('create_listing_crop_$crop')),
+          matching: find.byType(CropGlyph),
+        );
+        expect(glyph, findsOneWidget, reason: crop);
+        expect(tester.widget<CropGlyph>(glyph).cropKey, crop);
+      }
     });
 
     testWidgets('shows validation errors on empty submit', (tester) async {

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wereda_connect/shared/widgets/listing_card.dart';
 
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// The boards' crop tiles: Market (wheat on the orange tint, maize on the
@@ -27,7 +28,7 @@ void main() {
     expect(cropTileColors('quinoa').foreground, AppTheme.statusSuccess);
   });
 
-  testWidgets('a listing card draws the sprout at 24 px in its tile',
+  testWidgets('a listing card draws the crop glyph at 24 px in its tile',
       (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
@@ -42,9 +43,10 @@ void main() {
         ),
       ),
     );
-    final sprout = find.byType(FwSprout);
+    final sprout = find.byType(CropGlyph);
     expect(sprout, findsOneWidget);
-    expect(tester.widget<FwSprout>(sprout).color, AppTheme.inkSoft);
+    expect(tester.widget<CropGlyph>(sprout).cropKey, 'teff');
+    expect(tester.widget<CropGlyph>(sprout).color, AppTheme.inkSoft);
     expect(
       tester.getSize(
         find.descendant(of: sprout, matching: find.byType(CustomPaint)),

@@ -7,6 +7,7 @@ import 'package:wereda_connect/features/buyer/domain/new_matches.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// A buyer's request on Find Crops, My Requests, in the Market board's card
@@ -45,7 +46,7 @@ class IntentCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 14, 6, 14),
       child: Row(
         children: [
-          // The boards' crop tile: the sprout in the crop's colours.
+          // The boards' crop tile: the crop's glyph in its colours.
           Container(
             width: 48,
             height: 48,
@@ -53,7 +54,9 @@ class IntentCard extends StatelessWidget {
               color: cropTileColors(intent.cropType).background,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: FwSprout(
+            child: CropGlyph(
+              cropKey: intent.cropType,
+              size: 22,
               color: cropTileColors(intent.cropType).foreground,
             ),
           ),

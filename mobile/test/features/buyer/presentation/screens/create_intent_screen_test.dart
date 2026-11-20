@@ -12,6 +12,7 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_blo
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -83,6 +84,19 @@ void main() {
       final chip = find.byKey(Key('create_intent_crop_${crop.toLowerCase()}'));
       expect(chip, findsOneWidget);
       expect(tester.getBottomRight(chip).dx, lessThanOrEqualTo(390));
+    }
+  });
+
+  testWidgets('each crop chip draws its own glyph', (tester) async {
+    await pump(tester);
+
+    for (final crop in ['wheat', 'lentils', 'coffee']) {
+      final glyph = find.descendant(
+        of: find.byKey(Key('create_intent_crop_$crop')),
+        matching: find.byType(CropGlyph),
+      );
+      expect(glyph, findsOneWidget, reason: crop);
+      expect(tester.widget<CropGlyph>(glyph).cropKey, crop);
     }
   });
 

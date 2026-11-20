@@ -11,6 +11,7 @@ import 'package:wereda_connect/features/live_trip/presentation/widgets/live_trip
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/dashed_border.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
@@ -170,9 +171,9 @@ class DeliveryCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Padding(
-                  padding: EdgeInsets.only(top: 1),
-                  child: FwSprout(size: 20, color: AppTheme.ink),
+                Padding(
+                  padding: const EdgeInsets.only(top: 1),
+                  child: CropGlyph(cropKey: cropKey, color: AppTheme.ink),
                 ),
                 const SizedBox(width: 6),
                 Flexible(
@@ -490,9 +491,9 @@ class DeliveryCropTile extends StatelessWidget {
         color: background,
         borderRadius: BorderRadius.circular(14),
       ),
-      // The boards' sprout while the crop is on its way.
+      // The crop's glyph while it is on its way.
       child: icon == null
-          ? FwSprout(color: foreground)
+          ? CropGlyph(cropKey: cropKey, size: 22, color: foreground)
           : Icon(icon, size: 22, color: foreground),
     );
   }

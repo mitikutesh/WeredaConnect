@@ -46,6 +46,7 @@ import 'package:wereda_connect/shared/services/place_normalizer.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/account_menu.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/listing_card.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
@@ -929,6 +930,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                       _notSent.contains(listing.listingId);
                                   return OwnListingCard(
                                     crop: crop,
+                                    cropKey: listing.cropType,
                                     subtitle:
                                         _ownListingSubtitle(listing, l10n),
                                     price: _pricePerKgFormat
@@ -1459,12 +1461,12 @@ class _CropTypeChipsRow extends StatelessWidget {
           _CropChip(
             label: l10n.allCrops,
             selected: selectedCropType == null,
-            showGlyph: false,
             onTap: () => onCropTypeChanged(null),
           ),
           for (final type in CropType.values)
             _CropChip(
               label: type.displayName(l10n),
+              cropKey: type.name,
               selected: selectedCropType == type.name,
               onTap: () => onCropTypeChanged(type.name),
             ),
@@ -1477,14 +1479,16 @@ class _CropTypeChipsRow extends StatelessWidget {
 class _CropChip extends StatelessWidget {
   final String label;
   final bool selected;
-  final bool showGlyph;
+
+  /// The crop's stored key, for its glyph; null on "All" (no glyph).
+  final String? cropKey;
   final VoidCallback onTap;
 
   const _CropChip({
     required this.label,
     required this.selected,
     required this.onTap,
-    this.showGlyph = true,
+    this.cropKey,
   });
 
   @override
@@ -1517,8 +1521,8 @@ class _CropChip extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (showGlyph) ...[
-                        ExcludeSemantics(child: FwSprout(color: ink, size: 20)),
+                      if (cropKey != null) ...[
+                        CropGlyph(cropKey: cropKey, color: ink),
                         const SizedBox(width: 6),
                       ],
                       Text(

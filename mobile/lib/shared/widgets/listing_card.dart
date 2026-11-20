@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/low_reputation_pill.dart';
 
@@ -152,7 +153,11 @@ class ListingCard extends StatelessWidget {
                       color: iconBg,
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: FwSprout(color: iconFg, size: 24),
+                    child: CropGlyph(
+                      cropKey: isWheat ? 'wheat' : cropKey,
+                      color: iconFg,
+                      size: 24,
+                    ),
                   ),
               const SizedBox(width: 12),
               Expanded(

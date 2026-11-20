@@ -24,6 +24,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
@@ -630,8 +631,8 @@ class _GpsStatusIndicator extends StatelessWidget {
   }
 }
 
-/// The board's crop picker: three pills per row (44 tall), each with the
-/// sprout glyph; the chosen one black with white ink and a check.
+/// The board's crop picker: three pills per row (44 tall), each with its
+/// crop's glyph; the chosen one black with white ink and a check.
 class _CropTypeGrid extends StatelessWidget {
   final CropType? selectedCropType;
   final ValueChanged<CropType> onSelected;
@@ -683,7 +684,8 @@ class _CropTypeGrid extends StatelessWidget {
                           ),
                           const SizedBox(width: 4),
                         ],
-                        FwSprout(
+                        CropGlyph(
+                          cropKey: type.name,
                           size: 18,
                           color: isSelected ? Colors.white : AppTheme.inkSoft,
                         ),

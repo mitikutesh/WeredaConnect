@@ -62,8 +62,10 @@ class RoleSketch extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!sketchesShown(context)) return const SizedBox.shrink();
     final drawing = _drawings[role]!;
-    final size =
-        Size(width, width * drawing.viewBox.height / drawing.viewBox.width);
+    final size = Size(
+      width,
+      width * drawing.viewBox.height / drawing.viewBox.width,
+    );
     // Rule 1: decoration, nothing for a screen reader or a tap.
     return ExcludeSemantics(
       child: IgnorePointer(
@@ -77,7 +79,7 @@ class RoleSketch extends StatelessWidget {
 }
 
 /// One stroke of a drawing: a path in the canvas's own SVG path words
-/// (absolute M, L, H, V, C and Z only) or a circle, with its line weight
+/// (read by [sketchPath]) or a circle, with its line weight
 /// relative to the drawing's main line.
 class _Stroke {
   final String? path;
@@ -151,55 +153,86 @@ const Map<UserRole, _Drawing> _drawings = {
   ]),
 };
 
-/// Reads the few SVG path words the drawings use: absolute M, L, H, V, C
-/// and Z, numbers split by spaces or commas.
-@visibleForTesting
+/// Reads the SVG path words the canvas's drawings use: M, L, H, V, C, S
+/// and Z, absolute or relative (lower case), numbers split by spaces,
+/// commas or only their own sign ("4-1.4"), a word repeated without
+/// writing it again ("c0-4 3-7 8-7 0 5-3 8-8 7"). Shared with the crop
+/// glyphs (crop_glyph.dart).
 Path sketchPath(String d) {
   final path = Path();
-  final tokens = RegExp(r'[MLHVCZ]|-?\d+(?:\.\d+)?').allMatches(d);
+  final tokens = RegExp(
+    r'[MLHVCSZmlhvcsz]|-?(?:\d+\.?\d*|\.\d+)',
+  ).allMatches(d);
   var command = '';
   final numbers = <double>[];
   var current = Offset.zero;
+  var start = Offset.zero;
+  // The last curve's second control point, mirrored by a following S.
+  Offset? lastControl;
 
   void flush() {
-    switch (command) {
+    final relative = command == command.toLowerCase();
+    final origin = relative ? current : Offset.zero;
+    Offset? control;
+    switch (command.toUpperCase()) {
       case 'M':
-        current = Offset(numbers[0], numbers[1]);
+        current = origin + Offset(numbers[0], numbers[1]);
+        start = current;
         path.moveTo(current.dx, current.dy);
+        // More pairs after a move are lines.
+        command = relative ? 'l' : 'L';
       case 'L':
-        current = Offset(numbers[0], numbers[1]);
+        current = origin + Offset(numbers[0], numbers[1]);
         path.lineTo(current.dx, current.dy);
       case 'H':
-        current = Offset(numbers[0], current.dy);
+        current = Offset(origin.dx + numbers[0], current.dy);
         path.lineTo(current.dx, current.dy);
       case 'V':
-        current = Offset(current.dx, numbers[0]);
+        current = Offset(current.dx, origin.dy + numbers[0]);
         path.lineTo(current.dx, current.dy);
       case 'C':
-        current = Offset(numbers[4], numbers[5]);
+        final c1 = origin + Offset(numbers[0], numbers[1]);
+        control = origin + Offset(numbers[2], numbers[3]);
+        current = origin + Offset(numbers[4], numbers[5]);
         path.cubicTo(
-          numbers[0],
-          numbers[1],
-          numbers[2],
-          numbers[3],
-          numbers[4],
-          numbers[5],
+          c1.dx,
+          c1.dy,
+          control.dx,
+          control.dy,
+          current.dx,
+          current.dy,
+        );
+      case 'S':
+        final previous = lastControl;
+        final c1 = previous == null ? current : current * 2 - previous;
+        control = origin + Offset(numbers[0], numbers[1]);
+        current = origin + Offset(numbers[2], numbers[3]);
+        path.cubicTo(
+          c1.dx,
+          c1.dy,
+          control.dx,
+          control.dy,
+          current.dx,
+          current.dy,
         );
     }
+    lastControl = control;
     numbers.clear();
   }
 
-  const arity = {'M': 2, 'L': 2, 'H': 1, 'V': 1, 'C': 6};
+  const arity = {'M': 2, 'L': 2, 'H': 1, 'V': 1, 'C': 6, 'S': 4};
   for (final token in tokens) {
     final word = token.group(0)!;
-    if (word == 'Z') {
+    if (word == 'Z' || word == 'z') {
       path.close();
+      current = start;
+      lastControl = null;
       command = '';
-    } else if (arity.containsKey(word)) {
+    } else if (arity.containsKey(word.toUpperCase())) {
       command = word;
     } else {
       numbers.add(double.parse(word));
-      if (numbers.length == arity[command]) flush();
+      if (numbers.length == arity[command.toUpperCase()]) flush();
     }
   }
   return path;
