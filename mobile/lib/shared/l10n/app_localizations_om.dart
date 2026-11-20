@@ -4984,6 +4984,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get homeTileWaitingForYou => 'isin eegaa jira';
 
   @override
+  String get ordersFilterWaitingForYou => 'Isin kan eegan';
+
+  @override
   String get homeTileHeldInEscrow => 'eeskiroo keessa qabamee jira';
 
   @override

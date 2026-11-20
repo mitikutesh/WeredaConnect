@@ -3127,6 +3127,7 @@
   "homeTripMatchedLine": "Bakka fe'umsaatti QR qonnaan bulaa hundaa iskaanii godhaa",
   "homeTileActiveReserved": "{active} hojiirra, {reserved} qabame",
   "homeTileWaitingForYou": "isin eegaa jira",
+  "ordersFilterWaitingForYou": "Isin kan eegan",
   "homeTileHeldInEscrow": "eeskiroo keessa qabamee jira",
   "homeTileInTransit": "geejjibamaa jira",
   "homeTileInProgress": "adeemsa irra",

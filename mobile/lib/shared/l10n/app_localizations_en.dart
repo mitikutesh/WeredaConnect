@@ -4928,6 +4928,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get homeTileWaitingForYou => 'waiting for you';
 
   @override
+  String get ordersFilterWaitingForYou => 'Waiting for you';
+
+  @override
   String get homeTileHeldInEscrow => 'held in escrow';
 
   @override
