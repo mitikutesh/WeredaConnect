@@ -13,6 +13,7 @@ import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.d
 import 'package:wereda_connect/features/live_trip/domain/models/track_result.dart';
 import 'package:wereda_connect/features/live_trip/domain/track_freshness.dart';
 import 'package:wereda_connect/features/live_trip/presentation/live_trip_text.dart';
+import 'package:wereda_connect/features/live_trip/presentation/map/track_map_painter.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/track_builder.dart';
 import 'package:wereda_connect/features/live_trip/presentation/widgets/track_map.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/conversation_screen.dart';
@@ -20,6 +21,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
+import 'package:wereda_connect/shared/widgets/dashed_border.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
@@ -58,21 +60,26 @@ List<Widget> trackReadNotice(BuildContext context, TrackView view) {
   ];
 }
 
-/// The boards' back button: a white square with an arrow, over a map or at
-/// the start of a header row. Pops the route.
+/// The boards' back button: a round paper button with an arrow, at the
+/// start of a header row, or [floating] over a map with a soft shadow.
+/// Pops the route.
 class LiveTripBackButton extends StatelessWidget {
   const LiveTripBackButton({
-    this.background = AppTheme.surfaceWhite,
+    this.background = AppTheme.paper,
     this.foreground = AppTheme.ink,
     this.border,
+    this.floating = false,
     super.key,
   });
 
   final Color background;
   final Color foreground;
 
-  /// The edge; the whisper border by default, none on a dark header.
+  /// An edge; none by default.
   final Color? border;
+
+  /// Over a map: lifted on a soft shadow.
+  final bool floating;
 
   @override
   Widget build(BuildContext context) {
@@ -83,15 +90,25 @@ class LiveTripBackButton extends StatelessWidget {
       semanticLabel: l10n.back,
       background: background,
       foreground: foreground,
-      border: border ?? AppTheme.line,
+      border: border,
+      floating: floating,
       onTap: () => Navigator.of(context).maybePop(),
     );
   }
 }
 
+/// The soft shadow under a control that floats over the map.
+const List<BoxShadow> liveTripFloatShadow = [
+  BoxShadow(
+    color: Color(0x241A1516),
+    blurRadius: 16,
+    offset: Offset(0, 6),
+  ),
+];
+
 /// A small status pill with a dot or an icon before the label (the
-/// Foundations board's freshness chips, the Arriving and Farmer pills):
-/// 28 tall, radius 8, bold 12.
+/// freshness chips, the Arriving, Farmer and Release pending pills of
+/// page M): a stadium 26 tall, extra bold 12.
 class DotPill extends StatelessWidget {
   const DotPill({
     required this.label,
@@ -100,11 +117,26 @@ class DotPill extends StatelessWidget {
     this.dotColor,
     this.icon,
     this.border,
-    this.height = 28,
-    this.radius = 8,
+    this.borderWidth = 1,
+    this.height = 26,
+    this.radius = 999,
     this.fontSize = 12,
+    this.fontWeight = FontWeight.w800,
     super.key,
   });
+
+  /// The boards' "Release pending": orange with a 1.5 px black edge.
+  const DotPill.action({required this.label, super.key})
+      : background = AppTheme.orange,
+        foreground = AppTheme.ink,
+        dotColor = null,
+        icon = null,
+        border = AppTheme.ink,
+        borderWidth = 1.5,
+        height = 26,
+        radius = 999,
+        fontSize = 12,
+        fontWeight = FontWeight.w800;
 
   final String label;
   final Color background;
@@ -114,19 +146,23 @@ class DotPill extends StatelessWidget {
   final Color? dotColor;
   final IconData? icon;
   final Color? border;
+  final double borderWidth;
   final double height;
   final double radius;
   final double fontSize;
+  final FontWeight fontWeight;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: height,
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      constraints: BoxConstraints(minHeight: height),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(radius),
-        border: border == null ? null : Border.all(color: border!),
+        border: border == null
+            ? null
+            : Border.all(color: border!, width: borderWidth),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -152,7 +188,7 @@ class DotPill extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: fontSize,
-                fontWeight: FontWeight.w700,
+                fontWeight: fontWeight,
                 color: foreground,
               ),
             ),
@@ -172,6 +208,7 @@ class CheckInChip extends StatelessWidget {
     required this.now,
     required this.places,
     this.compact = false,
+    this.oneLine = false,
     super.key,
   });
 
@@ -182,79 +219,97 @@ class CheckInChip extends StatelessWidget {
   /// One line, for a list card.
   final bool compact;
 
+  /// The map chip on one line ("11:42 · Bishoftu · 28 min ago", the web
+  /// board) instead of the time over the age.
+  final bool oneLine;
+
   @override
   Widget build(BuildContext context) {
     final band = trackFreshness(track, now);
     if (band == null) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
     final text = checkInChipText(context, track, now, places, band);
-    // The Foundations board's freshness colours: fresh on a green tint, the
-    // hourly rhythm white, late on cream, paused and scans only on grey,
-    // ended on the drop-off blue tint.
-    final (background, foreground) = switch (band) {
-      TrackFreshness.late => (AppTheme.orangeTint, AppTheme.orangeInk),
-      TrackFreshness.paused || TrackFreshness.scansOnly => (
-          AppTheme.segmentTrack,
-          AppTheme.inkSoft
-        ),
-      TrackFreshness.ended => (
-          AppTheme.dropoffSlateTint,
-          AppTheme.dropoffSlate
-        ),
-      TrackFreshness.fresh => (
-          context.roleColors.tint,
-          context.roleColors.primary
-        ),
-      TrackFreshness.normal => (AppTheme.surfaceWhite, AppTheme.ink),
-    };
-    final icon = switch (band) {
-      TrackFreshness.late => Icons.signal_cellular_connected_no_internet_0_bar,
-      TrackFreshness.paused => Icons.pause_circle_outline,
-      TrackFreshness.scansOnly => Icons.qr_code_2,
-      TrackFreshness.ended => Icons.check_circle_outline,
-      TrackFreshness.fresh || TrackFreshness.normal => Icons.local_shipping,
-    };
     final rhythm =
         band == TrackFreshness.fresh || band == TrackFreshness.normal;
     if (compact) {
-      // The list card's pill: a dot for the rhythm, the band's icon else.
+      // The Foundations board's freshness chips: fresh on the warm grey
+      // with a black dot, the hourly rhythm white with an edge and a grey
+      // dot, late on the orange tint, paused and scans only neutral, ended
+      // grey.
+      final (background, foreground) = switch (band) {
+        TrackFreshness.late => (AppTheme.orangeTint, AppTheme.orangeInk),
+        TrackFreshness.paused || TrackFreshness.scansOnly => (
+            AppTheme.segmentTrack,
+            AppTheme.inkSoft
+          ),
+        TrackFreshness.ended => (AppTheme.dropoffSlateTint, AppTheme.slate),
+        TrackFreshness.fresh => (AppTheme.segmentTrack, AppTheme.ink),
+        TrackFreshness.normal => (AppTheme.surfaceWhite, AppTheme.ink),
+      };
+      final icon = switch (band) {
+        TrackFreshness.late =>
+          Icons.signal_cellular_connected_no_internet_0_bar,
+        TrackFreshness.paused => Icons.pause_circle_outline,
+        TrackFreshness.scansOnly => Icons.qr_code_2,
+        TrackFreshness.ended => Icons.check_circle_outline,
+        TrackFreshness.fresh || TrackFreshness.normal => null,
+      };
       return DotPill(
         label: text.compact,
-        background: rhythm ? AppTheme.ground : background,
+        background: background,
         foreground: foreground,
-        border: rhythm ? AppTheme.line : null,
+        border: band == TrackFreshness.normal ? AppTheme.line : null,
         dotColor: rhythm
-            ? (band == TrackFreshness.fresh
-                ? context.roleColors.primary
-                : AppTheme.slate)
+            ? (band == TrackFreshness.fresh ? AppTheme.ink : AppTheme.slate)
             : null,
-        icon: rhythm ? null : icon,
-        height: 26,
+        icon: icon,
+        fontWeight: FontWeight.w700,
       );
     }
+    // Over the map (the Buyer live trip board): a white card with the time
+    // and town over the age, on the orange tint when the check-in is late.
+    final late = band == TrackFreshness.late;
+    final foreground = late ? AppTheme.orangeInk : AppTheme.ink;
     return Semantics(
       container: true,
       label: l10n.liveTripTitle,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
-          color: background,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x1F15201A),
-              blurRadius: 14,
-              offset: Offset(0, 4),
-            ),
-          ],
+          color: late ? AppTheme.orangeTint : AppTheme.surfaceWhite,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: liveTripFloatShadow,
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: foreground),
-            const SizedBox(width: 7),
-            Flexible(
-              child: Column(
+        child: oneLine
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: late ? AppTheme.orangeInk : AppTheme.slate,
+                    ),
+                  ),
+                  const SizedBox(width: 7),
+                  Flexible(
+                    child: Text(
+                      text.subtitle == null
+                          ? text.title
+                          : '${text.title} · ${text.subtitle}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: foreground,
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -263,7 +318,7 @@ class CheckInChip extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      fontSize: 12,
+                      fontSize: 13,
                       fontWeight: FontWeight.w800,
                       color: foreground,
                     ),
@@ -274,16 +329,13 @@ class CheckInChip extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: foreground.withValues(alpha: 0.85),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: foreground,
                       ),
                     ),
                 ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -371,6 +423,8 @@ class LiveTripMap extends StatelessWidget {
     this.borderRadius = 16,
     this.showChip = true,
     this.chipTop = 12,
+    this.chipOneLine = false,
+    this.focus = TrackMapFocus.wholeRoute,
     this.overlay = const [],
     super.key,
   });
@@ -387,6 +441,12 @@ class LiveTripMap extends StatelessWidget {
 
   /// Where the chip starts, so it clears the controls floating over the map.
   final double chipTop;
+
+  /// The chip on one line (the web board).
+  final bool chipOneLine;
+
+  /// What the map frames.
+  final TrackMapFocus focus;
 
   /// Widgets drawn over the map (the boards' floating back button and crop
   /// pill), positioned by the caller.
@@ -410,6 +470,7 @@ class LiveTripMap extends StatelessWidget {
                 track: track,
                 now: now,
                 places: places,
+                focus: focus,
                 semanticLabel: place == null
                     ? l10n.liveTripMapSemanticsNoPlace
                     : l10n.liveTripMapSemantics(place),
@@ -422,7 +483,12 @@ class LiveTripMap extends StatelessWidget {
                 right: 12,
                 child: Align(
                   alignment: Alignment.topLeft,
-                  child: CheckInChip(track: track, now: now, places: places),
+                  child: CheckInChip(
+                    track: track,
+                    now: now,
+                    places: places,
+                    oneLine: chipOneLine,
+                  ),
                 ),
               ),
             ...overlay,
@@ -457,8 +523,8 @@ class RouteRibbon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final done = ended ? AppTheme.slate : context.roleColors.primary;
-    const ahead = AppTheme.line;
+    final done = ended ? AppTheme.ink : context.roleColors.primary;
+    const ahead = AppTheme.track;
     Widget dot(int i) => Container(
           width: 10,
           height: 10,
@@ -502,11 +568,10 @@ class RouteRibbon extends StatelessWidget {
                       : i == stops.length - 1
                           ? TextAlign.end
                           : TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight:
-                        i == reached ? FontWeight.w700 : FontWeight.w500,
-                    color: i == reached ? AppTheme.ink : AppTheme.slate,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.inkSoft,
                   ),
                 ),
               ),
@@ -568,11 +633,16 @@ List<RibbonStop> ribbonStopsOf(
 }
 
 /// The four steps of a delivery (Agreed, Picked up, On the road, Delivered),
-/// with the pickup time under the second.
+/// with the pickup time under the second. On a phone (page M) the steps
+/// done are black, the current one orange with a black edge and extra bold,
+/// the ones ahead on the empty track. [web] is the web deliveries board:
+/// smaller labels, the done steps in the role colour and the current label
+/// in the orange ink.
 class TripProgress extends StatelessWidget {
-  const TripProgress({required this.delivery, super.key});
+  const TripProgress({required this.delivery, this.web = false, super.key});
 
   final Delivery delivery;
+  final bool web;
 
   @override
   Widget build(BuildContext context) {
@@ -594,57 +664,72 @@ class TripProgress extends StatelessWidget {
       l10n.liveTripStatusOnTheRoad,
       l10n.deliveryStatusDelivered,
     ];
-    // The boards: done steps green, the current one gold with brown text,
-    // the ones ahead on the whisper border colour.
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var i = 0; i < steps.length; i++)
-          Expanded(
-            child: Padding(
-              padding: EdgeInsets.only(right: i < steps.length - 1 ? 6 : 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: i < reached
-                          ? context.roleColors.primary
-                          : i == reached
-                              ? AppTheme.orange
-                              : AppTheme.line,
-                      borderRadius: BorderRadius.circular(999),
+    final done = web ? context.roleColors.primary : AppTheme.ink;
+    return Semantics(
+      container: true,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < steps.length; i++)
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(right: i < steps.length - 1 ? 6 : 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      key: i == reached
+                          ? const Key('trip_progress_current')
+                          : null,
+                      height: i == reached ? 6 : 4,
+                      margin: EdgeInsets.symmetric(
+                        vertical: i == reached ? 0 : 1,
+                      ),
+                      decoration: BoxDecoration(
+                        color: i < reached
+                            ? done
+                            : i == reached
+                                ? AppTheme.orange
+                                : AppTheme.track,
+                        border: i == reached
+                            ? Border.all(color: AppTheme.ink, width: 1.5)
+                            : null,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    steps[i],
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight:
-                          i <= reached ? FontWeight.w700 : FontWeight.w600,
-                      color: i == reached
-                          ? context.roleColors.primary
-                          : i < reached
-                              ? AppTheme.ink
-                              : AppTheme.slate,
+                    const SizedBox(height: 7),
+                    Text(
+                      steps[i],
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: web ? 11 : 13,
+                        height: 1.25,
+                        fontWeight: i == reached
+                            ? (web ? FontWeight.w700 : FontWeight.w800)
+                            : i < reached
+                                ? FontWeight.w700
+                                : (web ? FontWeight.w600 : FontWeight.w500),
+                        color: i == reached && web
+                            ? AppTheme.orangeInk
+                            : i <= reached
+                                ? AppTheme.ink
+                                : AppTheme.slate,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// A short note: late, paused and offline in a tinted box (radius 14, the
-/// boards), or [plain] as an icon and a line of text without a box (the
-/// escrow line, the scan note).
+/// A short note: late on the orange tint, paused and scans only inside a
+/// dashed edge, offline on black (radius 24, the boards), or [plain] as an
+/// icon and a line of text without a box (the escrow line, the scan note).
 class LiveTripNote extends StatelessWidget {
   const LiveTripNote({
     required this.icon,
@@ -660,7 +745,7 @@ class LiveTripNote extends StatelessWidget {
   final ClockLabel text;
   final StatusKind kind;
 
-  /// No box: the icon in the kind's colour, the text in the secondary ink.
+  /// No box: the icon in the role colour, the text in the secondary ink.
   final bool plain;
 
   /// Override the kind's colours (the offline note is dark with white text).
@@ -669,14 +754,17 @@ class LiveTripNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dashed = !plain && background == null && kind == StatusKind.neutral;
     final iconColor = foreground ??
         (plain
             ? (kind == StatusKind.success
                 ? context.roleColors.primary
                 : kind.foreground)
-            : kind.foreground);
+            : dashed
+                ? AppTheme.inkSoft
+                : kind.foreground);
     final textColor =
-        foreground ?? (plain ? AppTheme.inkSoft : kind.foreground);
+        foreground ?? (plain || dashed ? AppTheme.inkSoft : kind.foreground);
     final row = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -689,9 +777,9 @@ class LiveTripNote extends StatelessWidget {
           child: ClockText(
             text,
             style: TextStyle(
-              fontSize: 13,
-              height: 1.45,
-              fontWeight: plain ? FontWeight.w500 : FontWeight.w600,
+              fontSize: 14,
+              height: 1.4,
+              fontWeight: FontWeight.w500,
               color: textColor,
             ),
           ),
@@ -699,12 +787,16 @@ class LiveTripNote extends StatelessWidget {
       ],
     );
     if (plain) return row;
+    const padding = EdgeInsets.symmetric(horizontal: 16, vertical: 12);
+    if (dashed) {
+      return DashedBorderBox(padding: padding, child: row);
+    }
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: padding,
       decoration: BoxDecoration(
         color: background ?? kind.background,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: row,
     );
@@ -720,6 +812,7 @@ class ArrivalWindowBlock extends StatelessWidget {
     required this.now,
     this.prefix,
     this.compact = false,
+    this.web = false,
     super.key,
   });
 
@@ -728,6 +821,9 @@ class ArrivalWindowBlock extends StatelessWidget {
 
   /// Wraps the window in a sentence (the farmer's "Arrives {time}").
   final String Function(String time)? prefix;
+
+  /// The web deliveries board's block: the window at 30 px in black.
+  final bool web;
 
   /// One small muted line (the farmer's card, beside the check-in chip):
   /// the sentence only, no label and no distance.
@@ -746,9 +842,16 @@ class ArrivalWindowBlock extends StatelessWidget {
         : remaining == null
             ? null
             : l10n.liveTripKmToGo(kmText(remaining));
-    const small = TextStyle(
-      fontSize: 12,
-      fontWeight: FontWeight.w500,
+    // The farmer's line under the map: "Arrives 13:20-14:00" in the role
+    // colour.
+    final small = TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w800,
+      color: context.roleColors.primary,
+    );
+    final subStyle = TextStyle(
+      fontSize: web ? 12 : 14,
+      height: 1.35,
       color: AppTheme.slate,
     );
     if (eta == null) {
@@ -770,8 +873,8 @@ class ArrivalWindowBlock extends StatelessWidget {
             after: _after(sentence),
           );
     if (compact) return ClockText(label, style: small);
-    // The boards' arrival block: a 13 px label, the window at 30 px, the
-    // distance at 12 px.
+    // The boards' arrival block: a 13 px label, the window at 36 px in the
+    // role colour, the distance at 14 px.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -793,16 +896,19 @@ class ArrivalWindowBlock extends StatelessWidget {
           alignment: AlignmentDirectional.centerStart,
           child: ClockText(
             label,
-            style: const TextStyle(
-              fontSize: 30,
+            style: TextStyle(
+              fontSize: web ? 30 : 36,
               fontWeight: FontWeight.w800,
-              letterSpacing: -0.9,
-              height: 1.2,
-              color: AppTheme.ink,
+              letterSpacing: web ? -0.9 : -1.2,
+              height: 1.1,
+              color: web ? AppTheme.ink : context.roleColors.primary,
             ),
           ),
         ),
-        if (sub != null) Text(sub, style: small),
+        if (sub != null) ...[
+          const SizedBox(height: 2),
+          Text(sub, style: subStyle),
+        ],
       ],
     );
   }
@@ -865,8 +971,10 @@ void showPartyContact(
   );
 }
 
-/// A square button with a filled ground (the boards' green Call button, the
-/// arriving board's call beside Scan): [size] by [size], radius 14 (16 at 56).
+/// A round icon button with a filled ground (the boards' back button over
+/// a map, the Call button): [size] across in a 48 px hit area. (The name
+/// is from the earlier boards, where it was a square.) [squared] keeps the
+/// web board's radius 14 square.
 class LiveTripSquareAction extends StatelessWidget {
   const LiveTripSquareAction({
     required this.icon,
@@ -876,6 +984,8 @@ class LiveTripSquareAction extends StatelessWidget {
     this.foreground = Colors.white,
     this.border,
     this.size = 44,
+    this.floating = false,
+    this.squared = false,
     super.key,
   });
 
@@ -887,26 +997,46 @@ class LiveTripSquareAction extends StatelessWidget {
   final Color? border;
   final double size;
 
+  /// Over a map: lifted on a soft shadow.
+  final bool floating;
+  final bool squared;
+
   @override
   Widget build(BuildContext context) {
+    final side = border == null ? BorderSide.none : BorderSide(color: border!);
+    final ShapeBorder shape = squared
+        ? RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: side,
+          )
+        : CircleBorder(side: side);
+    final button = Material(
+      color: background,
+      shape: shape,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: Icon(icon, size: 20, color: foreground),
+        ),
+      ),
+    );
     return Semantics(
       button: true,
       label: semanticLabel,
-      child: Material(
-        color: background,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(size >= 56 ? 16 : 14),
-          side: border == null ? BorderSide.none : BorderSide(color: border!),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: SizedBox(
-            width: size,
-            height: size,
-            child: Icon(icon, size: 20, color: foreground),
-          ),
-        ),
+      child: FwTapTarget(
+        onTap: onTap,
+        child: floating
+            ? DecoratedBox(
+                decoration: ShapeDecoration(
+                  shape: shape,
+                  shadows: liveTripFloatShadow,
+                ),
+                child: button,
+              )
+            : button,
       ),
     );
   }
@@ -946,11 +1076,26 @@ String partyInitials(String display) => display
     .map((w) => w.characters.first.toUpperCase())
     .join();
 
+/// How a [PartyContactTile] draws its avatar and its two buttons.
+enum PartyContactLook {
+  /// The buyer's driver card: a round avatar, round 44 px buttons with
+  /// "Message" and "Call" under them.
+  circles,
+
+  /// The farmer's contact rows: a rounded square avatar, boxed buttons
+  /// with the icon over the word.
+  boxes,
+
+  /// The web deliveries board: icon only squares, Call in the role colour.
+  icons,
+}
+
 /// A party of the order with Message and Call (the driver card and the
-/// contact rows of the boards: a tinted avatar, the name, a white square
-/// Message button and a green square Call button). The buttons show only
-/// once the order's contact is open (ESC-48), and for the trucker only once
-/// committed, as on the order screen.
+/// contact rows of the boards). The buttons show only once the order's
+/// contact is open (ESC-48), and for the trucker only once committed, as
+/// on the order screen: before that neither a phone number nor a call
+/// action is ever shown. Message opens the order chat; Call opens the
+/// shared contact sheet with the party's phone.
 class PartyContactTile extends StatelessWidget {
   const PartyContactTile({
     required this.name,
@@ -961,6 +1106,7 @@ class PartyContactTile extends StatelessWidget {
     this.subtitle,
     this.role,
     this.avatarSize = 46,
+    this.look = PartyContactLook.circles,
     super.key,
   });
 
@@ -977,19 +1123,28 @@ class PartyContactTile extends StatelessWidget {
   /// The party's role, for the avatar colours.
   final UserRole? role;
   final double avatarSize;
+  final PartyContactLook look;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final display = partyDisplayName(name, l10n);
+    final first = firstNameOf(display);
     final colors = partyAvatarColors(role);
     final contact = canContactParty(order, viewerId, partyId);
-    void open() => showPartyContact(
+    final web = look == PartyContactLook.icons;
+    void call() => showPartyContact(
           context,
           order: order!,
           partyId: partyId,
           name: name,
           roleLabel: roleLabel,
+        );
+    void message() => openOrderChat(
+          context,
+          order: order!,
+          partyId: partyId,
+          partyName: name,
         );
 
     return Row(
@@ -999,7 +1154,9 @@ class PartyContactTile extends StatelessWidget {
           height: avatarSize,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
+            borderRadius: BorderRadius.circular(
+              look == PartyContactLook.boxes ? 14 : 999,
+            ),
             color: colors.background,
           ),
           child: Text(
@@ -1011,31 +1168,32 @@ class PartyContactTile extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: look == PartyContactLook.boxes ? 10 : 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 display,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: avatarSize >= 44 ? 15 : 14,
-                  fontWeight: FontWeight.w700,
+                  fontSize: web ? 14 : 15,
+                  fontWeight: web ? FontWeight.w700 : FontWeight.w800,
+                  letterSpacing: -0.15,
                   color: AppTheme.ink,
                 ),
               ),
               // Two lines, so a truck and its plate ("Isuzu FSR 5 t ·
-              // 3-AA-12345") stay whole in the web pane's narrow column.
+              // 3-AA-12345") stay whole in a narrow column.
               Text(
                 subtitle ?? roleLabel,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: AppTheme.slate,
+                style: TextStyle(
+                  fontSize: web ? 12 : 14,
+                  height: 1.35,
+                  color: web ? AppTheme.slate : AppTheme.inkSoft,
                 ),
               ),
             ],
@@ -1043,20 +1201,24 @@ class PartyContactTile extends StatelessWidget {
         ),
         if (contact) ...[
           const SizedBox(width: 8),
-          FwSquareButton(
-            semanticLabel: l10n.sendMessage,
-            onTap: open,
-            child: const Icon(
-              Icons.chat_bubble_outline,
-              size: 20,
-              color: AppTheme.ink,
-            ),
+          _ContactButton(
+            key: Key('party_message_$partyId'),
+            look: look,
+            icon: Icons.chat_bubble_outline,
+            label: l10n.messageContact,
+            semanticLabel: l10n.detailMessageParty(first),
+            filled: false,
+            onTap: message,
           ),
-          const SizedBox(width: 8),
-          LiveTripSquareAction(
+          SizedBox(width: look == PartyContactLook.circles ? 4 : 8),
+          _ContactButton(
+            key: Key('party_call_$partyId'),
+            look: look,
             icon: Icons.phone_outlined,
-            semanticLabel: l10n.call,
-            onTap: open,
+            label: l10n.liveTripCall,
+            semanticLabel: l10n.detailCallParty(first),
+            filled: true,
+            onTap: call,
           ),
         ],
       ],
@@ -1064,8 +1226,141 @@ class PartyContactTile extends StatelessWidget {
   }
 }
 
-/// Three figures side by side (distance, time, check-ins): plain columns,
-/// or as [cards] (the trip log board: the first one filled green).
+/// Message (outlined) or Call (filled black) of a [PartyContactTile].
+class _ContactButton extends StatelessWidget {
+  const _ContactButton({
+    required this.look,
+    required this.icon,
+    required this.label,
+    required this.semanticLabel,
+    required this.filled,
+    required this.onTap,
+    super.key,
+  });
+
+  final PartyContactLook look;
+  final IconData icon;
+  final String label;
+  final String semanticLabel;
+  final bool filled;
+  final VoidCallback onTap;
+
+  static const _labelStyle = TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w700,
+    height: 1.15,
+    color: AppTheme.ink,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    switch (look) {
+      case PartyContactLook.icons:
+        return LiveTripSquareAction(
+          icon: icon,
+          semanticLabel: semanticLabel,
+          onTap: onTap,
+          squared: true,
+          background:
+              filled ? context.roleColors.primary : AppTheme.surfaceWhite,
+          foreground: filled ? Colors.white : AppTheme.ink,
+          border: filled ? null : AppTheme.line,
+        );
+      case PartyContactLook.circles:
+        return Semantics(
+          button: true,
+          label: semanticLabel,
+          excludeSemantics: true,
+          child: InkWell(
+            onTap: onTap,
+            customBorder: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 56, minHeight: 48),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: filled ? AppTheme.ink : null,
+                        border: filled
+                            ? null
+                            : Border.all(color: AppTheme.fieldBorder),
+                      ),
+                      child: Icon(
+                        icon,
+                        size: 20,
+                        color: filled ? Colors.white : AppTheme.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(label, maxLines: 1, style: _labelStyle),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      case PartyContactLook.boxes:
+        return Semantics(
+          button: true,
+          label: semanticLabel,
+          excludeSemantics: true,
+          child: Material(
+            color: filled ? AppTheme.ink : Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: filled
+                  ? BorderSide.none
+                  : const BorderSide(color: AppTheme.fieldBorder),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 52, minHeight: 50),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 5,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        icon,
+                        size: 18,
+                        color: filled ? Colors.white : AppTheme.ink,
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        label,
+                        maxLines: 1,
+                        style: _labelStyle.copyWith(
+                          color: filled ? Colors.white : AppTheme.ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+    }
+  }
+}
+
+/// Three figures side by side (distance, time, check-ins): plain columns
+/// on a sand card, or as [cards] (the trip log board: the first one black,
+/// the others sand).
 class LiveTripStats extends StatelessWidget {
   const LiveTripStats({required this.stats, this.cards = false, super.key});
 
@@ -1078,7 +1373,7 @@ class LiveTripStats extends StatelessWidget {
       ({String value, String label}) stat, {
       required Color valueColor,
       required Color labelColor,
-      double valueSize = 18,
+      double valueSize = 19,
     }) =>
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1092,17 +1387,18 @@ class LiveTripStats extends StatelessWidget {
                 style: TextStyle(
                   fontSize: valueSize,
                   fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
                   color: valueColor,
                 ),
               ),
             ),
             Text(
               stat.label,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+                fontSize: 14,
+                height: 1.35,
                 color: labelColor,
               ),
             ),
@@ -1110,41 +1406,146 @@ class LiveTripStats extends StatelessWidget {
         );
     if (!cards) {
       return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final stat in stats)
+          for (final (i, stat) in stats.indexed) ...[
+            if (i > 0) const SizedBox(width: 8),
             Expanded(
               child: figure(
                 stat,
                 valueColor: AppTheme.ink,
-                labelColor: AppTheme.slate,
+                labelColor: AppTheme.inkSoft,
               ),
             ),
+          ],
         ],
       );
     }
-    return Row(
-      children: [
-        for (final (i, stat) in stats.indexed) ...[
-          if (i > 0) const SizedBox(width: 8),
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color:
-                    i == 0 ? context.roleColors.primary : AppTheme.surfaceWhite,
-                borderRadius: BorderRadius.circular(16),
-                border: i == 0 ? null : Border.all(color: AppTheme.line),
-              ),
-              child: figure(
-                stat,
-                valueSize: 20,
-                valueColor: i == 0 ? Colors.white : AppTheme.ink,
-                labelColor: i == 0 ? const Color(0xFFCFE3D6) : AppTheme.slate,
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (i, stat) in stats.indexed) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Expanded(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: i == 0 ? AppTheme.ink : AppTheme.sand,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: figure(
+                  stat,
+                  valueSize: 20,
+                  valueColor: i == 0 ? Colors.white : AppTheme.ink,
+                  labelColor: i == 0 ? AppTheme.sand : AppTheme.inkSoft,
+                ),
               ),
             ),
-          ),
+          ],
         ],
-      ],
+      ),
     );
   }
+}
+
+/// The map's legend (the Buyer live trip board): the solid trail is what
+/// was driven, the dashes are the road ahead, the dashed orange ring is
+/// where the truck is about now. The trail sample takes the role colour,
+/// as the trail does on the map.
+class LiveTripLegend extends StatelessWidget {
+  const LiveTripLegend({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final style = TrackMapStyle.forRole(context.roleColors);
+    Widget item(_LegendMark mark, String label) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CustomPaint(
+              size: Size(mark == _LegendMark.truck ? 16 : 22, 16),
+              painter: _LegendPainter(mark, style),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                style: const TextStyle(fontSize: 13, color: AppTheme.inkSoft),
+              ),
+            ),
+          ],
+        );
+    return Semantics(
+      container: true,
+      label: l10n.liveTripLegendLabel,
+      child: Wrap(
+        key: const Key('live_trip_legend'),
+        spacing: 14,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          item(_LegendMark.driven, l10n.liveTripLegendDriven),
+          item(_LegendMark.ahead, l10n.liveTripLegendAhead),
+          item(_LegendMark.truck, l10n.liveTripLegendTruck),
+        ],
+      ),
+    );
+  }
+}
+
+enum _LegendMark { driven, ahead, truck }
+
+class _LegendPainter extends CustomPainter {
+  const _LegendPainter(this.mark, this.style);
+
+  final _LegendMark mark;
+  final TrackMapStyle style;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final y = size.height / 2;
+    switch (mark) {
+      case _LegendMark.driven:
+        canvas.drawLine(
+          Offset(2, y),
+          Offset(size.width - 2, y),
+          Paint()
+            ..color = style.trail
+            ..strokeWidth = 4
+            ..strokeCap = StrokeCap.round,
+        );
+      case _LegendMark.ahead:
+        final paint = Paint()
+          ..color = style.ahead.withValues(alpha: 0.55)
+          ..strokeWidth = 2.5;
+        for (var x = 1.0; x < size.width - 1; x += 9) {
+          canvas.drawLine(
+            Offset(x, y),
+            Offset((x + 5).clamp(0, size.width - 1), y),
+            paint,
+          );
+        }
+      case _LegendMark.truck:
+        final center = Offset(size.width / 2, y);
+        canvas.drawCircle(
+          center,
+          6.5,
+          Paint()..color = style.halo.withValues(alpha: 0.16),
+        );
+        final edge = Paint()
+          ..color = style.haloEdge
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5;
+        final rect = Rect.fromCircle(center: center, radius: 6.5);
+        for (var i = 0; i < 7; i++) {
+          canvas.drawArc(rect, i * 0.8976, 0.45, false, edge);
+        }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_LegendPainter oldDelegate) =>
+      oldDelegate.mark != mark || oldDelegate.style != style;
 }

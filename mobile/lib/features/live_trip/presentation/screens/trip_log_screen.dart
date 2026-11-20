@@ -690,7 +690,8 @@ class _LineBox extends StatelessWidget {
   Widget build(BuildContext context) {
     if (line == _Line.solid) {
       return Center(
-          child: Container(width: 2, color: context.roleColors.primary),);
+        child: Container(width: 2, color: context.roleColors.primary),
+      );
     }
     return const Center(
       child: CustomPaint(

@@ -7,15 +7,18 @@ import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/live_trip/presentation/widgets/live_trip_parts.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/dashed_border.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
-/// A delivery in a list, as the Buyer · Deliveries board draws the waiting
-/// and the delivered card: a crop tile, "Teff · 1,500 kg", who and where
-/// ("Kebede Alemu, Bichena · pickup Thu 30 Oct"), the buyer's report window
-/// with a "Release pending" pill once delivered. The crop line comes from the
+/// A delivery in a list, as the Buyer deliveries board (design canvas page
+/// M) draws the waiting and the delivered card: waiting for pickup inside a
+/// dashed edge ("Teff · 1,500 kg", the pickup day, who and where, when the
+/// map appears), delivered on sand with the orange "Release pending" pill,
+/// "Nothing for you to do" and the buyer's report window. The crop line comes from the
 /// delivery row itself (delivery-verification-api 1.21.0); a delivery created
 /// before that keeps its number as the title.
 ///
@@ -110,9 +113,9 @@ class DeliveryCard extends StatelessWidget {
     };
     final subtitle = whenLine == null ? parties : '$parties · $whenLine';
 
-    // The buyer's report window replaces the parties line, as on the board.
-    final showReportUntil = isBuyer && windowEnd != null;
-    final releasePending = windowEnd != null && (isBuyer || isFarmer);
+    // Inside the 48 h window the money waits: "Release pending" for every
+    // party, and what (not) to do about it.
+    final releasePending = windowEnd != null;
     final waitingNote =
         isBuyer && !selfPickup && status == DeliveryStatus.pending;
 
@@ -142,94 +145,199 @@ class DeliveryCard extends StatelessWidget {
         subtitle: subtitle,
         selfPickup: selfPickup,
         windowEnd: windowEnd,
-        pill: releasePending
+        pill: windowEnd != null && (isBuyer || isFarmer)
             ? FwPill(label: l10n.liveTripReleasePending)
             : statusPill,
       );
     }
 
-    return FwCard(
-      onTap: onTap,
-      padding: const EdgeInsets.all(14),
-      borderColor: selected ? context.roleColors.primary : AppTheme.line,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              DeliveryCropTile(cropKey: cropKey, status: status),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: FwText.cardTitle,
-                    ),
-                    const SizedBox(height: 3),
-                    if (showReportUntil)
-                      ClockText(
-                        clockFormatOf(context).deadline(
-                          windowEnd,
-                          date: DateFormat.E().format,
-                          sentence: l10n.liveTripReportProblemUntil,
-                        ),
-                        style: FwText.body,
-                      )
-                    else
-                      Text(
-                        subtitle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: FwText.body,
-                      ),
-                    if (releasePending) ...[
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: FwPill(label: l10n.liveTripReleasePending),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (statusPill != null) ...[
-                const SizedBox(width: 8),
-                statusPill,
-              ],
-            ],
-          ),
-          if (waitingNote) ...[
-            const SizedBox(height: 12),
+    // "Teff · 1,500 kg" behind the crop's sprout, what belongs at the end
+    // of the line after it (the date, a pill).
+    // A wrap: with large text or a long pill (Afaan Oromoo) the trailing
+    // part moves under the title instead of squeezing it.
+    Widget titleRow(Widget? trailing) => Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 12,
+          runSpacing: 6,
+          children: [
             Row(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Padding(
                   padding: EdgeInsets.only(top: 1),
-                  child: Icon(
-                    Icons.schedule,
-                    size: 16,
-                    color: AppTheme.slate,
-                  ),
+                  child: FwSprout(size: 20, color: AppTheme.ink),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
+                const SizedBox(width: 6),
+                Flexible(
                   child: Text(
-                    l10n.liveTripMapStartsAtPickup,
-                    style: FwText.body.copyWith(height: 1.35),
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: _titleStyle,
                   ),
                 ),
               ],
             ),
+            if (trailing != null) trailing,
           ],
-        ],
-      ),
-    );
+        );
+
+    switch (status) {
+      // Buyer deliveries board, "Waiting for pickup": nothing moves yet, so
+      // the card is only a dashed edge.
+      case DeliveryStatus.pending:
+        return DashedBorderBox(
+          key: const Key('delivery_card_waiting'),
+          onTap: onTap,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              titleRow(
+                planned == null
+                    ? null
+                    : Text(
+                        boardDayInEthiopia(planned),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.inkSoft,
+                        ),
+                      ),
+              ),
+              const SizedBox(height: 4),
+              Text(parties, style: _lineStyle),
+              if (waitingNote) ...[
+                const SizedBox(height: 8),
+                Text(
+                  l10n.liveTripMapStartsAtPickup,
+                  style: _lineStyle.copyWith(color: AppTheme.ink),
+                ),
+              ],
+            ],
+          ),
+        );
+      // "Delivered": a flat sand card. Inside the window it says the money
+      // waits and that there is nothing to do.
+      case DeliveryStatus.delivered:
+        final clock = clockFormatOf(context);
+        return FwCard.sand(
+          key: const Key('delivery_card_delivered'),
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              titleRow(
+                releasePending
+                    ? DotPill.action(label: l10n.liveTripReleasePending)
+                    : null,
+              ),
+              if (windowEnd != null) ...[
+                const SizedBox(height: 6),
+                ClockText(
+                  clock.deadline(
+                    windowEnd,
+                    date: DateFormat.E().format,
+                    sentence: isBuyer
+                        ? l10n.delivNothingToDoReleased
+                        : l10n.delivNothingToDoPaid,
+                  ),
+                  key: const Key('delivery_card_nothing_to_do'),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.35,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.ink,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 6),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: isBuyer && windowEnd != null
+                        ? ClockText(
+                            clock.deadline(
+                              windowEnd,
+                              date: DateFormat.E().format,
+                              sentence: l10n.liveTripReportProblemUntil,
+                            ),
+                            style: _lineStyle.copyWith(
+                              color: AppTheme.inkSoft,
+                            ),
+                          )
+                        : Text(
+                            subtitle,
+                            style: _lineStyle.copyWith(
+                              color: AppTheme.inkSoft,
+                            ),
+                          ),
+                  ),
+                  if (onTap != null) ...[
+                    const SizedBox(width: 12),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          l10n.delivOpen,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.ink,
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        const Icon(
+                          Icons.chevron_right,
+                          size: 18,
+                          color: AppTheme.ink,
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        );
+      // On the road without a map (the trucker's own load, a self-pickup),
+      // disputed and cancelled: the paper card with the status at the end.
+      case DeliveryStatus.pickedUp ||
+            DeliveryStatus.inTransit ||
+            DeliveryStatus.disputed ||
+            DeliveryStatus.cancelled:
+        return FwCard(
+          onTap: onTap,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          borderColor: selected ? context.roleColors.primary : AppTheme.line,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              titleRow(statusPill),
+              const SizedBox(height: 4),
+              Text(subtitle, style: _lineStyle),
+            ],
+          ),
+        );
+    }
   }
+
+  static const _titleStyle = TextStyle(
+    fontSize: 15,
+    fontWeight: FontWeight.w800,
+    letterSpacing: -0.15,
+    height: 1.25,
+    color: AppTheme.ink,
+  );
+
+  static const _lineStyle = TextStyle(
+    fontSize: 14,
+    height: 1.35,
+    color: AppTheme.slate,
+  );
 
   /// The web board's list card: the title with [pill] on its right, then
   /// one line. A buyer's waiting truck delivery reads "Waiting for pickup

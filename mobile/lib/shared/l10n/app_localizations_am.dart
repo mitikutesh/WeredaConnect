@@ -4153,6 +4153,94 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get liveTripWholeRoute => 'ሙሉ መንገዱን አሳይ';
+
+  @override
+  String get liveTripNearTruck => 'መኪናው አካባቢ';
+
+  @override
+  String get liveTripLegendLabel => 'የካርታ መፍቻ';
+
+  @override
+  String get liveTripLegendDriven => 'የተጓዘው';
+
+  @override
+  String get liveTripLegendAhead => 'የቀረው መንገድ';
+
+  @override
+  String get liveTripLegendTruck => 'መኪናው እዚህ አካባቢ ነው';
+
+  @override
+  String get liveTripCall => 'ይደውሉ';
+
+  @override
+  String liveTripNothingToDoWindow(String time) {
+    return 'ምንም ማድረግ አይጠበቅብዎትም። ችግር ካላሳወቁ በስተቀር ክፍያው የማጣሪያ ጊዜው ሲያበቃ፣ $time፣ ይለቀቃል።';
+  }
+
+  @override
+  String liveTripFarmerNothingToDo(String buyer) {
+    return 'አሁን ምንም ማድረግ አይጠበቅብዎትም። $buyer መረከቡን ማረጋገጥ አለበት። ከዚያ የ48 ሰዓት የማጣሪያ ጊዜ ያልፋል፣ ገንዘቡም ለእርስዎ ይከፈላል።';
+  }
+
+  @override
+  String liveTripFarmerNothingToDoWindow(String time) {
+    return 'ምንም ማድረግ አይጠበቅብዎትም። ገዢው ችግር ካላሳወቀ በስተቀር የማጣሪያ ጊዜው ሲያበቃ፣ $time፣ ይከፈልዎታል።';
+  }
+
+  @override
+  String liveTripNextScanAt(String place) {
+    return 'ቀጣይ፦ $place ላይ የሹፌሩን ኪዩአር ይቃኛሉ።';
+  }
+
+  @override
+  String get liveTripNextScan => 'ቀጣይ፦ መኪናው ሲደርስ የሹፌሩን ኪዩአር ይቃኛሉ።';
+
+  @override
+  String liveTripQuintalsCount(String count) {
+    return '$count ኩንታል';
+  }
+
+  @override
+  String get delivOpenMap => 'ካርታ ክፈት';
+
+  @override
+  String get delivOpen => 'ክፈት';
+
+  @override
+  String delivNothingToDoReleased(String time) {
+    return 'ምንም ማድረግ አይጠበቅብዎትም። ችግር ካላሳወቁ በስተቀር ክፍያው ከ$time በኋላ ይለቀቃል።';
+  }
+
+  @override
+  String delivNothingToDoPaid(String time) {
+    return 'ምንም ማድረግ አይጠበቅብዎትም። ገዢው ችግር ካላሳወቀ በስተቀር ከ$time በኋላ ይከፈልዎታል።';
+  }
+
+  @override
+  String get delivEmptyTitle => 'እስካሁን በመንገድ ላይ ያለ ነገር የለም';
+
+  @override
+  String get delivEmptyBodyBuyer =>
+      'ሹፌር ከትዕዛዞችዎ አንዱን ሲያነሳ መኪናውን እዚህ መከታተል ይችላሉ።';
+
+  @override
+  String get delivEmptyBodyFarmer =>
+      'ሹፌር ከሰብሎችዎ አንዱን ሲያነሳ መኪናውን እዚህ መከታተል ይችላሉ።';
+
+  @override
+  String get delivEmptyBodyTrucker => 'ጭነት ሲያነሱ ማድረሻው እዚህ ይታያል።';
+
+  @override
+  String get delivEmptyFindCrops => 'ሰብል ፈልግ';
+
+  @override
+  String get delivEmptySeeOrders => 'ትዕዛዞቼን አሳይ';
+
+  @override
+  String get delivEmptySeeTrips => 'ጉዞዎቼን አሳይ';
+
+  @override
   String get liveTripWiderWindow => 'ሰፊ የጊዜ ክልል፤ ለተወሰነ ጊዜ ሪፖርት አልመጣም';
 
   @override

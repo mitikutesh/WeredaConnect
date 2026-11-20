@@ -7417,7 +7417,7 @@ abstract class AppLocalizations {
   /// LT-11 live trip (specs/features/live-trip.md section 4). Before pickup there is no map: it starts at the pickup scan
   ///
   /// In en, this message translates to:
-  /// **'The map appears when the driver scans the farmer\'s QR.'**
+  /// **'The map appears once the driver scans the farmer\'s QR.'**
   String get liveTripMapStartsAtPickup;
 
   /// LT-11 live trip (specs/features/live-trip.md section 4). A duration under an hour, used inside other live trip messages
@@ -7521,6 +7521,150 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'About {km} km to go, from the last check-in'**
   String liveTripKmToGo(String km);
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip: the control over the map that shows the whole route from the pickup; am and om words from the LiveTripAm and LiveTripOm boards
+  ///
+  /// In en, this message translates to:
+  /// **'Whole route'**
+  String get liveTripWholeRoute;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip: screen reader hint of the whole route control when the whole route is shown: tapping returns to the truck and the road ahead. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Near the truck'**
+  String get liveTripNearTruck;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip: screen reader label of the map legend. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Map legend'**
+  String get liveTripLegendLabel;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip, map legend: the solid trail. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Driven'**
+  String get liveTripLegendDriven;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip, map legend: the dashed estimate to the drop-off. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Road ahead'**
+  String get liveTripLegendAhead;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip, map legend: the halo around the last check-in. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Truck is about here'**
+  String get liveTripLegendTruck;
+
+  /// Design canvas page M (specs/design-canvas). Live trip: the label under the Call button of a party; am and om words from the LiveTripAm and LiveTripOm boards
+  ///
+  /// In en, this message translates to:
+  /// **'Call'**
+  String get liveTripCall;
+
+  /// Design canvas page M (specs/design-canvas). Buyer delivered: under the escrow amount; {time} is the end of the 48 h check window with its date. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do. The payment is released when the check window ends, {time}, unless you report a problem.'**
+  String liveTripNothingToDoWindow(String time);
+
+  /// Design canvas page M (specs/design-canvas). Farmer order on the road: under the payment steps. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do now. {buyer} must confirm delivery. Then the 48 h check window runs and the money is paid out to you.'**
+  String liveTripFarmerNothingToDo(String buyer);
+
+  /// Design canvas page M (specs/design-canvas). Farmer, after the buyer confirmed delivery: under the payment steps and on the delivered card. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do. You are paid when the check window ends, {time}, unless the buyer reports a problem.'**
+  String liveTripFarmerNothingToDoWindow(String time);
+
+  /// Design canvas page M (specs/design-canvas). Buyer trip log, under the price total: the buyer's next step; {place} is the drop-off landmark. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Next: you scan the driver\'s QR at {place}.'**
+  String liveTripNextScanAt(String place);
+
+  /// Design canvas page M (specs/design-canvas). Buyer trip log, under the price total, when the drop-off has no landmark. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Next: you scan the driver\'s QR when the truck arrives.'**
+  String get liveTripNextScan;
+
+  /// Design canvas page M (specs/design-canvas). Buyer trip log, the transport line: the quintals inside the parentheses, before the rate. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} quintals'**
+  String liveTripQuintalsCount(String count);
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the on the road card: the pill over the map. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Open map'**
+  String get delivOpenMap;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the delivered card: opens the delivery. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get delivOpen;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the buyer's delivered card inside the 48 h window; {time} is its end. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do. The payment is released after {time} unless you report a problem.'**
+  String delivNothingToDoReleased(String time);
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the farmer's and the trucker's delivered card inside the 48 h window; {time} is its end. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do. You are paid after {time} unless the buyer reports a problem.'**
+  String delivNothingToDoPaid(String time);
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, empty state title (BuyerDeliveriesEmpty board). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing on the road yet'**
+  String get delivEmptyTitle;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the buyer's empty state. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When a driver picks up one of your orders, you can follow the truck here.'**
+  String get delivEmptyBodyBuyer;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the farmer's empty state. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When a driver picks up one of your crops, you can follow the truck here.'**
+  String get delivEmptyBodyFarmer;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the trucker's empty state. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When you pick up a load, its delivery shows here.'**
+  String get delivEmptyBodyTrucker;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the buyer's empty state: goes to the Market tab
+  ///
+  /// In en, this message translates to:
+  /// **'Find crops'**
+  String get delivEmptyFindCrops;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, empty state: goes to the Orders tab. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'See my orders'**
+  String get delivEmptySeeOrders;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the trucker's empty state: goes to the My Trips tab. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'See my trips'**
+  String get delivEmptySeeTrips;
 
   /// LT-11 live trip (specs/features/live-trip.md section 4). Under the arrival window when the last check-in is late
   ///
