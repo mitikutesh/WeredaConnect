@@ -136,16 +136,23 @@ class KgQuantityField extends StatelessWidget {
   final TextEditingController controller;
   final Key? fieldKey;
 
+  /// What the field showed when the form opened (Edit listing), null on a
+  /// new listing. While the field still shows it, it is not checked: an
+  /// untouched quantity is not sent, so stock an order left under 1 kg
+  /// must not keep the farmer from saving a new price.
+  final String? untouchedText;
+
   const KgQuantityField({
     required this.controller,
     this.fieldKey,
+    this.untouchedText,
     super.key,
   });
 
-  /// Up to seven digits and two decimals: 1,000,000.00 at most.
-  static final List<TextInputFormatter> formatters = [
-    FilteringTextInputFormatter.allow(RegExp(r'^\d{0,7}\.?\d{0,2}')),
-  ];
+  /// Up to seven digits and two decimals (1,000,000.00 at most); a
+  /// grouping comma is taken out, never read as a decimal mark
+  /// ([KgEntryFormatter]).
+  static const List<TextInputFormatter> formatters = [KgEntryFormatter()];
 
   /// The words for what is wrong with [value], or null when it can be saved.
   static String? validate(String? value, AppLocalizations l10n) =>
@@ -161,10 +168,15 @@ class KgQuantityField extends StatelessWidget {
     required TextEditingController controller,
     required AppLocalizations l10n,
     Key? fieldKey,
+    String? untouchedText,
   }) =>
       LabeledField(
         label: l10n.quantityInKg,
-        field: KgQuantityField(controller: controller, fieldKey: fieldKey),
+        field: KgQuantityField(
+          controller: controller,
+          fieldKey: fieldKey,
+          untouchedText: untouchedText,
+        ),
       );
 
   @override
@@ -204,7 +216,9 @@ class KgQuantityField extends StatelessWidget {
       ),
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: formatters,
-      validator: (value) => validate(value, l10n),
+      validator: (value) => untouchedText != null && value == untouchedText
+          ? null
+          : validate(value, l10n),
     );
   }
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +11,7 @@ import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
@@ -25,6 +28,8 @@ import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 class MockEscrowBloc extends Mock implements EscrowBloc {}
 
 class MockAuthBloc extends Mock implements AuthBloc {}
+
+class MockEscrowRepository extends Mock implements BaseEscrowRepository {}
 
 class FakeEscrowEvent extends Fake implements EscrowEvent {}
 
@@ -197,6 +202,56 @@ void main() {
             .data,
         '14,625 ETB',
       );
+    });
+
+    testWidgets(
+        'a reload under a filter brings the summary up to date: the totals '
+        'are read unfiltered again', (tester) async {
+      // The form opened with one hold. Under the Released filter the list
+      // reloads after that hold was paid out.
+      final released = _makePayment(status: PaymentStatus.released);
+      final repository = MockEscrowRepository();
+      when(() => escrowBloc.repository).thenReturn(repository);
+      when(
+        () => repository.getHistory(
+          userId: 'farmer-001',
+          roleFilter: 'farmer',
+        ),
+      ).thenAnswer((_) async => [released]);
+      final states = StreamController<EscrowState>.broadcast();
+      addTearDown(states.close);
+      when(() => escrowBloc.state)
+          .thenReturn(PaymentHistoryLoaded(payments: [_makePayment()]));
+      when(() => escrowBloc.stream).thenAnswer((_) => states.stream);
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+      String text(String key) =>
+          tester.widget<Text>(find.byKey(Key(key))).data!;
+      expect(text('payments_summary_held'), '14,625 ETB');
+      expect(text('payments_summary_released'), '0 ETB');
+      // No filter: the bloc's own payments are the totals, nothing is read.
+      verifyNever(
+        () => repository.getHistory(
+          userId: any(named: 'userId'),
+          roleFilter: any(named: 'roleFilter'),
+        ),
+      );
+
+      final filtered = PaymentHistoryLoaded(
+        payments: [released],
+        statusFilter: 'released',
+        roleFilter: 'farmer',
+      );
+      when(() => escrowBloc.state).thenReturn(filtered);
+      states.add(filtered);
+      await tester.pumpAndSettle();
+
+      expect(text('payments_summary_held'), '0 ETB');
+      expect(text('payments_summary_released'), '14,625 ETB');
+      verify(
+        () => repository.getHistory(userId: 'farmer-001', roleFilter: 'farmer'),
+      ).called(1);
     });
 
     testWidgets('shows payment cards when history loaded',

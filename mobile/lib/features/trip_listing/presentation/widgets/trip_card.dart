@@ -259,8 +259,8 @@ class TripCard extends StatelessWidget {
                   TextSpan(
                     text: booked > 0
                         ? ' (${l10n.detailBookedOf(
-                            formatQuintals(booked),
-                            formatQuintals(trip.capacity),
+                            quintalsNumberText(booked),
+                            quintalsNumberText(trip.capacity),
                           )})'
                         : ' ${quintalsInParensText(capacityKg, l10n)}',
                     style: const TextStyle(

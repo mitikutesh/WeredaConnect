@@ -47,8 +47,10 @@ class SuggestedTripCard extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final day = boardDayInEthiopia(trip.departureDate);
     final roomKg = tripRoomLeft(trip) * kgPerQuintal;
-    final room = '${l10n.marketKgRoom(kgQuantityText(roomKg, l10n))} '
-        '${quintalsInParensText(roomKg, l10n)}';
+    // A full trip reads "0 kg room", not a dash.
+    final room = '${l10n.marketKgRoom(kgRoomText(roomKg, l10n))} '
+            '${quintalsInParensText(roomKg, l10n)}'
+        .trimRight();
     final rated = rating == null ? '' : ' · ${rating!.toStringAsFixed(1)}';
 
     final radius = BorderRadius.circular(24);

@@ -399,20 +399,18 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
       final room = tripRoomLeft(trip);
       final roomKg = room * kgPerQuintal;
       fits = _quantity / kgPerQuintal <= room + 0.001;
-      final roomText = kgQuantityText(roomKg, l10n);
-      spans
-        ..add(
-          TextSpan(
-            text: ' · '
-                '${fits ? l10n.placeOrderFitsTripKg(roomText) : l10n.placeOrderExceedsTripKg(roomText)}',
-          ),
-        )
-        ..add(
-          TextSpan(
-            text: ' ${nb(quintalsInParensText(roomKg, l10n))}',
-            style: muted,
-          ),
-        );
+      // A full trip has "0 kg left", not a dash.
+      final roomText = kgRoomText(roomKg, l10n);
+      final roomQuintals = quintalsInParensText(roomKg, l10n);
+      spans.add(
+        TextSpan(
+          text: ' · '
+              '${fits ? l10n.placeOrderFitsTripKg(roomText) : l10n.placeOrderExceedsTripKg(roomText)}',
+        ),
+      );
+      if (roomQuintals.isNotEmpty) {
+        spans.add(TextSpan(text: ' ${nb(roomQuintals)}', style: muted));
+      }
     }
     return Text.rich(
       TextSpan(children: spans),

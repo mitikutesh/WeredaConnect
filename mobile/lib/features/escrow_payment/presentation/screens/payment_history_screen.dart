@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -55,8 +55,36 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   String? _roleFilter;
 
   /// The last unfiltered page of payments: the summary card sums these, so
-  /// a status filter narrows the rows but not the totals.
+  /// a status filter narrows the rows but not the totals. An unfiltered
+  /// load fills it from the bloc's own state (no second read); a load
+  /// under a filter is followed by [_readSummaryPayments].
   List<Payment>? _unfilteredPayments;
+
+  /// Counts the summary's sources, so a slow unfiltered read never
+  /// replaces a newer one.
+  int _summaryRead = 0;
+
+  /// Reads the unfiltered payments for the summary card after the list
+  /// was loaded under a status filter (a refresh, a cancelled intent, the
+  /// way back from a payment): the totals follow that reload too. On a
+  /// phone this reads the local cache the reload just wrote; on the web it
+  /// is one more request, made only while a filter is on.
+  Future<void> _readSummaryPayments() async {
+    final userId = _getUserId();
+    if (userId == null) return;
+    final read = ++_summaryRead;
+    try {
+      final payments = await context.read<EscrowBloc>().repository.getHistory(
+            userId: userId,
+            roleFilter: _roleFilter,
+          );
+      if (!mounted || read != _summaryRead) return;
+      setState(() => _unfilteredPayments = payments);
+    } on Object catch (e) {
+      // The card keeps the totals it had.
+      debugPrint('[Payments] summary read failed: $e');
+    }
+  }
 
   @override
   void initState() {
@@ -102,6 +130,14 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
     final content = BlocListener<EscrowBloc, EscrowState>(
       listener: (context, state) {
+        if (state is PaymentHistoryLoaded) {
+          if (state.statusFilter == null) {
+            // The builder takes these payments: a read under way is stale.
+            _summaryRead++;
+          } else {
+            _readSummaryPayments();
+          }
+        }
         if (state is IntentCancelled) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(l10n.escrowIntentCancelled)),

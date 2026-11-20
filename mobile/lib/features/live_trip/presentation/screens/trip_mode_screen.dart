@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
@@ -523,8 +524,8 @@ class _TripHeader extends StatelessWidget {
       ].join(' · ');
       if (capacity > 0) {
         quintals = '(${l10n.detailBookedOf(
-          formatQuintals(loaded),
-          formatQuintals(capacity),
+          quintalsNumberText(loaded),
+          quintalsNumberText(capacity),
         )})';
       }
       title = '${trip.fromWoreda} → ${trip.toWoreda}';

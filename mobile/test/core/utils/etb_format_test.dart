@@ -66,6 +66,36 @@ void main() {
       expect(quintalsInParensText(250000, en), '(2,500 quintals)');
     });
 
+    test('a quintal figure beside its kilograms keeps two decimals', () {
+      // 125 kg is 1.25 quintals, never "1.3"; 4 kg is 0.04, never "0.0".
+      expect(quintalsNumberText(1.25), '1.25');
+      expect(quintalsNumberText(0.04), '0.04');
+      expect(quintalsNumberText(50), '50');
+      expect(quintalsNumberText(2500), '2,500');
+      // Float dust from a sum of stocks does not show.
+      expect(quintalsNumberText(0.1 + 0.2), '0.3');
+    });
+
+    test('stored quintals in parentheses: singular for exactly one', () {
+      expect(quintalsCountInParens(1, en), '(1 quintal)');
+      expect(quintalsCountInParens(1.25, en), '(1.25 quintals)');
+      expect(quintalsCountInParens(0.04, en), '(0.04 quintals)');
+      expect(quintalsCountInParens(0, en), '(0 quintals)');
+      expect(quintalsCountInParens(60, en), '(60 quintals)');
+    });
+
+    test('part of total quintals', () {
+      expect(quintalsOfInParensText(1.25, 50, en), '(1.25 of 50 quintals)');
+      expect(quintalsOfInParensText(32, 60, en), '(32 of 60 quintals)');
+    });
+
+    test('a full trip has "0 kg" of room, not the no-value mark', () {
+      expect(kgRoomText(0, en), '0 kg');
+      expect(kgRoomText(-5, en), '0 kg');
+      expect(kgRoomText(1800, en), '1,800 kg');
+      expect(kgRoomText(double.nan, en), noValueMark);
+    });
+
     test('nothing trails a quantity that cannot be real', () {
       for (final kg in [0, -1, double.nan, double.infinity, maxOrderKg + 1]) {
         expect(quintalsInParensText(kg, en), isEmpty, reason: '$kg');

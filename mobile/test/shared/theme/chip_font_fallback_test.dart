@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -21,6 +22,92 @@ void main() {
           entry.value.textTheme.bodyMedium?.fontFamilyFallback,
           contains('NotoSansEthiopic'),
         );
+      });
+    }
+  });
+
+  // The selected chip is filled with the text colour. A FilterChip has no
+  // selected label style of its own, so the label colour follows the state.
+  group('a selected chip reads on its fill', () {
+    for (final entry in {
+      'light': (AppTheme.light(), AppTheme.ink, AppTheme.surfaceWhite),
+      'dark': (
+        AppTheme.dark(),
+        AppTheme.darkTextPrimary,
+        AppTheme.darkSurface,
+      ),
+    }.entries) {
+      final (theme, text, surface) = entry.value;
+
+      test('${entry.key} theme: the label colour by state', () {
+        final chip = theme.chipTheme;
+        expect(chip.selectedColor, text);
+        final label = chip.labelStyle!.color! as WidgetStateColor;
+        expect(label.resolve({WidgetState.selected}), surface);
+        expect(label.resolve({}), text);
+        expect(chip.secondaryLabelStyle!.color, surface);
+      });
+
+      for (final choice in [false, true]) {
+        testWidgets(
+            '${entry.key} theme: a selected '
+            '${choice ? 'ChoiceChip' : 'FilterChip'} label', (tester) async {
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: theme,
+              home: Scaffold(
+                body: Row(
+                  children: [
+                    for (final selected in [true, false])
+                      choice
+                          ? ChoiceChip(
+                              label: Text(selected ? 'On' : 'Off'),
+                              selected: selected,
+                              onSelected: (_) {},
+                            )
+                          : FilterChip(
+                              label: Text(selected ? 'On' : 'Off'),
+                              selected: selected,
+                              onSelected: (_) {},
+                            ),
+                  ],
+                ),
+              ),
+            ),
+          );
+          Color? colorOf(String label) => tester
+              .renderObject<RenderParagraph>(find.text(label))
+              .text
+              .style
+              ?.color;
+          expect(colorOf('On'), surface);
+          expect(colorOf('Off'), text);
+        });
+      }
+    }
+  });
+
+  // A switch that is off: its pale track has the edge of a control a user
+  // must find, in both themes. On, the track is the text colour itself.
+  group('a switch that is off has a visible edge', () {
+    for (final entry in {
+      'light': (AppTheme.light(), AppTheme.fieldBorder, AppTheme.ground),
+      'dark': (
+        AppTheme.dark(),
+        AppTheme.darkTextMuted,
+        AppTheme.darkBackground,
+      ),
+    }.entries) {
+      test('${entry.key} theme', () {
+        final (theme, edge, page) = entry.value;
+        final outline = theme.switchTheme.trackOutlineColor!;
+        expect(outline.resolve({}), edge);
+        expect(outline.resolve({WidgetState.selected}), Colors.transparent);
+        expect(theme.switchTheme.trackOutlineWidth!.resolve({}), 1.5);
+        double lum(Color c) => c.computeLuminance();
+        final hi = lum(edge) > lum(page) ? lum(edge) : lum(page);
+        final lo = lum(edge) > lum(page) ? lum(page) : lum(edge);
+        expect((hi + 0.05) / (lo + 0.05), greaterThanOrEqualTo(3));
       });
     }
   });

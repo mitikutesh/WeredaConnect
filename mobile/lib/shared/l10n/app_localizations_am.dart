@@ -2261,11 +2261,11 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get statusPaymentSubmittedInfo =>
-      'ገዢው ክፍያውን ልኳል፤ በማረጋገጥ ላይ ነው። ገንዘቡ ገና በኢስክሮ (ኢስክሮ) አልተረጋገጠም።';
+      'ገዢው ክፍያውን ልኳል፤ በማረጋገጥ ላይ ነው። ገንዘቡ ገና በኢስክሮ አልተረጋገጠም።';
 
   @override
   String get statusFundedInfo =>
-      'ክፍያው ተረጋግጦ በኢስክሮ (ኢስክሮ) በደህና ተይዟል። የታዘዘው መጠን ከገበሬው ዝርዝር ተይዟል።';
+      'ክፍያው ተረጋግጦ በኢስክሮ በደህና ተይዟል። የታዘዘው መጠን ከገበሬው ዝርዝር ተይዟል።';
 
   @override
   String get orderAcceptedInfo => 'ገበሬው ትዕዛዙን ተቀብሎ ሰብሉን ለርክክብ ያዘጋጃል።';
@@ -2282,19 +2282,18 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get statusDisbursingInfo =>
-      'ገንዘቡ ከኢስክሮ (ኢስክሮ) በመውጣት ላይ ነው፤ ለገበሬው እና ካለ ለጭነት መኪና ሹፌሩ እየተከፈለ ነው።';
+      'ገንዘቡ ከኢስክሮ በመውጣት ላይ ነው፤ ለገበሬው እና ካለ ለጭነት መኪና ሹፌሩ እየተከፈለ ነው።';
 
   @override
   String get statusSettledInfo =>
       'ሁሉም ተከፍሏል፤ ገበሬው እና ካለ የጭነት መኪና ሹፌሩ። ትዕዛዙ ተጠናቅቋል።';
 
   @override
-  String get orderCancelledInfo =>
-      'ትዕዛዙ ተሰርዟል። በኢስክሮ (ኢስክሮ) የተያዘ ገንዘብ ካለ ለገዢው ይመለሳል።';
+  String get orderCancelledInfo => 'ትዕዛዙ ተሰርዟል። በኢስክሮ የተያዘ ገንዘብ ካለ ለገዢው ይመለሳል።';
 
   @override
   String get orderRejectedInfo =>
-      'ገበሬው ይህን ትዕዛዝ አልተቀበለም። በኢስክሮ (ኢስክሮ) የተያዘ ገንዘብ ለገዢው ይመለሳል።';
+      'ገበሬው ይህን ትዕዛዝ አልተቀበለም። በኢስክሮ የተያዘ ገንዘብ ለገዢው ይመለሳል።';
 
   @override
   String get statusPaymentFailedInfo =>
@@ -2302,7 +2301,7 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get statusDisputedInfo =>
-      'ክርክር ቀርቧል። ክርክሩ እስኪፈታ ድረስ ገንዘቡ በኢስክሮ (ኢስክሮ) ተይዞ ይቆያል።';
+      'ክርክር ቀርቧል። ክርክሩ እስኪፈታ ድረስ ገንዘቡ በኢስክሮ ተይዞ ይቆያል።';
 
   @override
   String get statusDisputeResolvedInfo => 'ክርክሩ ተፈቷል፤ ገንዘቡ ላሸነፈው ወገን ተላልፏል።';

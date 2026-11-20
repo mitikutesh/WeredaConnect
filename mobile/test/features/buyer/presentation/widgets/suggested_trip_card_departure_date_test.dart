@@ -90,6 +90,44 @@ void main() {
     expect(find.textContaining(' · 4.7'), findsNothing);
   });
 
+  testWidgets('a full trip reads "0 kg room", not a dash', (tester) async {
+    final trip = Trip()
+      ..tripId = 'trip-1'
+      ..truckerId = 'trucker-1'
+      ..truckerName = 'Trucker Tesfaye'
+      ..truckerPhone = '+251900100002'
+      ..fromWoreda = 'Adama'
+      ..toWoreda = 'Bishoftu'
+      ..departureDate = DateTime.parse('2026-10-24T21:00:00.000Z')
+      ..capacity = 50
+      ..bookedQuintals = 50
+      ..remainingQuintals = 0
+      ..pricePerQuintal = 200
+      ..status = TripStatus.open
+      ..matchedListings = <String>[]
+      ..createdAt = DateTime.utc(2026, 10, 20)
+      ..updatedAt = DateTime.utc(2026, 10, 20)
+      ..version = 1;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('en'),
+        home: Scaffold(
+          body: SuggestedTripCard(
+            trip: trip,
+            isSelected: false,
+            onSelect: () {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.textContaining('Adama → Bishoftu · 0 kg room'), findsOneWidget);
+    expect(find.textContaining('- room'), findsNothing);
+  });
+
   // CropDetailM board: "1,800 kg room (18 quintals)" on the route line and
   // the price per kg over "(150/quintal)".
   testWidgets('the room and the price lead with kilograms', (tester) async {

@@ -248,6 +248,9 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
             controller: _quantityController,
             l10n: l10n,
             fieldKey: const Key('edit_listing_quantity'),
+            // Untouched, the quantity is not sent, so it is not checked
+            // either: stock under 1 kg must not block a price edit.
+            untouchedText: kgEntryText(widget.listing.quantity),
           ),
           second: LabeledField(
             label: l10n.priceInBirr,

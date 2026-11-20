@@ -1272,4 +1272,56 @@ void main() {
       ).called(1);
     });
   });
+
+  // The quintals beside the kilograms keep two decimals and the singular:
+  // 125 kg is "1.25 quintals" (never "1.3"), 4 kg "0.04" (never "0.0").
+  group('OwnListingCard: the quintals after the kilograms', () {
+    Future<void> pumpCard(
+      WidgetTester tester, {
+      required double free,
+      double ordered = 0,
+    }) =>
+        tester.pumpWidget(
+          MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: Scaffold(
+              body: OwnListingCard(
+                key: ValueKey('$free/$ordered'),
+                crop: 'Teff',
+                subtitle: 'Meki',
+                price: '42',
+                priceUnit: 'ETB/kg',
+                status: 'Active',
+                freeQuintals: free,
+                orderedQuintals: ordered,
+              ),
+            ),
+          ),
+        );
+
+    testWidgets('free stock', (tester) async {
+      await pumpCard(tester, free: 1.25);
+      expect(
+        find.text('125 kg (1.25 quintals) · no orders yet'),
+        findsOneWidget,
+      );
+      await pumpCard(tester, free: 0.04);
+      expect(
+        find.text('4 kg (0.04 quintals) · no orders yet'),
+        findsOneWidget,
+      );
+      await pumpCard(tester, free: 1);
+      expect(find.text('100 kg (1 quintal) · no orders yet'), findsOneWidget);
+    });
+
+    testWidgets('ordered of total', (tester) async {
+      await pumpCard(tester, free: 48.75, ordered: 1.25);
+      expect(
+        find.text('125 of 5,000 kg ordered (1.25 of 50 quintals)'),
+        findsOneWidget,
+      );
+    });
+  });
 }

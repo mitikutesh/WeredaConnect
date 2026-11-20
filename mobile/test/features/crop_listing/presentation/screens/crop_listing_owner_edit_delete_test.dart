@@ -689,5 +689,46 @@ void main() {
       expect(sent, isEmpty);
       expect(find.text('Enter at least 1 kg.'), findsOneWidget);
     });
+
+    testWidgets(
+        'stock an order left under 1 kg does not block a price edit: the '
+        'untouched quantity is not checked and not sent', (tester) async {
+      // 100.5 kg listed, 100 kg funded: half a kilo is left.
+      when(() => cropRepo.getListingById('listing-1')).thenAnswer(
+        (_) async => _listing(quantity: 0.005)..version = 2,
+      );
+      await openEdit(tester);
+
+      expect(find.text('0.5'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_price')),
+        '50',
+      );
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pump();
+
+      expect(find.text('Enter at least 1 kg.'), findsNothing);
+      expect(sentEdit().quantity, isNull);
+      expect(sentEdit().pricePerKg, 50);
+      sentEdit().done!.complete(_listing(quantity: 0.005, pricePerKg: 50));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a pasted "4,000" is 4,000 kg, not 4', (tester) async {
+      await openEdit(tester);
+
+      await tester.enterText(
+        find.byKey(const Key('edit_listing_quantity')),
+        '4,000',
+      );
+      await tester.pump();
+      expect(find.text('4000'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('edit_listing_save')));
+      await tester.pump();
+
+      expect(sentEdit().quantity, 40);
+      sentEdit().done!.complete(_listing(quantity: 40)..version = 2);
+      await tester.pumpAndSettle();
+    });
   });
 }

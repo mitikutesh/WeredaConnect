@@ -496,9 +496,9 @@ class _BookedBox extends StatelessWidget {
     final kilograms = '${l10n.tripKgOfKg(_kgOf(booked), _kgOf(capacity))} · '
         '${l10n.tripKgLeft(_kgOf(left))}';
     final quintals = '(${l10n.detailBookedOf(
-      formatQuintals(booked),
-      formatQuintals(capacity),
-    )} · ${l10n.detailLeft(formatQuintals(left))})';
+      quintalsNumberText(booked),
+      quintalsNumberText(capacity),
+    )} · ${l10n.detailLeft(quintalsNumberText(left))})';
     return FwCard(
       key: const Key('trip_detail_booked'),
       raised: true,

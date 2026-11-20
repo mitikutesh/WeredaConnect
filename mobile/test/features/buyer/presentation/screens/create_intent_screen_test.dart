@@ -182,6 +182,54 @@ void main() {
       expect(sent.quantityNeeded, 2.5);
     });
 
+    testWidgets('a comma is grouping: "4,000" is 4,000 kg, "12,5" is 125 kg',
+        (tester) async {
+      await pump(tester);
+      await tester.tap(find.byKey(const Key('create_intent_crop_teff')));
+      final field = find.byKey(const Key('create_intent_quantity'));
+
+      await tester.enterText(field, '12,5');
+      await tester.pump();
+      expect(tester.widget<TextField>(field).controller!.text, '125');
+      expect(find.text('125 kg (1.25 quintals)'), findsOneWidget);
+
+      await tester.enterText(field, '4,000');
+      await tester.pump();
+      expect(tester.widget<TextField>(field).controller!.text, '4000');
+      expect(find.text('4,000 kg (40 quintals)'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Find Matches'));
+      await tester.tap(find.text('Find Matches'));
+      await tester.pump();
+      final sent = verify(
+        () => buyerIntentBloc.add(captureAny(that: isA<CreateBuyerIntent>())),
+      ).captured.single as CreateBuyerIntent;
+      expect(sent.quantityNeeded, 40);
+    });
+
+    testWidgets('more than 1,000,000 kg is refused and said under the field',
+        (tester) async {
+      await pump(tester);
+      await tester.tap(find.byKey(const Key('create_intent_crop_teff')));
+      final field = find.byKey(const Key('create_intent_quantity'));
+
+      await tester.enterText(field, '1000000');
+      await tester.pump();
+      expect(find.text('Enter at most 1,000,000 kg.'), findsNothing);
+      expect(find.text('1,000,000 kg (10,000 quintals)'), findsOneWidget);
+
+      await tester.enterText(field, '2000000');
+      await tester.pump();
+      expect(find.text('Enter at most 1,000,000 kg.'), findsOneWidget);
+
+      await tester.ensureVisible(find.text('Find Matches'));
+      await tester.tap(find.text('Find Matches'));
+      await tester.pump();
+      verifyNever(
+        () => buyerIntentBloc.add(any(that: isA<CreateBuyerIntent>())),
+      );
+    });
+
     testWidgets('the note about alerts sits in the form, above the button',
         (tester) async {
       await pump(tester);

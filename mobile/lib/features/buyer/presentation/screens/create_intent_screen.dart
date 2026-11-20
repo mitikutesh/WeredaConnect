@@ -10,8 +10,8 @@ import 'package:wereda_connect/features/buyer/presentation/screens/match_results
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/place.dart';
-import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/utils/kg_entry.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
@@ -82,10 +82,14 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
   bool _showErrors = false;
 
   /// The kilograms typed, or null when the field holds no number.
-  double? get _quantityKg =>
-      double.tryParse(_quantityController.text.replaceAll(',', '').trim());
+  double? get _quantityKg => parseKgEntry(_quantityController.text);
 
-  bool get _isQuantityValid => (_quantityKg ?? 0) > 0;
+  /// More than a request can ask for. The buyer-intent contract states no
+  /// limit of its own, so the largest listing (1,000,000 kg, 10,000
+  /// quintals) is the limit: no listing could fill more.
+  bool get _isQuantityTooLarge => (_quantityKg ?? 0) > maxListingKg;
+
+  bool get _isQuantityValid => (_quantityKg ?? 0) > 0 && !_isQuantityTooLarge;
 
   /// Max price is OPTIONAL: empty means "no budget" (stored as 0, which both
   /// scorers treat as unconstrained). Non-empty input must be a positive number.
@@ -120,7 +124,7 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
             buyerId: authState.userId,
             cropType: _selectedCropType!,
             // Typed in kg, stored in quintals.
-            quantityNeeded: _quantityKg! / kgPerQuintal,
+            quantityNeeded: quintalsFromKg(_quantityKg!),
             // 0 = no budget (optional field left empty).
             maxPricePerKg:
                 maxPriceText.isEmpty ? 0 : double.parse(maxPriceText),
@@ -242,12 +246,20 @@ class _CreateIntentScreenState extends State<CreateIntentScreen> {
                                   const TextInputType.numberWithOptions(
                                 decimal: true,
                               ),
+                              // A comma is grouping ("4,000" is 4000), as
+                              // on the listing form.
+                              inputFormatters: const [KgEntryFormatter()],
                               decoration:
                                   labeledFieldDecoration(hintText: '500')
                                       .copyWith(
-                                errorText: _showErrors && !_isQuantityValid
-                                    ? l10n.enterQuantityError
-                                    : null,
+                                // Too much is said at once: the read-back
+                                // line under the field is gone then.
+                                errorText: _isQuantityTooLarge
+                                    ? l10n.quantityKgTooLarge
+                                    : _showErrors && !_isQuantityValid
+                                        ? l10n.enterQuantityError
+                                        : null,
+                                errorMaxLines: 2,
                               ),
                               onChanged: (_) => setState(() {}),
                             ),

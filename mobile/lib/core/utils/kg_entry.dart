@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip_capacity.dart';
@@ -32,10 +33,51 @@ double quintalsFromKg(double kg) =>
 /// number. Grouping commas and spaces are ignored ("4,000").
 double? parseKgEntry(String? text) {
   if (text == null) return null;
-  final plain = text.replaceAll(RegExp(r'[,\s]'), '');
+  final plain = text.replaceAll(_kgGrouping, '');
   if (plain.isEmpty) return null;
   final kg = double.tryParse(plain);
   return kg == null || !kg.isFinite ? null : kg;
+}
+
+final RegExp _kgGrouping = RegExp(r'[,\s]');
+
+/// What a kilogram field can hold: up to seven digits and two decimals
+/// (1,000,000.00 at most).
+final RegExp _kgEntryShape = RegExp(r'^\d{0,7}(\.\d{0,2})?$');
+
+/// Keeps a kilogram field to plain digits with a decimal point.
+///
+/// Numbers are written the English way everywhere in the app, so a comma
+/// is always grouping, never a decimal mark: commas and spaces are taken
+/// out before anything else, wherever they sit. A pasted "4,000" becomes
+/// "4000", and "12,5" becomes "125" (the same rule, also for a comma
+/// followed by one or two digits at the end); half a kilo is typed "0.5".
+///
+/// An edit that would not fit (an eighth digit, a third decimal, a letter)
+/// is refused whole and the field keeps what it had: digits are never
+/// dropped from the middle or the end of what was typed or pasted.
+class KgEntryFormatter extends TextInputFormatter {
+  const KgEntryFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final text = newValue.text;
+    final plain = text.replaceAll(_kgGrouping, '');
+    if (!_kgEntryShape.hasMatch(plain)) return oldValue;
+    if (plain == text) return newValue;
+    // The caret keeps its place among the characters that stayed.
+    final caret = newValue.selection.extentOffset;
+    final kept = caret < 0
+        ? plain.length
+        : text.substring(0, caret).replaceAll(_kgGrouping, '').length;
+    return TextEditingValue(
+      text: plain,
+      selection: TextSelection.collapsed(offset: kept),
+    );
+  }
 }
 
 /// What a quantity field shows for [quintals]: plain kilograms, no

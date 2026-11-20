@@ -373,6 +373,20 @@ void main() {
       );
     });
 
+    testWidgets('a full truck has "0 kg left", not a dash', (tester) async {
+      await open(
+        tester,
+        quintals: 30,
+        selectedTrip: trip(pricePerQuintal: 100, remaining: 0),
+      );
+
+      final note = tester
+          .widget<Text>(find.byKey(const Key('place_order_quantity_note')))
+          .textSpan!
+          .toPlainText();
+      expect(note, endsWith('more than this trip has room for, 0 kg left'));
+    });
+
     testWidgets('a truck whose day is over: told why, back to choosing',
         (tester) async {
       final closedWith = await openFromDetail(

@@ -546,10 +546,16 @@ class AppTheme {
         // Chip labels do not inherit the text theme's font, so without the
         // Ethiopic fallback an Amharic label falls to a late-loading system
         // font on web and the chip is sized to placeholder glyphs (SIM-22).
+        // The selected chip is filled with the text colour, so its label
+        // takes the page's. Resolved per state: a FilterChip has no
+        // selected label style of its own (only ChoiceChip reads
+        // [secondaryLabelStyle]) and would read black on black.
         labelStyle: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w600,
-          color: text,
+          color: WidgetStateColor.resolveWith(
+            (states) => states.contains(WidgetState.selected) ? surface : text,
+          ),
           fontFamily: fontFamily,
           fontFamilyFallback: ethiopicFontFallback,
         ),
@@ -661,7 +667,15 @@ class AppTheme {
           (states) => states.contains(WidgetState.selected) ? text : emptyTrack,
         ),
         thumbColor: WidgetStatePropertyAll(surface),
-        trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+        // Off, the pale track gets the edge of a control a user must find
+        // ([fieldBorder], 3:1 or more on the page in both themes). On, the
+        // track itself is the strongest thing there.
+        trackOutlineColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected)
+              ? Colors.transparent
+              : fieldBorder,
+        ),
+        trackOutlineWidth: const WidgetStatePropertyAll(1.5),
       ),
 
       // Progress: the role's colour on the empty track

@@ -371,7 +371,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     final day = DateFormat.E().format(dayInEthiopia(trip.departureDate));
     // "Transport Thu · 1,800 kg room", short enough for the pill.
     return '${l10n.marketTransportOn(day)} · '
-        '${l10n.marketKgRoom(kgQuantityText(tripRoomLeft(trip) * kgPerQuintal, l10n))}';
+        '${l10n.marketKgRoom(kgRoomText(tripRoomLeft(trip) * kgPerQuintal, l10n))}';
   }
 
   /// "Meki · listed Mon" (this week), "Meki · listed today", or the short

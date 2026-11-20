@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/utils/kg_entry.dart';
@@ -78,6 +79,62 @@ void main() {
       expect(kgEntryProblem('0'), KgEntryProblem.missing);
       expect(kgEntryProblem('0.5'), KgEntryProblem.tooSmall);
       expect(kgEntryProblem('1000000.01'), KgEntryProblem.tooLarge);
+    });
+  });
+
+  group('KgEntryFormatter', () {
+    const formatter = KgEntryFormatter();
+    TextEditingValue typed(String text, {String before = ''}) =>
+        formatter.formatEditUpdate(
+          TextEditingValue(text: before),
+          TextEditingValue(
+            text: text,
+            selection: TextSelection.collapsed(offset: text.length),
+          ),
+        );
+
+    test('plain kilograms pass as typed', () {
+      expect(typed('4000').text, '4000');
+      expect(typed('1234.56').text, '1234.56');
+      expect(typed('1000000').text, '1000000');
+      expect(typed('0.5').text, '0.5');
+      expect(typed('').text, '');
+    });
+
+    test('a comma or a space is grouping and is taken out, digits stay', () {
+      expect(typed('4,000').text, '4000');
+      expect(typed('1,000,000').text, '1000000');
+      expect(typed('4 000').text, '4000');
+      expect(typed('1,234.56').text, '1234.56');
+      // Also before one or two last digits: never a decimal mark.
+      expect(typed('12,5').text, '125');
+      expect(typed('12,50').text, '1250');
+      // What the field holds is what the form reads.
+      expect(parseKgEntry(typed('4,000').text), 4000);
+    });
+
+    test('the caret stays after the characters that were kept', () {
+      final value = typed('4,000');
+      expect(value.selection, const TextSelection.collapsed(offset: 4));
+      final mid = formatter.formatEditUpdate(
+        TextEditingValue.empty,
+        const TextEditingValue(
+          text: '1,234',
+          selection: TextSelection.collapsed(offset: 3),
+        ),
+      );
+      expect(mid.text, '1234');
+      expect(mid.selection, const TextSelection.collapsed(offset: 2));
+    });
+
+    test('what does not fit is refused whole: no digit is dropped', () {
+      // An eighth digit, a third decimal, a letter, a second point.
+      expect(typed('12345678', before: '1234567').text, '1234567');
+      expect(typed('1.234', before: '1.23').text, '1.23');
+      expect(typed('12a', before: '12').text, '12');
+      expect(typed('1.2.3', before: '1.2').text, '1.2');
+      // A paste that does not fit leaves the field as it was.
+      expect(typed('4,000.555', before: '7').text, '7');
     });
   });
 

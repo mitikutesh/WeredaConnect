@@ -8,6 +8,7 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
@@ -647,10 +648,7 @@ class _TripLoadBar extends StatelessWidget {
       kgNumberText(loaded * kgPerQuintal),
       kgNumberText(capacity * kgPerQuintal),
     );
-    final quintals = l10n.quintalsOfInParens(
-      formatQuintals(loaded.toDouble()),
-      formatQuintals(capacity),
-    );
+    final quintals = quintalsOfInParensText(loaded, capacity, l10n);
 
     return Semantics(
       label: '${l10n.tripSpaceTitle}: $kg $quintals',

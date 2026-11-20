@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/kg_entry.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -78,7 +79,7 @@ class OwnListingCard extends StatelessWidget {
             text: l10n.quantityKg(kgNumberText(freeQuintals * kgPerQuintal)),
           ),
           TextSpan(
-            text: ' ${l10n.quintalsInParens(formatQuintals(freeQuintals))}',
+            text: ' ${quintalsCountInParens(freeQuintals, l10n)}',
             style: _quintals,
           ),
           TextSpan(text: ' · ${l10n.myCropsNoOrdersShort}'),
@@ -94,10 +95,7 @@ class OwnListingCard extends StatelessWidget {
           ),
         ),
         TextSpan(
-          text: ' ${l10n.quintalsOfInParens(
-            formatQuintals(orderedQuintals),
-            formatQuintals(total),
-          )}',
+          text: ' ${quintalsOfInParensText(orderedQuintals, total, l10n)}',
           style: _quintals,
         ),
       ],
