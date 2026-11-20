@@ -1008,4 +1008,145 @@ void main() {
       expect(sent.gpsPickup, isNull);
     });
   });
+
+  // Design canvas page M (TruckerQrFailedM): what a failed scan shows.
+  group('scan failed', () {
+    final l10n = lookupAppLocalizations(const Locale('en'));
+
+    Future<void> scanGarbage(
+      WidgetTester tester,
+      VerificationType type,
+      String errorCode,
+    ) async {
+      when(() => qr.parseQrToken(any(), any())).thenReturn(
+        QrParseResult.invalid('bad', errorCode: errorCode),
+      );
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await pumpScreen(tester, type);
+      final scanner = tester.widget<MobileScanner>(find.byType(MobileScanner));
+      scanner.onDetect!(
+        const BarcodeCapture(barcodes: [Barcode(rawValue: 'not-a-handoff')]),
+      );
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets("a QR of another delivery: why, nothing lost, the ways out",
+        (tester) async {
+      await scanGarbage(
+        tester,
+        VerificationType.pickup,
+        QrErrorCode.wrongDelivery,
+      );
+
+      expect(find.byKey(const Key('qr_scan_failed')), findsOneWidget);
+      expect(find.text(l10n.qrFailedPickupScan), findsOneWidget);
+      expect(find.text(l10n.qrFailedTitle), findsOneWidget);
+      expect(
+        find.text(
+          '${l10n.deliveryQrWrongDelivery}. ${l10n.qrFailedNothingLost}',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.deliveryTryAgain), findsOneWidget);
+      // The trucker goes back to the trip.
+      expect(find.text(l10n.qrFailedBackToTrip), findsOneWidget);
+      expect(find.text(l10n.qrTypeCodeInstead), findsOneWidget);
+      expect(find.text(l10n.qrFailedOfflineNote), findsOneWidget);
+      // Nothing was sent.
+      verifyNever(() => bloc.add(any()));
+      for (final key in ['qr_failed_retry', 'qr_failed_back']) {
+        expect(
+          tester.getSize(find.byKey(Key(key))).height,
+          greaterThanOrEqualTo(48),
+        );
+      }
+    });
+
+    testWidgets('Try again goes back to the camera', (tester) async {
+      await scanGarbage(
+        tester,
+        VerificationType.pickup,
+        QrErrorCode.invalidFormat,
+      );
+      expect(
+        find.textContaining(l10n.deliveryQrInvalidFormat),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('qr_failed_retry')));
+      await tester.pump();
+
+      expect(find.byKey(const Key('qr_scan_failed')), findsNothing);
+      expect(find.byType(MobileScanner), findsOneWidget);
+    });
+
+    testWidgets('the typed code is one tap away', (tester) async {
+      await scanGarbage(
+        tester,
+        VerificationType.pickup,
+        QrErrorCode.processFailed,
+      );
+
+      await tester.tap(find.byKey(const Key('qr_failed_type_code')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('qr_code_field')), findsOneWidget);
+    });
+
+    testWidgets('a buyer at a delivery reads Delivery scan and Back',
+        (tester) async {
+      await scanGarbage(
+        tester,
+        VerificationType.delivery,
+        QrErrorCode.wrongDelivery,
+      );
+
+      expect(find.text(l10n.qrFailedDeliveryScan), findsOneWidget);
+      expect(find.text(l10n.qrFailedBackToTrip), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('qr_failed_back')),
+          matching: find.text(l10n.back),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('fits a small phone with large Amharic text', (tester) async {
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final am = lookupAppLocalizations(const Locale('am'));
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('am'),
+          home: MediaQuery.withClampedTextScaling(
+            minScaleFactor: 2,
+            maxScaleFactor: 2,
+            child: Scaffold(
+              body: SafeArea(
+                child: QrScanFailedView(
+                  pickup: true,
+                  reason: am.deliveryQrWrongDelivery,
+                  backLabel: am.qrFailedBackToTrip,
+                  onRetry: () {},
+                  onBack: () {},
+                  onTypeCode: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text(am.qrFailedTitle), findsOneWidget);
+    });
+  });
 }
