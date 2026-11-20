@@ -119,6 +119,129 @@ void main() {
       expect(find.text('Geejjibaalee keessan hunda'), findsOneWidget);
     });
 
+    // MarketM with the app's two header buttons: no room on the title's
+    // line beside them, so the sketch goes under them.
+    group('under the trailing buttons', () {
+      const buttons = Row(
+        key: Key('buttons'),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(width: 44, height: 44),
+          SizedBox(width: 8),
+          SizedBox(width: 44, height: 44),
+        ],
+      );
+
+      Future<void> pump(
+        WidgetTester tester, {
+        required String title,
+        bool below = true,
+        MediaQueryData? media,
+      }) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          app(
+            FwPageHeader(
+              eyebrow: 'Deliver to Merkato',
+              title: title,
+              sketchRole: UserRole.buyer,
+              sketchBelowTrailing: below,
+              trailing: buttons,
+            ),
+            media: media,
+          ),
+        );
+      }
+
+      testWidgets('the usual header has no room for it at 390 px',
+          (tester) async {
+        await pump(tester, title: 'Market', below: false);
+        expect(drawing(), findsNothing);
+      });
+
+      testWidgets('on the title line, under the buttons, in the right 35%',
+          (tester) async {
+        await pump(tester, title: 'Market');
+        expect(drawing(), findsOneWidget);
+        final sketch = tester.getRect(drawing());
+        final title = tester.getRect(find.text('Market'));
+        final trailing = tester.getRect(find.byKey(const Key('buttons')));
+        final eyebrow = tester.getRect(find.text('Deliver to Merkato'));
+
+        expect(sketch.width, 58);
+        expect(sketch.top, greaterThanOrEqualTo(trailing.bottom));
+        expect(sketch.left, greaterThanOrEqualTo(title.right));
+        expect(sketch.right, 370);
+        // The header's content is 350 wide; its right 35% starts at 247.5.
+        expect(sketch.left, greaterThanOrEqualTo(20 + 350 * 0.65));
+        // On the title's line, not under it.
+        expect(sketch.bottom, lessThanOrEqualTo(title.bottom));
+        expect(sketch.top, greaterThanOrEqualTo(title.top));
+        // The buttons keep the top right; the eyebrow is beside them and
+        // the title on one line.
+        expect(trailing.right, 370);
+        expect(trailing.size, const Size(96, 44));
+        expect(eyebrow.right, lessThanOrEqualTo(trailing.left));
+        expect(title.height, lessThan(42 * 1.1 * 1.5));
+      });
+
+      testWidgets('a long title drops it and keeps the usual header',
+          (tester) async {
+        await pump(tester, title: 'Midhaan Barbaadi');
+        expect(drawing(), findsNothing);
+        final title = tester.getRect(find.text('Midhaan Barbaadi'));
+        final trailing = tester.getRect(find.byKey(const Key('buttons')));
+        // The title wraps beside the buttons, never under them.
+        expect(title.right, lessThanOrEqualTo(trailing.left));
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('large text drops it', (tester) async {
+        await pump(
+          tester,
+          title: 'Market',
+          media: const MediaQueryData(
+            size: Size(390, 844),
+            textScaler: TextScaler.linear(2),
+          ),
+        );
+        expect(drawing(), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('read in the usual order: eyebrow, title, buttons',
+          (tester) async {
+        final handle = tester.ensureSemantics();
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          app(
+            FwPageHeader(
+              eyebrow: 'Deliver to Merkato',
+              title: 'Market',
+              sketchRole: UserRole.buyer,
+              sketchBelowTrailing: true,
+              trailing: IconButton(
+                onPressed: () {},
+                tooltip: 'Notifications',
+                icon: const Icon(Icons.notifications_none),
+              ),
+            ),
+          ),
+        );
+        expect(drawing(), findsOneWidget);
+        final order = tester.semantics
+            .simulatedAccessibilityTraversal()
+            .map((node) => node.label.isEmpty ? node.tooltip : node.label)
+            .toList();
+        expect(order, ['Deliver to Merkato', 'Market', 'Notifications']);
+        handle.dispose();
+      });
+    });
+
     testWidgets('no sketch unless a role is named', (tester) async {
       await tester.pumpWidget(app(const FwPageHeader(title: 'Today')));
       expect(find.byType(RoleSketch), findsNothing);
