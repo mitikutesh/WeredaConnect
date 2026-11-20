@@ -2183,9 +2183,6 @@ class AppLocalizationsAm extends AppLocalizations {
   String get transportCost => 'የማጓጓዣ ወጪ';
 
   @override
-  String get platformCommission => 'የመድረክ ኮሚሽን (5%)';
-
-  @override
   String get orderTotal => 'ጠቅላላ';
 
   @override
@@ -2454,9 +2451,6 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get transportCostLabel => 'የትራንስፖርት ዋጋ';
-
-  @override
-  String get commissionLabel => 'ኮሚሽን (5%)';
 
   @override
   String syncedAgo(String time) {

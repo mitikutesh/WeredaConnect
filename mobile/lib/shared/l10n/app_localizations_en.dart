@@ -2249,9 +2249,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get transportCost => 'Transport Cost';
 
   @override
-  String get platformCommission => 'Platform Commission (5%)';
-
-  @override
   String get orderTotal => 'Total';
 
   @override
@@ -2525,9 +2522,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get transportCostLabel => 'Transport Cost';
-
-  @override
-  String get commissionLabel => 'Commission (5%)';
 
   @override
   String syncedAgo(String time) {

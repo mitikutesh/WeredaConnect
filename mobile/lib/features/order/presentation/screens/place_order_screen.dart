@@ -45,6 +45,7 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/features/order/presentation/commission_label.dart';
 
 /// Screen for buyers to place an order on a crop listing (the Buyer · Place
 /// order board): the listing in one line, the quantity in kg with minus and
@@ -663,7 +664,12 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                               ],
                               const SizedBox(height: 9),
                               FwMoneyRow(
-                                label: l10n.platformCommission,
+                                // The standard rate before the order exists;
+                                // the order then carries its own.
+                                label: commissionLabelFor(
+                                  l10n,
+                                  _commissionRate,
+                                ),
                                 amount: l10n
                                     .etbCurrency(formatEtbAmount(_commission)),
                               ),
