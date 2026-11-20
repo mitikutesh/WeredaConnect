@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
@@ -30,6 +31,7 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_photo_views.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/widgets/own_listing_card.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
@@ -76,12 +78,18 @@ class BrowseListingsScreen extends StatefulWidget {
   final bool showFilters;
   final Trip? originTrip;
 
+  /// My Crops with no listing: what "Back to Home" does. When null the
+  /// screen goes back itself where it can (a pushed screen pops, the web
+  /// opens Home); as a phone tab the button is left out.
+  final VoidCallback? onBackToHome;
+
   const BrowseListingsScreen({
     this.ownerMode = false,
     this.embedded = false,
     this.showHeader = true,
     this.showFilters = true,
     this.originTrip,
+    this.onBackToHome,
     super.key,
   });
 
@@ -408,7 +416,9 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     return _tripsThisWeek(listing, trips, woreda).isNotEmpty;
   }
 
-  /// "32 of 60 quintals ordered", or "8 quintals, no orders yet".
+  /// "32 of 60 quintals ordered", or "8 quintals, no orders yet": the
+  /// sentence the shared [ListingCard] took. My Crops now draws
+  /// [OwnListingCard], kilograms first.
   String _orderedDetail(CropListing listing, AppLocalizations l10n) {
     final ordered = _orderedByListing[listing.listingId] ?? 0;
     if (ordered <= 0) {
@@ -419,6 +429,34 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
       formatQuintals(listing.quantity + ordered),
     );
   }
+
+  /// My Crops with no listing: opens Create listing, then reads the list
+  /// again.
+  Future<void> _openCreateListing() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => const CreateCropListingScreen(),
+      ),
+    );
+    if (!mounted) return;
+    _loadListings();
+  }
+
+  /// My Crops with no listing: the way back to Home, or null where this
+  /// screen has none of its own (see [BrowseListingsScreen.onBackToHome]).
+  VoidCallback? _backToHome() {
+    final given = widget.onBackToHome;
+    if (given != null) return given;
+    if (kIsWeb) return () => context.go('/');
+    if (!widget.embedded) return () => Navigator.of(context).maybePop();
+    return null;
+  }
+
+  /// Whether the farmer has no listing at all (the list is read and empty):
+  /// the empty board replaces the switch and the header's sketch.
+  static bool _ownerHasNone(CropListingState state) =>
+      state is CropListingsLoaded && state.listings.isEmpty;
 
   /// My Crops header: "Almaz Bekele · Meki", from the profile; null when
   /// it has neither.
@@ -513,19 +551,56 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                         )
                       else if (widget.ownerMode)
                         // MyCrops board: "Almaz Bekele · Meki" over the
-                        // title, the Farmer pill on the right, then the
-                        // account button where no sidebar lists Profile.
-                        FwPageHeader(
-                          eyebrow: _ownerLine() ?? l10n.yourCropListings,
-                          title: l10n.myCrops,
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
+                        // title, the farmer sketch beside it, the Farmer
+                        // pill on the right, then the account button where
+                        // no sidebar lists Profile. With no listing the
+                        // large sketch is in the page: none here.
+                        BlocBuilder<CropListingBloc, CropListingState>(
+                          buildWhen: (previous, current) =>
+                              _ownerHasNone(previous) != _ownerHasNone(current),
+                          builder: (context, state) => Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              _RolePill(label: l10n.farmer),
-                              if (!SidebarScope.of(context)) ...[
-                                const SizedBox(width: 8),
-                                const AccountButton(),
-                              ],
+                              // "Almaz Bekele · Meki" and the Farmer pill
+                              // on one line, the account button at its end.
+                              Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              _ownerLine() ??
+                                                  l10n.yourCropListings,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: FwText.body,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          _RolePill(label: l10n.farmer),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    // 48 tall with or without the button.
+                                    const SizedBox(height: 48),
+                                    if (!SidebarScope.of(context))
+                                      const AccountButton(),
+                                  ],
+                                ),
+                              ),
+                              FwPageHeader(
+                                padding:
+                                    const EdgeInsets.fromLTRB(20, 2, 20, 12),
+                                title: l10n.myCrops,
+                                sketchRole: _ownerHasNone(state)
+                                    ? null
+                                    : UserRole.farmer,
+                              ),
                             ],
                           ),
                         )
@@ -611,17 +686,20 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
               // the crop chips (Market board).
               if (widget.ownerMode)
                 BlocBuilder<CropListingBloc, CropListingState>(
-                  builder: (context, state) => Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
-                    child: _StatusSegmented(
-                      listings: state is CropListingsLoaded
-                          ? state.listings
-                          : const <CropListing>[],
-                      selected: _selectedStatus,
-                      onChanged: (status) =>
-                          setState(() => _selectedStatus = status),
-                    ),
-                  ),
+                  builder: (context, state) => _ownerHasNone(state)
+                      // FarmerEmptyCrops board: no switch over nothing.
+                      ? const SizedBox.shrink()
+                      : Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                          child: _StatusSegmented(
+                            listings: state is CropListingsLoaded
+                                ? state.listings
+                                : const <CropListing>[],
+                            selected: _selectedStatus,
+                            onChanged: (status) =>
+                                setState(() => _selectedStatus = status),
+                          ),
+                        ),
                 )
               else
                 _CropTypeChipsRow(
@@ -708,6 +786,16 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                               ? l10n.noListingsMatchFiltersHint
                               : l10n.myCropsSegmentEmptyHint,
                           clearLabel: l10n.clearFilters,
+                        );
+                      }
+                      if (widget.ownerMode &&
+                          state.listings.isEmpty &&
+                          !_hasActiveFilters) {
+                        // FarmerEmptyCrops board: nothing listed yet.
+                        return OwnCropsEmptyState(
+                          key: const Key('my_crops_empty'),
+                          onListCrop: _openCreateListing,
+                          onBackToHome: _backToHome(),
                         );
                       }
                       if (listings.isEmpty && _hasActiveFilters) {
@@ -833,6 +921,59 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                 final summary = snapshot.data;
                                 final rated =
                                     summary != null && summary.count > 0;
+                                if (widget.ownerMode) {
+                                  // MyCrops board: the farmer's own card,
+                                  // kilograms first.
+                                  final notSent =
+                                      _notSent.contains(listing.listingId);
+                                  return OwnListingCard(
+                                    crop: crop,
+                                    subtitle:
+                                        _ownListingSubtitle(listing, l10n),
+                                    price: _pricePerKgFormat
+                                        .format(listing.pricePerKg.round()),
+                                    priceUnit: l10n.etbPerKg,
+                                    status: notSent
+                                        ? l10n.listingNotSentYet
+                                        : _statusLabel(listing.status, l10n),
+                                    statusPending: notSent,
+                                    lead: index == 0,
+                                    leading: listing.photos.isEmpty
+                                        ? null
+                                        : CropPhotoThumb(
+                                            listing: listing,
+                                            size: 46,
+                                          ),
+                                    freeQuintals: listing.quantity,
+                                    orderedQuintals:
+                                        _orderedByListing[listing.listingId] ??
+                                            0,
+                                    rating: reputation.isPresent
+                                        ? reputation.rating
+                                        : (rated ? summary.average : null),
+                                    ratingCount: reputation.isPresent
+                                        ? reputation.count
+                                        : (rated ? summary.count : null),
+                                    onTap: () {
+                                      final authState =
+                                          context.read<AuthBloc>().state;
+                                      if (authState is! AuthAuthenticated) {
+                                        return;
+                                      }
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute<void>(
+                                          builder: (_) =>
+                                              CropListingDetailScreen(
+                                            listing: listing,
+                                            currentUserId: authState.userId,
+                                            currentUserRole: authState.role,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  );
+                                }
                                 return ListingCard(
                                   // Market board: "Wheat · 28 quintals left";
                                   // My Crops: the crop alone.
@@ -1047,7 +1188,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
   }
 }
 
-/// The MyCrops board's "Farmer" pill beside the title.
+/// The MyCrops board's "Farmer" pill beside the title: sand, quiet.
 class _RolePill extends StatelessWidget {
   final String label;
 
@@ -1055,27 +1196,11 @@ class _RolePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      decoration: BoxDecoration(
-        color: context.roleColors.tint,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.eco_outlined, size: 16, color: context.roleColors.primary),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: context.roleColors.primary,
-            ),
-          ),
-        ],
-      ),
+    return FwPill(
+      label: label,
+      icon: Icons.eco_outlined,
+      background: AppTheme.sand,
+      foreground: AppTheme.inkSoft,
     );
   }
 }
@@ -1197,7 +1322,7 @@ class _NoMatch extends StatelessWidget {
   }
 }
 
-/// MyCrops board: who sees the listings, in a blue note under the list.
+/// MyCrops board: who sees the listings, in a sand note under the list.
 class _PrivacyNote extends StatelessWidget {
   final String text;
   final IconData icon;
@@ -1208,17 +1333,17 @@ class _PrivacyNote extends StatelessWidget {
     required this.text,
     super.key,
     this.icon = Icons.place_outlined,
-    this.background = AppTheme.dropoffSlateTint,
-    this.foreground = AppTheme.dropoffSlate,
+    this.background = AppTheme.sand,
+    this.foreground = AppTheme.inkSoft,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: background,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1231,7 +1356,7 @@ class _PrivacyNote extends StatelessWidget {
               style: TextStyle(
                 fontSize: 13,
                 height: 1.4,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w500,
                 color: foreground,
               ),
             ),

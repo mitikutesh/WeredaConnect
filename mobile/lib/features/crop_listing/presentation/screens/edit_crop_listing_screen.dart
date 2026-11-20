@@ -7,13 +7,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
-import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/contact_in_text.dart';
-import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/utils/kg_entry.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_form_parts.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
@@ -22,12 +22,12 @@ import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
 /// SIM-56: the farmer edits their own active listing: how much is left
-/// (quintals), the price (ETB per kg) and the description. The crop, the
+/// (typed in kilograms, saved in quintals), the price (ETB per kg) and the description. The crop, the
 /// photos and the place stay as listed (delete and list again to change
 /// them). Laid out like Create listing, with Save pinned at the foot.
 ///
 /// The fields allow what the server accepts (crop-listing-api.md): up to
-/// 9,999.99 quintals, up to 999.99 ETB per kg, 500 characters of
+/// 1,000,000 kg (10,000 quintals), up to 999.99 ETB per kg, 500 characters of
 /// description and no phone number in it. Only the changed fields are sent,
 /// at the version of [listing] (the copy the form shows). Pops with an
 /// [EditListingResult]: the saved listing, or that the listing changed
@@ -49,7 +49,7 @@ class EditCropListingScreen extends StatefulWidget {
 class _EditCropListingScreenState extends State<EditCropListingScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _quantityController =
-      TextEditingController(text: _plain(widget.listing.quantity));
+      TextEditingController(text: kgEntryText(widget.listing.quantity));
   late final TextEditingController _priceController =
       TextEditingController(text: _plain(widget.listing.pricePerKg));
   late final TextEditingController _descriptionController =
@@ -90,17 +90,11 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
   }
 
   /// What the whole listing sells for now, as on Create listing.
-  String? _totalLine(AppLocalizations l10n) {
-    final quintals = double.tryParse(_quantityController.text);
-    final pricePerKg = double.tryParse(_priceController.text);
-    if (quintals == null || quintals <= 0) return null;
-    if (pricePerKg == null || pricePerKg <= 0) return null;
-    final perQuintal = pricePerKg * kgPerQuintal;
-    return l10n.cropFormTotalLine(
-      formatEtbAmount(quintals * perQuintal),
-      formatEtbAmount(perQuintal),
-    );
-  }
+  String? _totalLine(AppLocalizations l10n) => cropFormTotalLine(
+        _quantityController.text,
+        _priceController.text,
+        l10n,
+      );
 
   /// The typed number when the farmer changed it, null while the field
   /// still shows the listing's own: an untouched field is not sent (the free
@@ -119,8 +113,12 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
     if (!_formKey.currentState!.validate()) return;
     final l10n = AppLocalizations.of(context)!;
     final navigator = Navigator.of(context);
+    // Typed in kilograms; the listing is stored and sent in quintals
+    // (crop-listing-api.md). Untouched, the field is not sent.
     final quantity =
-        _changedNumber(_quantityController, widget.listing.quantity);
+        _quantityController.text == kgEntryText(widget.listing.quantity)
+            ? null
+            : quintalsFromKg(parseKgEntry(_quantityController.text)!);
     final pricePerKg =
         _changedNumber(_priceController, widget.listing.pricePerKg);
     final typed = _descriptionController.text.trim();
@@ -191,7 +189,7 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                FwDetailHeader(title: l10n.editListing, subtitle: crop),
+                CropFormHeader(title: l10n.editListing, subtitle: crop),
                 const OfflineBanner(),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -211,7 +209,7 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
             key: const Key('edit_listing_save'),
             onPressed: _isSubmitting ? null : _handleSave,
             style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(56),
+              minimumSize: const Size.fromHeight(54),
               textStyle: const TextStyle(
                 fontFamily: AppTheme.fontFamily,
                 fontFamilyFallback: AppTheme.ethiopicFontFallback,
@@ -226,7 +224,7 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
                       valueColor: AlwaysStoppedAnimation<Color>(
-                        Colors.white,
+                        AppTheme.ink,
                       ),
                     ),
                   )
@@ -246,28 +244,10 @@ class _EditCropListingScreenState extends State<EditCropListingScreen> {
         Text(l10n.editListingNote, style: LabeledField.helperStyle),
         const SizedBox(height: 18),
         LabeledFieldPair(
-          first: LabeledField(
-            label: l10n.quantityInQuintals,
-            field: TextFormField(
-              key: const Key('edit_listing_quantity'),
-              controller: _quantityController,
-              decoration: labeledFieldDecoration(suffixText: l10n.quintals),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              // At most 9,999.99 quintals: the server's limit is 10,000.
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(
-                  RegExp(r'^\d{0,4}\.?\d{0,2}'),
-                ),
-              ],
-              validator: (value) {
-                final quantity = double.tryParse(value ?? '');
-                return quantity == null || quantity <= 0
-                    ? l10n.quantityRequired
-                    : null;
-              },
-            ),
+          first: KgQuantityField.labeled(
+            controller: _quantityController,
+            l10n: l10n,
+            fieldKey: const Key('edit_listing_quantity'),
           ),
           second: LabeledField(
             label: l10n.priceInBirr,
