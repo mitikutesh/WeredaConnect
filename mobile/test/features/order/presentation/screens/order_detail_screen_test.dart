@@ -1043,8 +1043,12 @@ void main() {
       await tester.tap(contactRow('Contact Farmer'));
       await tester.pumpAndSettle();
 
+      final sheet = find.byType(BottomSheet);
       expect(find.text('+251911000002'), findsOneWidget);
-      expect(find.text('Call'), findsOneWidget);
+      expect(
+        find.descendant(of: sheet, matching: find.text('Call')),
+        findsOneWidget,
+      );
       expect(find.text('Send a message'), findsOneWidget);
     });
 
@@ -1063,6 +1067,93 @@ void main() {
       expect(find.text('Phone number not available'), findsOneWidget);
       expect(find.text('Call'), findsNothing);
       expect(find.text('Send a message'), findsOneWidget);
+    });
+
+    // BuyerOrderDetailM: Message and Call on the party rows, by the rules
+    // contact already follows (ESC-48). Call shows only with a number.
+    group('Message and Call on the rows', () {
+      final message = find.byKey(const Key('order_contact_message'));
+      final call = find.byKey(const Key('order_contact_call'));
+
+      for (final (role, userId) in [
+        (UserRole.buyer, _buyerId),
+        (UserRole.farmer, _farmerId),
+        (UserRole.trucker, _truckerId),
+      ]) {
+        testWidgets('${role.name}, contact open with numbers: both, per party',
+            (tester) async {
+          tallView(tester);
+          stubAuth(role, userId);
+          await tester.pumpWidget(
+            buildScreen(openOrder(status: OrderStatus.inTransit)),
+          );
+          await tester.pumpAndSettle();
+
+          expect(message, findsNWidgets(2));
+          expect(call, findsNWidgets(2));
+          // The words under the round buttons; never a number on the page.
+          expect(find.text('Message'), findsNWidgets(2));
+          expect(find.text('Call'), findsNWidgets(2));
+          expect(find.textContaining('+2519'), findsNothing);
+        });
+
+        testWidgets('${role.name}, contact open, no number yet: Message only',
+            (tester) async {
+          tallView(tester);
+          stubAuth(role, userId);
+          await tester.pumpWidget(
+            buildScreen(openOrder(contactOpen: null, withPhones: false)),
+          );
+          await tester.pumpAndSettle();
+
+          expect(message, findsNWidgets(2));
+          expect(call, findsNothing);
+        });
+
+        testWidgets('${role.name}, paid but not accepted: neither',
+            (tester) async {
+          tallView(tester);
+          stubAuth(role, userId);
+          await tester.pumpWidget(
+            buildScreen(
+              openOrder(status: OrderStatus.funded, contactOpen: false),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(message, findsNothing);
+          expect(call, findsNothing);
+          expect(find.textContaining('+2519'), findsNothing);
+        });
+
+        testWidgets('${role.name}, after a cancel: neither', (tester) async {
+          tallView(tester);
+          stubAuth(role, userId);
+          await tester.pumpWidget(
+            buildScreen(
+              openOrder(status: OrderStatus.cancelled, contactOpen: false),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(message, findsNothing);
+          expect(call, findsNothing);
+        });
+      }
+
+      testWidgets('Message opens the thread, Call the sheet with the number',
+          (tester) async {
+        tallView(tester);
+        stubAuth(UserRole.buyer, _buyerId);
+        await tester.pumpWidget(
+          buildScreen(openOrder(withTrucker: false)),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(call);
+        await tester.pumpAndSettle();
+        expect(find.text('+251911000002'), findsOneWidget);
+      });
     });
 
     // SIM-33: a name field holding the user's id shows the role instead.

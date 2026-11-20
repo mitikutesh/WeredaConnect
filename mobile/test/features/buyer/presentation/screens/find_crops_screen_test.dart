@@ -252,4 +252,69 @@ void main() {
       );
     });
   });
+
+  // MarketM board.
+  group('page M', () {
+    BuyerIntent intent() => BuyerIntent()
+      ..intentId = 'intent-001'
+      ..buyerId = 'buyer-001'
+      ..cropType = 'wheat'
+      ..quantityNeeded = 20
+      ..maxPricePerKg = 45
+      ..deliveryWoreda = 'Addis Ababa'
+      ..matchCount = 3
+      ..status = BuyerIntentStatus.active
+      ..createdAt = DateTime.utc(2026)
+      ..updatedAt = DateTime.utc(2026)
+      ..version = 1;
+
+    testWidgets('the eyebrow reads "Deliver to" with the buyer\'s place',
+        (tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'buyer-001',
+          tokens: _testTokens,
+          role: UserRole.buyer,
+          woreda: 'Addis Ababa',
+        ),
+      );
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Deliver to Addis Ababa'), findsOneWidget);
+      expect(find.byIcon(Icons.place_outlined), findsOneWidget);
+      expect(find.text('Find Crops'), findsOneWidget);
+    });
+
+    testWidgets('a request reads kilograms first, its matches as a pill',
+        (tester) async {
+      final state = ActiveIntentsLoaded(intents: [intent()]);
+      when(() => buyerIntentBloc.state).thenReturn(state);
+      when(() => buyerIntentBloc.stream).thenAnswer((_) => Stream.value(state));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('My Requests · 1'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Wheat · 2,000 kg (20 quintals)'), findsOneWidget);
+      expect(find.widgetWithText(FwPill, '3 matches found'), findsOneWidget);
+      // The link to add another request scrolls with the list.
+      expect(find.text('New Buying Intent'), findsOneWidget);
+    });
+
+    testWidgets('search hides with the Browse segment', (tester) async {
+      final state = ActiveIntentsLoaded(intents: [intent()]);
+      when(() => buyerIntentBloc.state).thenReturn(state);
+      when(() => buyerIntentBloc.stream).thenAnswer((_) => Stream.value(state));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.search), findsOneWidget);
+
+      await tester.tap(find.text('My Requests · 1'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.search), findsNothing);
+    });
+  });
 }

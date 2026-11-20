@@ -18,6 +18,7 @@ import 'package:wereda_connect/core/sync/sync_queue.dart'
 import 'package:wereda_connect/core/utils/board_day.dart';
 import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -360,9 +361,9 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     if (fitting.length > 1) return l10n.marketTripsThisWeek(fitting.length);
     final trip = fitting.single;
     final day = DateFormat.E().format(dayInEthiopia(trip.departureDate));
-    // "Transport Thu · 18 q room", short enough for the pill.
+    // "Transport Thu · 1,800 kg room", short enough for the pill.
     return '${l10n.marketTransportOn(day)} · '
-        '${l10n.marketQuintalsRoom(formatQuintals(tripRoomLeft(trip)))}';
+        '${l10n.marketKgRoom(kgQuantityText(tripRoomLeft(trip) * kgPerQuintal, l10n))}';
   }
 
   /// "Meki · listed Mon" (this week), "Meki · listed today", or the short
@@ -784,7 +785,7 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                           // Both lists end with a line about who sees what.
                           itemCount: listings.length + 1,
                           separatorBuilder: (_, __) =>
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 12),
                           itemBuilder: (context, index) {
                             if (index == listings.length) {
                               if (!widget.ownerMode) {
@@ -834,11 +835,19 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                                 final rated =
                                     summary != null && summary.count > 0;
                                 return ListingCard(
-                                  // Market board: "Wheat · 28 quintals left";
+                                  // Market board: "Wheat · 2,800 kg left"
+                                  // with "(28 quintals)" after it, small;
                                   // My Crops: the crop alone.
                                   title: widget.ownerMode
                                       ? crop
-                                      : '$crop · ${l10n.marketQuintalsLeft(formatQuintals(listing.quantity))}',
+                                      : '$crop · ${l10n.marketKgLeft(kgQuantityText(listing.quantity * kgPerQuintal, l10n))}',
+                                  titleSuffix: widget.ownerMode
+                                      ? null
+                                      : quintalsInParensText(
+                                          listing.quantity * kgPerQuintal,
+                                          l10n,
+                                        ),
+                                  priceUnitBelow: !widget.ownerMode,
                                   // SIM-33: never an id or a junk place;
                                   // an unnamed seller is "Farmer".
                                   location:
@@ -1254,8 +1263,10 @@ class _Footnote extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
       child: Text(
         text,
-        textAlign: TextAlign.center,
-        style: FwText.body.copyWith(height: 1.4),
+        style: FwText.body.copyWith(
+          fontWeight: FontWeight.w400,
+          height: 1.4,
+        ),
       ),
     );
   }
@@ -1300,8 +1311,8 @@ class _StatusSegmented extends StatelessWidget {
   }
 }
 
-/// Market board: the crop chips, "All" filled field green, the others
-/// white with a whisper border.
+/// Market board: the crop pills, each with the crop glyph; the picked one
+/// is black with white ink, the others outlined.
 class _CropTypeChipsRow extends StatelessWidget {
   final String? selectedCropType;
   final ValueChanged<String?> onCropTypeChanged;
@@ -1315,15 +1326,15 @@ class _CropTypeChipsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return SizedBox(
-      height: 60,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(20, 8, 12, 8),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(20, 12, 12, 8),
+      child: Row(
         children: [
           _CropChip(
             label: l10n.allCrops,
             selected: selectedCropType == null,
+            showGlyph: false,
             onTap: () => onCropTypeChanged(null),
           ),
           for (final type in CropType.values)
@@ -1341,41 +1352,61 @@ class _CropTypeChipsRow extends StatelessWidget {
 class _CropChip extends StatelessWidget {
   final String label;
   final bool selected;
+  final bool showGlyph;
   final VoidCallback onTap;
 
   const _CropChip({
     required this.label,
     required this.selected,
     required this.onTap,
+    this.showGlyph = true,
   });
 
   @override
   Widget build(BuildContext context) {
+    final ink = selected ? Colors.white : AppTheme.inkSoft;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: Semantics(
         button: true,
         selected: selected,
-        child: Material(
-          color: selected ? context.roleColors.primary : AppTheme.surfaceWhite,
-          shape: StadiumBorder(
-            side: BorderSide(
-              color: selected ? context.roleColors.primary : AppTheme.line,
+        child: FwTapTarget(
+          onTap: onTap,
+          child: Material(
+            color: selected ? AppTheme.ink : Colors.transparent,
+            shape: StadiumBorder(
+              side: BorderSide(
+                color: selected ? AppTheme.ink : AppTheme.fieldBorder,
+              ),
             ),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            child: Container(
-              height: 44,
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              alignment: Alignment.center,
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                  color: selected ? Colors.white : AppTheme.ink,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 44),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 4,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (showGlyph) ...[
+                        ExcludeSemantics(child: FwSprout(color: ink, size: 20)),
+                        const SizedBox(width: 6),
+                      ],
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.w500,
+                          color: ink,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

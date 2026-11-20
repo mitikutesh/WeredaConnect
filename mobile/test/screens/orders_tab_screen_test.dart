@@ -14,12 +14,16 @@ import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/action_needed_list.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
@@ -29,6 +33,8 @@ class MockAuthBloc extends Mock implements AuthBloc {}
 class FakeOrderEvent extends Fake implements OrderEvent {}
 
 class MockConnectivityMonitor extends Mock implements ConnectivityMonitor {}
+
+class MockOrderRepository extends Mock implements BaseOrderRepository {}
 
 const _tokens = AuthTokens(
   accessToken: 'fake-access-token',
@@ -294,5 +300,136 @@ void main() {
       expect(find.text(en.retry), findsOneWidget);
       expect(find.text(en.acceptOrder), findsNothing);
     });
+  });
+
+  // The buyer has no Home tab (design canvas page M): what waits for the
+  // buyer leads the Orders list as Action needed cards.
+  group('the buyer\'s action needed cards', () {
+    final en = lookupAppLocalizations(const Locale('en'));
+    late MockOrderRepository repository;
+
+    Order order(String id, OrderStatus status, {int day = 1}) => Order()
+      ..orderId = id
+      ..listingId = 'listing-$id'
+      ..buyerId = 'buyer-001'
+      ..farmerId = 'farmer-001'
+      ..buyerName = 'Buyer Bee'
+      ..farmerName = 'Farmer Fikru'
+      ..cropType = 'teff'
+      ..quantity = 1500
+      ..pricePerUnit = 85
+      ..totalPrice = 127500
+      ..status = status
+      ..createdAt = DateTime.utc(2026, 11, day)
+      ..version = 1;
+
+    late List<Order> orders;
+
+    setUp(() {
+      orders = [
+        order('paid', OrderStatus.funded, day: 4),
+        order('unpaid', OrderStatus.created, day: 3),
+        order('failed', OrderStatus.paymentFailed, day: 2),
+        order('arrived', OrderStatus.delivered),
+      ];
+      repository = MockOrderRepository();
+      when(() => orderBloc.repository).thenReturn(repository);
+      when(
+        () => repository.getOrdersByUser(any(), role: any(named: 'role')),
+      ).thenAnswer((_) async => orders);
+      when(() => repository.ordersWithQueuedCheckIns(any(), any()))
+          .thenAnswer((i) async => i.positionalArguments.first as List<Order>);
+      when(() => orderBloc.state)
+          .thenAnswer((_) => OrdersLoaded(orders: orders));
+    });
+
+    Future<void> pumpPhone(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(buildScreen(const Locale('en')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('pay, pay again and check the delivery lead the list',
+        (tester) async {
+      await pumpPhone(tester);
+
+      expect(find.byType(ActionNeededList), findsOneWidget);
+      expect(find.text(en.actionNeededTitle.toUpperCase()), findsNWidgets(3));
+      expect(find.text(en.actionPay), findsOneWidget);
+      expect(find.text(en.actionPayAgain), findsOneWidget);
+      expect(find.text(en.actionCheckDelivery), findsOneWidget);
+      // Above every order of the list, the paid one that waits for nothing
+      // from the buyer included.
+      final firstCard = tester.getTopLeft(find.byType(OrderCard).first).dy;
+      for (final label in [
+        en.actionPay,
+        en.actionPayAgain,
+        en.actionCheckDelivery,
+      ]) {
+        expect(tester.getTopLeft(find.text(label)).dy, lessThan(firstCard));
+      }
+      expect(find.byType(OrderCard), findsNWidgets(4));
+    });
+
+    testWidgets('kilograms lead on the order cards, the quintals follow',
+        (tester) async {
+      await pumpPhone(tester);
+
+      expect(
+        find.textContaining('1,500 kg (15 quintals)'),
+        findsNWidgets(4),
+      );
+    });
+
+    testWidgets('nothing waits: no card, the first order is not pushed down',
+        (tester) async {
+      orders = [order('paid', OrderStatus.funded)];
+      await pumpPhone(tester);
+
+      expect(find.text(en.actionNeededTitle.toUpperCase()), findsNothing);
+      expect(find.byType(OrderCard), findsOneWidget);
+    });
+
+    testWidgets('a status filter shows the orders alone', (tester) async {
+      await pumpPhone(tester);
+      final pill = find.widgetWithText(FwFilterPill, en.orderFunded);
+      await tester.ensureVisible(pill);
+      await tester.tap(pill);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ActionNeededList), findsNothing);
+    });
+
+    for (final role in [UserRole.farmer, UserRole.trucker]) {
+      testWidgets('the ${role.name} reads theirs on Home, not here',
+          (tester) async {
+        when(() => authBloc.state).thenReturn(
+          AuthAuthenticated(
+            userId: role == UserRole.farmer ? 'farmer-001' : 'trucker-001',
+            tokens: _tokens,
+            role: role,
+            userName: 'Someone',
+          ),
+        );
+        await pumpPhone(tester);
+
+        expect(find.byType(ActionNeededList), findsNothing);
+        expect(find.byType(OrderCard), findsNWidgets(4));
+        // The list leads with its first order, raised.
+        expect(
+          tester
+              .widget<FwCard>(
+                find.descendant(
+                  of: find.byType(OrderCard).first,
+                  matching: find.byType(FwCard),
+                ),
+              )
+              .raised,
+          isTrue,
+        );
+      });
+    }
   });
 }

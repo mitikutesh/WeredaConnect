@@ -5190,6 +5190,119 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get actionOpen => 'Bani';
+
+  @override
+  String commitmentAnswerDue(String time) {
+    return 'Deebiin hanga $time';
+  }
+
+  @override
+  String get commitmentTheFarmer => 'qonnaan bulaa';
+
+  @override
+  String get commitmentTheTrucker => 'konkolaachisaa';
+
+  @override
+  String commitmentWhoFarmer(String name) {
+    return '$name, qonnaan bulaa,';
+  }
+
+  @override
+  String commitmentWhoTrucker(String name) {
+    return '$name, konkolaachisaa,';
+  }
+
+  @override
+  String commitmentBuyerWaitingOnBy(String who, String time) {
+    return 'Amma $who hanga $time akka deebisu eegamaa jira. Ati homaa gochuu hin qabdu.';
+  }
+
+  @override
+  String commitmentBuyerWaitingOn(String who) {
+    return 'Amma $who akka deebisu eegamaa jira. Ati homaa gochuu hin qabdu.';
+  }
+
+  @override
+  String get commitmentThenTruckerAsked =>
+      'Yeroo qonnaan bulaan fudhatu, itti aansee konkolaachisaan gaafatama.';
+
+  @override
+  String get commitmentContactOpensOnTruckerAccept =>
+      'Yeroo konkolaachisaan fudhatu, quunnamtiin asitti banama.';
+
+  @override
+  String commitmentYourTurnBy(String time) {
+    return 'Dabareen kan kee ti: hanga $time fudhadhu yookaan didi.';
+  }
+
+  @override
+  String get commitmentYourTurn =>
+      'Dabareen kan kee ti: fudhadhu yookaan didi.';
+
+  @override
+  String get commitmentFarmerAcceptThenTrucker =>
+      'Yeroo fudhattu, itti aansee konkolaachisaan gaafatama, kaffaltiin bitataas eeskiroo keessa tura.';
+
+  @override
+  String get commitmentFarmerAcceptEscrowStays =>
+      'Yeroo fudhattu, kaffaltiin bitataa eeskiroo keessa tura.';
+
+  @override
+  String get rejectConfirmTitle => 'Ajaja kana ni diddaa?';
+
+  @override
+  String get rejectConfirmBody =>
+      'Bitataan ajaja kana guutuu akka hin dandeenye itti himama, kaffaltiin isaas eeskiroo irraa deebi\'aaf.';
+
+  @override
+  String rejectConfirmReason(String reason) {
+    return 'Sababa: $reason';
+  }
+
+  @override
+  String get rejectConfirmYes => 'Eeyyee, ajaja didi';
+
+  @override
+  String get rejectConfirmKeep => 'Ajaja tursi';
+
+  @override
+  String get contactMessageLabel => 'Ergaa';
+
+  @override
+  String placeOrderFitsTripKg(String quantity) {
+    return 'imala kana keessa gala, $quantity hafe';
+  }
+
+  @override
+  String placeOrderExceedsTripKg(String quantity) {
+    return 'iddoo imalli kun qabuu ol, $quantity hafe';
+  }
+
+  @override
+  String perQuintalInParens(String price) {
+    return '($price/kuntaala)';
+  }
+
+  @override
+  String transportPricePerKgAndQuintal(String perKg, String perQuintal) {
+    return 'kg tokkoof ETB $perKg (kuntaala tokkoof $perQuintal)';
+  }
+
+  @override
+  String get quantityNeededKg => 'Baay\'ina barbaadamu (kg)';
+
+  @override
+  String marketKgLeft(String quantity) {
+    return '$quantity hafe';
+  }
+
+  @override
+  String marketKgRoom(String quantity) {
+    return 'bakka $quantity';
+  }
+
+  @override
   String get marketSearchToggle => 'Barbaacha fi gingilchaa gatii';
 
   @override

@@ -3,15 +3,23 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/utils/board_day.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/low_reputation_pill.dart';
 
-/// A suggested trip on the crop detail screen, as the Buyer · Crop detail
-/// board draws it: a radio, the trucker and the day, the route with the
-/// room left and the trucker's rating when they have one, and the price per
-/// quintal on the right. Tapping anywhere on the card picks (or unpicks) it;
-/// the chosen one gets the dark outline.
+/// A trip's transport price per kilogram for display ("1.50"), from the
+/// stored price per quintal: page M leads with the price per kg and puts
+/// the per-quintal price after it in parentheses.
+String transportPricePerKgText(double pricePerQuintal) =>
+    (pricePerQuintal / kgPerQuintal).toStringAsFixed(2);
+
+/// A suggested trip on the crop detail screen, as the CropDetailM board
+/// draws it: a radio, the trucker and the day, the route with the room left
+/// kg first and the trucker's rating when they have one, and on the right
+/// the price per kg in the role colour over "ETB/kg" and "(150/quintal)".
+/// Tapping anywhere on the card picks (or unpicks) it; the chosen one is
+/// the raised paper card, the others are outlined.
 class SuggestedTripCard extends StatelessWidget {
   final Trip trip;
   final bool isSelected;
@@ -38,90 +46,117 @@ class SuggestedTripCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final day = boardDayInEthiopia(trip.departureDate);
-    final room = l10n.detailQuintalsRoom(formatQuintals(tripRoomLeft(trip)));
+    final roomKg = tripRoomLeft(trip) * kgPerQuintal;
+    final room = '${l10n.marketKgRoom(kgQuantityText(roomKg, l10n))} '
+        '${quintalsInParensText(roomKg, l10n)}';
     final rated = rating == null ? '' : ' · ${rating!.toStringAsFixed(1)}';
 
-    return Semantics(
-      button: true,
-      selected: isSelected,
-      child: Material(
-        color: AppTheme.surfaceWhite,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-          side: isSelected
-              ? const BorderSide(color: AppTheme.ink, width: 2)
-              : const BorderSide(color: AppTheme.line),
+    final radius = BorderRadius.circular(24);
+    final card = Material(
+      color: isSelected ? AppTheme.paper : Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: BorderSide(
+          color: isSelected ? AppTheme.line : AppTheme.fieldBorder,
         ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onSelect,
-          child: Padding(
-            padding: EdgeInsets.all(isSelected ? 14 : 15),
-            child: Row(
-              children: [
-                _Radio(selected: isSelected),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Two lines, so the day with its Ethiopian date
-                      // (FUP-545) is not cut.
-                      Text(
-                        '${trip.truckerName} · $day',
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.ink,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${trip.fromWoreda} → ${trip.toWoreda} · $room$rated',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.slate,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (lowReputation) ...[
-                        const SizedBox(height: 6),
-                        const LowReputationPill(),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onSelect,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          child: Row(
+            children: [
+              _Radio(selected: isSelected),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // Two lines, so the day with its Ethiopian date
+                    // (FUP-545) is not cut.
                     Text(
-                      trip.pricePerQuintal.toStringAsFixed(0),
+                      '${trip.truckerName} · $day',
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w800,
+                        letterSpacing: -0.15,
                         color: AppTheme.ink,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                    const SizedBox(height: 3),
                     Text(
-                      l10n.detailEtbPerQuintalShort,
+                      '${trip.fromWoreda} → ${trip.toWoreda} · $room$rated',
                       style: const TextStyle(
-                        fontSize: 11,
+                        fontSize: 14,
                         color: AppTheme.slate,
                       ),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                    if (lowReputation) ...[
+                      const SizedBox(height: 6),
+                      const LowReputationPill(),
+                    ],
                   ],
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    transportPricePerKgText(trip.pricePerQuintal),
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.17,
+                      color: context.roleColors.primary,
+                    ),
+                  ),
+                  Text(l10n.etbPerKg, style: _unitStyle),
+                  Text(
+                    l10n.perQuintalInParens(
+                      formatEtbAmount(trip.pricePerQuintal),
+                    ),
+                    style: _unitStyle,
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ),
     );
+
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      child: isSelected
+          ? DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: radius,
+                // The raised card's soft shadow ([FwCard.raised]).
+                boxShadow: [
+                  BoxShadow(
+                    color: Theme.of(context).colorScheme.shadow,
+                    blurRadius: 30,
+                    offset: const Offset(0, 14),
+                  ),
+                ],
+              ),
+              child: card,
+            )
+          : card,
+    );
   }
+
+  static const TextStyle _unitStyle = TextStyle(
+    fontSize: 13,
+    color: AppTheme.slate,
+  );
 }
 
 /// The board's radio: a 20 px ring, filled dark when picked.
