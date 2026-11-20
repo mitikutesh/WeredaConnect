@@ -3142,6 +3142,7 @@
   "homeTripMatchedLine": "በመጫኛ ቦታ የእያንዳንዱን ገበሬ QR ይቃኙ",
   "homeTileActiveReserved": "{active} ንቁ፣ {reserved} የተያዘ",
   "homeTileWaitingForYou": "እርስዎን ይጠብቃል",
+  "ordersFilterWaitingForYou": "እርስዎን የሚጠብቁ",
   "homeTileHeldInEscrow": "በኢስክሮ ተይዟል",
   "homeTileInTransit": "በመጓጓዝ ላይ",
   "homeTileInProgress": "በሂደት ላይ",

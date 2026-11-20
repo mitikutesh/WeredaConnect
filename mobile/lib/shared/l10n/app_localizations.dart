@@ -8525,6 +8525,12 @@ abstract class AppLocalizations {
   /// **'waiting for you'**
   String get homeTileWaitingForYou;
 
+  /// Farmer Orders filter: the orders waiting for the farmer to accept or reject, what Home's Pending Orders tile counts
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for you'**
+  String get ordersFilterWaitingForYou;
+
   /// Fieldway design alignment (specs/design-canvas). Buyer home Escrow tile: line under the amount (the buyer's money in escrow)
   ///
   /// In en, this message translates to:

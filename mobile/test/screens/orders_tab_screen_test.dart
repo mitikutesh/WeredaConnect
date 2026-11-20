@@ -11,6 +11,7 @@ import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -134,6 +135,108 @@ void main() {
       ).called(1);
     });
   }
+
+  // Home's Pending Orders tile counts the orders waiting for the farmer's
+  // answer; the farmer's Orders tab has the same view as a chip.
+  group('Waiting for you', () {
+    void signInFarmer() {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'farmer-001',
+          tokens: _tokens,
+          role: UserRole.farmer,
+          userName: 'Farmer',
+        ),
+      );
+    }
+
+    tearDown(() => ordersFilterRequest.value = null);
+
+    testWidgets('a farmer chip, after All, that filters on their turn',
+        (tester) async {
+      useDesktop(tester);
+      signInFarmer();
+      await tester.pumpWidget(buildScreen(const Locale('en')));
+      await tester.pumpAndSettle();
+
+      final pill = find.widgetWithText(FwFilterPill, 'Waiting for you');
+      expect(pill, findsOneWidget);
+      expect(
+        tester.getTopLeft(pill).dx,
+        lessThan(
+          tester.getTopLeft(find.widgetWithText(FwFilterPill, 'Pending')).dx,
+        ),
+      );
+      await tester.tap(pill);
+      await tester.pump();
+
+      verify(
+        () => orderBloc.add(
+          const FilterOrders(
+            userId: 'farmer-001',
+            role: 'farmer',
+            statusFilter: ordersFilterYourTurn,
+          ),
+        ),
+      ).called(1);
+    });
+
+    testWidgets('no such chip for a buyer', (tester) async {
+      useDesktop(tester);
+      await tester.pumpWidget(buildScreen(const Locale('en')));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.widgetWithText(FwFilterPill, 'Waiting for you'), findsNothing);
+    });
+
+    testWidgets('opens on it when Home asked (the Pending Orders tile)',
+        (tester) async {
+      useDesktop(tester);
+      signInFarmer();
+      ordersFilterRequest.value = ordersFilterYourTurn;
+      await tester.pumpWidget(buildScreen(const Locale('en')));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => orderBloc.add(
+          const FilterOrders(
+            userId: 'farmer-001',
+            role: 'farmer',
+            statusFilter: ordersFilterYourTurn,
+          ),
+        ),
+      ).called(1);
+      verifyNever(
+        () => orderBloc.add(
+          const LoadUserOrders(userId: 'farmer-001', role: 'farmer'),
+        ),
+      );
+      expect(ordersFilterRequest.value, isNull);
+    });
+
+    testWidgets('a tab kept alive switches when Home asks again',
+        (tester) async {
+      useDesktop(tester);
+      signInFarmer();
+      await tester.pumpWidget(buildScreen(const Locale('en')));
+      await tester.pumpAndSettle();
+
+      ordersFilterRequest.value = ordersFilterYourTurn;
+      await tester.pump();
+
+      verify(
+        () => orderBloc.add(
+          const FilterOrders(
+            userId: 'farmer-001',
+            role: 'farmer',
+            statusFilter: ordersFilterYourTurn,
+          ),
+        ),
+      ).called(1);
+      expect(ordersFilterRequest.value, isNull);
+    });
+  });
 
   for (final locale in const [Locale('am'), Locale('om')]) {
     testWidgets('the chips are labelled in ${locale.languageCode}',

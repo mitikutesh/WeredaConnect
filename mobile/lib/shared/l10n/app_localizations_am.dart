@@ -4793,6 +4793,9 @@ class AppLocalizationsAm extends AppLocalizations {
   String get homeTileWaitingForYou => 'እርስዎን ይጠብቃል';
 
   @override
+  String get ordersFilterWaitingForYou => 'እርስዎን የሚጠብቁ';
+
+  @override
   String get homeTileHeldInEscrow => 'በኢስክሮ ተይዟል';
 
   @override

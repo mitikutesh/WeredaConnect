@@ -38,6 +38,10 @@ import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 ///
 /// Reads from OrderBloc (provided at app root) via LoadUserOrders; the
 /// server scopes the list to the caller (buyer, farmer or trucker).
+/// A filter Home asks the Orders tab to open on (the Pending Orders tile
+/// asks for [ordersFilterYourTurn]). The tab takes it once and clears it.
+final ValueNotifier<String?> ordersFilterRequest = ValueNotifier<String?>(null);
+
 class OrdersTabScreen extends StatefulWidget {
   /// Shows a back button in the header when pushed as a standalone screen
   /// (roles whose tab bar doesn't include Orders reach it that way).
@@ -85,7 +89,30 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     if (authState is AuthAuthenticated) {
       _userRole = authState.role.name;
     }
-    _loadOrders();
+    final requested = ordersFilterRequest.value;
+    if (requested != null) {
+      ordersFilterRequest.value = null;
+      _selectedStatus = requested;
+      _filterOrders(requested);
+      _loadHeldOrders();
+    } else {
+      _loadOrders();
+    }
+    ordersFilterRequest.addListener(_onFilterRequest);
+  }
+
+  @override
+  void dispose() {
+    ordersFilterRequest.removeListener(_onFilterRequest);
+    super.dispose();
+  }
+
+  /// Home asked again while this tab was kept alive (the phone's bar).
+  void _onFilterRequest() {
+    final requested = ordersFilterRequest.value;
+    if (requested == null || !mounted) return;
+    ordersFilterRequest.value = null;
+    _applyFilter(requested);
   }
 
   String? _getUserId() {
@@ -162,6 +189,10 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
       _selectedStatus = status;
       _cardAction = false;
     });
+    _filterOrders(status);
+  }
+
+  void _filterOrders(String? status) {
     final userId = _getUserId();
     if (userId == null) return;
     context.read<OrderBloc>().add(
@@ -242,6 +273,13 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     return FwFilterPillRow<String?>(
       options: [
         FwFilterOption(value: null, label: l10n.deliveryFilterAll),
+        // What Home's Pending Orders tile counts: the farmer's answer is
+        // owed. "Pending" below is the order status (not paid yet).
+        if (_isFarmer())
+          FwFilterOption(
+            value: ordersFilterYourTurn,
+            label: l10n.ordersFilterWaitingForYou,
+          ),
         FwFilterOption(value: 'created', label: l10n.orderPending),
         FwFilterOption(value: 'accepted', label: l10n.orderAccepted),
         FwFilterOption(value: 'funded', label: l10n.orderFunded),
