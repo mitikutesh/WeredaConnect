@@ -120,7 +120,14 @@ class FwPageHeader extends StatelessWidget {
       padding: padding,
       child: trailing == null
           ? Row(children: [Expanded(child: heading)])
-          : FwHeaderRow(heading: heading, trailing: trailing),
+          : FwHeaderRow(
+              heading: heading,
+              trailing: trailing,
+              headingFontSize: FwText.pageTitle.fontSize!,
+              // A 42 px title: seven letters of room (294 px) keep the
+              // bell beside it on every phone, as on the boards.
+              minWidthInLetters: 7,
+            ),
     );
   }
 }
@@ -145,12 +152,13 @@ class FwHeaderRow extends StatelessWidget {
     required this.heading,
     required this.trailing,
     this.headingFontSize = 26,
+    this.minWidthInLetters = 9,
     this.crossAxisAlignment = CrossAxisAlignment.start,
     super.key,
   });
 
   /// Below this many heading-sized letters of width the buttons move up.
-  static const double minWidthInLetters = 9;
+  final double minWidthInLetters;
 
   @override
   Widget build(BuildContext context) {

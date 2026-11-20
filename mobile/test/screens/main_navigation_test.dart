@@ -33,7 +33,6 @@ import 'package:wereda_connect/screens/main_navigation.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
-import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -81,8 +80,10 @@ const _tokens = AuthTokens(
   idToken: 'i',
 );
 
-/// LT-01: the labeled create FAB floats above the bottom bar instead of
-/// docking into a gap it was far wider than, so it never covers a tab.
+/// The phone shell (canvas page M): three tabs and the role's create
+/// button in one black bar. Nothing floats over the tab's page any more
+/// (LT-01, BUG-27: the floating button covered a tab, then the last
+/// card's status chip), so the button covers no tab and no content.
 void main() {
   late MockAuthBloc authBloc;
   late MockConflictBloc conflictBloc;
@@ -117,7 +118,7 @@ void main() {
           BlocProvider<ConflictBloc>.value(value: conflictBloc),
         ],
         child: MaterialApp(
-          theme: AppTheme.light(),
+          theme: AppTheme.light(role: role),
           locale: locale,
           // The app's delegates: Material has no om, so it falls back.
           localizationsDelegates: const [
@@ -145,10 +146,18 @@ void main() {
   Finder tabItem(String label) =>
       find.ancestor(of: find.text(label), matching: find.byType(InkWell)).first;
 
-  const fabLabels = {
+  // The create verb's full name: its semantics label and tooltip.
+  const createNames = {
     UserRole.farmer: 'Sell Crops',
     UserRole.trucker: 'Post Trip',
     UserRole.buyer: 'New Buying Intent',
+  };
+
+  // The one word the bar shows.
+  const createWords = {
+    UserRole.farmer: 'Sell',
+    UserRole.trucker: 'Post Trip',
+    UserRole.buyer: 'Buy',
   };
 
   const tabLabels = {
@@ -158,47 +167,118 @@ void main() {
     RoleTab.market: 'Market',
     RoleTab.orders: 'Orders',
     RoleTab.deliveries: 'Deliveries',
-    RoleTab.payments: 'Payments',
   };
+
+  final createButton = find.byType(RoleCreateButton);
+
+  /// The create button's word, folded shut (width 0) or showing.
+  double createWordWidth(WidgetTester tester) => tester
+      .getSize(
+        find.descendant(of: createButton, matching: find.byType(ClipRect)),
+      )
+      .width;
+
+  for (final role in UserRole.values) {
+    testWidgets('${role.name}: lands on the first tab of three',
+        (tester) async {
+      useSize(tester, const Size(390, 844));
+      await tester.pumpWidget(buildApp(role));
+      await tester.pumpAndSettle();
+
+      final tabs = tabsForRole(role);
+      expect(tabs, hasLength(3));
+      expect(find.byType(RoleNavItem), findsNWidgets(3));
+      expect(
+        tester
+            .widgetList<RoleNavItem>(find.byType(RoleNavItem))
+            .map((item) => item.label),
+        [for (final tab in tabs) tabLabels[tab]],
+      );
+      // A buyer has no Home: Deliveries is where they land.
+      expect(find.text('body ${tabs.first.name}'), findsOneWidget);
+      expect(
+        tester.widget<RoleNavItem>(find.byType(RoleNavItem).first).selected,
+        isTrue,
+      );
+      if (role == UserRole.buyer) {
+        expect(find.text('Home'), findsNothing);
+        expect(find.text('body deliveries'), findsOneWidget);
+      }
+    });
+  }
 
   for (final size in const [Size(360, 640), Size(390, 844)]) {
     final width = size.width.toInt();
     for (final role in UserRole.values) {
-      testWidgets('$width dp ${role.name}: the FAB covers no tab',
-          (tester) async {
+      testWidgets(
+          '$width dp ${role.name}: the create button sits in the bar, over '
+          'no tab and no content', (tester) async {
         useSize(tester, size);
+        final semantics = tester.ensureSemantics();
         await tester.pumpWidget(buildApp(role));
         await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
 
-        expect(find.text(fabLabels[role]!), findsOneWidget);
-        final fab = tester.getRect(find.byType(FloatingActionButton));
-        final bar = tester.getRect(find.byType(RoleNavBar));
-        expect(fab.bottom, lessThanOrEqualTo(bar.top));
+        // Nothing floats: the button is the bar's last slot.
+        expect(find.byType(FloatingActionButton), findsNothing);
+        expect(createButton, findsOneWidget);
         expect(
-          bar.top - fab.top,
-          lessThanOrEqualTo(Breakpoints.fabClearance),
-          reason: 'tab bodies pad by fabClearance; it must cover the FAB',
+          find.descendant(of: find.byType(RoleNavBar), matching: createButton),
+          findsOneWidget,
         );
+        expect(
+          find.descendant(
+            of: createButton,
+            matching: find.text(createWords[role]!),
+          ),
+          findsOneWidget,
+        );
+        expect(find.bySemanticsLabel(createNames[role]!), findsOneWidget);
+        expect(find.byTooltip(createNames[role]!), findsOneWidget);
 
+        final create = tester.getRect(createButton);
+        final bar = tester.getRect(find.byType(RoleNavBar));
+        expect(bar.bottom, size.height);
+        expect(create.top, greaterThanOrEqualTo(bar.top));
+        expect(create.bottom, lessThanOrEqualTo(bar.bottom));
+        expect(create.right, lessThanOrEqualTo(bar.right));
+        expect(create.height, greaterThanOrEqualTo(48));
+        expect(create.width, greaterThanOrEqualTo(48));
+
+        // The tab's page ends where the bar begins: the button covers
+        // none of it.
         final tabs = tabsForRole(role);
+        final page = tester.getRect(
+          find.ancestor(
+            of: find.text('body ${tabs.first.name}'),
+            matching: find.byType(CreateButtonScrollBody),
+          ),
+        );
+        expect(page.bottom, lessThanOrEqualTo(bar.top));
+        expect(page.overlaps(create), isFalse);
+
         final rects = [
           for (final tab in tabs) tester.getRect(tabItem(tabLabels[tab]!)),
         ];
         for (var i = 0; i < tabs.length; i++) {
           expect(
-            rects[i].overlaps(fab),
+            rects[i].overlaps(create),
             isFalse,
-            reason: '${tabs[i].name} hit area overlaps the FAB',
+            reason: '${tabs[i].name} hit area overlaps the create button',
           );
+          expect(rects[i].right, lessThanOrEqualTo(create.left + 0.01));
           expect(rects[i].width, moreOrLessEquals(rects.first.width));
+          expect(rects[i].width, greaterThanOrEqualTo(48));
+          expect(rects[i].height, greaterThanOrEqualTo(48));
         }
 
-        // Every tab still takes its own tap: none lands on the FAB.
+        // Every tab still takes its own tap: none lands on the button.
         for (final tab in tabs.reversed) {
           await tester.tap(find.text(tabLabels[tab]!));
           await tester.pumpAndSettle();
           expect(find.text('body ${tab.name}'), findsOneWidget);
         }
+        semantics.dispose();
       });
     }
   }
@@ -280,19 +360,17 @@ void main() {
     expect(find.byType(MaterialBanner), findsNothing);
   });
 
-  // BUG-27: at rest the labelled create button covered the status chip of
-  // the last card in view. It folds to its plus while the tab scrolls
-  // toward its end, and unfolds when the tab scrolls back or opens.
-  group('the create button folds while the tab scrolls', () {
-    final fab = find.byType(FloatingActionButton);
+  // BUG-27: the floating create button covered the status chip of the
+  // last card in view, and folded to its plus while the tab scrolled to
+  // get out of the way. In the bar it covers nothing, so it keeps its
+  // word and its place however the tab scrolls.
+  group('the create button stays put while the tab scrolls', () {
+    // The test font is twice as wide as the app's: on a large phone the
+    // farmer's "Sell" has room beside the tabs, as it has on every phone
+    // in the app's own font (word_fit_labels_test).
+    const wide = Size(430, 932);
 
-    // Folded, the plain 56 dp square; unfolded, the labelled pill.
-    void expectFolded(WidgetTester tester, {required bool folded}) {
-      final width = tester.getSize(fab).width;
-      expect(width, folded ? moreOrLessEquals(56) : greaterThan(100));
-    }
-
-    // Folded or not, a screen reader and a long press get the full name.
+    // A screen reader and a long press get the full name.
     void expectNamed(String name) {
       expect(find.bySemanticsLabel(name), findsOneWidget);
       expect(find.byTooltip(name), findsOneWidget);
@@ -305,23 +383,21 @@ void main() {
 
     for (final role in UserRole.values) {
       testWidgets(
-          '${role.name}: folds going down, unfolds going up and on another '
+          '${role.name}: same button going down, going up and on another '
           'tab, and the list is never rebuilt', (tester) async {
-        useSize(tester, const Size(390, 844));
+        useSize(tester, wide);
         final semantics = tester.ensureSemantics();
         final builds = ValueNotifier<int>(0);
+        final landing = tabsForRole(role).first;
         await tester.pumpWidget(
           buildApp(
             role,
-            tabBody: (tab) => tab != RoleTab.home
+            tabBody: (tab) => tab != landing
                 ? null
                 : _CountedBody(
                     builds: builds,
                     child: ListView.builder(
-                      key: const ValueKey('home list'),
-                      padding: const EdgeInsets.only(
-                        bottom: Breakpoints.fabClearance,
-                      ),
+                      key: const ValueKey('landing list'),
                       itemCount: 60,
                       itemBuilder: (_, i) =>
                           SizedBox(height: 64, child: Text('row $i')),
@@ -330,39 +406,42 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        final name = fabLabels[role]!;
-        final list = find.byKey(const ValueKey('home list'));
+        final name = createNames[role]!;
+        final list = find.byKey(const ValueKey('landing list'));
         final settledBuilds = builds.value;
+        final atRest = tester.getRect(createButton);
+        final wordAtRest = createWordWidth(tester);
+        final bar = tester.getRect(find.byType(RoleNavBar));
+        if (role == UserRole.farmer) expect(wordAtRest, greaterThan(0));
 
-        expectFolded(tester, folded: false);
-        expectNamed(name);
+        void expectUnchanged() {
+          expect(tester.getRect(createButton), atRest);
+          expect(createWordWidth(tester), wordAtRest);
+          expect(tester.getRect(find.byType(RoleNavBar)), bar);
+          expect(find.byType(FloatingActionButton), findsNothing);
+          expectNamed(name);
+        }
 
+        expectUnchanged();
         await scroll(tester, list, -300);
-        expectFolded(tester, folded: true);
-        expectNamed(name);
-
+        expectUnchanged();
         await scroll(tester, list, 100);
-        expectFolded(tester, folded: false);
-
+        expectUnchanged();
         await scroll(tester, list, -200);
-        expectFolded(tester, folded: true);
-        // A finger's tremor back does not unfold it.
-        await scroll(tester, list, 6);
-        expectFolded(tester, folded: true);
-        // Only the button followed the scrolling, never the list.
+        expectUnchanged();
+        // The list scrolled under the bar, never under the button: its
+        // last row in view ends at the bar.
+        expect(tester.getRect(list).bottom, lessThanOrEqualTo(bar.top));
         expect(builds.value, settledBuilds);
 
-        // Back at the very top, it unfolds.
         await tester.fling(list, const Offset(0, 2000), 3000);
         await tester.pumpAndSettle();
-        expectFolded(tester, folded: false);
-        await scroll(tester, list, -300);
-        expectFolded(tester, folded: true);
+        expectUnchanged();
 
-        // Another tab opens at its top, with the label.
+        // Another tab: the same button in the same place.
         await tester.tap(tabItem(tabLabels[tabsForRole(role)[1]]!));
         await tester.pumpAndSettle();
-        expectFolded(tester, folded: false);
+        expectUnchanged();
         expect(tester.takeException(), isNull);
         semantics.dispose();
       });
@@ -386,10 +465,9 @@ void main() {
 
     for (final locale in const [Locale('en'), Locale('am'), Locale('om')]) {
       testWidgets(
-          'farmer Orders in ${locale.languageCode}: the pill at rest, the '
-          'named plus scrolling down, the pill again scrolling up',
-          (tester) async {
-        useSize(tester, const Size(390, 844));
+          'farmer Orders in ${locale.languageCode}: the named button stays '
+          'while the cards scroll, and covers none of them', (tester) async {
+        useSize(tester, wide);
         final semantics = tester.ensureSemantics();
         final orderBloc = MockOrderBloc();
         when(() => orderBloc.state).thenReturn(
@@ -415,9 +493,24 @@ void main() {
         // The list's middle, under the header and the pills.
         final list = find.byType(RefreshIndicator);
         expect(find.byType(OrderCard), findsWidgets);
+        final atRest = tester.getRect(createButton);
+        final wordAtRest = createWordWidth(tester);
+        final bar = tester.getRect(find.byType(RoleNavBar));
 
-        expectFolded(tester, folded: false);
-        expectNamed(name);
+        void expectUnchanged() {
+          expect(tester.getRect(createButton), atRest);
+          expect(createWordWidth(tester), wordAtRest);
+          expectNamed(name);
+          // BUG-27: the page, and so every card and its status chip,
+          // ends at the bar; the button is inside the bar.
+          expect(
+            tester.getRect(find.byType(OrdersTabScreen)).bottom,
+            lessThanOrEqualTo(bar.top),
+          );
+          expect(atRest.top, greaterThanOrEqualTo(bar.top));
+        }
+
+        expectUnchanged();
 
         // The status pills scroll sideways: not the list.
         await tester.drag(
@@ -425,24 +518,22 @@ void main() {
           const Offset(-200, 0),
         );
         await tester.pumpAndSettle();
-        expectFolded(tester, folded: false);
+        expectUnchanged();
 
         await scroll(tester, list, -300);
-        expectFolded(tester, folded: true);
-        expectNamed(name);
+        expectUnchanged();
 
         await scroll(tester, list, 120);
-        expectFolded(tester, folded: false);
-        expectNamed(name);
+        expectUnchanged();
         expect(tester.takeException(), isNull);
         semantics.dispose();
       });
     }
 
     testWidgets(
-        'buyer Home: the pill at rest, the named plus scrolling down, the '
-        'pill again scrolling up', (tester) async {
-      useSize(tester, const Size(360, 640));
+        'farmer Home: the named button stays while the real Home scrolls',
+        (tester) async {
+      useSize(tester, wide);
       final semantics = tester.ensureSemantics();
       final buyerIntentBloc = MockBuyerIntentBloc();
       final cropListingBloc = MockCropListingBloc();
@@ -478,7 +569,7 @@ void main() {
               BlocProvider<TripListingBloc>.value(value: tripListingBloc),
             ],
             child: buildApp(
-              UserRole.buyer,
+              UserRole.farmer,
               tabBody: (tab) => tab == RoleTab.home
                   ? HomeScreen(onNavigateToTab: (_) {})
                   : null,
@@ -487,19 +578,25 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final name = fabLabels[UserRole.buyer]!;
+      final name = createNames[UserRole.farmer]!;
       final home = find.byType(HomeScreen);
+      final atRest = tester.getRect(createButton);
+      final wordAtRest = createWordWidth(tester);
+      final bar = tester.getRect(find.byType(RoleNavBar));
+      expect(wordAtRest, greaterThan(0));
 
-      expectFolded(tester, folded: false);
-      expectNamed(name);
+      void expectUnchanged() {
+        expect(tester.getRect(createButton), atRest);
+        expect(createWordWidth(tester), wordAtRest);
+        expect(tester.getRect(home).bottom, lessThanOrEqualTo(bar.top));
+        expectNamed(name);
+      }
 
+      expectUnchanged();
       await scroll(tester, home, -300);
-      expectFolded(tester, folded: true);
-      expectNamed(name);
-
+      expectUnchanged();
       await scroll(tester, home, 120);
-      expectFolded(tester, folded: false);
-      expectNamed(name);
+      expectUnchanged();
       expect(tester.takeException(), isNull);
       semantics.dispose();
     });

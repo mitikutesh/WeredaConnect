@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations_en.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 
 void main() {
@@ -52,7 +54,6 @@ void main() {
       expect(
         routes,
         containsAll([
-          '/',
           '/find-crops',
           '/marketplace',
           '/trips',
@@ -67,39 +68,59 @@ void main() {
       expect(routes, isNot(contains('/my-crops')));
       expect(routes, isNot(contains('/listings')));
     });
+
+    // A buyer has no Home: `/` is not theirs, and the redirect sends it on
+    // to Deliveries.
+    test('`/` is a route only for a role with a Home', () {
+      expect(webRoutesForRole(UserRole.farmer), contains('/'));
+      expect(webRoutesForRole(UserRole.trucker), contains('/'));
+      expect(webRoutesForRole(UserRole.buyer), isNot(contains('/')));
+    });
+
+    test('every tab and every extra is a route its role may open', () {
+      for (final role in UserRole.values) {
+        final routes = webRoutesForRole(role);
+        for (final tab in [
+          ...tabsForRole(role),
+          ...sidebarExtrasForRole(role),
+        ]) {
+          expect(routes, contains(tab.route), reason: '${role.name} $tab');
+        }
+      }
+    });
   });
 
-  group('tabsForRole — role-shaped bars (design brief 2026-07-06)', () {
-    test('farmer: Home · My Crops · Orders · Deliveries', () {
+  group('tabsForRole: three tabs, then the create button (canvas page M)', () {
+    test('farmer: Home, My Crops, Orders', () {
       expect(tabsForRole(UserRole.farmer), const [
         RoleTab.home,
         RoleTab.myCrops,
         RoleTab.orders,
-        RoleTab.deliveries,
       ]);
     });
 
-    test('trucker: Home · My Trips · Deliveries · Payments', () {
+    test('trucker: Home, My Trips, Deliveries', () {
       expect(tabsForRole(UserRole.trucker), const [
         RoleTab.home,
         RoleTab.myTrips,
         RoleTab.deliveries,
-        RoleTab.payments,
       ]);
     });
 
-    test('buyer: Home · Market · Orders · Deliveries', () {
+    test('buyer: Deliveries, Market, Orders (no Home)', () {
       expect(tabsForRole(UserRole.buyer), const [
-        RoleTab.home,
+        RoleTab.deliveries,
         RoleTab.market,
         RoleTab.orders,
-        RoleTab.deliveries,
       ]);
+      expect(tabsForRole(UserRole.buyer), isNot(contains(RoleTab.home)));
     });
 
-    test('every role has exactly four bar slots (FAB takes the fifth)', () {
+    test('every role has exactly three bar tabs, none of them twice', () {
       for (final role in UserRole.values) {
-        expect(tabsForRole(role).length, 4, reason: role.name);
+        final tabs = tabsForRole(role);
+        expect(tabs.length, 3, reason: role.name);
+        expect(tabs.toSet().length, 3, reason: role.name);
       }
     });
 
@@ -108,23 +129,99 @@ void main() {
       expect(tabsForRole(UserRole.trucker)[1], RoleTab.myTrips);
       expect(tabsForRole(UserRole.buyer)[1], RoleTab.market);
     });
+
+    // Role visibility: a bar never offers another role's workspace.
+    test('no role gets another role\'s workspace tab', () {
+      expect(tabsForRole(UserRole.farmer), isNot(contains(RoleTab.myTrips)));
+      expect(tabsForRole(UserRole.farmer), isNot(contains(RoleTab.market)));
+      expect(tabsForRole(UserRole.trucker), isNot(contains(RoleTab.myCrops)));
+      expect(tabsForRole(UserRole.trucker), isNot(contains(RoleTab.market)));
+      expect(tabsForRole(UserRole.buyer), isNot(contains(RoleTab.myCrops)));
+      expect(tabsForRole(UserRole.buyer), isNot(contains(RoleTab.myTrips)));
+    });
+  });
+
+  group('landingRouteForRole', () {
+    test('the first tab: Home for a farmer and a trucker', () {
+      expect(landingRouteForRole(UserRole.farmer), '/');
+      expect(landingRouteForRole(UserRole.trucker), '/');
+    });
+
+    test('a buyer lands on Deliveries', () {
+      expect(landingRouteForRole(UserRole.buyer), '/deliveries');
+    });
+
+    test('is always a route the role may open', () {
+      for (final role in UserRole.values) {
+        expect(
+          webRoutesForRole(role),
+          contains(landingRouteForRole(role)),
+          reason: role.name,
+        );
+      }
+    });
   });
 
   group('roleTabIndex', () {
     test('resolves in-bar destinations to their index', () {
       expect(roleTabIndex(UserRole.farmer, RoleTab.orders), 2);
-      expect(roleTabIndex(UserRole.trucker, RoleTab.payments), 3);
-      expect(roleTabIndex(UserRole.buyer, RoleTab.deliveries), 3);
+      expect(roleTabIndex(UserRole.trucker, RoleTab.deliveries), 2);
+      expect(roleTabIndex(UserRole.buyer, RoleTab.deliveries), 0);
+      expect(roleTabIndex(UserRole.buyer, RoleTab.orders), 2);
     });
 
     test('returns null for off-bar destinations (callers must push)', () {
+      expect(roleTabIndex(UserRole.farmer, RoleTab.deliveries), isNull);
       expect(roleTabIndex(UserRole.farmer, RoleTab.payments), isNull);
+      expect(roleTabIndex(UserRole.trucker, RoleTab.payments), isNull);
       expect(roleTabIndex(UserRole.trucker, RoleTab.orders), isNull);
+      expect(roleTabIndex(UserRole.buyer, RoleTab.home), isNull);
+      expect(roleTabIndex(UserRole.buyer, RoleTab.findTrips), isNull);
       expect(roleTabIndex(UserRole.buyer, RoleTab.payments), isNull);
     });
   });
 
   group('sidebarExtrasForRole', () {
+    test('farmer: Deliveries, Messages, Payments', () {
+      expect(sidebarExtrasForRole(UserRole.farmer), const [
+        RoleTab.deliveries,
+        RoleTab.messages,
+        RoleTab.payments,
+      ]);
+    });
+
+    test('trucker: Payments, Messages, Orders', () {
+      expect(sidebarExtrasForRole(UserRole.trucker), const [
+        RoleTab.payments,
+        RoleTab.messages,
+        RoleTab.orders,
+      ]);
+    });
+
+    // Hard product rule: a buyer can always browse ALL trips. With no
+    // Home to link to them, Find Trips is the buyer's first extra.
+    test('buyer: Find Trips (`/trips`), Messages, Payments', () {
+      expect(sidebarExtrasForRole(UserRole.buyer), const [
+        RoleTab.findTrips,
+        RoleTab.messages,
+        RoleTab.payments,
+      ]);
+      expect(RoleTab.findTrips.route, '/trips');
+      final AppLocalizations en = AppLocalizationsEn();
+      expect(RoleTab.findTrips.label(en), en.findTrips);
+      expect(webRoutesForRole(UserRole.buyer), contains('/trips'));
+    });
+
+    test('only a buyer gets Find Trips', () {
+      for (final role in [UserRole.farmer, UserRole.trucker]) {
+        expect(
+          [...tabsForRole(role), ...sidebarExtrasForRole(role)],
+          isNot(contains(RoleTab.findTrips)),
+          reason: role.name,
+        );
+      }
+    });
+
     test('web sidebar restores exactly the off-bar destinations', () {
       for (final role in UserRole.values) {
         final bar = tabsForRole(role);
@@ -132,6 +229,22 @@ void main() {
           expect(bar.contains(extra), isFalse, reason: '${role.name} $extra');
           expect(roleTabIndex(role, extra), isNull);
         }
+      }
+    });
+
+    // What left the bar in the redesign must stay one tap away.
+    test('Deliveries, Orders, Payments and Messages stay reachable', () {
+      for (final role in UserRole.values) {
+        expect(
+          [...tabsForRole(role), ...sidebarExtrasForRole(role)],
+          containsAll([
+            RoleTab.deliveries,
+            RoleTab.orders,
+            RoleTab.payments,
+            RoleTab.messages,
+          ]),
+          reason: role.name,
+        );
       }
     });
   });

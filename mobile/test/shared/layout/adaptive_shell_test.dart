@@ -18,7 +18,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/adaptive_shell.dart';
 import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
-import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/app_update_banner.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
@@ -31,8 +31,11 @@ const _tokens = AuthTokens(
   idToken: 'i',
 );
 
-/// SIM-44: the role FAB must show on tab roots only, never over a pushed
-/// screen whose own Send / Save / Place Order buttons it would cover.
+/// The web shell (canvas page M). On a phone width the role's create
+/// button is the last slot of the black bar; on a tablet it floats beside
+/// the rail; on a desktop it sits in the sidebar. SIM-44: it shows on tab
+/// roots only, never over a pushed screen whose own Send / Save / Place
+/// Order buttons it would cover.
 void main() {
   late MockAuthBloc authBloc;
   late MockInboxBloc inboxBloc;
@@ -64,7 +67,26 @@ void main() {
       ),
     );
     final pushedRoutes = ShellPushedRoutesObserver();
+    // The role's landing tab: Home, or Deliveries for a buyer, who has no
+    // Home. Its page opens a detail screen.
+    Widget landingPage(BuildContext context, GoRouterState state) => Builder(
+          builder: (context) => Center(
+            child: TextButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const Scaffold(
+                    body: Center(child: Text('pushed detail')),
+                  ),
+                ),
+              ),
+              child: const Text('open detail'),
+            ),
+          ),
+        );
     final router = GoRouter(
+      // As the app's redirect leaves a signed-in user.
+      initialLocation: landingRouteForRole(role),
       routes: [
         ShellRoute(
           observers: [pushedRoutes],
@@ -81,23 +103,11 @@ void main() {
                   ),
           ),
           routes: [
+            GoRoute(path: '/', builder: landingPage),
+            GoRoute(path: '/deliveries', builder: landingPage),
             GoRoute(
-              path: '/',
-              builder: (context, state) => Builder(
-                builder: (context) => Center(
-                  child: TextButton(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (_) => const Scaffold(
-                          body: Center(child: Text('pushed detail')),
-                        ),
-                      ),
-                    ),
-                    child: const Text('open detail'),
-                  ),
-                ),
-              ),
+              path: '/trips',
+              builder: (context, state) => const Text('trips'),
             ),
             GoRoute(
               path: '/profile',
@@ -123,6 +133,7 @@ void main() {
         BlocProvider<InboxBloc>.value(value: inboxBloc),
       ],
       child: MaterialApp.router(
+        theme: AppTheme.light(role: role),
         locale: locale,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
@@ -131,73 +142,192 @@ void main() {
     );
   }
 
-  const fabLabels = {
+  // The create verb's full name: the sidebar button's text, and on the
+  // bar's short pill its semantics label and tooltip.
+  const createNames = {
     UserRole.farmer: 'Sell Crops',
     UserRole.trucker: 'Post Trip',
     UserRole.buyer: 'New Buying Intent',
   };
 
+  // The one word the bar's pill shows.
+  const createWords = {
+    UserRole.farmer: 'Sell',
+    UserRole.trucker: 'Post Trip',
+    UserRole.buyer: 'Buy',
+  };
+
+  final createButton = find.byType(RoleCreateButton);
+
+  /// The create pill's word, folded shut (width 0) or showing.
+  double createWordWidth(WidgetTester tester) => tester
+      .getSize(
+        find.descendant(of: createButton, matching: find.byType(ClipRect)),
+      )
+      .width;
+
   for (final size in const [Size(400, 800), Size(1300, 900)]) {
     final layout = size.width < 600 ? 'mobile' : 'desktop';
     for (final role in UserRole.values) {
-      testWidgets('$layout ${role.name}: FAB hides over a pushed screen',
-          (tester) async {
+      testWidgets(
+          '$layout ${role.name}: the create button hides over a pushed '
+          'screen', (tester) async {
         tester.view.physicalSize = size;
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
 
         await tester.pumpWidget(buildApp(role));
         await tester.pumpAndSettle();
-        // A floating button on the phone, the sidebar's button on desktop.
-        expect(find.byType(RoleCreateButton), findsOneWidget);
-        expect(find.text(fabLabels[role]!), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        // The bar's last slot on the phone, the sidebar's button on
+        // desktop: never a floating button.
+        expect(createButton, findsOneWidget);
+        expect(find.byType(FloatingActionButton), findsNothing);
+        if (layout == 'mobile') {
+          expect(
+            find.descendant(
+              of: find.byType(RoleNavBar),
+              matching: createButton,
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: createButton,
+              matching: find.text(createWords[role]!),
+            ),
+            findsOneWidget,
+          );
+          expect(find.byTooltip(createNames[role]!), findsOneWidget);
+        } else {
+          expect(find.byType(RoleNavBar), findsNothing);
+          expect(find.text(createNames[role]!), findsOneWidget);
+        }
 
         await tester.tap(find.text('open detail'));
         await tester.pumpAndSettle();
         expect(find.text('pushed detail'), findsOneWidget);
-        expect(find.byType(RoleCreateButton), findsNothing);
+        expect(createButton, findsNothing);
 
         Navigator.of(tester.element(find.text('pushed detail'))).pop();
         await tester.pumpAndSettle();
-        expect(find.byType(RoleCreateButton), findsOneWidget);
+        expect(createButton, findsOneWidget);
       });
     }
   }
 
-  // LT-01: on a phone the FAB floats above the bottom bar, clear of every
-  // tab, and tab bodies pad by fabClearance so it hides no last item.
+  // LT-01 and canvas page M: on a phone the create button is inside the
+  // bar, beside the three tabs: it covers no tab and none of the page.
   for (final width in const [360.0, 390.0]) {
     for (final role in UserRole.values) {
-      testWidgets('${width.toInt()} dp ${role.name}: the FAB covers no tab',
-          (tester) async {
+      testWidgets(
+          '${width.toInt()} dp ${role.name}: three tabs and the create '
+          'button in one bar, over no tab and no content', (tester) async {
         tester.view.physicalSize = Size(width, 800);
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
 
         await tester.pumpWidget(buildApp(role));
         await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
 
-        final fab = tester.getRect(find.byType(FloatingActionButton));
+        expect(find.byType(FloatingActionButton), findsNothing);
+        final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+        final items =
+            tester.widgetList<RoleNavItem>(find.byType(RoleNavItem)).toList();
+        expect(
+          items.map((item) => item.label),
+          [for (final tab in tabsForRole(role)) tab.label(l10n)],
+        );
+        expect(items, hasLength(3));
+        // The landing tab is the selected one.
+        expect(items.map((item) => item.selected), [true, false, false]);
+
+        final create = tester.getRect(createButton);
         final bar = tester.getRect(find.byType(RoleNavBar));
-        expect(fab.bottom, lessThanOrEqualTo(bar.top));
-        expect(bar.top - fab.top, lessThanOrEqualTo(Breakpoints.fabClearance));
+        expect(bar.bottom, 800);
+        expect(bar.contains(create.topLeft), isTrue);
+        expect(bar.contains(create.bottomRight - const Offset(1, 1)), isTrue);
+        expect(create.width, greaterThanOrEqualTo(48));
+        expect(create.height, greaterThanOrEqualTo(48));
+        for (var i = 0; i < 3; i++) {
+          final tab = tester.getRect(find.byType(RoleNavItem).at(i));
+          expect(tab.overlaps(create), isFalse, reason: 'tab $i');
+          expect(tab.right, lessThanOrEqualTo(create.left + 0.01));
+          expect(tab.width, greaterThanOrEqualTo(48), reason: 'tab $i');
+          expect(tab.height, greaterThanOrEqualTo(48), reason: 'tab $i');
+        }
+        // The page ends where the bar begins.
+        expect(
+          tester.getRect(find.text('open detail')).bottom,
+          lessThanOrEqualTo(bar.top),
+        );
       });
     }
   }
 
-  testWidgets('FAB hides on a non-tab shell route', (tester) async {
+  // Profile and Settings sit outside the bar: the bar stays, with nothing
+  // selected and without the create verb, which belongs to a tab's page.
+  for (final role in UserRole.values) {
+    testWidgets(
+        'phone ${role.name}: on a non-tab shell route the bar has no create '
+        'button and no selected tab', (tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(buildApp(role));
+      await tester.pumpAndSettle();
+      expect(createButton, findsOneWidget);
+
+      GoRouter.of(tester.element(find.text('open detail'))).go('/profile');
+      await tester.pumpAndSettle();
+      expect(find.text('profile'), findsOneWidget);
+      expect(createButton, findsNothing);
+      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(find.byType(RoleNavBar), findsOneWidget);
+      final items = tester.widgetList<RoleNavItem>(find.byType(RoleNavItem));
+      expect(items, hasLength(3));
+      expect(items.any((item) => item.selected), isFalse);
+    });
+  }
+
+  testWidgets('phone: a tab of the bar opens its route', (tester) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
     await tester.pumpWidget(buildApp(UserRole.buyer));
     await tester.pumpAndSettle();
-    expect(find.byType(FloatingActionButton), findsOneWidget);
-
-    GoRouter.of(tester.element(find.text('open detail'))).go('/profile');
+    await tester.tap(find.text('Orders'));
     await tester.pumpAndSettle();
-    expect(find.text('profile'), findsOneWidget);
-    expect(find.byType(FloatingActionButton), findsNothing);
+    expect(find.text('orders'), findsOneWidget);
+    expect(
+      tester
+          .widgetList<RoleNavItem>(find.byType(RoleNavItem))
+          .map((item) => item.selected),
+      [false, false, true],
+    );
+    // Orders is a tab root: the create button is still there.
+    expect(createButton, findsOneWidget);
+  });
+
+  // A buyer has no Home: at `/` (where the app's redirect never leaves
+  // them) no tab is selected and there is no create button to cover a
+  // page that is not theirs.
+  testWidgets('phone buyer: `/` is no tab of theirs', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(buildApp(UserRole.buyer));
+    await tester.pumpAndSettle();
+    expect(find.text('Home'), findsNothing);
+    GoRouter.of(tester.element(find.text('open detail'))).go('/');
+    await tester.pumpAndSettle();
+    final items = tester.widgetList<RoleNavItem>(find.byType(RoleNavItem));
+    expect(items.any((item) => item.selected), isFalse);
+    expect(createButton, findsNothing);
   });
 
   // The boards' detail and create screens are full pages: on a phone the
@@ -293,10 +423,11 @@ void main() {
     }
   }
 
-  // BUG-27: in a phone or tablet window the floating create button folds
-  // to its plus while the tab page scrolls toward its end, as on the
-  // device. The desktop sidebar's button keeps its label.
-  group('the create button folds while the tab scrolls', () {
+  // BUG-27: the tablet rail's floating create button folds to its plus
+  // while the tab page scrolls toward its end. On a phone the button is
+  // inside the bar, covers nothing, and stays as it is. The desktop
+  // sidebar's button keeps its label.
+  group('the create button while the tab scrolls', () {
     Widget longList(String key) => ListView.builder(
           key: ValueKey(key),
           itemCount: 60,
@@ -308,68 +439,129 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    // Folded, the plain 56 dp square; unfolded, the labelled pill.
+    final pill = find.descendant(
+      of: createButton,
+      matching: find.byType(Material),
+    );
+
+    // Folded, the plain 54 dp round plus; unfolded, the labelled pill.
     void expectFolded(WidgetTester tester, {required bool folded}) {
-      final width = tester.getSize(find.byType(FloatingActionButton)).width;
-      expect(width, folded ? moreOrLessEquals(56) : greaterThan(100));
+      expect(createWordWidth(tester), folded ? 0 : greaterThan(0));
+      expect(
+        tester.getSize(pill).width,
+        folded ? moreOrLessEquals(54) : greaterThan(80),
+      );
     }
 
-    for (final size in const [Size(400, 800), Size(800, 900)]) {
-      final layout = size.width < 600 ? 'phone' : 'tablet';
-      for (final role in const [UserRole.farmer, UserRole.buyer]) {
-        testWidgets(
-            '$layout ${role.name}: follows the tab page, not a screen '
-            'pushed over it', (tester) async {
-          tester.view.physicalSize = size;
-          tester.view.devicePixelRatio = 1;
-          addTearDown(tester.view.reset);
-          final semantics = tester.ensureSemantics();
+    for (final role in const [UserRole.farmer, UserRole.buyer]) {
+      testWidgets(
+          'tablet ${role.name}: follows the tab page, not a screen pushed '
+          'over it', (tester) async {
+        tester.view.physicalSize = const Size(800, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final semantics = tester.ensureSemantics();
 
-          await tester.pumpWidget(
-            buildApp(role, ordersPage: longList('orders')),
+        await tester.pumpWidget(
+          buildApp(role, ordersPage: longList('orders')),
+        );
+        await tester.pumpAndSettle();
+        final router = GoRouter.of(tester.element(find.text('open detail')));
+        router.go('/orders');
+        await tester.pumpAndSettle();
+        final list = find.byKey(const ValueKey('orders'));
+        final name = createNames[role]!;
+
+        // Floating beside the rail: no bar on a tablet.
+        expect(find.byType(RoleNavBar), findsNothing);
+        expect(tester.widget<RoleCreateButton>(createButton).floating, isTrue);
+        expectFolded(tester, folded: false);
+        await scroll(tester, list, -300);
+        expectFolded(tester, folded: true);
+        // Folded, a screen reader and a long press still get the name.
+        expect(find.bySemanticsLabel(name), findsOneWidget);
+        expect(find.byTooltip(name), findsOneWidget);
+
+        await scroll(tester, list, 100);
+        expectFolded(tester, folded: false);
+        await scroll(tester, list, -200);
+        expectFolded(tester, folded: true);
+
+        // A screen pushed over the tab scrolls without the button: back
+        // on the tab, the button is as the tab's list left it.
+        Navigator.of(tester.element(list)).push(
+          MaterialPageRoute<void>(
+            builder: (_) => Scaffold(body: longList('pushed')),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final pushed = find.byKey(const ValueKey('pushed'));
+        await scroll(tester, pushed, -300);
+        await scroll(tester, pushed, 100);
+        Navigator.of(tester.element(pushed)).pop();
+        await tester.pumpAndSettle();
+        expectFolded(tester, folded: true);
+
+        // Another tab opens at its top, with the label.
+        router.go(landingRouteForRole(role));
+        await tester.pumpAndSettle();
+        expectFolded(tester, folded: false);
+        expect(tester.takeException(), isNull);
+        semantics.dispose();
+      });
+    }
+
+    for (final role in const [UserRole.farmer, UserRole.buyer]) {
+      testWidgets(
+          'phone ${role.name}: in the bar, the same button however the tab '
+          'scrolls', (tester) async {
+        tester.view.physicalSize = const Size(400, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final semantics = tester.ensureSemantics();
+
+        await tester.pumpWidget(
+          buildApp(role, ordersPage: longList('orders')),
+        );
+        await tester.pumpAndSettle();
+        final router = GoRouter.of(tester.element(find.text('open detail')));
+        router.go('/orders');
+        await tester.pumpAndSettle();
+        final list = find.byKey(const ValueKey('orders'));
+        final name = createNames[role]!;
+        final atRest = tester.getRect(createButton);
+        final wordAtRest = createWordWidth(tester);
+        final bar = tester.getRect(find.byType(RoleNavBar));
+
+        void expectUnchanged() {
+          expect(tester.getRect(createButton), atRest);
+          expect(createWordWidth(tester), wordAtRest);
+          expect(tester.getRect(find.byType(RoleNavBar)), bar);
+          expect(
+            tester.widget<RoleCreateButton>(createButton).floating,
+            isFalse,
           );
-          await tester.pumpAndSettle();
-          final router = GoRouter.of(tester.element(find.text('open detail')));
-          router.go('/orders');
-          await tester.pumpAndSettle();
-          final list = find.byKey(const ValueKey('orders'));
-          final name = fabLabels[role]!;
-
-          expectFolded(tester, folded: false);
-          await scroll(tester, list, -300);
-          expectFolded(tester, folded: true);
-          // Folded, a screen reader and a long press still get the name.
           expect(find.bySemanticsLabel(name), findsOneWidget);
           expect(find.byTooltip(name), findsOneWidget);
+          // The list ends at the bar: the button covers no row of it.
+          expect(tester.getRect(list).bottom, lessThanOrEqualTo(bar.top));
+        }
 
-          await scroll(tester, list, 100);
-          expectFolded(tester, folded: false);
-          await scroll(tester, list, -200);
-          expectFolded(tester, folded: true);
+        expectUnchanged();
+        await scroll(tester, list, -300);
+        expectUnchanged();
+        await scroll(tester, list, 100);
+        expectUnchanged();
+        await scroll(tester, list, -200);
+        expectUnchanged();
 
-          // A screen pushed over the tab scrolls without the button: back
-          // on the tab, the button is as the tab's list left it.
-          Navigator.of(tester.element(list)).push(
-            MaterialPageRoute<void>(
-              builder: (_) => Scaffold(body: longList('pushed')),
-            ),
-          );
-          await tester.pumpAndSettle();
-          final pushed = find.byKey(const ValueKey('pushed'));
-          await scroll(tester, pushed, -300);
-          await scroll(tester, pushed, 100);
-          Navigator.of(tester.element(pushed)).pop();
-          await tester.pumpAndSettle();
-          expectFolded(tester, folded: true);
-
-          // Another tab opens at its top, with the label.
-          router.go('/');
-          await tester.pumpAndSettle();
-          expectFolded(tester, folded: false);
-          expect(tester.takeException(), isNull);
-          semantics.dispose();
-        });
-      }
+        router.go(landingRouteForRole(role));
+        await tester.pumpAndSettle();
+        expect(tester.getRect(createButton), atRest);
+        expect(createWordWidth(tester), wordAtRest);
+        expect(tester.takeException(), isNull);
+        semantics.dispose();
+      });
     }
 
     testWidgets('desktop: the sidebar button keeps its label', (tester) async {
@@ -432,6 +624,53 @@ void main() {
     });
   });
 
+  // What left the bar stays one click away in the sidebar (canvas page
+  // M). Hard product rule: a buyer can always browse ALL trips; with no
+  // Home to link to them, Find Trips is in the buyer's sidebar.
+  group('sidebar extras', () {
+    void desktop(WidgetTester tester) {
+      tester.view.physicalSize = const Size(1300, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+    }
+
+    testWidgets('buyer: Find Trips opens `/trips`', (tester) async {
+      desktop(tester);
+      await tester.pumpWidget(buildApp(UserRole.buyer));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Home'), findsNothing);
+      await tester.tap(find.text('Find Trips'));
+      await tester.pumpAndSettle();
+      expect(find.text('trips'), findsOneWidget);
+    });
+
+    testWidgets('farmer: Deliveries opens `/deliveries`', (tester) async {
+      desktop(tester);
+      await tester.pumpWidget(buildApp(UserRole.farmer));
+      await tester.pumpAndSettle();
+
+      expect(find.text('open detail'), findsOneWidget);
+      await tester.tap(find.text('Deliveries'));
+      await tester.pumpAndSettle();
+      final router = GoRouter.of(tester.element(find.text('open detail')));
+      expect(
+        router.routerDelegate.currentConfiguration.uri.path,
+        '/deliveries',
+      );
+    });
+
+    testWidgets('farmer and trucker: no Find Trips, no Market', (tester) async {
+      for (final role in [UserRole.farmer, UserRole.trucker]) {
+        desktop(tester);
+        await tester.pumpWidget(buildApp(role));
+        await tester.pumpAndSettle();
+        expect(find.text('Find Trips'), findsNothing, reason: role.name);
+        expect(find.text('Market'), findsNothing, reason: role.name);
+      }
+    });
+  });
+
   // A-7: on a wide window the sidebar is the only way to the create button,
   // Messages, Payments, Settings and Profile. It was missing from the
   // semantics tree (the tab navigator's modal barrier hid it) and Tab
@@ -480,7 +719,8 @@ void main() {
               isButton: true,
               isFocusable: true,
               hasSelectedState: true,
-              isSelected: label == l10n.home,
+              // The landing tab: Home, or Deliveries for a buyer.
+              isSelected: label == tabsForRole(role).first.label(l10n),
               hasTapAction: true,
               hasFocusAction: true,
             ),
@@ -503,9 +743,9 @@ void main() {
         }
         // The role's create button lives only in the desktop sidebar.
         expect(
-          tester.getSemantics(find.bySemanticsLabel(fabLabels[role]!)),
+          tester.getSemantics(find.bySemanticsLabel(createNames[role]!)),
           matchesSemantics(
-            label: fabLabels[role],
+            label: createNames[role],
             isButton: true,
             isFocusable: true,
             hasEnabledState: true,
@@ -557,7 +797,7 @@ void main() {
 
         final order = [
           ...destinationLabels(l10n, role),
-          fabLabels[role]!,
+          createNames[role]!,
           l10n.settings,
           'Almaz',
         ];
@@ -600,7 +840,7 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
       expectFocused(tester, 'sheet action');
-      expectNotFocused(tester, 'Home');
+      expectNotFocused(tester, 'Deliveries');
       semantics.dispose();
     });
 
@@ -622,15 +862,15 @@ void main() {
           .where((border) => border != null);
 
       expect(rings('Orders'), isEmpty);
-      // Home, Market, then Orders.
+      // Deliveries, Market, then Orders.
       for (var i = 0; i < 3; i++) {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.pump();
       }
       expectFocused(tester, 'Orders');
-      expectNotFocused(tester, 'Home');
+      expectNotFocused(tester, 'Deliveries');
       expect(rings('Orders'), isNotEmpty);
-      expect(rings('Home'), isEmpty);
+      expect(rings('Deliveries'), isEmpty);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.pumpAndSettle();

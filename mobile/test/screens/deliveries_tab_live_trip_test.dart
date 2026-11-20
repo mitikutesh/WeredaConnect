@@ -139,6 +139,10 @@ void main() {
     // A delivered card's chip says "Delivered" too, below its heading.
     // The switch starts on Active: the delivered one waits behind it.
     expect(find.text('DELIVERED'), findsNothing);
+    // The switch is a row of pills that scrolls sideways (canvas page M):
+    // All sits past the edge of a phone until it is scrolled to.
+    await tester.ensureVisible(find.text('All'));
+    await tester.pump();
     await tester.tap(find.text('All'));
     await settleReads(tester);
     final headings = ['ON THE ROAD NOW', 'WAITING FOR PICKUP', 'DELIVERED']

@@ -32,6 +32,9 @@ class RoleNavBar extends StatelessWidget {
     super.key,
   });
 
+  /// Between the last tab and the create button.
+  static const double _createGap = 4;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -59,23 +62,53 @@ class RoleNavBar extends StatelessWidget {
               constraints: const BoxConstraints(minHeight: 62),
               child: Padding(
                 padding: const EdgeInsetsDirectional.fromSTEB(10, 6, 8, 6),
-                child: Row(
-                  children: [
-                    for (var i = 0; i < tabs.length; i++)
-                      Expanded(
-                        child: RoleNavItem(
-                          icon: tabs[i].icon,
-                          activeIcon: tabs[i].activeIcon,
-                          label: tabs[i].label(l10n),
-                          selected: i == currentIndex,
-                          onTap: () => onSelected(i),
-                        ),
-                      ),
-                    if (onCreate != null) ...[
-                      const SizedBox(width: 4),
-                      RoleCreateButton(role: role, onPressed: onCreate),
-                    ],
-                  ],
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // The tabs share the bar equally, and each keeps a
+                    // 48 px target and its label at full size. The
+                    // create button gets what is left, and folds to its
+                    // plus when its word does not fit there (a long
+                    // am/om verb, large text, 200% zoom).
+                    var tabWidth = kMinInteractiveDimension;
+                    for (final tab in tabs) {
+                      final width = RoleNavItem.minWidthFor(
+                        context,
+                        tab.label(l10n),
+                      );
+                      if (width > tabWidth) tabWidth = width;
+                    }
+                    final createRoom = constraints.maxWidth -
+                        _createGap -
+                        tabs.length * tabWidth;
+                    return Row(
+                      children: [
+                        for (var i = 0; i < tabs.length; i++)
+                          Expanded(
+                            child: RoleNavItem(
+                              icon: tabs[i].icon,
+                              activeIcon: tabs[i].activeIcon,
+                              label: tabs[i].label(l10n),
+                              selected: i == currentIndex,
+                              onTap: () => onSelected(i),
+                            ),
+                          ),
+                        if (onCreate != null) ...[
+                          const SizedBox(width: _createGap),
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: createRoom < kMinInteractiveDimension
+                                  ? kMinInteractiveDimension
+                                  : createRoom,
+                            ),
+                            child: RoleCreateButton(
+                              role: role,
+                              onPressed: onCreate,
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -104,6 +137,26 @@ class RoleNavItem extends StatelessWidget {
     super.key,
   });
 
+  /// Space on each side of the label.
+  static const double _sidePadding = 2;
+
+  static TextStyle _labelStyle({required bool selected}) => TextStyle(
+        fontSize: 12,
+        height: 1.2,
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        color: Colors.white,
+      );
+
+  /// The narrowest a tab can be and still show [label] at full size: its
+  /// longest word (the label wraps at spaces) in the selected tab's bold.
+  static double minWidthFor(BuildContext context, String label) =>
+      FwWordFitText.longestWordWidth(
+        context,
+        label,
+        _labelStyle(selected: true),
+      ) +
+      2 * _sidePadding;
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -124,7 +177,7 @@ class RoleNavItem extends StatelessWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 50),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
+              padding: const EdgeInsets.symmetric(horizontal: _sidePadding),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
@@ -140,12 +193,7 @@ class RoleNavItem extends StatelessWidget {
                   // than the slot shrinks, and never breaks.
                   FwWordFitText(
                     label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      height: 1.2,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                      color: Colors.white,
-                    ),
+                    style: _labelStyle(selected: selected),
                   ),
                   const SizedBox(height: 2),
                   // The selected tab's dot: the shape and the bold label
@@ -246,15 +294,63 @@ class RoleCreateButton extends StatelessWidget {
       );
     }
 
-    // At 200% zoom or with large text the word would squeeze the tabs:
-    // with room for fewer than 26 label-sized letters only the plus
-    // shows. BUG-27: floating over a page, it also folds while the page
-    // scrolls toward its end; inside the bar it covers nothing.
+    // Inside the bar the word shows where the bar has room for it beside
+    // the tabs (the LayoutBuilder below): at 200% zoom or with large text
+    // only the plus shows. Floating over a page there is no bar to
+    // measure: with room for fewer than 26 label-sized letters only the
+    // plus shows, and (BUG-27) it folds while the page scrolls toward its
+    // end. Inside the bar it covers nothing.
     final letter = MediaQuery.textScalerOf(context).scale(14);
-    final roomy = MediaQuery.sizeOf(context).width >= letter * 26;
-    final showLabel =
-        roomy && (!floating || CreateButtonScrollScope.showsLabel(context));
+    final unfolded = !floating ||
+        (MediaQuery.sizeOf(context).width >= letter * 26 &&
+            CreateButtonScrollScope.showsLabel(context));
+    final word = shortLabelFor(l10n, role);
+    final labelledWidth = _labelledWidth(context, word);
 
+    return LayoutBuilder(
+      // The bar gives the button what its tabs leave: the word shows only
+      // where the whole pill fits.
+      builder: (context, constraints) => _pill(
+        name: name,
+        word: word,
+        showLabel: unfolded && labelledWidth <= constraints.maxWidth,
+      ),
+    );
+  }
+
+  static const TextStyle _wordStyle = TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.w800,
+    color: AppTheme.ink,
+  );
+
+  /// The pill's side padding, its plus, and the gaps around its word.
+  static const double _sidePadding = 13;
+  static const double _plusSize = 20;
+  static const double _wordGap = 5;
+
+  /// How wide the pill is with [word] showing.
+  static double _labelledWidth(BuildContext context, String word) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: word,
+        style: DefaultTextStyle.of(context).style.merge(_wordStyle),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final width = painter.width.ceilToDouble();
+    painter.dispose();
+    return 2 * _sidePadding + _plusSize + 2 * _wordGap + width;
+  }
+
+  Widget _pill({
+    required String name,
+    required String word,
+    required bool showLabel,
+  }) {
+    const foreground = AppTheme.ink;
     return Tooltip(
       // Names the plus on a long press or hover. The button's own
       // semantics carry the name, so a screen reader hears it once.
@@ -285,27 +381,34 @@ class RoleCreateButton extends StatelessWidget {
                   minWidth: floating ? 54 : 46,
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 13),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: _sidePadding,
+                  ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.add, size: 20, color: foreground),
-                      _FoldingLabel(
-                        shown: showLabel,
-                        child: Padding(
-                          padding: const EdgeInsetsDirectional.only(
-                            start: 5,
-                            end: 5,
-                          ),
-                          child: Text(
-                            shortLabelFor(l10n, role),
-                            maxLines: 1,
-                            softWrap: false,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                              color: foreground,
+                      const Icon(
+                        Icons.add,
+                        size: _plusSize,
+                        color: foreground,
+                      ),
+                      // Flexible: while the word slides shut in a pill
+                      // that has no room for it, it is clipped, not an
+                      // overflow.
+                      Flexible(
+                        child: _FoldingLabel(
+                          shown: showLabel,
+                          child: Padding(
+                            padding: const EdgeInsetsDirectional.only(
+                              start: _wordGap,
+                              end: _wordGap,
+                            ),
+                            child: Text(
+                              word,
+                              maxLines: 1,
+                              softWrap: false,
+                              style: _wordStyle,
                             ),
                           ),
                         ),
