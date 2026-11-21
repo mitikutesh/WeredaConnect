@@ -17,6 +17,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
+import 'package:wereda_connect/features/order/presentation/commission_label.dart';
 
 /// Buyer payment initiation screen with commission breakdown (a sibling of
 /// the Buyer · Telebirr payment board: the amount in the green card, the
@@ -37,6 +38,9 @@ class InitiatePaymentScreen extends StatelessWidget {
   final double? orderTransportCost;
   final double? orderCommission;
 
+  /// The order's own commission rate, for the row's label.
+  final double? orderCommissionRate;
+
   /// Replaces the Fayda screen the Fayda step-up opens (tests).
   final WidgetBuilder? faydaVerificationScreen;
 
@@ -49,6 +53,7 @@ class InitiatePaymentScreen extends StatelessWidget {
     this.orderCropCost,
     this.orderTransportCost,
     this.orderCommission,
+    this.orderCommissionRate,
     this.faydaVerificationScreen,
     super.key,
   });
@@ -177,7 +182,10 @@ class InitiatePaymentScreen extends StatelessWidget {
                                 // A rate of the crop cost, not of this
                                 // amount, so the order's label has none.
                                 label: _hasOrderSplit
-                                    ? l10n.escrowPlatformCommission
+                                    ? commissionLabelFor(
+                                        l10n,
+                                        orderCommissionRate,
+                                      )
                                     : l10n.escrowCommission(
                                         (commission / amount * 100)
                                             .toStringAsFixed(1),

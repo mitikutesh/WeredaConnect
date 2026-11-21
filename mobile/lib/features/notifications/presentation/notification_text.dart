@@ -28,6 +28,8 @@ const List<String> notificationTypes = [
   'request_on_hold',
   'order_cancelled',
   'order_expired_unpaid',
+  // An admin agreed another commission before the buyer paid.
+  'order_commission_changed',
   'payment_failed',
   'request_reminder',
   'pickup_overdue',
@@ -151,6 +153,7 @@ const Set<String> actionRequiredNotificationTypes = {
         title: l10n.notifOrderExpiredUnpaidTitle,
         body: l10n.notifOrderExpiredUnpaidBody,
       ),
+    'order_commission_changed' => _commissionChangedText(l10n, p),
     'payment_failed' => (
         title: l10n.notifPaymentFailedTitle,
         body: l10n.notifPaymentFailedBody,
@@ -361,6 +364,29 @@ String _payoutHint(AppLocalizations l10n, String? reason) {
 }
 
 final _amountFormat = NumberFormat('#,##0.00', 'en_US');
+
+/// The buyer's notice that an admin agreed another commission on their
+/// unpaid order: the new rate and total when the notice carries them.
+({String title, String body}) _commissionChangedText(
+  AppLocalizations l10n,
+  Map<String, String> p,
+) {
+  final rate = double.tryParse(p['commissionRate'] ?? '');
+  final total = double.tryParse(p['orderTotal'] ?? '');
+  if (rate == null || total == null || rate < 0) {
+    return (
+      title: l10n.notifCommissionChangedTitle,
+      body: l10n.notifCommissionChangedBodyNoTotal,
+    );
+  }
+  return (
+    title: l10n.notifCommissionChangedTitle,
+    body: l10n.notifCommissionChangedBody(
+      '${NumberFormat('0.##', 'en_US').format(rate * 100)}%',
+      l10n.etbCurrency(_amountFormat.format(total)),
+    ),
+  );
+}
 
 /// The facts line under an inbox entry: crop and quantity, the amount, and
 /// for a type that asks the user to act, when it is due (Ethiopia time on

@@ -91,6 +91,11 @@ String truckerResponseOf(Order order) {
 bool _farmerDecides(OrderStatus status) =>
     status == OrderStatus.funded || status == OrderStatus.awaitingTransport;
 
+/// The Orders filter of the orders waiting for [canFarmerRespond] (or
+/// [canTruckerRespond]): what Home's Pending Orders tile counts, so the two
+/// always agree.
+const String ordersFilterYourTurn = 'yourTurn';
+
 /// Whether [userId] is this order's farmer and may accept or decline it now.
 bool canFarmerRespond(Order order, String userId) =>
     order.status == OrderStatus.funded &&
