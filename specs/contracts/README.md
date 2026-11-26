@@ -62,7 +62,7 @@ Each contract file follows this structure:
 | Rating API | `rating-api.md` | 1.7.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Reputation API (penalty events, tiers, appeals, gates; events, aggregate, reads, appeal, gates and admin endpoints BUILT on the server; app BUILT behind the flags, ESC-31; the GCR-03 conduct stamp BUILT on the server, 1.9.0; the GCR-04 verified handoffs figure BUILT on the server behind `conductRewards`, 1.10.0) | `reputation-api.md` | 1.10.0 | Mobile, Web, Backend, Admin, Infrastructure |
 | Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.26.0 | Mobile, Backend, Admin |
-| Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.30.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
+| Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.31.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 2.19.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Account Deletion | `account-deletion.md` | 1.7.4 | Mobile, Backend, Infrastructure, Admin |
 | Crop Listing API | `crop-listing-api.md` | 1.18.0 | Mobile, Web, Backend, Infrastructure |

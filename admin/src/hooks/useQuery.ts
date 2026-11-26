@@ -76,8 +76,8 @@ export function useStuckOrders(source: StuckSource) {
   });
 }
 
-// Disputes. FUP-16: the server scans and then filters by status, so a page can come back short
-// with a nextToken; the disputes page loads the next one on demand.
+// Disputes. FUP-80: one page of the disputed partition of the escrows' status index; a full page
+// comes with a nextToken (the next may be empty), and the disputes page loads it on demand.
 export function useDisputes() {
   return useInfiniteQuery({
     queryKey: ["admin", "disputes"],

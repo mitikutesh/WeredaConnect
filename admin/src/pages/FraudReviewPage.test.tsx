@@ -415,6 +415,43 @@ describe("FraudReviewPage signals", () => {
     expect(within(rows[1]).getByText("IDOR_CREATE_CONFLICT")).toBeTruthy();
   });
 
+  /* FUP-202 */
+
+  it("names the user whose request caused a row written onto another user, linked to that user", () => {
+    setSignals(
+      [
+        signal({
+          signalId: "t1",
+          userId: "trucker-1",
+          signalType: "GPS_ANOMALY",
+          entityType: "delivery",
+          entityId: "del-9",
+          sourceUserId: "buyer-9",
+        }),
+        signal({ signalId: "b9", userId: "buyer-9", signalType: "GPS_ANOMALY", entityType: "delivery", entityId: "del-9" }),
+        signal({
+          signalId: "t2",
+          userId: "trucker-2",
+          signalType: "GPS_ANOMALY",
+          entityType: "delivery",
+          entityId: "del-8",
+          sourceUserId: "buyer 7",
+        }),
+      ],
+      [scored({ userId: "trucker-1" }), scored({ userId: "buyer-9", displayName: "Meron" }), scored({ userId: "trucker-2" })],
+    );
+    renderPage();
+
+    const [trucker, buyer, other] = screen.getAllByRole("region");
+    const row = within(within(trucker).getAllByRole("table")[0]).getAllByRole("row")[1];
+    expect(row.textContent).toContain("Caused by: Meron");
+    expect(within(row).getByRole("link", { name: "Meron" }).getAttribute("href")).toBe("/users/buyer-9");
+    // The buyer's own row was caused by the buyer, so it names no source.
+    expect(within(buyer).queryAllByText(/Caused by/)).toHaveLength(0);
+    // A source with no name on the loaded pages is shown by its id.
+    expect(within(other).getAllByRole("link", { name: "buyer 7" })[0].getAttribute("href")).toBe("/users/buyer%207");
+  });
+
   /* FUP-145 */
 
   it("lists what each label of the AI advice stands for, linked where the admin app has a page", () => {
