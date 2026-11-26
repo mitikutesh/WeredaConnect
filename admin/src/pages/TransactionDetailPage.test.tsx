@@ -31,6 +31,7 @@ vi.mock("@/hooks/useQuery", () => ({
   },
   useCancelDelivery: () => ({ mutate: vi.fn(), isPending: false }),
   useReopenPickup: () => ({ mutate: vi.fn(), isPending: false }),
+  useChangeCommission: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock("@/hooks/useLocale", async () => {
@@ -513,6 +514,85 @@ describe("TransactionDetailPage pickup judgement (FUP-287)", () => {
 
     renderPage();
 
+    expect(screen.getByRole("button", { name: action })).toBeTruthy();
+  });
+});
+
+/* The negotiated commission (order-lifecycle.md 2.26.0): the payment card of an order with no payment yet shows its
+ * rate and commission, and offers the change only while the order is unpaid (created or pending_payment). */
+describe("TransactionDetailPage commission change", () => {
+  beforeEach(() => {
+    mocks.locale = "en";
+  });
+
+  function detail(status: string, escrow: Record<string, unknown> | null = null) {
+    return {
+      order: {
+        orderId: "ord-7",
+        status,
+        version: 4,
+        buyerId: "buyer-7",
+        farmerId: "farmer-7",
+        cropCost: 1000,
+        transportCost: 200,
+        commissionRate: 0.025,
+        commissionAmount: 25,
+        orderTotal: 1225,
+      },
+      escrow,
+      delivery: null,
+      timeline: [],
+    };
+  }
+
+  it.each(["created", "pending_payment"])("shows the rate and commission and offers the change on a %s order", (status) => {
+    mocks.detail.data = detail(status);
+
+    renderPage();
+
+    expect(screen.getByText("Commission rate").nextElementSibling?.textContent).toBe("2.5%");
+    expect(screen.getByText("Commission").nextElementSibling?.textContent).toBe("25.00 Birr");
+    expect(screen.getByText("Order total").nextElementSibling?.textContent).toBe("1,225.00 Birr");
+    expect(screen.getByRole("button", { name: "Change commission" })).toBeTruthy();
+  });
+
+  it.each(["payment_submitted", "funded", "accepted", "cancelled"])("offers no change once the order is %s", (status) => {
+    mocks.detail.data = detail(status);
+
+    renderPage();
+
+    expect(screen.getByText("Commission rate").nextElementSibling?.textContent).toBe("2.5%");
+    expect(screen.queryByRole("button", { name: "Change commission" })).toBeNull();
+  });
+
+  it("offers no change when the order has an escrow", () => {
+    mocks.detail.data = detail("pending_payment", { escrowId: "escrow-order-ord-7", status: "initiated", amount: 1225 });
+
+    renderPage();
+
+    expect(screen.queryByRole("button", { name: "Change commission" })).toBeNull();
+  });
+
+  it("hides the rate row of an order that carries no rate", () => {
+    const data = detail("created");
+    mocks.detail.data = { ...data, order: { ...data.order, commissionRate: undefined } };
+
+    renderPage();
+
+    expect(screen.queryByText("Commission rate")).toBeNull();
+    expect(screen.getByRole("button", { name: "Change commission" })).toBeTruthy();
+  });
+
+  it.each([
+    ["am", "የኮሚሽን መጠን", "ኮሚሽኑን ቀይር"],
+    ["om", "Dhibbantaa komishinii", "Komishinii jijjiiri"],
+  ] as const)("names the rate and the change in %s", (locale, rateLabel, action) => {
+    mocks.locale = locale;
+    mocks.detail.data = detail("created");
+
+    renderPage();
+
+    expect(screen.getByText(rateLabel)).toBeTruthy();
     expect(screen.getByRole("button", { name: action })).toBeTruthy();
   });
 });

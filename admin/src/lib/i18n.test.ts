@@ -420,3 +420,31 @@ describe("pickup judgement strings exist in every locale", () => {
     }
   });
 });
+
+/* The admin commission change of one unpaid order: every form text, the rate row, the error codes and the timeline
+ * label in every locale, with the placeholders the form fills in. */
+describe("commission change strings exist in every locale", () => {
+  const keys = [
+    ...Object.keys(en.commission).map((k) => `commission.${k}`),
+    "transactions.commissionRate",
+    "transactions.action_admin_commission_changed",
+    "errors.COMMISSION_CHANGE_INVALID",
+    "errors.COMMISSION_CHANGE_NOT_ALLOWED",
+    "errors.COMMISSION_CHANGE_CHANGED",
+  ];
+  const placeholders: Record<string, string[]> = {
+    "commission.current": ["{rate}", "{amount}", "{total}"],
+    "commission.preview": ["{amount}", "{total}"],
+    "commission.confirmText": ["{fromRate}", "{toRate}", "{fromTotal}", "{toTotal}"],
+    "commission.done": ["{rate}", "{total}"],
+  };
+
+  for (const locale of locales) {
+    it(`${locale} has every key and keeps the placeholders`, () => {
+      expect(keys.filter((key) => t(key, locale) === key)).toEqual([]);
+      for (const [key, names] of Object.entries(placeholders)) {
+        for (const name of names) expect(t(key, locale)).toContain(name);
+      }
+    });
+  }
+});
