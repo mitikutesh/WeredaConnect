@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.70.0
+1.71.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -39,7 +39,8 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
       "action": "create | update | delete",
       "clientVersion": 3,
       "data": { },
-      "timestamp": "2026-02-09T12:00:00Z"
+      "timestamp": "2026-02-09T12:00:00Z",
+      "platform": "android | web"
     }
   ]
 }
@@ -51,6 +52,8 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
 - `clientVersion`: the version the client had when making the change. The server accepts it here (op level, preferred) or as `data.version` (what the shipped mobile and web clients send); when both are present the op-level value wins. `order` updates REQUIRE one of them: a versionless order update is rejected with `ORDER_VALIDATION: version is required for order updates ...` and nothing is written. For other entity types a missing version is treated as 0, which yields a `conflict` against any stored entity (1.3.0, SIM-08).
 - `timestamp` — ISO 8601, UTC; used for display ordering, NOT for conflict resolution
 - `data` — entity-specific payload; schema defined per `entityType`
+- `platform` (optional, 1.71.0, GCR-02): the app the operation came from, `android` or `web`. Only a
+  handoff reads it (Handoff evidence); any other value, or none, is ignored, never refused
 
 **Missing members (1.64.0, FUP-148).** No member of the body is marked required for the reader; the
 server checks them itself, right after the body is read (before the caller, the rate limit or any
@@ -1842,10 +1845,54 @@ without a reason as permanent with the generic text.
 
 ---
 
+## Handoff evidence (1.71.0, FUP-440, GCR-01, GCR-02)
+
+The `delivery` update that confirms a handoff (the trucker's `pickedUp`, the buyer's `delivered`,
+the self-pickup confirm) may carry, all optional, as `delivery-verification-api.md` 2.19.0 sets out
+("Handoff evidence"):
+
+```json
+{
+  "operationId": "uuid-v4",
+  "entityType": "delivery",
+  "action": "update",
+  "timestamp": "2026-11-26T09:00:00Z",
+  "platform": "android",
+  "data": {
+    "status": "pickedUp",
+    "scannedQrNonce": "...",
+    "gpsStatus": "fix",
+    "gpsPickup": { "latitude": 9.0, "longitude": 38.7, "capturedAt": "2026-11-26T08:59:41Z", "accuracyM": 12.5 }
+  }
+}
+```
+
+- `platform` on the operation: `android` from the mobile queue, `web` from the web queue.
+- `gpsStatus` in `data`: `fix` or `approximate` with the point; `services_off`, `denied`,
+  `denied_forever` or `timeout` without one. Input only: the delivery's unknown field check accepts
+  it (as `scannedQrNonce` and `scannedQrCode`) and it is never stored as sent.
+- `capturedAt` (ISO 8601 UTC) and `accuracyM` (metres) inside `gpsPickup` or `gpsDropoff`: the fix's
+  own time and accuracy. The stored point stays `latitude` and `longitude`.
+
+The server stamps what passes its checks on the delivery, server-only, in the transition's own write
+(`{leg}GpsStatus`, `{leg}GpsCapturedAt`, `{leg}GpsAccuracyM`, `{leg}Method`, `{leg}Platform` and
+`dropoffCapturedAt`, leg `pickup` or `dropoff`); a value that fails is left out and the handoff is
+answered as without it. No stamp is in any result's `serverData`, and a `delivery` operation that
+sends one of these names in `data` is refused `DELIVERY_VALIDATION: Unknown fields: <field>` with
+nothing written (FUP-246's whitelist). Old clients send none of these and are answered unchanged.
+
+Rollout: server first. A server before 1.71.0 answers a handoff carrying `gpsStatus` with
+`DELIVERY_VALIDATION: Unknown fields: gpsStatus`, which no retry passes; it ignores `platform` (an
+unknown member of the operation is skipped by the reader) and the point's `capturedAt` and
+`accuracyM` (only `latitude` and `longitude` are read and stored).
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.71.0 | 2026-11-26 | Handoff evidence (FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0): every operation may carry an optional `platform` (`android`, `web`); a handoff's `data` may carry the input-only `gpsStatus`, and its `gpsPickup` or `gpsDropoff` the fix's `capturedAt` and `accuracyM`, which are never stored in the point. The server stamps them server-only on the delivery with the leg's method and, for the drop-off, the phone's time of the operation; never in `serverData`; a client value of a stamp is an unknown field. A bad value is dropped, never refused; old clients unchanged. Server deploys first (an older server refuses `gpsStatus` as an unknown field). See Handoff evidence |
 | 1.70.0 | 2026-11-19 | Persona simulation fixes (server only, no client change; `order-lifecycle.md` 2.24.0, `delivery-verification-api.md` 2.17.0, `crop-listing-api.md` 1.17.0, `rating-api.md` 1.6.0): a `delivery` update from a caller who is no party is `DELIVERY_UNAUTHORIZED` before the transition, cancelled and dispute-window rules (conflict rule 10); an `order` or `delivery` update with nothing left to write answers `success` at the stored version and writes nothing (Updates with nothing to write); a `crop_listing` create for an existing id is answered by the create-conflict echo before the listing fraud rules; the delivery's buyer who sends `qrNonce` reads `DELIVERY_UNAUTHORIZED: Only the farmer sets the pickup code.`; a delivery confirm under a disputed escrow answers with the delivery as the dispute mirror left it (`disputed`); a `payment_submitted` for an order the listing can no longer fill is `ORDER_VALIDATION`; a rating of an order whose escrow is in dispute is `RATING_FORBIDDEN` |
 | 1.69.0 | 2026-11-19 | A refused duplicate trip create (persona simulation 2026-11-19 BUG-4, `trip-listing-api.md` 2.10.0 rule 14, fraud spec 3.43.0 Rule 6). Server: a trip `create` can now be answered `FRAUD_DUPLICATE_LISTING:` (the trucker already has an open trip on that route, departure day and vehicle), and a `crop_listing` `create` gets the same code for a lot the farmer already lists at any price (`crop-listing-api.md` 1.16.0 rule 13); both are permanent on every shipped client under the `FRAUD_*` rule. Clients: on mobile a trip create refused with it is reverted (the local trip is removed without a read, its operation leaves the failed count) and explained with its own sentence in en, am and om (`errorDuplicateTrip`); on web the create trip form shows the same sentence. A crop listing refused with the code is unchanged (not reverted, the listing-form wording) |
 | 1.68.0 | 2026-11-19 | Mobile client only, no wire change (persona simulation 2026-11-19). The farmer's own listings reach the phone (BUG-31, FUP-520): the own-listing pull of 1.67.2 now stores the rows it lists (every status, `reserved` and `sold` too), server wins, skipping a row with a `crop_listing` operation still on its way and a server copy older than the stored row, never a row of another farmer; it no longer returns before its request when the phone holds none of the farmer's listings. Early retries (BUG-32): a sync that did not reach the server while the phone has a network and operations wait is tried again after 10 s, 30 s, 1 min, 2 min and 5 min, stopping when the queue is empty or the phone is offline; the health check has a 10 s deadline, connecting included (BUG-35). See "Client-Side Conflict Resolution (Mobile)" and "Retry Logic and Exponential Backoff" |

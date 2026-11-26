@@ -899,6 +899,7 @@ class SyncExecutor {
                 entityId: op.entityId,
               ),
               'timestamp': op.createdAt.toIso8601String(),
+              'platform': SyncQueue.platform,
             },
           )
           .toList(),

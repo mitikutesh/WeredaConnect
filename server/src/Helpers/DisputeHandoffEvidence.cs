@@ -19,8 +19,10 @@ public static class DisputeHandoffEvidence
 
     /// <summary>
     /// The evidence of <paramref name="delivery"/> as stored when <paramref name="disputedBy"/> opens the
-    /// dispute. How each leg was confirmed and by whom come from the latest transaction-audit row of the
-    /// transition (<c>picked_up</c>, <c>delivered</c>), so they are left out when that row is missing.
+    /// dispute. How each leg was confirmed comes from the method stamped on the delivery (GCR-01,
+    /// <see cref="HandoffEvidence"/>), else, for a delivery confirmed before that stamp, from the latest
+    /// transaction-audit row of the transition (<c>picked_up</c>, <c>delivered</c>); who confirmed comes from
+    /// that row. Each is left out when neither source has it.
     /// <c>confirmedByDisputer</c> is written only when the audit row names who confirmed. Null without a
     /// delivery.
     /// </summary>
@@ -46,7 +48,8 @@ public static class DisputeHandoffEvidence
             var pickupRow = Latest(deliveryAuditRows, deliveryId, "picked_up");
             evidence["pickedUpAt"] = pickedUpAt;
             evidence["pickupFix"] = HasFix(delivery, "gpsPickup");
-            Put(evidence, "pickupMethod", MethodOf(pickupRow == null ? null : Text(pickupRow, "metadata")));
+            Put(evidence, "pickupMethod", HandoffEvidence.MethodOf(delivery, HandoffEvidence.PickupLeg)
+                ?? MethodOf(pickupRow == null ? null : Text(pickupRow, "metadata")));
             Put(evidence, "pickupBy", pickupRow == null ? null : Text(pickupRow, "actor"));
         }
 
@@ -57,7 +60,8 @@ public static class DisputeHandoffEvidence
             var confirmedBy = deliveredRow == null ? null : Text(deliveredRow, "actor");
             evidence["confirmedAt"] = confirmedAt;
             evidence["dropoffFix"] = HasFix(delivery, "gpsDropoff");
-            Put(evidence, "confirmMethod", MethodOf(deliveredRow == null ? null : Text(deliveredRow, "metadata")));
+            Put(evidence, "confirmMethod", HandoffEvidence.MethodOf(delivery, HandoffEvidence.DropoffLeg)
+                ?? MethodOf(deliveredRow == null ? null : Text(deliveredRow, "metadata")));
             Put(evidence, "confirmedBy", confirmedBy);
             if (!string.IsNullOrEmpty(confirmedBy))
             {

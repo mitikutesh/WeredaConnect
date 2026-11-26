@@ -29,7 +29,7 @@ export interface Handoff {
   leg: "pickup" | "dropoff" | "self_pickup" | string;
   /** the server's time of the handoff */
   at?: string;
-  /** the phone's time of the pickup scan */
+  /** the phone's time of the handoff (the pickup scan, or since 2.30.0 the drop-off confirm) */
   capturedAt?: string;
   actorId?: string;
   /** buyer, farmer or trucker */
@@ -37,9 +37,43 @@ export interface Handoff {
   /** qr (scanned) or code (typed); absent when not recorded */
   method?: string;
   gps?: LatLng;
+  /**
+   * FUP-440 (escrow-protocol 2.30.0): with gps, fix or approximate (coarse location only); without,
+   * the cause: services_off, denied, denied_forever or timeout. Absent for an older app or delivery.
+   */
+  gpsStatus?: string;
+  /** the fix's own time on the phone */
+  gpsCapturedAt?: string;
+  /** the fix's accuracy in metres */
+  gpsAccuracyM?: number;
+  /** GCR-02: android or web */
+  platform?: string;
   /** the listing for a pickup, the trip's destination for a drop-off */
   planned?: LatLng;
   distanceKm?: number;
+}
+
+/** FUP-440: the causes of a handoff without a GPS fix that the server stores. */
+export const NO_FIX_CAUSES = ["services_off", "denied", "denied_forever", "timeout"] as const;
+
+/** The stored cause of a handoff without a fix; undefined when none is known (an older app or delivery). */
+export function noFixCause(handoff: Handoff | undefined): string | undefined {
+  const status = handoff?.gpsStatus;
+  return status && (NO_FIX_CAUSES as readonly string[]).includes(status) ? status : undefined;
+}
+
+/** Received this long after the phone made it, a handoff was made offline and sent later (as a trip's check-ins). */
+export const SENT_LATE_MINUTES = 15;
+
+/**
+ * Whether the phone made the handoff more than {@link SENT_LATE_MINUTES} before the server received it: done
+ * offline and sent later. Reads the handoff's own phone time only, not the fix's: a phone may hand back an older
+ * cached fix while online. False when a time is missing or unreadable.
+ */
+export function sentLate(handoff: Handoff): boolean {
+  const received = Date.parse(handoff.at ?? "");
+  const made = Date.parse(handoff.capturedAt ?? "");
+  return !Number.isNaN(received) && !Number.isNaN(made) && received - made > SENT_LATE_MINUTES * 60_000;
 }
 
 export interface EvidenceMessage {

@@ -14,6 +14,8 @@ import 'package:wereda_connect/core/network/data_usage_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/routing/app_router.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/sync/sync_queue_web.dart'
+    show SyncPlatformInterceptor;
 import 'package:wereda_connect/core/auth/token_refresh.dart';
 import 'package:wereda_connect/core/auth/web_test_auth_seam.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -82,8 +84,13 @@ Future<void> main() async {
   // Initialize API client (no cert pinning on web)
   ApiClient().initialize(
     // Requests are metered after AuthInterceptor (sees the bearer token),
-    // responses before it (see DataUsageInterceptor.responses).
-    interceptors: [DataUsageInterceptor.requests(dataUsageTracker)],
+    // responses before it (see DataUsageInterceptor.responses). On web every
+    // /sync operation names the web platform before it is metered (GCR-02);
+    // the phone's queue names its own when it builds the batch.
+    interceptors: [
+      if (kIsWeb) SyncPlatformInterceptor(),
+      DataUsageInterceptor.requests(dataUsageTracker),
+    ],
   );
 
   // Wire AuthInterceptor for automatic token injection and 401 refresh.

@@ -89,6 +89,8 @@ class GpsCaptureService {
         latitude: position.latitude,
         longitude: position.longitude,
         accuracy: position.accuracy,
+        capturedAt: position.timestamp.toUtc(),
+        approximate: await _isApproximate(),
       );
     } on LocationServiceDisabledException {
       return const GpsCaptureResult.unavailable(
@@ -104,6 +106,26 @@ class GpsCaptureService {
       );
     }
   }
+
+  /// Whether Android granted only approximate location (Android 12 and
+  /// later), so the fix is coarse (FUP-440). Asked on Android only, never
+  /// on web. Never throws: a failed or slow answer reads as precise.
+  Future<bool> _isApproximate() async {
+    if (_isWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return false;
+    }
+    try {
+      final status =
+          await Geolocator.getLocationAccuracy().timeout(_accuracyCheckLimit);
+      return status == LocationAccuracyStatus.reduced;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// How long [_isApproximate] waits for its answer: one plugin call, so a
+  /// fix in hand is never lost to it.
+  static const _accuracyCheckLimit = Duration(seconds: 2);
 
   /// Open this app's page in the phone's settings, where a location
   /// permission denied for good can be allowed again (FUP-285). False when
@@ -177,12 +199,22 @@ class GpsCaptureResult {
 
   /// Accuracy in meters.
   final double? accuracy;
+
+  /// The fix's own time (UTC), as the platform stamped it (FUP-440). Null
+  /// without a fix.
+  final DateTime? capturedAt;
+
+  /// Android granted only approximate location, so the fix is coarse
+  /// (FUP-440). False without a fix and on web.
+  final bool approximate;
   final String? unavailableReason;
 
   const GpsCaptureResult.success({
     required this.latitude,
     required this.longitude,
     required this.accuracy,
+    this.capturedAt,
+    this.approximate = false,
   })  : isAvailable = true,
         unavailableReason = null;
 
@@ -190,7 +222,9 @@ class GpsCaptureResult {
       : isAvailable = false,
         latitude = null,
         longitude = null,
-        accuracy = null;
+        accuracy = null,
+        capturedAt = null,
+        approximate = false;
 
   /// The [unavailableReason] when the location permission was denied for
   /// good: only the app settings (the browser's site settings on web) can
@@ -221,6 +255,33 @@ class GpsCaptureResult {
       permissionDeniedReason => GpsUnavailableCause.permissionDenied,
       permanentlyDeniedReason => GpsUnavailableCause.deniedForever,
       _ => GpsUnavailableCause.noSignal,
+    };
+  }
+
+  /// What a handoff confirm sends as `gpsStatus` (FUP-440): `fix` or
+  /// `approximate` with a point, otherwise why there is none
+  /// (`services_off`, `denied`, `denied_forever`, `timeout`).
+  String get gpsStatus {
+    if (isAvailable) return approximate ? 'approximate' : 'fix';
+    return switch (unavailableCause) {
+      GpsUnavailableCause.locationOff => 'services_off',
+      GpsUnavailableCause.permissionDenied => 'denied',
+      GpsUnavailableCause.deniedForever => 'denied_forever',
+      GpsUnavailableCause.noSignal || null => 'timeout',
+    };
+  }
+
+  /// The fix's own time and accuracy, for the handoff's `gpsPickup` or
+  /// `gpsDropoff` map (FUP-440): `capturedAt` (ISO 8601 UTC) and
+  /// `accuracyM` (meters). Empty without a fix; a value the platform did
+  /// not give (an accuracy of 0 or less) is left out.
+  Map<String, Object> get pointEvidence {
+    if (!isAvailable) return const {};
+    final at = capturedAt;
+    final meters = accuracy;
+    return {
+      if (at != null) 'capturedAt': at.toUtc().toIso8601String(),
+      if (meters != null && meters.isFinite && meters > 0) 'accuracyM': meters,
     };
   }
 }

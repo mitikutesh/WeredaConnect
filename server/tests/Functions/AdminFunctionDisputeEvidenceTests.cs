@@ -50,6 +50,7 @@ public sealed class AdminFunctionDisputeEvidenceTests
     private readonly Dictionary<string, List<Dictionary<string, AttributeValue>>> _threads = new();
     private readonly HashSet<string> _truncatedThreads = new();
     private bool _cropsFail;
+    private bool _deliveryEventsGone;
 
     public AdminFunctionDisputeEvidenceTests()
     {
@@ -373,6 +374,88 @@ public sealed class AdminFunctionDisputeEvidenceTests
         await _db.DidNotReceive().QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == TripsTable), Arg.Any<CancellationToken>());
     }
 
+    // ===== FUP-440, GCR-01, GCR-02: the handoff evidence stamped on the delivery =====
+
+    [Fact]
+    public async Task TheStampedEvidence_IsOnEachLeg_AndTheStampedMethodWinsOverTheAuditRow()
+    {
+        // The audit rows say qr (pickup) and code (drop-off); the delivery's own stamps say the opposite.
+        _delivery!["pickupGpsStatus"] = S("approximate");
+        _delivery["pickupGpsCapturedAt"] = S("2026-11-05T07:39:10.0000000Z");
+        _delivery["pickupGpsAccuracyM"] = N("1800");
+        _delivery["pickupMethod"] = S("code");
+        _delivery["pickupPlatform"] = S("android");
+        _delivery["dropoffGpsStatus"] = S("fix");
+        _delivery["dropoffGpsCapturedAt"] = S("2026-11-05T09:58:00.0000000Z");
+        _delivery["dropoffGpsAccuracyM"] = N("8.5");
+        _delivery["dropoffMethod"] = S("qr");
+        _delivery["dropoffPlatform"] = S("web");
+        _delivery["dropoffCapturedAt"] = S("2026-11-05T10:00:00.0000000Z");
+
+        var body = await EvidenceAsync();
+
+        var pickup = body.GetProperty("handoffs")[0];
+        pickup.GetProperty("gpsStatus").GetString().Should().Be("approximate");
+        pickup.GetProperty("gpsCapturedAt").GetString().Should().Be("2026-11-05T07:39:10.0000000Z");
+        pickup.GetProperty("gpsAccuracyM").GetDouble().Should().Be(1800);
+        pickup.GetProperty("platform").GetString().Should().Be("android");
+        pickup.GetProperty("method").GetString().Should().Be("code");
+        pickup.GetProperty("capturedAt").GetString().Should().Be("2026-11-05T07:39:30Z");
+
+        var dropoff = body.GetProperty("handoffs")[1];
+        dropoff.GetProperty("gpsStatus").GetString().Should().Be("fix");
+        dropoff.GetProperty("gpsCapturedAt").GetString().Should().Be("2026-11-05T09:58:00.0000000Z");
+        dropoff.GetProperty("gpsAccuracyM").GetDouble().Should().Be(8.5);
+        dropoff.GetProperty("platform").GetString().Should().Be("web");
+        dropoff.GetProperty("method").GetString().Should().Be("qr");
+        // The drop-off's phone time, two hours before the server's confirmedAt: made offline, sent later.
+        dropoff.GetProperty("capturedAt").GetString().Should().Be("2026-11-05T10:00:00.0000000Z");
+        dropoff.GetProperty("at").GetString().Should().Be("2026-11-05T12:15:00Z");
+    }
+
+    [Fact]
+    public async Task ADeliveryFromBeforeTheStamps_KeepsTheAuditRowsMethod_AndHasNoOtherEvidence()
+    {
+        // A stamp that is not qr or code is no method: the audit row still answers.
+        _delivery!["dropoffMethod"] = S("scanned");
+
+        var body = await EvidenceAsync();
+
+        foreach (var (handoff, method) in new[] { (body.GetProperty("handoffs")[0], "qr"), (body.GetProperty("handoffs")[1], "code") })
+        {
+            handoff.GetProperty("method").GetString().Should().Be(method);
+            handoff.TryGetProperty("gpsStatus", out _).Should().BeFalse();
+            handoff.TryGetProperty("gpsCapturedAt", out _).Should().BeFalse();
+            handoff.TryGetProperty("gpsAccuracyM", out _).Should().BeFalse();
+            handoff.TryGetProperty("platform", out _).Should().BeFalse();
+        }
+
+        body.GetProperty("handoffs")[1].TryGetProperty("capturedAt", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ASelfPickup_ReadsTheDropoffLegsEvidence_AndAMethodWithoutAnAuditRow()
+    {
+        _delivery = Delivery(selfPickup: true);
+        _delivery.Remove("gpsDropoff");
+        _delivery["dropoffGpsStatus"] = S("denied");
+        _delivery["dropoffMethod"] = S("code");
+        _delivery["dropoffPlatform"] = S("android");
+        _delivery["dropoffCapturedAt"] = S("2026-11-05T12:14:40.0000000Z");
+        _deliveryEventsGone = true;
+
+        var body = await EvidenceAsync();
+
+        var handoff = body.GetProperty("handoffs").EnumerateArray().Should().ContainSingle().Subject;
+        handoff.GetProperty("leg").GetString().Should().Be("self_pickup");
+        handoff.GetProperty("gpsStatus").GetString().Should().Be("denied");
+        handoff.GetProperty("method").GetString().Should().Be("code");
+        handoff.GetProperty("platform").GetString().Should().Be("android");
+        handoff.GetProperty("capturedAt").GetString().Should().Be("2026-11-05T12:14:40.0000000Z");
+        handoff.TryGetProperty("gps", out _).Should().BeFalse();
+        handoff.TryGetProperty("actorId", out _).Should().BeFalse();
+    }
+
     // ===== The messages =====
 
     [Fact]
@@ -525,7 +608,7 @@ public sealed class AdminFunctionDisputeEvidenceTests
                 OrdersTable => One(_order),
                 DeliveriesTable => One(_delivery),
                 EscrowAuditTable => new() { EscrowAuditRow("2026-11-04T08:30:00Z", "escrowed") },
-                TxAuditTable when r.IndexName == "EntityIndex" => DeliveryEvents(),
+                TxAuditTable when r.IndexName == "EntityIndex" => _deliveryEventsGone ? new() : DeliveryEvents(),
                 TxAuditTable => new() { OrderEvent("2026-11-04T08:00:00Z", "order_created") },
                 CropsTable => new() { new() { ["cropId"] = S("crop-1"), ["latitude"] = N("8.504"), ["longitude"] = N("38.8") } },
                 TripsTable => new()

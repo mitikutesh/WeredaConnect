@@ -1,6 +1,6 @@
 # Data Models Contract
 
-**Version**: 1.23.0
+**Version**: 1.24.0
 **Last Updated**: 2026-11-26
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
@@ -168,6 +168,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `autoConfirmedAt` | DateTime? | No | When the order cron confirmed the delivery for a silent buyer (1.17.0, ESC-36 T9) | Absent when the buyer confirmed |
 | `arrivalPhotoLateAt` | DateTime? | No | Server-only: when the arrival photo was attached as late evidence on the order cron's T8 dispute (1.19.0, FUP-373, behind `dropoffClassification`) | Absent on one taken on the road; read by the admin evidence, not stored by the apps |
 | `dropoffPhotoLateAt` | DateTime? | No | Server-only: when the buyer's drop-off photo was attached as late evidence on a dispute the order cron opened, without the buyer's confirm (1.21.0, FUP-140) | Absent on the photo of a confirmed delivery; read by the admin evidence, not stored by the apps |
+| `pickupGpsStatus`, `pickupGpsCapturedAt`, `pickupGpsAccuracyM`, `pickupMethod`, `pickupPlatform`; the same with `dropoff`; `dropoffCapturedAt` | server row only | No | Server-only handoff evidence (1.24.0, FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0): why a leg had no GPS fix or what kind, the fix's own time and accuracy, `qr` or `code`, `android` or `web`, and the drop-off's phone time. Stamped in the transition's write; the self-pickup confirm is the `dropoff` leg | Never returned to the apps, so no Isar or web model field; read by the admin dispute evidence |
 | `version` | int | Yes | Optimistic concurrency control | Incremented on each update |
 
 **Indexes**:
@@ -298,6 +299,9 @@ device; the admin reads the rows in the manual payout queue.
 | `status` | SyncStatus | Yes | Enum: pending/syncing/synced/failed | Sync lifecycle state |
 | `retryCount` | int | Yes | Number of retry attempts | Max 3 retries before marking as failed |
 | `createdAt` | DateTime | Yes | UTC timestamp | When operation was queued |
+
+Not stored: the operation's wire `platform` (1.24.0, GCR-02, `sync-protocol.md` 1.71.0), `android` from
+the mobile queue and `web` from the web queue, is named by the queue when it sends the operation.
 
 **Indexes**:
 - `operationId` (unique) - Fast lookup
@@ -519,6 +523,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.21.0 | 2026-11-13 | The order row gains the server-only reminder markers `pickupReminderAt` and `dropoffReminderAt` (order-lifecycle 2.23.0, notifications-api 1.6.0; FUP-286 and FUP-338): written once by the order cron before a pending pickup judgement and before T9, dropped from client payloads, never returned in the `OrderDto`; no client schema change. 1.19.0 is FUP-373 and 1.20.0 FUP-370 | @Server |
 | 1.22.0 | 2026-11-13 | Delivery gains the server-only `dropoffPhotoLateAt` (FUP-140, `delivery-verification-api.md` 2.14.0): written with the buyer's drop-off photo attached as late evidence on a dispute the order cron opened (T8 or T9) that no admin decided, returned on the delivery reads for the admin's evidence. The apps neither store nor send it. The server-only kept-copy fields of 2.14.0 (`{type}PhotoKeptRef`, `{type}PhotoKeptVersionId`) never leave the server. |
 | 1.23.0 | 2026-11-26 | Order: `commissionRate` can be set per order by an admin before payment, and the row gains the server-only `commissionChange` stamp, never returned (order-lifecycle 2.26.0) | @Server |
+| 1.24.0 | 2026-11-26 | Delivery gains the server-only handoff evidence (FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0, `sync-protocol.md` 1.71.0): per leg `{leg}GpsStatus`, `{leg}GpsCapturedAt`, `{leg}GpsAccuracyM`, `{leg}Method` and `{leg}Platform`, and `dropoffCapturedAt`, stamped in the transition's write and never returned to the apps (no Isar or web model change). The sync operation's wire `platform` is named by the queue at send time, not stored. 1.23.0 belongs to a change in flight | @Server @Admin |
 
 ---
 

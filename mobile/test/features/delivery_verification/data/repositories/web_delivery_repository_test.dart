@@ -1,10 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/web_delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
@@ -698,6 +700,134 @@ void main() {
       );
 
       expect(sentBodies(), hasLength(1));
+    });
+  });
+
+  // FUP-440: each handoff confirm says why it has no fix, or with a fix its
+  // own time and accuracy.
+  group('handoff GPS evidence (FUP-440)', () {
+    final fixAt = DateTime.utc(2026, 11, 26, 7, 30, 5);
+
+    setUp(() {
+      stubCurrentVersion(2);
+      answerSync({
+        'results': [
+          {'status': 'success'},
+        ],
+      });
+    });
+
+    Map<String, dynamic> sentData() => sentOp()['data'] as Map<String, dynamic>;
+
+    LatLng point(GpsCaptureResult fix) => LatLng()
+      ..latitude = fix.latitude!
+      ..longitude = fix.longitude!;
+
+    test('a trucker pickup with a fix sends its time and accuracy', () async {
+      final fix = GpsCaptureResult.success(
+        latitude: 9.0192,
+        longitude: 38.7525,
+        accuracy: 14.5,
+        capturedAt: fixAt,
+      );
+
+      await repository.confirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        gpsPickup: point(fix),
+        gpsCapture: fix,
+      );
+
+      expect(sentData()['gpsStatus'], 'fix');
+      expect(sentData()['gpsPickup'], {
+        'latitude': 9.0192,
+        'longitude': 38.7525,
+        'capturedAt': '2026-11-26T07:30:05.000Z',
+        'accuracyM': 14.5,
+      });
+    });
+
+    test('a pickup without a fix says why and sends no point', () async {
+      await repository.confirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        gpsCapture: const GpsCaptureResult.unavailable(
+          GpsCaptureResult.permissionDeniedReason,
+        ),
+      );
+
+      expect(sentData()['gpsStatus'], 'denied');
+      expect(sentData().containsKey('gpsPickup'), isFalse);
+    });
+
+    test('a drop-off with an approximate fix says so', () async {
+      final fix = GpsCaptureResult.success(
+        latitude: 8.9806,
+        longitude: 38.7578,
+        accuracy: 1800,
+        capturedAt: fixAt,
+        approximate: true,
+      );
+
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        gpsDropoff: point(fix),
+        gpsCapture: fix,
+      );
+
+      expect(sentData()['status'], 'delivered');
+      expect(sentData()['gpsStatus'], 'approximate');
+      expect(sentData()['gpsDropoff'], {
+        'latitude': 8.9806,
+        'longitude': 38.7578,
+        'capturedAt': '2026-11-26T07:30:05.000Z',
+        'accuracyM': 1800.0,
+      });
+    });
+
+    // The self-pickup confirm is the buyer's confirmDelivery at the farm.
+    test('a drop-off or self-pickup without a fix says why', () async {
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        gpsCapture: const GpsCaptureResult.unavailable(
+          GpsCaptureResult.permanentlyDeniedReason,
+        ),
+      );
+
+      expect(sentData()['gpsStatus'], 'denied_forever');
+      expect(sentData().containsKey('gpsDropoff'), isFalse);
+    });
+
+    test('a fix without its time or accuracy sends the point alone', () async {
+      const fix = GpsCaptureResult.success(
+        latitude: 8.9806,
+        longitude: 38.7578,
+        accuracy: null,
+      );
+
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        gpsDropoff: point(fix),
+        gpsCapture: fix,
+      );
+
+      expect(sentData()['gpsStatus'], 'fix');
+      expect(
+        sentData()['gpsDropoff'],
+        {'latitude': 8.9806, 'longitude': 38.7578},
+      );
+    });
+
+    test('no capture tried sends no status', () async {
+      await repository.confirmPickup(deliveryId: 'del-1', truckerId: 't-1');
+      expect(sentData().containsKey('gpsStatus'), isFalse);
+
+      await repository.confirmDelivery(deliveryId: 'del-1', buyerId: 'b-1');
+      expect(sentData().containsKey('gpsStatus'), isFalse);
+      expect(sentData().containsKey('gpsDropoff'), isFalse);
     });
   });
 

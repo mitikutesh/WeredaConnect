@@ -595,6 +595,12 @@ public partial class SyncFunction
             item.Remove(field);
         }
 
+        // FUP-440, GCR-01, GCR-02: the handoff evidence stamps are server-only (delivery-verification-api 2.19.0).
+        foreach (var field in HandoffEvidence.ServerOnlyFields)
+        {
+            item.Remove(field);
+        }
+
         return item;
     }
 
@@ -5796,10 +5802,11 @@ public partial class SyncFunction
 
                     // Field whitelist — reject unknown fields
                     // FIX-005: scannedQrNonce is allowed in data for validation but not persisted;
-                    // so is its typed fallback scannedQrCode (T-1).
+                    // so is its typed fallback scannedQrCode (T-1), and the handoff's gpsStatus (FUP-440),
+                    // read only by the evidence stamp below.
                     var unknownFields = operation.Data.Keys
                         .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version"
-                            && k != "scannedQrNonce" && k != "scannedQrCode")
+                            && k != "scannedQrNonce" && k != "scannedQrCode" && k != HandoffEvidence.GpsStatusInput)
                         .ToList();
                     if (unknownFields.Count > 0)
                     {
@@ -6234,6 +6241,22 @@ public partial class SyncFunction
                             attrNames[tsAlias] = "confirmedAt";
                             attrValues[tsValAlias] = new AttributeValue { S = now };
                             updateParts.Add($"{tsAlias} = {tsValAlias}");
+                            i++;
+                        }
+                    }
+
+                    // FUP-440, GCR-01, GCR-02: the handoff's evidence (why no fix or what kind, the fix's time and
+                    // accuracy, QR or code, the app, the drop-off's phone time), server-only, in this same write.
+                    // A value that does not pass is left out, never refused (HandoffEvidence.Stamps).
+                    if (HandoffEvidence.LegOf(resolvedNewStatus) is { } evidenceLeg)
+                    {
+                        var evidenceStamps = HandoffEvidence.Stamps(evidenceLeg, operation.Data, handoffMethod,
+                            operation.Platform, operation.Timestamp, TransactionPatternRules.ParseUtc(now) ?? DateTime.UtcNow);
+                        foreach (var (stampName, stampValue) in evidenceStamps)
+                        {
+                            attrNames[$"#f{i}"] = stampName;
+                            attrValues[$":f{i}"] = stampValue;
+                            updateParts.Add($"#f{i} = :f{i}");
                             i++;
                         }
                     }

@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 
 /// Base class for delivery events.
 abstract class DeliveryEvent extends Equatable {
@@ -99,6 +100,9 @@ class ConfirmPickup extends DeliveryEvent {
   final String deliveryId;
   final String truckerId;
   final LatLng? gpsPickup;
+
+  /// The capture the scan screen tried, null when it tried none (FUP-440).
+  final GpsCaptureResult? gpsCapture;
   final String? photoRef;
   final String? scannedQrNonce;
 
@@ -114,6 +118,7 @@ class ConfirmPickup extends DeliveryEvent {
     required this.deliveryId,
     required this.truckerId,
     this.gpsPickup,
+    this.gpsCapture,
     this.photoRef,
     this.scannedQrNonce,
     this.scannedQrCode,
@@ -125,6 +130,7 @@ class ConfirmPickup extends DeliveryEvent {
         deliveryId,
         truckerId,
         gpsPickup,
+        gpsCapture,
         photoRef,
         scannedQrNonce,
         scannedQrCode,
@@ -137,6 +143,9 @@ class ConfirmDelivery extends DeliveryEvent {
   final String deliveryId;
   final String buyerId;
   final LatLng? gpsDropoff;
+
+  /// The capture the scan screen tried, null when it tried none (FUP-440).
+  final GpsCaptureResult? gpsCapture;
   final String? photoRef;
   final String? scannedQrNonce;
 
@@ -152,6 +161,7 @@ class ConfirmDelivery extends DeliveryEvent {
     required this.deliveryId,
     required this.buyerId,
     this.gpsDropoff,
+    this.gpsCapture,
     this.photoRef,
     this.scannedQrNonce,
     this.scannedQrCode,
@@ -163,6 +173,7 @@ class ConfirmDelivery extends DeliveryEvent {
         deliveryId,
         buyerId,
         gpsDropoff,
+        gpsCapture,
         photoRef,
         scannedQrNonce,
         scannedQrCode,

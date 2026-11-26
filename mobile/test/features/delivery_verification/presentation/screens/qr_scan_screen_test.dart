@@ -802,6 +802,9 @@ void main() {
       expect(pickup.gpsPickup?.latitude, 9.0);
       expect(pickup.gpsPickup?.longitude, 38.7);
       expect(pickup.scannedQrNonce, 'nonce-1');
+      // FUP-440: the capture itself goes along, for its status and accuracy.
+      expect(pickup.gpsCapture?.gpsStatus, 'fix');
+      expect(pickup.gpsCapture?.accuracy, 12);
     });
 
     testWidgets('no fix: a scanned pickup still confirms without one',
@@ -951,6 +954,7 @@ void main() {
       expect(sent.gpsDropoff?.latitude, 9.0);
       expect(sent.gpsDropoff?.longitude, 38.7);
       expect(sent.scannedQrNonce, 'nonce-1');
+      expect(sent.gpsCapture?.gpsStatus, 'fix', reason: 'the retried capture');
       verify(() => gps.captureCurrentPosition()).called(2);
     });
 
@@ -1085,6 +1089,8 @@ void main() {
           as ConfirmDelivery;
       expect(sent.gpsDropoff, isNull);
       expect(sent.scannedQrNonce, 'nonce-1');
+      // FUP-440: why there is no fix goes along.
+      expect(sent.gpsCapture?.gpsStatus, 'denied_forever');
     });
 
     testWidgets('a trucker\'s pickup confirms without a fix', (tester) async {
@@ -1101,6 +1107,7 @@ void main() {
       final sent =
           verify(() => bloc.add(captureAny())).captured.single as ConfirmPickup;
       expect(sent.gpsPickup, isNull);
+      expect(sent.gpsCapture?.gpsStatus, 'services_off');
     });
   });
 

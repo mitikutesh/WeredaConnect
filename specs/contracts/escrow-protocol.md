@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.29.0
+2.30.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -3718,11 +3718,12 @@ from the delivery (strongly consistent) and its transaction-audit rows:
 |---|---|---|
 | `deliveryId`, `deliveryStatus` | always | The delivery and its status at the dispute |
 | `selfPickup` | always | A self-pickup has no pickup leg |
-| `pickedUpAt`, `pickupMethod`, `pickupBy`, `pickupFix` | a trucker pickup happened | Time, `qr` or `code` (from the audit metadata `handoff=`), who, and whether `gpsPickup` was sent (BUG-5) |
-| `confirmedAt`, `confirmMethod`, `confirmedBy`, `dropoffFix` | the delivery was confirmed | The same for the confirmation (`gpsDropoff`) |
+| `pickedUpAt`, `pickupMethod`, `pickupBy`, `pickupFix` | a trucker pickup happened | Time, `qr` or `code` (the delivery's `pickupMethod` since 2.30.0, else the audit metadata `handoff=`), who, and whether `gpsPickup` was sent (BUG-5) |
+| `confirmedAt`, `confirmMethod`, `confirmedBy`, `dropoffFix` | the delivery was confirmed | The same for the confirmation (`dropoffMethod`, `gpsDropoff`) |
 | `confirmedByDisputer` | the confirmation's audit row names who confirmed | `true` when the user who opened the dispute confirmed receipt |
 
-A method or actor without its audit row is left out, never guessed. Best effort: a failed read stamps less
+A method neither stamped on the delivery nor in its audit row, or an actor without its audit row, is left
+out, never guessed. Best effort: a failed read stamps less
 or nothing and never fails the dispute. It is returned as `dispute.handoffEvidence` on admin routes only
 (`GET /admin/disputes`, `GET /admin/escrows/{id}`, `GET /admin/disputes/{escrowId}/evidence`); the party
 mapper (`EscrowService.MapToEscrowDto`) never reads it. No refusal, no signal, no score. The distance of
@@ -4334,12 +4335,25 @@ A handoff:
 |-------|-------|
 | `leg` | `pickup` (the trucker's scan of the farmer's QR), `dropoff` (the buyer's scan at delivery) or `self_pickup` (the buyer's scan at the farm) |
 | `at` | The server's `pickedUpAt` or `confirmedAt` (else the audit row's time) |
-| `capturedAt` | The phone's `pickupCapturedAt` (pickup only, when recorded) |
+| `capturedAt` | The phone's time of the handoff, when recorded: `pickupCapturedAt` for the pickup; since 2.30.0 `dropoffCapturedAt` for the drop-off and the self-pickup (`delivery-verification-api.md` 2.19.0) |
 | `actorId`, `actorRole` | Who made the transition, from its transaction-audit row; `actorRole` is `buyer`, `farmer` or `trucker` when the actor is one of the delivery's parties. Left out for a delivery older than that trail |
-| `method` | `qr` or `code` from the transition's audit metadata (`handoff=qr`, `handoff=code`, `delivery-verification-api.md` 1.22.0); left out when not recorded |
+| `method` | `qr` or `code`: since 2.30.0 the delivery's `pickupMethod` or `dropoffMethod` (GCR-01), else, for a delivery confirmed before it, the transition's audit metadata (`handoff=qr`, `handoff=code`, `delivery-verification-api.md` 1.22.0); left out when neither has it |
 | `gps` | `gpsPickup` (pickup) or `gpsDropoff` (drop-off and self-pickup) |
+| `gpsStatus` | 2.30.0, FUP-440: the leg's stored `{leg}GpsStatus`. With `gps`: `fix`, or `approximate` (Android granted only coarse location). Without: why there was no fix, `services_off` (location off), `denied`, `denied_forever` (denied for good) or `timeout` (no fix in time). Left out for an older app or delivery |
+| `gpsCapturedAt` | 2.30.0: the fix's own time on the phone (`{leg}GpsCapturedAt`), when sent |
+| `gpsAccuracyM` | 2.30.0: the fix's accuracy in metres (`{leg}GpsAccuracyM`), when sent |
+| `platform` | 2.30.0, GCR-02: `android` or `web` (`{leg}Platform`), when sent |
 | `planned` | The listing's location (pickup and self-pickup) or, for the drop-off, the point the delivered GPS check measured against: of the trip's destination and the order's own drop-off point (LT-14, `order-lifecycle.md` 2.9.0), the one nearer to `gps` (either passes within 5 km); read only for a handoff with GPS, best effort |
 | `distanceKm` | Great-circle km from `gps` to `planned`, 2 decimals; left out without both or for a fix at (0, 0) |
+
+The leg of the delivery's stamps is `pickup` for the pickup and `dropoff` for the drop-off and the
+self-pickup. No new read: the stamps are on the delivery row already read. The admin dispute page
+names the cause of a missing fix (location off, permission denied, denied for good, no fix in time) in
+place of "No GPS fix at the handoff", which stays for a handoff without a stored cause; marks an
+approximate fix; shows a fix's time and accuracy and the app; and marks a handoff made offline and sent
+later when `capturedAt` (never the fix's own time, which may be a cached fix) is more than 15 minutes before `at` (the late rule of the trip
+trail, `live-trip-api.md`). The stamped legs of "Handoff evidence on a dispute" take the cause from the
+matching handoff here.
 
 Reads: the escrow, the order, the delivery (key reads), the transaction-audit rows of the order and of
 the delivery (`EntityIndex`), the escrow audit trail, and for a handoff with GPS its listing or trip.
@@ -6570,6 +6584,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.30.0 | 2026-11-26 | Handoff evidence on the dispute evidence read (FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0). Each handoff of `GET /admin/disputes/{escrowId}/evidence` adds `gpsStatus`, `gpsCapturedAt`, `gpsAccuracyM` and `platform` from the delivery's server-only stamps; `capturedAt` is also the drop-off's and the self-pickup's phone time (`dropoffCapturedAt`); `method` comes from the delivery's `pickupMethod` or `dropoffMethod`, else the audit metadata as before. The dispute stamp's `pickupMethod` and `confirmMethod` take the delivery's method first too. The admin dispute page names the cause of a missing fix (en, am, om), an approximate fix, the fix's time and accuracy, the app, and a handoff made offline and sent later. Admin only; no party read changes. 2.29.0 belongs to a change in flight. |
 | 2.29.0 | 2026-11-26 | Doc only: the order's `commissionRate` is the SSM rate at create unless an admin agreed another rate before payment (`order-lifecycle.md` 2.26.0, `POST /admin/orders/{orderId}/commission`); the order escrow's split is unchanged (the commission is the remainder of the new `orderTotal`). No escrow wire change |
 | 2.28.0 | 2026-11-19 | Persona simulation BUG-8 and BUG-6 (fraud spec 3.44.0 Rule 7). A buyer's `not_delivered` dispute while the delivery is `pickedUp` or `inTransit` before its deadline (T8, else `pickedUpAt` + 72h) is refused with `422 ESCROW_INVALID_TRANSITION` ("The goods are still on the way. ..."); other reasons, the farmer and later disputes unchanged (§Not delivered while on the road). A new dispute stamps the server-only `disputeHandoffEvidence` (how and by whom each leg was confirmed, GPS fix sent, `confirmedByDisputer`), returned as `DisputeDto.handoffEvidence` on admin routes only (§Handoff evidence on a dispute). Clients: mobile and web show `escrowErrorDisputeGoodsOnTheWay`; released apps show the shared invalid transition text. |
 | 2.27.0 | 2026-11-19 | A dispute between pickup and delivery (persona simulation BUG-1, §Dispute between pickup and delivery; `order-lifecycle.md` 2.24.0, `rating-api.md` 1.6.0): a delivery confirmed while its escrow is already `disputed` is not stamped as confirmed; the sync Lambda runs the dispute mirror instead, so the delivery and the order end `disputed` and not `delivered` over frozen money. `POST /escrow/dispute` itself is unchanged. No client change. |
