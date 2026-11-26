@@ -248,7 +248,10 @@ public sealed class RatingRepository : IRatingRepository
     }
 
     /// <inheritdoc />
-    public async Task<Dictionary<string, object>?> GetByIdAsync(string ratingId)
+    public Task<Dictionary<string, object>?> GetByIdAsync(string ratingId) => GetByIdAsync(ratingId, consistentRead: false);
+
+    /// <inheritdoc />
+    public async Task<Dictionary<string, object>?> GetByIdAsync(string ratingId, bool consistentRead)
     {
         // PK-only table → a direct GetItem on the partition key.
         var response = await _dynamoDb.GetItemAsync(new GetItemRequest
@@ -257,7 +260,8 @@ public sealed class RatingRepository : IRatingRepository
             Key = new Dictionary<string, AttributeValue>
             {
                 { "ratingId", new AttributeValue { S = ratingId } }
-            }
+            },
+            ConsistentRead = consistentRead
         });
 
         return response.Item is { Count: > 0 }
