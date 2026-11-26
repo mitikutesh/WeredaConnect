@@ -548,4 +548,98 @@ public class ConductScoringTests
     [InlineData("", null)]
     public void PhotoKeyTime_ReadsTheKeysMilliseconds(string key, long? ms)
         => ConductScoring.PhotoKeyTime(key).Should().Be(ms is { } value ? DateTime.UnixEpoch.AddMilliseconds(value) : null);
+
+    // ===== GCR-04: the verified figure (spec 5, reputation-api.md 1.10.0 section 1.9) =====
+
+    private static readonly DateTime ReadAt = new(2026, 12, 1, 12, 0, 0, DateTimeKind.Utc);
+
+    private static ConductStamp Scored(string orderId, int offered, int earned, DateTime settledAt, bool counted = true)
+        => Row(orderId, "farmer-1", settledAt, counted) with { Offered = offered, Earned = earned };
+
+    [Fact]
+    public void Verified_IsTheShareOfStepsTaken_OverTheCountedOrders_AWholePercentHalfUp()
+    {
+        // 1 of 8 steps is 12.5%: half up gives 13 (banker's rounding would give 12).
+        var figure = ConductScoring.Verified(new[]
+        {
+            Scored("o-1", 4, 1, ReadAt.AddDays(-1)),
+            Scored("o-2", 2, 0, ReadAt.AddDays(-2)),
+            Scored("o-3", 2, 0, ReadAt.AddDays(-3))
+        }, ReadAt);
+        figure.Should().Be(new ConductVerified(13, 3));
+
+        // A sum of steps, not a share of orders fully earned: 13 of 17 steps is 76%, though only one order is full.
+        ConductScoring.Verified(new[]
+        {
+            Scored("o-1", 6, 6, ReadAt.AddDays(-1)),
+            Scored("o-2", 6, 4, ReadAt.AddDays(-2)),
+            Scored("o-3", 5, 3, ReadAt.AddDays(-3))
+        }, ReadAt).Should().Be(new ConductVerified(76, 3));
+    }
+
+    [Fact]
+    public void Verified_IsAbsentBelow3CountedOrders_AndOrdersThatDoNotCountAreIgnored()
+    {
+        var two = new[] { Scored("o-1", 6, 6, ReadAt.AddDays(-1)), Scored("o-2", 6, 6, ReadAt.AddDays(-2)) };
+        ConductScoring.Verified(two, ReadAt).Should().Be(new ConductVerified(null, 2));
+
+        // Uncounted stamps (a pair cap, a fraud signal, below 500 ETB) neither reach the minimum nor move the figure.
+        var withUncounted = two.Concat(new[]
+        {
+            Scored("o-3", 6, 0, ReadAt.AddDays(-3), counted: false),
+            Scored("o-4", 6, 0, ReadAt.AddDays(-4), counted: false)
+        }).ToList();
+        ConductScoring.Verified(withUncounted, ReadAt).Should().Be(new ConductVerified(null, 2));
+
+        ConductScoring.Verified(withUncounted.Append(Scored("o-5", 6, 3, ReadAt.AddDays(-5))), ReadAt)
+            .Should().Be(new ConductVerified(83, 3), "15 of 18 steps");
+        ConductScoring.Verified(Array.Empty<ConductStamp>(), ReadAt).Should().Be(new ConductVerified(null, 0));
+    }
+
+    [Fact]
+    public void Verified_TheWindowIs90Days_ExactlyAsReliability()
+    {
+        var edge = ReadAt - TimeSpan.FromDays(90);
+        var inside = new[]
+        {
+            Scored("o-1", 2, 2, ReadAt.AddDays(-1)),
+            Scored("o-2", 2, 2, ReadAt.AddDays(-2)),
+            Scored("o-3", 2, 0, edge.AddMilliseconds(1))
+        };
+        ConductScoring.Verified(inside, ReadAt).Should().Be(new ConductVerified(67, 3), "settled 1 ms inside the window");
+
+        // Settled exactly 90 days ago is outside (the reliability bound is after the window's start), and so is a
+        // settle stamped after the read's own time.
+        var outside = new[]
+        {
+            Scored("o-1", 2, 2, ReadAt.AddDays(-1)),
+            Scored("o-2", 2, 2, ReadAt.AddDays(-2)),
+            Scored("o-3", 2, 0, edge),
+            Scored("o-4", 2, 0, ReadAt.AddMilliseconds(1))
+        };
+        ConductScoring.Verified(outside, ReadAt).Should().Be(new ConductVerified(null, 2));
+        ConductScoring.Verified(outside.Append(Scored("o-5", 2, 2, ReadAt)), ReadAt).Should().Be(new ConductVerified(100, 3), "a settle at the read's time is in");
+
+        ConductScoring.VerifiedWindow.Should().Be(ReputationPolicy.ReliabilityWindow).And.Be(TimeSpan.FromDays(90));
+    }
+
+    [Fact]
+    public void Verified_NoStepOffered_IsAbsent_AndEarnedNeverPassesOffered()
+    {
+        var nothingOffered = new[]
+        {
+            Scored("o-1", 0, 0, ReadAt.AddDays(-1)),
+            Scored("o-2", 0, 0, ReadAt.AddDays(-2)),
+            Scored("o-3", 0, 0, ReadAt.AddDays(-3))
+        };
+        ConductScoring.Verified(nothingOffered, ReadAt).Should().Be(new ConductVerified(null, 3));
+
+        // A damaged row (earned above offered, a negative count) cannot push the figure past 100 or below 0.
+        ConductScoring.Verified(new[]
+        {
+            Scored("o-1", 2, 5, ReadAt.AddDays(-1)),
+            Scored("o-2", 2, 2, ReadAt.AddDays(-2)),
+            Scored("o-3", 2, -1, ReadAt.AddDays(-3))
+        }, ReadAt).Should().Be(new ConductVerified(67, 3), "4 of 6 steps");
+    }
 }
