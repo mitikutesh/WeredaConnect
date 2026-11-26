@@ -506,10 +506,11 @@ bool isAppUpdateRequiredMessage(String? message) =>
 /// for good and the client must put the listing back from the server (or
 /// remove a refused create): the farmer is restricted or the listing has
 /// active orders (sync-protocol.md 1.17.0), its text holds a phone number, or
-/// the account is under review (FUP-51). Only these codes: `CROP_VALIDATION`
-/// also covers a failed profile read on the server, so a `CROP_` prefix is not
-/// deterministic and keeps retrying. `APP_UPDATE_REQUIRED` is not one either:
-/// the same listing goes through once the app is updated.
+/// the account is under review (FUP-51). Only these codes: a `CROP_` prefix
+/// alone says nothing the server holds (`CROP_VALIDATION` is permanent but not
+/// undone since 1.72.0, and `CROP_PROFILE_UNAVAILABLE` keeps retrying).
+/// `APP_UPDATE_REQUIRED` is not one either: the same listing goes through once
+/// the app is updated.
 bool isRevertableListingRejectionMessage(String? message) =>
     isReputationRestrictedMessage(message) ||
     isCropHasActiveOrdersMessage(message) ||
@@ -649,6 +650,39 @@ bool isUnretryableFraudSignalMessage(String? message) =>
                 message.startsWith('TRIP_VALIDATION:') ||
                 message.startsWith('DELIVERY_VALIDATION:')) &&
             message.contains(_immutableFieldText)));
+
+/// What a server before sync-protocol.md 1.72.0 sent under `CROP_VALIDATION`
+/// and `TRIP_VALIDATION` when the owner's profile could not be read or had no
+/// name. A retry can pass both, so they keep retrying.
+const List<String> _oldServerProfileTexts = [
+  'profile could not be read',
+  'Add your name to your profile',
+];
+
+/// Whether a /sync per-operation error message refuses a crop listing or trip
+/// for its contents (FUP-74, sync-protocol.md 1.72.0): any `CROP_VALIDATION`
+/// or `TRIP_VALIDATION`. Since the server sends `CROP_PROFILE_UNAVAILABLE`,
+/// `CROP_PROFILE_INCOMPLETE` and their `TRIP_` twins for the owner's profile,
+/// these codes judge only the operation, so the same one always gets the same
+/// answer: permanent, not reverted. The profile texts of an older server
+/// ([_oldServerProfileTexts]) are not among them.
+bool isListingValidationMessage(String? message) =>
+    message != null &&
+    (message.startsWith('CROP_VALIDATION:') ||
+        message.startsWith('TRIP_VALIDATION:')) &&
+    !_oldServerProfileTexts.any(message.contains);
+
+/// Whether a /sync per-operation error message refuses a profile edit for its
+/// values (FUP-315, sync-protocol.md 1.72.0): `USER_PROFILE_VALIDATION` (an
+/// empty or too long field, the deleted-account name, a company name the
+/// account cannot have) or the registration's `AUTH_027` (a phone number in
+/// the text). The same values always get the same answer, so on a `user`
+/// operation they are permanent and the phone's copy goes back to the
+/// server's (`GET /user/profile`).
+bool isProfileEditRefusalMessage(String? message) =>
+    message != null &&
+    (message.startsWith('USER_PROFILE_VALIDATION') ||
+        message.startsWith('AUTH_027'));
 
 /// Request validation error (400)
 final class ValidationException extends ApiException {

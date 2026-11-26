@@ -29,7 +29,8 @@ typedef StepUpAuthenticator = Future<AuthResult> Function(
 ///
 /// [authenticate] defaults to the AuthBloc's AuthService (tests inject one).
 /// [message] replaces the explanation, which names a payment, for an action
-/// that is not one (a dispute).
+/// that is not one: a dispute, or the neutral `stepUpOtherMessage` for a
+/// drop-out or deleting the account (FUP-167).
 Future<bool> showStepUpDialog(
   BuildContext context, {
   StepUpAuthenticator? authenticate,

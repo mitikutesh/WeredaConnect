@@ -1,7 +1,7 @@
 # Trip Listing API Contract
 
 ## Version
-2.10.0
+2.11.0
 
 ## Parties
 - **Mobile** (client) — truckers creating and browsing trip listings
@@ -581,7 +581,7 @@ Common route patterns:
 - Truckers can only create/update/delete their own trips
 - Server validates `truckerId` matches JWT `sub` claim
 - `truckerId`, `truckerName` and `truckerPhone` are immutable after create. An update that changes any of them is rejected with `TRIP_VALIDATION: <field> is immutable and cannot be changed on update.` and nothing is written. Echoing the stored values (phone in any accepted spelling) is allowed; the server strips them before writing.
-- On create, `truckerName` and `truckerPhone` are set by the server from the trucker's profile; values sent by the client are ignored. The name is the profile display name, else the legal name received from Fayda. If the profile cannot be read, or has neither name, the create is rejected with `TRIP_VALIDATION`.
+- On create, `truckerName` and `truckerPhone` are set by the server from the trucker's profile; values sent by the client are ignored. The name is the profile display name, else the legal name received from Fayda. If the profile cannot be read the create is rejected with `TRIP_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.`, and if it has neither name with `TRIP_PROFILE_INCOMPLETE: Add your name to your profile before creating a listing.` (2.11.0; both were `TRIP_VALIDATION`). A retry can pass both, so clients retry them, and every `TRIP_VALIDATION` is permanent on the clients (`sync-protocol.md` 1.72.0).
 
 ### Rate Limiting
 - **API Gateway (all routes)**: the HTTP API stage throttles each route at 25 requests/second steady with a burst of 50 (`DefaultRouteSettings` in `infra/lib/stacks/api-stack.ts`). The limit is shared by all callers, not counted per user or per IP. Over it, API Gateway answers `429` with its own body (`{"message":"Too Many Requests"}`), no `error.code` and no `Retry-After`
@@ -641,9 +641,10 @@ Common route patterns:
 | 2.8.0 | 2026-11-13 | The trucker's phone pulls the trucker's own trips (FUP-374, Browse Trips). The server moves a trucker's trip without an upload from the phone (`matched` at a funding, `delivered`, and since 2.7.0 `open` or `matched` again after an admin's trucker no-show re-open), but mobile never read the trucker's own trips back, so a phone that stored the order cron's close from a conflict answer kept the trip `cancelled` and could not start it. The trucker's home card and My trips list now read `GET /trips?truckerId=` with no `status` first (best effort, 30 seconds throttle per trucker) and replace each stored row, except one with a trip upload on its way or a higher stored `version`; the phone's place ids are kept, another trucker's trip is never stored, nothing is deleted. The 2.7.0 Trip lifecycle text said the phone takes a reopened trip up through a pull of own open trips, which mobile did not have; it now names this pull. The `status` row of the query table now says that a trucker's own list without `status` returns every status but `cancelled` (unchanged server behaviour). Role visibility unchanged. Mobile only; no server or wire change |
 | 2.9.0 | 2026-11-13 | The cost of the trucker's own-trip pull (FUP-385, Browse Trips). The 2.8.0 pull read the trucker's whole history on every pull and the home card waited for it, while the home header mounts the card again on every sync result (about every 30 seconds while syncing). Mobile now shows the stored trips first (a spinner, not "No active trip", while the phone holds none and the pull runs) and reads them again only when the pull changed one, stamps the 30 second throttle when the pull starts and lets a load that comes meanwhile wait for the pull on its way, reads every page once per run of the app and afterwards stops after the page that ends on a trip the phone holds as `delivered` with a departure more than 14 days ago (unless a trip the phone holds that the server may still move sits on a later page), and keeps the stored `truckerName` and `truckerPhone` when a listed row has none. Documents that a trucker's own list comes newest created first (unchanged server behaviour, now pinned by a repository test). Mobile only; no wire change |
 | 2.10.0 | 2026-11-19 | One trip per route, day and truck (new rule 14, persona simulation 2026-11-19 BUG-4, fraud spec 3.43.0 Rule 6): a `create` on the route, Ethiopia departure day and vehicle (the same `vehiclePlate`, or none on either) of one of the trucker's `open` or `matched` trips is refused with `FRAUD_DUPLICATE_LISTING` whatever the price; another plate, another route or another day is accepted, and another trip of the same day is recorded for review only (`TRIP_SAME_DAY`). A hit is confirmed on the trip row read strongly consistent; a failed read never blocks the create; the refusal never scores (`DUPLICATE_TRIP`, weight 0). Clients (`sync-protocol.md` 1.69.0): mobile removes the local copy of the refused trip and mobile and web show a trip sentence of their own; older apps treat the code as permanent and show the listing sentence |
+| 2.11.0 | 2026-11-27 | The owner's profile has its own codes (FUP-74, `sync-protocol.md` 1.72.0): a create whose profile cannot be read is `TRIP_PROFILE_UNAVAILABLE`, one whose profile has no name `TRIP_PROFILE_INCOMPLETE`; both were `TRIP_VALIDATION`, which now judges only the operation and is permanent on mobile. Nothing else changes |
 
 ---
 
-**Last Updated**: 2026-11-19
-**Version**: 2.10.0
+**Last Updated**: 2026-11-27
+**Version**: 2.11.0
 **Status**: Draft (Phase R4.1)

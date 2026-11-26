@@ -8,10 +8,14 @@ void main() {
 
   setUp(() => events = SecurityEvents.forTesting());
 
-  void raise(String holder, {bool withFayda = false}) {
+  void raise(
+    String holder, {
+    bool withFayda = false,
+    StepUpKind kind = StepUpKind.payment,
+  }) {
     events
-      ..holdStepUp(holder, withFayda: withFayda)
-      ..emit(StepUpRequired(withFayda: withFayda));
+      ..holdStepUp(holder, withFayda: withFayda, kind: kind)
+      ..emit(StepUpRequired(withFayda: withFayda, kind: kind));
   }
 
   test('cleared once the held operation left the queue', () {
@@ -46,6 +50,48 @@ void main() {
     events.releaseStepUpHolds(['sync:op-2']);
 
     expect(events.pendingStepUp?.withFayda, isFalse);
+  });
+
+  group('FUP-181: names what still waits', () {
+    test('the kind of the operations left', () {
+      raise('sync:op-1', kind: StepUpKind.dispute);
+      raise('intent:7');
+      events.releaseStepUpHolds(['intent:7']);
+
+      expect(events.pendingStepUp?.kind, StepUpKind.dispute);
+    });
+
+    test('other while operations of different kinds wait', () {
+      raise('sync:op-1', kind: StepUpKind.dispute);
+      raise('sync:op-2', kind: StepUpKind.other);
+      raise('intent:7');
+      events.releaseStepUpHolds(['sync:op-2']);
+
+      expect(events.pendingStepUp?.kind, StepUpKind.other);
+    });
+
+    test('the Fayda operations only while one waits', () {
+      raise('sync:op-1', kind: StepUpKind.dispute);
+      raise('sync:op-2', withFayda: true);
+      raise('sync:op-3', kind: StepUpKind.other);
+      events.releaseStepUpHolds(['sync:op-3']);
+
+      expect(events.pendingStepUp?.withFayda, isTrue);
+      expect(events.pendingStepUp?.kind, StepUpKind.payment);
+
+      events.releaseStepUpHolds(['sync:op-2']);
+
+      expect(events.pendingStepUp?.withFayda, isFalse);
+      expect(events.pendingStepUp?.kind, StepUpKind.dispute);
+    });
+
+    test('a hold that does not say what it is reads as other', () {
+      events.holdStepUp('sync:op-1', withFayda: false);
+      raise('sync:op-2');
+      events.releaseStepUpHolds(['sync:op-2']);
+
+      expect(events.pendingStepUp?.kind, StepUpKind.other);
+    });
   });
 
   test('kept after a cancelled prompt (ESC-44)', () {

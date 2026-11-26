@@ -32,6 +32,12 @@ public interface IRatingRepository
     Task<Dictionary<string, object>?> GetByIdAsync(string ratingId);
 
     /// <summary>
+    /// GCR-03: <see cref="GetByIdAsync(string)"/>, strongly consistent when <paramref name="consistentRead"/>, so a
+    /// rating created a moment ago (earlier in the same sync batch) is seen.
+    /// </summary>
+    Task<Dictionary<string, object>?> GetByIdAsync(string ratingId, bool consistentRead);
+
+    /// <summary>
     /// Query ratings received by a ratee (newest first), paginated.
     /// </summary>
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByRateeAsync(
