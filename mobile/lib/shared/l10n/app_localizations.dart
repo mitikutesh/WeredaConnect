@@ -2254,6 +2254,12 @@ abstract class AppLocalizations {
   /// **'Pending ({count})'**
   String escrowPendingSection(int count);
 
+  /// Section header for the buyer's queued payments that failed, listed for 24 hours (FUP-182), with count
+  ///
+  /// In en, this message translates to:
+  /// **'Failed ({count})'**
+  String escrowFailedSection(int count);
+
   /// Section header for confirmed payment history
   ///
   /// In en, this message translates to:
@@ -3285,6 +3291,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Queued'**
   String get escrowQueuedStatus;
+
+  /// Status label for a queued payment intent that failed and will not be sent again (FUP-182)
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get escrowIntentFailedStatus;
 
   /// Generic error message shown when an unexpected error occurs
   ///

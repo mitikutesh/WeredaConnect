@@ -1468,6 +1468,16 @@
       }
     }
   },
+  "escrowFailedSection": "Failed ({count})",
+  "@escrowFailedSection": {
+    "description": "Section header for the buyer's queued payments that failed, listed for 24 hours (FUP-182), with count",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
   "escrowHistorySection": "History",
   "@escrowHistorySection": {
     "description": "Section header for confirmed payment history"
@@ -2277,6 +2287,10 @@
   "escrowQueuedStatus": "Queued",
   "@escrowQueuedStatus": {
     "description": "Status label for queued payment intent"
+  },
+  "escrowIntentFailedStatus": "Failed",
+  "@escrowIntentFailedStatus": {
+    "description": "Status label for a queued payment intent that failed and will not be sent again (FUP-182)"
   },
 
   "@@p1ErrorLocalizationFixes": "=== P1 Error Localization Fixes (FIX-019 to FIX-023) ===",

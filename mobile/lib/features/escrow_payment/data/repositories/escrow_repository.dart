@@ -7,6 +7,8 @@ import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/escrow_payment/data/models/escrow_models.dart';
+import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
@@ -379,69 +381,13 @@ class EscrowRepository extends BaseEscrowRepository {
     }
 
     try {
-      final json = await _apiClient.get<Map<String, dynamic>>(
-        ApiConfig.escrowHistory,
-        queryParameters: {
-          if (statusFilter != null) 'status': statusFilter,
-          if (roleFilter != null) 'role': roleFilter,
-          'limit': limit.toString(),
-          if (nextToken != null) 'nextToken': nextToken,
-        },
-      );
-
-      final response = EscrowHistoryResponse.fromJson(json);
-      final payments = response.escrows.map(_mapSummaryResponse).toList();
-      // Rows whose summary carried the server's own rate (FUP-129).
-      final ratedIds = {
-        for (final summary in response.escrows)
-          if (summary.commissionRate != null) summary.escrowId,
-      };
-
-      // Upsert all into local cache
-      await _isar.writeTxn(() async {
-        for (final payment in payments) {
-          final existing = await _isar.payments
-              .filter()
-              .paymentIdEqualTo(payment.paymentId)
-              .findFirst();
-          if (existing != null) {
-            payment.id = existing.id;
-            // The summary DTO carries no detail-only fields. Preserve previously
-            // cached values so offline getHistory (which matches on
-            // farmerId/buyerId == userId) keeps the record and we don't drop
-            // telebirr/dispute/expiry data on refresh. Party ids now arrive on
-            // the summary itself — fall back to the cache only when absent
-            // (older server payloads).
-            if (payment.buyerId.isEmpty) payment.buyerId = existing.buyerId;
-            if (payment.farmerId.isEmpty) payment.farmerId = existing.farmerId;
-            payment.truckerId ??= existing.truckerId;
-            payment.truckerPayout ??= existing.truckerPayout;
-            payment.orderId ??= existing.orderId;
-            // The server's rate wins; a summary without one keeps the cached
-            // rate (it may be the detail's) over a derived one.
-            if (!ratedIds.contains(payment.paymentId)) {
-              payment.commissionRate = existing.commissionRate;
-            }
-            payment.telebirrRef = existing.telebirrRef;
-            payment.expiresAt ??= existing.expiresAt;
-            // A confirmation is never undone; servers before FUP-97 send none
-            // on the summary, so a cached one (from the detail) is kept.
-            payment.deliveryConfirmedAt ??= existing.deliveryConfirmedAt;
-            payment.disputeWindowEndsAt = existing.disputeWindowEndsAt;
-            // releaseNotBefore is NOT kept from the cache: the server sends it
-            // to the farmer and the trucker only (FRD-13), so a buyer's
-            // refresh on a shared device must not keep a payee's date.
-            payment.releasedAt = existing.releasedAt;
-            payment.refundedAt = existing.refundedAt;
-            payment.disputeReason = existing.disputeReason;
-            payment.disputeDescription = existing.disputeDescription;
-            payment.version = existing.version;
-          }
-          await _isar.payments.put(payment);
-        }
-      });
-
-      return payments;
+      return (await _fetchHistoryPage(
+        statusFilter: statusFilter,
+        roleFilter: roleFilter,
+        limit: limit,
+        nextToken: nextToken,
+      ))
+          .rows;
     } on ApiException {
       // Fall back to cache on refresh failure
       return getHistory(
@@ -452,16 +398,163 @@ class EscrowRepository extends BaseEscrowRepository {
     }
   }
 
+  /// This party's held escrows: every page the server has, up to
+  /// [heldHistoryMaxPages] (FUP-79), cached like any history page. Offline,
+  /// or when a page fails, the cached held rows.
+  ///
+  /// Then each cached held row the pages did not list is read again by its
+  /// id: the held-only pages never carry a row that left `held`, so without
+  /// this an escrow an admin released or refunded stayed held in the cache
+  /// and read "Under Review" on every offline read until its order detail
+  /// was opened online. A row still held (one past the pages read) counts.
+  /// Usually there is none, so no extra call. At most [heldRereadMax] per
+  /// load, and the first failed read ends them (the network is likely gone):
+  /// the rows left keep their cached state until the next load.
+  @override
+  Future<List<Payment>> refreshHeldEscrows({
+    required String userId,
+    required String role,
+  }) async {
+    final held = PaymentStatus.held.name;
+    Future<List<Payment>> cached() =>
+        getHistory(userId: userId, statusFilter: held, roleFilter: role);
+    if (!await _connectivityMonitor.isConnected()) return cached();
+
+    final List<Payment> rows;
+    try {
+      rows = await readHeldPages(
+        (nextToken) => _fetchHistoryPage(
+          statusFilter: held,
+          roleFilter: role,
+          limit: heldHistoryPageLimit,
+          nextToken: nextToken,
+        ),
+      );
+    } on ApiException {
+      return cached();
+    }
+
+    final listed = {for (final row in rows) row.paymentId};
+    final unlisted = (await cached())
+        .where((row) => !listed.contains(row.paymentId))
+        .take(heldRereadMax);
+    for (final row in unlisted) {
+      try {
+        final fresh = await _fetchEscrowById(row.paymentId);
+        if (fresh?.status == PaymentStatus.held) rows.add(fresh!);
+      } on Object {
+        // Left as cached, and not counted; the next held read tries again.
+        break;
+      }
+    }
+    return rows;
+  }
+
+  /// One page of GET /escrow/history, upserted into the local cache. Throws
+  /// [ApiException] when the read fails.
+  Future<EscrowHistoryPage> _fetchHistoryPage({
+    required int limit,
+    String? statusFilter,
+    String? roleFilter,
+    String? nextToken,
+  }) async {
+    final json = await _apiClient.get<Map<String, dynamic>>(
+      ApiConfig.escrowHistory,
+      queryParameters: {
+        if (statusFilter != null) 'status': statusFilter,
+        if (roleFilter != null) 'role': roleFilter,
+        'limit': limit.toString(),
+        if (nextToken != null) 'nextToken': nextToken,
+      },
+    );
+
+    final response = EscrowHistoryResponse.fromJson(json);
+    final payments = response.escrows.map(_mapSummaryResponse).toList();
+    // Rows whose summary carried the server's own rate (FUP-129).
+    final ratedIds = {
+      for (final summary in response.escrows)
+        if (summary.commissionRate != null) summary.escrowId,
+    };
+
+    // Upsert all into local cache
+    await _isar.writeTxn(() async {
+      for (final payment in payments) {
+        final existing = await _isar.payments
+            .filter()
+            .paymentIdEqualTo(payment.paymentId)
+            .findFirst();
+        if (existing != null) {
+          payment.id = existing.id;
+          // The summary DTO carries no detail-only fields. Preserve previously
+          // cached values so offline getHistory (which matches on
+          // farmerId/buyerId == userId) keeps the record and we don't drop
+          // telebirr/dispute/expiry data on refresh. Party ids now arrive on
+          // the summary itself, so fall back to the cache only when absent
+          // (older server payloads).
+          if (payment.buyerId.isEmpty) payment.buyerId = existing.buyerId;
+          if (payment.farmerId.isEmpty) payment.farmerId = existing.farmerId;
+          payment.truckerId ??= existing.truckerId;
+          payment.truckerPayout ??= existing.truckerPayout;
+          payment.orderId ??= existing.orderId;
+          // The server's rate wins; a summary without one keeps the cached
+          // rate (it may be the detail's) over a derived one.
+          if (!ratedIds.contains(payment.paymentId)) {
+            payment.commissionRate = existing.commissionRate;
+          }
+          payment.telebirrRef = existing.telebirrRef;
+          payment.expiresAt ??= existing.expiresAt;
+          // A confirmation is never undone; servers before FUP-97 send none
+          // on the summary, so a cached one (from the detail) is kept.
+          payment.deliveryConfirmedAt ??= existing.deliveryConfirmedAt;
+          payment.disputeWindowEndsAt = existing.disputeWindowEndsAt;
+          // releaseNotBefore is NOT kept from the cache: the server sends it
+          // to the farmer and the trucker only (FRD-13), so a buyer's
+          // refresh on a shared device must not keep a payee's date.
+          payment.releasedAt = existing.releasedAt;
+          payment.refundedAt = existing.refundedAt;
+          payment.disputeReason = existing.disputeReason;
+          payment.disputeDescription = existing.disputeDescription;
+          payment.version = existing.version;
+        }
+        await _isar.payments.put(payment);
+      }
+    });
+
+    return (
+      rows: payments,
+      nextToken: response.hasMore ? response.nextToken : null,
+    );
+  }
+
   // ── Intent queue management ────────────────────────────────────────
 
-  /// Get all pending intents for display.
+  /// The buyer's waiting intents and those that failed within
+  /// [EscrowSyncService.staleThreshold] of now (FUP-182), filtered by
+  /// `buyerId` in the read itself. Before, every user's waiting intents were
+  /// listed, and a failed one was told once and then shown nowhere.
   @override
-  Future<List<PaymentIntent>> getPendingIntents() async {
-    return _isar.paymentIntents
+  Future<List<PaymentIntent>> getPendingIntents({
+    required String userId,
+  }) async {
+    final shownSince =
+        DateTime.now().toUtc().subtract(EscrowSyncService.staleThreshold);
+    final intents = await _isar.paymentIntents
         .filter()
-        .statusEqualTo(IntentStatus.pendingSync)
+        .buyerIdEqualTo(userId)
+        .group(
+          (q) => q
+              .statusEqualTo(IntentStatus.pendingSync)
+              .or()
+              .statusEqualTo(IntentStatus.failed),
+        )
         .sortByCreatedAtDesc()
         .findAll();
+    return [
+      for (final intent in intents)
+        if (intent.status == IntentStatus.pendingSync ||
+            EscrowSyncService.failedAt(intent).isAfter(shownSince))
+          intent,
+    ];
   }
 
   // ── Private helpers ────────────────────────────────────────────────
