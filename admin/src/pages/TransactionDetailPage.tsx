@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { LedgerCard, RecordedSplitRow, TruckerLegRows } from "@/components/escrows/MoneyLegs";
 import { CancelDelivery } from "@/components/transactions/CancelDelivery";
+import { ChangeCommission } from "@/components/transactions/ChangeCommission";
 import { HandoffPhoto, TransactionTimeline } from "@/components/transactions/TransactionTimeline";
 import { PickupEvidenceCard } from "@/components/transactions/PickupEvidenceCard";
 import { useLocale } from "@/hooks/useLocale";
@@ -28,6 +29,7 @@ import {
 } from "@/lib/transaction";
 import { fill } from "@/lib/trail";
 import { partyName } from "@/lib/user";
+import { formatRatePercent, isCommissionEditable } from "@/lib/commission";
 import type { PickupEvidence } from "@/lib/pickup";
 
 type Row = Record<string, unknown>;
@@ -211,10 +213,28 @@ export function TransactionDetailPage() {
             <div className="space-y-3 text-sm">
               <Field label={t("transactions.paymentMethod")}>{s(order.paymentMethod)}</Field>
               <Field label={t("transactions.cbeRef")}>{s(order.cbeTransactionId)}</Field>
+              <Field label={t("transactions.commissionRate")}>
+                {order.commissionRate != null ? formatRatePercent(Number(order.commissionRate)) : ""}
+              </Field>
+              <Field label={t("transactions.commission")}>
+                {order.commissionAmount != null ? formatETB(Number(order.commissionAmount) || 0, locale) : ""}
+              </Field>
               <Field label={t("transactions.orderTotal")}>
                 {formatETB(Number(order.orderTotal) || 0, locale)}
               </Field>
               <p className="text-slate">{t("transactions.noEscrow")}</p>
+              {/* The negotiated commission: an admin may agree another rate while the order is unpaid. */}
+              {isCommissionEditable(status) && (
+                <ChangeCommission
+                  orderId={s(order.orderId)}
+                  version={Number(order.version) || 0}
+                  cropCost={Number(order.cropCost) || 0}
+                  transportCost={Number(order.transportCost) || 0}
+                  commissionRate={order.commissionRate != null ? Number(order.commissionRate) : null}
+                  commissionAmount={Number(order.commissionAmount) || 0}
+                  orderTotal={Number(order.orderTotal) || 0}
+                />
+              )}
             </div>
           )}
         </Card>

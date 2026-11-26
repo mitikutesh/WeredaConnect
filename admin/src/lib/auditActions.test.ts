@@ -142,6 +142,8 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "admin_delivery_cancelled",
   // FUP-287: an admin re-opened a judged pickup (entity order; a confirmed handoff also writes picked_up)
   "admin_pickup_reopened",
+  // The negotiated commission: an admin agreed another rate for one unpaid order (entity order)
+  "admin_commission_changed",
   // ESC-36: the drop-off judgement stamp, and the system's confirm of a silent buyer's delivery
   "dropoff_judged",
   "delivery_auto_confirmed",

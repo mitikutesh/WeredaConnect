@@ -46,6 +46,7 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/escrows/{id}/ledger   → the escrow's ledger rows, read only (ESC-24)
 /// - GET  /admin/orders/queue          → stuck orders: the admin queue or a passed deadline (ESC-24)
 /// - POST /admin/orders/{orderId}/reopen-pickup → re-open a judged pickup (admin group only, FUP-287)
+/// - POST /admin/orders/{orderId}/commission → another commission rate on an unpaid order (admin group only, order-lifecycle 2.26.0)
 /// - GET  /admin/users/{id}/reputation → a user's reputation, restrictions and events (admin group only, ESC-32)
 /// - POST /admin/users/{id}/reputation → tag, untag, restrict or lift (admin group only, ESC-32)
 /// - POST /admin/users/{id}/reputation/events/{eventId}/decision → excuse or uphold one event (admin group only, ESC-32)

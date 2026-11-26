@@ -499,6 +499,16 @@ Six personas ran one marketplace week on dev; the report is `e2e/persona-sim/202
 
 ---
 
+## Negotiated commission per order (2026-11-26) - @Scope tasks
+
+An admin sets another commission rate on one unpaid order (`order-lifecycle.md` 2.26.0, `notifications-api.md` 1.7.0); every commission row in the apps shows the order's own rate.
+
+| ID | Sev | Scope | Task | Done when |
+|---|---|---|---|---|
+| FUP-548 | P3 | @l10n @QA | Native-speaker review of the Amharic and Afan Oromo commission strings (app inbox `notifCommissionChanged*`, the "Waiting for you" Orders chip, the server push of `order_commission_changed`, the admin `commission.*` form and its errors), then a dev check after deploy: an admin changes the rate on an unpaid test order, the buyer gets the push and the inbox entry, the order shows the new rate and total on mobile and web, and Pay Now charges the new total. | A native speaker confirmed or fixed the strings; the dev check passes. |
+
+---
+
 ## Deployment
 
 - **API:** `https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com`
@@ -509,4 +519,4 @@ Six personas ran one marketplace week on dev; the report is `e2e/persona-sim/202
 
 ---
 
-**Last Updated:** 2026-11-19 (FUP-535 to FUP-547 (no FUP-544: BUG-29 was fixed in #447) added from the persona simulation and its fix PRs #444 to #448 and #450; FUP-520 done in #445, FUP-539 done in #450); 2026-11-07 (FUP-147 added from the ESC-14 review; FUP-137 to FUP-146 added from the FRD PRs #293 to #302; FUP-134 to FUP-136 added from the FRD-17 run; SIM-25 to SIM-30 and SIM-33 done in one P3 PR with SIM-37, their follow-ups added as FUP-126 to FUP-133); 2026-11-06 (removed rows already done in git: ACC-04 #218, ACC-05 #217, FUP-15 #190, FUP-58 #219, FUP-85 #191, FUP-99 #209, FUP-100 #212, FUP-105 #215, FUP-107 #211, FUP-109 #210, FUP-112 #189, FUP-115 #192, FUP-116 #216 (FUP-87 and SIM-37 cut down to what is left; and the emptied In-App Account Deletion section: ACC-01 to ACC-05 are all done), LT-01 to LT-11 and LT-13 (#248, #250 to #253 and the LT-09, LT-11 and LT-13 merges); the 2026-11-06 run removed its own rows with #278 to #288); 2026-10-31 (FUP-86 widened with the Fieldway structure pass keys; 2026-10-29: FUP-86 widened with the Fieldway design pass keys of #255 and #256; 2026-10-27: ESC-15 removed as done; ESC-14, ESC-16, ESC-17 and ESC-21 to ESC-26 cut down to what #231, #234, #237 and #238 left; FUP-86 widened; FUP-123 to FUP-125 added; 2026-10-26: FUP-120 added: notifications inbox purge on account deletion; FUP-119 added: VeriFayda sandbox mode built, needs the dev run; 2026-10-23: only open tasks kept, FRD-04, FRD-05, FRD-08, FRD-13, ACC-02, ACC-03, FUP-12, FUP-61 and FUP-63 removed as done, FUP-91 to FUP-117 added from the second run)
+**Last Updated:** 2026-11-26 (FUP-548 added: the negotiated commission per order); 2026-11-19 (FUP-535 to FUP-547 (no FUP-544: BUG-29 was fixed in #447) added from the persona simulation and its fix PRs #444 to #448 and #450; FUP-520 done in #445, FUP-539 done in #450); 2026-11-07 (FUP-147 added from the ESC-14 review; FUP-137 to FUP-146 added from the FRD PRs #293 to #302; FUP-134 to FUP-136 added from the FRD-17 run; SIM-25 to SIM-30 and SIM-33 done in one P3 PR with SIM-37, their follow-ups added as FUP-126 to FUP-133); 2026-11-06 (removed rows already done in git: ACC-04 #218, ACC-05 #217, FUP-15 #190, FUP-58 #219, FUP-85 #191, FUP-99 #209, FUP-100 #212, FUP-105 #215, FUP-107 #211, FUP-109 #210, FUP-112 #189, FUP-115 #192, FUP-116 #216 (FUP-87 and SIM-37 cut down to what is left; and the emptied In-App Account Deletion section: ACC-01 to ACC-05 are all done), LT-01 to LT-11 and LT-13 (#248, #250 to #253 and the LT-09, LT-11 and LT-13 merges); the 2026-11-06 run removed its own rows with #278 to #288); 2026-10-31 (FUP-86 widened with the Fieldway structure pass keys; 2026-10-29: FUP-86 widened with the Fieldway design pass keys of #255 and #256; 2026-10-27: ESC-15 removed as done; ESC-14, ESC-16, ESC-17 and ESC-21 to ESC-26 cut down to what #231, #234, #237 and #238 left; FUP-86 widened; FUP-123 to FUP-125 added; 2026-10-26: FUP-120 added: notifications inbox purge on account deletion; FUP-119 added: VeriFayda sandbox mode built, needs the dev run; 2026-10-23: only open tasks kept, FRD-04, FRD-05, FRD-08, FRD-13, ACC-02, ACC-03, FUP-12, FUP-61 and FUP-63 removed as done, FUP-91 to FUP-117 added from the second run)
