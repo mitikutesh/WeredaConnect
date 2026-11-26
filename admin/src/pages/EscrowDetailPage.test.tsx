@@ -67,6 +67,33 @@ describe("EscrowDetailPage audit trail labels (FUP-35)", () => {
   });
 });
 
+/* FUP-80: the status badge and the states of the audit trail use the escrow status labels. */
+describe("EscrowDetailPage status and state labels (FUP-80)", () => {
+  it("labels the status badge and each from and to state of the trail", () => {
+    mocks.escrow.data = { escrow: { escrowId: "escrow-order-ord-1", status: "held", amount: 1000 } };
+    mocks.audit.data = {
+      auditEntries: [
+        { action: "order_funded", fromState: "initiated", toState: "escrowed", timestamp: "2026-10-20T07:00:00Z" },
+        { action: "release_failed", fromState: "escrowed", toState: "release_failed", timestamp: "2026-10-20T08:00:00Z" },
+        { action: "initiate", fromState: "", toState: "initiated", timestamp: "2026-10-20T06:00:00Z" },
+      ],
+    };
+
+    render(
+      <MemoryRouter>
+        <EscrowDetailPage />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Under review")).toBeTruthy();
+    expect(screen.queryByText("held")).toBeNull();
+    expect(screen.getByText("Initiated → Held in escrow")).toBeTruthy();
+    // A step stored as the state reads as its words.
+    expect(screen.getByText("Held in escrow → Release failed")).toBeTruthy();
+    expect(screen.queryByText(/escrowed|release_failed/)).toBeNull();
+  });
+});
+
 /* ESC-24: the transport leg, the ledger view and a recorded split on the escrow page. */
 describe("EscrowDetailPage legs and ledger (ESC-24)", () => {
   const ledgerEscrow = {

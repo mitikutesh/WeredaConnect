@@ -153,6 +153,28 @@ export const timelineActionLabel = (action: string, t: Translate) => {
 export const timelineEntityLabel = (entity: string, t: Translate) =>
   labelOrRaw(t, `transactions.entity_${entity}`, entity);
 
+/** The status labels of each timeline leg (orderStatusLabel, deliveryStatusLabel, escrowStatusLabel). */
+const stateKeyPrefix: Record<string, string> = {
+  order: "transactions.status_",
+  delivery: "transactions.delivery_",
+  escrow: "transactions.escrow_",
+};
+
+/**
+ * FUP-80: a fromState or toState of an audit row in words. The leg's status label first; else the
+ * action label of the same word (some escrow rows store the step, such as release_failed, and admin
+ * rows store the decision); else the words of the snake_case value, as for an action.
+ */
+export function stateLabel(entity: string, state: string, t: Translate): string {
+  if (!state) return "";
+  const prefix = stateKeyPrefix[entity];
+  if (prefix) {
+    const label = labelOrRaw(t, `${prefix}${state}`, "");
+    if (label) return label;
+  }
+  return timelineActionLabel(state, t);
+}
+
 /** ESC-06: why an order waits in the admin stuck-order queue (hold_cap). */
 export const adminQueueLabel = (reason: string, t: Translate) =>
   labelOrRaw(t, `transactions.adminQueue_${reason}`, reason);
