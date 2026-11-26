@@ -95,6 +95,7 @@ public sealed class AdminReputationDynamoDbTests
         raw["decisionNote"].S.Should().Be("Flood confirmed.");
         raw["decidedAt"].S.Should().Be(ReputationPolicy.Iso(T0));
         raw["version"].N.Should().Be("2");
+        raw["decidedVersion"].N.Should().Be("2", "FUP-195: the notifier tells the decision's own record by it");
         raw["appealText"].S.Should().Be("The road was closed.", "the party's text stays on the row");
         raw.Should().NotContainKeys("appealStatus", "appealedAt", "dueDay", "dueAt");
 

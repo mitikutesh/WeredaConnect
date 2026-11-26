@@ -163,6 +163,52 @@ public class ReputationEventRepositoryTests
         items[3].Delete.Key["eventId"].S.Should().Be("HEAL#2026-11-06");
     }
 
+    [Fact]
+    public void FUP195_ADecision_StampsTheVersionItLeaves_AndALiftDoesNot()
+    {
+        var request = _repo.BuildTransaction(new ReputationWrite
+        {
+            UserId = "farmer-1",
+            ExpectedMapVersion = 3,
+            Map = new ReputationMapWrite { Aggregate = new ReputationAggregate(), Version = 4, UpdatedAt = T0 },
+            RowUpdates = new[]
+            {
+                new ReputationRowUpdate
+                {
+                    EventId = "CANCEL#order-1",
+                    FromStatus = ReputationStatuses.Active,
+                    SeenVersion = 2,
+                    ToStatus = ReputationStatuses.Excused,
+                    AppealDecision = "excused",
+                    DecidedAt = ReputationPolicy.Iso(T0),
+                    DecidedBy = "admin-1",
+                    DecisionNote = "Flood closed the road.",
+                    CloseAppeal = true
+                },
+                new ReputationRowUpdate
+                {
+                    EventId = "RESTRICTION#2026-11-01T09:00:00.000Z",
+                    FromStatus = ReputationStatuses.Active,
+                    ToStatus = ReputationStatuses.Lifted,
+                    LiftedAt = ReputationPolicy.Iso(T0),
+                    LiftedBy = "admin-1",
+                    LeaveDueIndex = true
+                }
+            }
+        });
+
+        var decision = request.TransactItems[1].Update;
+        decision.ConditionExpression.Should().Contain("#v = :seen");
+        decision.ExpressionAttributeValues[":seen"].N.Should().Be("2");
+        decision.UpdateExpression.Should().Contain("#v = if_not_exists(#v, :one) + :one").And.Contain("#dv = :dv");
+        decision.ExpressionAttributeNames["#dv"].Should().Be("decidedVersion");
+        decision.ExpressionAttributeValues[":dv"].N.Should().Be("3", "the version the decision leaves on the row");
+
+        var lift = request.TransactItems[2].Update;
+        lift.UpdateExpression.Should().NotContain("#dv");
+        lift.ExpressionAttributeNames.Should().NotContainKey("#dv");
+    }
+
     private void CancelWith(params string[] codes)
         => _dynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new TransactionCanceledException("cancelled")

@@ -69,6 +69,14 @@ public static class PushText
         {
             template = Generic[lang];
         }
+        else if (type == NotificationTypes.AppealDecided)
+        {
+            // FUP-195: each decision has words of its own; a missing or unknown one keeps the type's neutral words.
+            if (p.TryGetValue(NotificationParams.Decision, out var decided) && ByDecision(lang).TryGetValue(decided, out var byDecision))
+            {
+                template = byDecision;
+            }
+        }
         else if (p.TryGetValue(NotificationParams.Reason, out var reason)
                  && ByReason(lang).TryGetValue(ReasonKey(type, reason), out var specific))
         {
@@ -83,6 +91,16 @@ public static class PushText
     /// all three languages (parity-tested).
     /// </summary>
     public static IReadOnlyCollection<string> ReasonKeys => EnByReason.Keys;
+
+    /// <summary>FUP-195: the decisions of <c>appeal_decided</c> with words of their own, in all three languages (parity-tested).</summary>
+    public static IReadOnlyCollection<string> DecisionKeys => EnByDecision.Keys;
+
+    private static Dictionary<string, Template> ByDecision(string language) => language switch
+    {
+        "en" => EnByDecision,
+        "om" => OmByDecision,
+        _ => AmByDecision
+    };
 
     /// <summary>The key of a type's text for one reason: <c>type#reason</c>.</summary>
     public static string ReasonKey(string type, string reason) => type + "#" + reason;
@@ -753,6 +771,10 @@ public static class PushText
         [NotificationTypes.TierChanged] = new(
             "Your reputation changed",
             "{tierline}[ You can take new orders again after {until}.]"),
+        // FUP-195: the neutral words, for a decision this text does not know (EnByDecision has each decision's own).
+        [NotificationTypes.AppealDecided] = new(
+            "Your record was reviewed",
+            "Our team reviewed your record[ for {cause}]. Open My reputation to read their note."),
         // FUP-286: the arrival check-ins of the pickup.
         [NotificationTypes.PickupReminder] = new(
             "Reminder: check in for the pickup",
@@ -823,6 +845,41 @@ public static class PushText
         [ReasonKey(NotificationTypes.DisputeOpened, DropoffJudgement.OutOfRangeReason)] = new(
             "Delivery under review",
             "The truck's arrival[ for {qty} {crop}] could not be matched to the drop-off place. Our team is checking it; the money stays held.")
+    };
+
+    /// <summary>
+    /// FUP-195: the words of <c>appeal_decided</c> by the admin's decision (<c>excused</c>, <c>upheld</c>). The note
+    /// itself is never in the push (it can be long and a lock screen is not private): the inbox and My reputation show
+    /// it. am and om are machine drafted and await native review.
+    /// </summary>
+    private static readonly Dictionary<string, Template> EnByDecision = new(StringComparer.Ordinal)
+    {
+        [ReputationService.DecisionExcused] = new(
+            "Penalty points removed",
+            "Our team removed the points[ for {cause}]. Open My reputation to read their note."),
+        [ReputationService.DecisionUpheld] = new(
+            "The penalty points stay",
+            "Our team reviewed the points[ for {cause}] and kept them. Open My reputation to read their note.")
+    };
+
+    private static readonly Dictionary<string, Template> AmByDecision = new(StringComparer.Ordinal)
+    {
+        [ReputationService.DecisionExcused] = new(
+            "የቅጣት ነጥብ ተነስቷል",
+            "ቡድናችን[ {cause} ምክንያት የተሰጠውን] የቅጣት ነጥብ አንስቷል። ማስታወሻቸውን ለማንበብ የእኔ ዝና የሚለውን ይክፈቱ።"),
+        [ReputationService.DecisionUpheld] = new(
+            "የቅጣት ነጥቡ ይቆያል",
+            "ቡድናችን[ {cause} ምክንያት የተሰጠውን] የቅጣት ነጥብ መርምሮ አጽንቶታል። ማስታወሻቸውን ለማንበብ የእኔ ዝና የሚለውን ይክፈቱ።")
+    };
+
+    private static readonly Dictionary<string, Template> OmByDecision = new(StringComparer.Ordinal)
+    {
+        [ReputationService.DecisionExcused] = new(
+            "Qabxiin adabbii haqameera",
+            "Gareen keenya qabxii adabbii[ sababa {cause}] haqeera. Yaadannoo dubbisuuf Maqaa Gaarii Koo banaa."),
+        [ReputationService.DecisionUpheld] = new(
+            "Qabxiin adabbii ni tura",
+            "Gareen keenya qabxii adabbii[ sababa {cause}] sakatta'ee cimseera. Yaadannoo dubbisuuf Maqaa Gaarii Koo banaa.")
     };
 
     private static readonly Dictionary<string, Template> Am = new(StringComparer.Ordinal)
@@ -935,6 +992,10 @@ public static class PushText
         [NotificationTypes.TierChanged] = new(
             "ዝናዎ ተቀይሯል",
             "{tierline}[ ከ{until} በኋላ እንደገና አዲስ ትዕዛዝ መቀበል ይችላሉ።]"),
+        // FUP-195 (machine drafted, native review owed).
+        [NotificationTypes.AppealDecided] = new(
+            "መዝገብዎ ተመርምሯል",
+            "ቡድናችን[ {cause} ምክንያት የተመዘገበውን] መዝገብዎን መርምሯል። ማስታወሻቸውን ለማንበብ የእኔ ዝና የሚለውን ይክፈቱ።"),
         // FUP-286 and FUP-338 (machine drafted, native review owed).
         [NotificationTypes.PickupReminder] = new(
             "ማስታወሻ: የመጫኛ ማረጋገጫ",
@@ -1108,6 +1169,10 @@ public static class PushText
         [NotificationTypes.TierChanged] = new(
             "Maqaan gaariin keessan jijjiirameera",
             "{tierline}[ Erga {until} booda ajaja haaraa fudhachuu dandeessu.]"),
+        // FUP-195 (machine drafted, native review owed).
+        [NotificationTypes.AppealDecided] = new(
+            "Galmeen keessan sakatta'ameera",
+            "Gareen keenya galmee keessan[ sababa {cause}] sakatta'eera. Yaadannoo dubbisuuf Maqaa Gaarii Koo banaa."),
         // FUP-286 and FUP-338 (machine drafted, native review owed).
         [NotificationTypes.PickupReminder] = new(
             "Yaadachiisa: mirkaneessa fudhannaa",

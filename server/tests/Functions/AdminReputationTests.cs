@@ -38,13 +38,16 @@ public class AdminReputationTests
     private readonly List<PutItemRequest> _auditRows = new();
     private readonly List<(string User, OwnerReputationFields Fields)> _copied = new();
 
+    /// <summary>FUP-199: how many of the next audit writes fail (a throttle), as the best-effort write after the commit can.</summary>
+    private int _failingAuditWrites;
+
     public AdminReputationTests()
     {
         _repo.AddUser("farmer-1");
         _repo.AddUser("trucker-1", "trucker");
         _repo.AddUser("buyer-1", "buyer");
-        _dynamoDb.PutItemAsync(Arg.Do<PutItemRequest>(r => _auditRows.Add(r)), Arg.Any<CancellationToken>())
-            .Returns(new PutItemResponse());
+        _dynamoDb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(call => PutAuditRow(call.Arg<PutItemRequest>()));
         _dynamoDb.BatchGetItemAsync(Arg.Any<BatchGetItemRequest>(), Arg.Any<CancellationToken>())
             .Returns(new BatchGetItemResponse
             {
@@ -72,6 +75,29 @@ public class AdminReputationTests
                 _copied.Add((call.ArgAt<string>(0), call.ArgAt<OwnerReputationFields>(2)));
                 return 1;
             });
+    }
+
+    /// <summary>
+    /// The audit table as DynamoDB keeps it: a conditional put on an existing (transactionId, timestamp) is refused
+    /// and writes nothing (FUP-199's once-only row); an unconditional one is appended.
+    /// </summary>
+    private Task<PutItemResponse> PutAuditRow(PutItemRequest request)
+    {
+        if (_failingAuditWrites > 0)
+        {
+            _failingAuditWrites--;
+            return Task.FromException<PutItemResponse>(new ProvisionedThroughputExceededException("throttled"));
+        }
+
+        if (request.ConditionExpression == "attribute_not_exists(transactionId)"
+            && _auditRows.Any(r => r.Item["transactionId"].S == request.Item["transactionId"].S
+                                   && r.Item["timestamp"].S == request.Item["timestamp"].S))
+        {
+            return Task.FromException<PutItemResponse>(new ConditionalCheckFailedException("The conditional request failed"));
+        }
+
+        _auditRows.Add(request);
+        return Task.FromResult(new PutItemResponse());
     }
 
     private ReputationService Service()
@@ -814,6 +840,90 @@ public class AdminReputationTests
         _auditRows.Should().ContainSingle();
     }
 
+    // ===== FUP-199: each change has exactly one audit row, written by a replay when the first write failed =====
+
+    [Fact]
+    public async Task ADecisionsAudit_IsKeyedAtTheDecision_AndAReplayAfterItWritesNoSecond()
+    {
+        await Penalty("farmer-1", "CANCEL#o1", T0.AddDays(-1));
+        await Appeal("farmer-1", "CANCEL#o1");
+
+        await Ok(Post(DecisionPath("farmer-1", "CANCEL#o1"),
+            Decision("uphold", "The buyer confirmed the cancel.", seen: SeenText("farmer-1", "CANCEL#o1"))));
+        _clock.Now = T0.AddMinutes(5);
+        (await Ok(Post(DecisionPath("farmer-1", "CANCEL#o1"), Decision("uphold"))))
+            .GetProperty("alreadyDecided").GetBoolean().Should().BeTrue();
+
+        var audit = _auditRows.Should().ContainSingle().Subject;
+        audit.ConditionExpression.Should().Be("attribute_not_exists(transactionId)");
+        audit.Item["transactionId"].S.Should().Be("farmer-1");
+        audit.Item["timestamp"].S.Should().Be(_repo.Row("farmer-1", "CANCEL#o1").DecidedAt).And.Be(ReputationPolicy.Iso(T0));
+        audit.Item["action"].S.Should().Be("reputation_upheld");
+        audit.Item["fromState"].S.Should().Be("tier=warning;points=3");
+        audit.Item["metadata"].S.Should().Be("event=CANCEL#o1;note=The buyer confirmed the cancel.");
+    }
+
+    [Fact]
+    public async Task ADecisionWhoseAuditWriteFailed_IsAuditedByTheReplay_Once()
+    {
+        await Penalty("farmer-1", "CANCEL#o1", T0.AddDays(-3), ReputationCodes.LateCancel);
+        await Penalty("farmer-1", "CANCEL#o2", T0.AddDays(-2), ReputationCodes.LateCancel, "buyer-2");
+        _failingAuditWrites = 1;
+
+        var first = await Ok(Post(DecisionPath("farmer-1", "CANCEL#o1"), Decision("excuse")));
+
+        first.GetProperty("alreadyDecided").GetBoolean().Should().BeFalse("the action stands without its audit row");
+        _repo.Row("farmer-1", "CANCEL#o1").Status.Should().Be(ReputationStatuses.Excused);
+        _auditRows.Should().BeEmpty();
+        ((TestLambdaLogger)_ctx.Logger).Buffer.ToString().Should().Contain("transaction-audit write failed (non-fatal)");
+
+        // Another admin sends the same decision later (a retry, a second tab), with another note.
+        _clock.Now = T0.AddMinutes(5);
+        for (var i = 0; i < 2; i++)
+        {
+            (await Ok(Request("POST", DecisionPath("farmer-1", "CANCEL#o1"), Decision("excuse", "Another note."), sub: "admin-2")))
+                .GetProperty("alreadyDecided").GetBoolean().Should().BeTrue();
+        }
+
+        var audit = _auditRows.Should().ContainSingle("the replay wrote the missing row, the next replay found it").Subject;
+        audit.Item["transactionId"].S.Should().Be("farmer-1");
+        audit.Item["timestamp"].S.Should().Be(ReputationPolicy.Iso(T0), "the decision's own time, not the replay's");
+        audit.Item["action"].S.Should().Be("reputation_excused");
+        audit.Item["entityType"].S.Should().Be("user");
+        audit.Item["entityId"].S.Should().Be("farmer-1");
+        audit.Item["actor"].S.Should().Be("admin-1", "the admin who decided, not the one who replayed");
+        audit.Item.Should().NotContainKey("fromState", "the replay does not know the state before the decision");
+        audit.Item["toState"].S.Should().Be("tier=warning;points=4");
+        audit.Item["metadata"].S.Should().Be("event=CANCEL#o1;note=Flood closed the road.;replayedBy=admin-2");
+        audit.Item.Should().NotContainKey("ipAddress");
+    }
+
+    [Theory]
+    [InlineData("tag", "reputation_tagged", "OVERRIDE#")]
+    [InlineData("untag", "reputation_untagged", "OVERRIDE#")]
+    [InlineData("restrict", "reputation_restricted", "RESTRICTION#")]
+    public async Task AnActionWhoseAuditWriteFailed_IsAuditedByTheReplay_AtItsSystemRowsTime(string action, string audited, string slot)
+    {
+        _failingAuditWrites = 1;
+        await Ok(Post("/admin/users/trucker-1/reputation", Action(action, until: T0.AddDays(30))));
+        _auditRows.Should().BeEmpty();
+        var systemRow = _repo.RowsOf("trucker-1").Single(r => r.EventId.StartsWith(slot, StringComparison.Ordinal));
+
+        _clock.Now = T0.AddMinutes(5);
+        for (var i = 0; i < 2; i++)
+        {
+            (await Ok(Request("POST", "/admin/users/trucker-1/reputation", Action(action, until: T0.AddDays(30)), sub: "admin-2")))
+                .GetProperty("alreadyApplied").GetBoolean().Should().BeTrue();
+        }
+
+        var audit = _auditRows.Should().ContainSingle().Subject;
+        audit.Item["action"].S.Should().Be(audited);
+        audit.Item["timestamp"].S.Should().Be(ReputationPolicy.Iso(T0)).And.Be(systemRow.EventId[slot.Length..]);
+        audit.Item["actor"].S.Should().Be("admin-1");
+        audit.Item["metadata"].S.Should().Be(
+            $"reason=Repeated complaints from three buyers.;until={ReputationPolicy.Iso(T0.AddDays(30))};replayedBy=admin-2");
+    }
+
     // ===== privacy: nothing admin-only reaches the party's own view =====
 
     [Fact]
@@ -974,9 +1084,10 @@ public class AdminReputationTests
     private static APIGatewayProxyRequest Post(string path, string body) => Request("POST", path, body);
 
     private static APIGatewayProxyRequest Request(
-        string method, string path, string? body, string? groups = "admin", string? role = null, Dictionary<string, string>? query = null)
+        string method, string path, string? body, string? groups = "admin", string? role = null, Dictionary<string, string>? query = null,
+        string sub = "admin-1")
     {
-        var authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "admin-1" } };
+        var authorizer = new APIGatewayCustomAuthorizerContext { { "sub", sub } };
         if (groups != null)
         {
             authorizer["cognito:groups"] = groups;
