@@ -32,7 +32,8 @@ public class PushTextTests
         [P.Resolution] = "farmer_wins",
         [P.Party] = "buyer",
         [P.DistanceKm] = "3.2",
-        [P.Minutes] = "25"
+        [P.Minutes] = "25",
+        [P.CommissionRate] = "0.025"
     };
 
     /// <summary>The longest values the rows allow: 100-character names and seven-digit amounts.</summary>
@@ -49,7 +50,8 @@ public class PushTextTests
         [P.Reason] = "phone_unverified",
         [P.Resolution] = "buyer_wins",
         [P.DistanceKm] = "5.0",
-        [P.Minutes] = "1080"
+        [P.Minutes] = "1080",
+        [P.CommissionRate] = "0.1875"
     };
 
     private static readonly IReadOnlyDictionary<string, string> Empty = new Dictionary<string, string>();
@@ -193,6 +195,48 @@ public class PushTextTests
         title.Should().Be("New order: 500 kg teff");
         // F-1: the amount is the farmer's own leg (cropCost), said as theirs.
         body.Should().Be("Buyer Abebe Tesfaye paid 42,500 ETB for you, held safely until delivery. Please accept or decline by 27 Oct 18:00.");
+    }
+
+    [Fact]
+    public void OrderCommissionChanged_InEnglish_NamesTheRateAndTheNewTotal()
+    {
+        var (title, body) = PushText.Render(NotificationTypes.OrderCommissionChanged, "en", Full);
+
+        title.Should().Be("Order total changed");
+        body.Should().Be(
+            "The platform commission on your order of 500 kg teff changed. It is now 2.5%. New total: 42,500 ETB. Nothing has been paid yet.");
+    }
+
+    [Theory]
+    [InlineData("0", "0%")]
+    [InlineData("0.05", "5%")]
+    [InlineData("0.0375", "3.75%")]
+    [InlineData("0.2", "20%")]
+    public void OrderCommissionChanged_SaysTheRateAsAPercent(string rate, string expected)
+    {
+        var p = new Dictionary<string, string>(Full) { [P.CommissionRate] = rate };
+
+        PushText.Render(NotificationTypes.OrderCommissionChanged, "en", p).Body.Should().Contain($"It is now {expected}.");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("-0.01")]
+    [InlineData("1.5")]
+    [InlineData("five")]
+    public void OrderCommissionChanged_WithoutAReadableRate_DropsTheRateSentence(string? rate)
+    {
+        var p = new Dictionary<string, string>(Full);
+        p.Remove(P.CommissionRate);
+        if (rate != null)
+        {
+            p[P.CommissionRate] = rate;
+        }
+
+        var (_, body) = PushText.Render(NotificationTypes.OrderCommissionChanged, "en", p);
+
+        body.Should().Be("The platform commission on your order of 500 kg teff changed. New total: 42,500 ETB. Nothing has been paid yet.");
     }
 
     [Fact]

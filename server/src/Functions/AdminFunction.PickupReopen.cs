@@ -23,8 +23,8 @@ public partial class AdminFunction
 
     /// <summary>
     /// POST /admin/orders/{orderId}/{action}: <c>reopen-pickup</c> with
-    /// <c>{exit, reason, expectedVersion, deadlineHours?}</c>, or <c>reopen-no-show</c> (FUP-330, its own file). Any
-    /// other action is <c>404 ADMIN_002</c>.
+    /// <c>{exit, reason, expectedVersion, deadlineHours?}</c>, <c>reopen-no-show</c> (FUP-330, its own file) or
+    /// <c>commission</c> (order-lifecycle 2.26.0, its own file). Any other action is <c>404 ADMIN_002</c>.
     /// <list type="bullet">
     /// <item><c>pending</c>: <c>pickupJudgement</c> back to <c>pending</c>, <c>pickupDeadlineAt</c> now plus
     /// <c>deadlineHours</c>, <c>pickupJudgedAt</c> and the overdue notice removed, the check-ins kept (a late
@@ -46,6 +46,12 @@ public partial class AdminFunction
         if (action == NoShowReopen.Action)
         {
             return await HandleNoShowReopenAsync(orderId, request, context);
+        }
+
+        // Order-lifecycle 2.26.0: another commission on an unpaid order (AdminFunction.CommissionChange.cs).
+        if (action == OrderCommissionChange.Action)
+        {
+            return await HandleCommissionChangeAsync(orderId, request, context);
         }
 
         if (action != PickupReopen.Action)

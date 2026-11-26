@@ -186,6 +186,10 @@ public static class NotificationRules
         {
             FarmerAccepted(events, old, row);
         }
+        else if (UnpaidStatuses.Contains(to))
+        {
+            CommissionChanged(events, old, row);
+        }
 
         OrderMarkers(events, old, row);
         PickupCheckIns(events, old, row);
@@ -402,6 +406,27 @@ public static class NotificationRules
     /// The cron's markers: a reminder 6 hours before a party's answer is due, and the pickup that
     /// did not happen by <c>pickupDeadlineAt</c>. Each fires once, when the attribute appears.
     /// </summary>
+    /// <summary>
+    /// Order-lifecycle 2.26.0: an admin agreed another commission on an unpaid order (the status stays). Only the
+    /// buyer is told, since only the buyer's total moves: the farmer's crop cost and the trucker's transport cost stay.
+    /// The order create writes the rate once and the sync strips it from clients, so a rate that moved on an unpaid
+    /// order is always the admin's change.
+    /// </summary>
+    private static void CommissionChanged(EventSet events, StreamImage old, StreamImage row)
+    {
+        var before = old.Number("commissionRate");
+        var after = row.Number("commissionRate");
+        if (before == null || after == null || before == after)
+        {
+            return;
+        }
+
+        events.Add(row.String("buyerId"), NotificationTypes.OrderCommissionChanged, Params(
+            (NotificationParams.CommissionRate, after.Value >= 0 ? after.Value.ToString("0.####", CultureInfo.InvariantCulture) : null),
+            (NotificationParams.OrderTotal, Money(row.Number("orderTotal"))),
+            (NotificationParams.OrderTotalBefore, Money(old.Number("orderTotal")))));
+    }
+
     private static void OrderMarkers(EventSet events, StreamImage old, StreamImage row)
     {
         if (Appeared(old, row, FarmerReminderAtField))
