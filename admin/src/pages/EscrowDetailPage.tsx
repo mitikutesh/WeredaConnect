@@ -7,7 +7,7 @@ import { useLocale } from "@/hooks/useLocale";
 import { useEscrowDetail, useEscrowAudit } from "@/hooks/useQuery";
 import { formatETB, formatDateTime } from "@/lib/i18n";
 import { partyName } from "@/lib/user";
-import { timelineActionLabel } from "@/lib/transaction";
+import { escrowStatusLabel, escrowStatusVariant, stateLabel, timelineActionLabel } from "@/lib/transaction";
 
 export function EscrowDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -66,7 +66,9 @@ export function EscrowDetailPage() {
             <div className="flex justify-between">
               <dt className="text-slate">{t("escrows.status")}</dt>
               <dd>
-                <Badge>{String(detail.status || "")}</Badge>
+                <Badge variant={escrowStatusVariant[String(detail.status || "")] || "default"}>
+                  {escrowStatusLabel(String(detail.status || ""), t)}
+                </Badge>
               </dd>
             </div>
             <div className="flex justify-between">
@@ -108,6 +110,11 @@ export function EscrowDetailPage() {
                   <p className="text-xs text-slate">
                     {entry.timestamp ? formatDateTime(String(entry.timestamp)) : ""}
                   </p>
+                  {entry.fromState && entry.toState ? (
+                    <p className="text-xs text-slate">
+                      {stateLabel("escrow", String(entry.fromState), t)} → {stateLabel("escrow", String(entry.toState), t)}
+                    </p>
+                  ) : null}
                   {entry.details ? (
                     <p className="mt-1 text-xs text-slate">{String(entry.details)}</p>
                   ) : null}

@@ -595,6 +595,7 @@
     "firstSeen": "መጀመሪያ የታየው",
     "entity": "አካል",
     "timeline": "የግብይት የጊዜ ሰሌዳ",
+    "sourceUser": "ያስከተለው",
     "riskScore": "የስጋት ነጥብ {score} ({tier})",
     "tier_low": "ዝቅተኛ",
     "tier_medium": "መካከለኛ",
