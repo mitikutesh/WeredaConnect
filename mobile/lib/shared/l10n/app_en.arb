@@ -3629,6 +3629,18 @@
   "@stepUpDone": {
     "description": "Snackbar after a successful step-up re-authentication"
   },
+  "stepUpOtherMessage": "For your safety, confirm it's you before you continue.",
+  "@stepUpOtherMessage": {
+    "description": "Password step-up dialog (AUTH_040) when the action is neither a payment nor a dispute: a farmer or trucker dropping out of an accepted order, deleting the account, or several kinds waiting together (FUP-167, FUP-181). am and om machine drafted, native review owed"
+  },
+  "faydaStepUpOtherMessage": "Confirm it's you with Fayda to continue. You may also be asked for your password.",
+  "@faydaStepUpOtherMessage": {
+    "description": "Fayda step-up dialog (AUTH_041) when the waiting action is not a payment or a dispute (FUP-181). am and om machine drafted, native review owed"
+  },
+  "stepUpDoneRetrying": "Confirmed. Trying again.",
+  "@stepUpDoneRetrying": {
+    "description": "Snackbar after a successful background step-up for an action that is not a payment (a dispute, a drop-out), FUP-181. am and om machine drafted, native review owed"
+  },
   "faydaStateMismatch": "The Fayda session expired. Please start verification again.",
   "@faydaStateMismatch": {
     "description": "Fayda callback state mismatch or FAYDA_002"

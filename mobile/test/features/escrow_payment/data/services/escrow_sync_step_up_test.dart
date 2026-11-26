@@ -106,6 +106,8 @@ void main() {
     ).called(1);
     expect(emitted.whereType<StepUpRequired>(), hasLength(1));
     expect(emitted.whereType<StepUpRequired>().single.withFayda, isFalse);
+    // FUP-181: the prompt names the payment.
+    expect(emitted.whereType<StepUpRequired>().single.kind, StepUpKind.payment);
   });
 
   group('FUP-24: pendingStepUp follows the held intent', () {
@@ -187,6 +189,7 @@ void main() {
     expect(intent.status, IntentStatus.pendingSync);
     expect(intent.retryCount, 0);
     expect(emitted.whereType<StepUpRequired>().single.withFayda, isTrue);
+    expect(emitted.whereType<StepUpRequired>().single.kind, StepUpKind.payment);
   });
 
   test('a completed step-up retries the queued intent', () async {

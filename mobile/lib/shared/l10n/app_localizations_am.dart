@@ -2932,6 +2932,16 @@ class AppLocalizationsAm extends AppLocalizations {
   String get stepUpDone => 'ተረጋግጧል። ክፍያዎን እንደገና በመሞከር ላይ።';
 
   @override
+  String get stepUpOtherMessage => 'ለደህንነትዎ ከመቀጠልዎ በፊት እርስዎ መሆንዎን ያረጋግጡ።';
+
+  @override
+  String get faydaStepUpOtherMessage =>
+      'ለመቀጠል እርስዎ መሆንዎን በፋይዳ ያረጋግጡ። የይለፍ ቃልዎም ሊጠየቅ ይችላል።';
+
+  @override
+  String get stepUpDoneRetrying => 'ተረጋግጧል። እንደገና በመሞከር ላይ።';
+
+  @override
   String get faydaStateMismatch => 'የፋይዳ ክፍለ ጊዜ አልፏል። እባክዎ ማረጋገጫውን እንደገና ይጀምሩ።';
 
   @override
