@@ -1,10 +1,10 @@
 # Reputation API Contract
 
 ## Version
-1.8.1
+1.9.0
 
 ## Status
-PARTLY BUILT (1.8.0). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
+PARTLY BUILT (1.9.0). BUILT in GCR-03 (1.9.0, server, not flagged): the conduct stamp of section 1.8 (no read returns it yet). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
 the server side of the two notifications (section 10) and the flags and policy parameter
 (section 11). BUILT in ESC-29 (server): the reads (sections 2 to 4), the appeal photo and the appeal
 (5, 6), the copied owner fields (7) and the gates (8). BUILT in ESC-32: the admin endpoints
@@ -55,6 +55,7 @@ The public summary never shows points, events, reasons, appeals or restriction d
 | Section | What | Ticket |
 |---|---|---|
 | 1 | Concepts: events, tiers, effective rating, reliability, restriction | ESC-28 (BUILT) |
+| 1.8 | The conduct stamp of a settled order (`HANDOFF_QUALITY`, all three parties) | GCR-03 (BUILT, server) |
 | 2 to 4 | Party and buyer reads | ESC-29 (BUILT) |
 | 5, 6 | Appeal photo and appeal | ESC-29 (BUILT) |
 | 7 | Owner fields copied onto crop and trip rows | ESC-29 (copy, BUILT), ESC-30 (matching, BUILT) |
@@ -102,7 +103,8 @@ the defaults (proposed values are marked); the live values come from the SSM pol
 | `ORDER_COMPLETED` | farmer, trucker | the order reached `settled` | 0; counts for reliability and earn-back |
 
 System rows that are not penalties live in the same table and never appear in a party's event
-list: `RESTRICTION`, `ADMIN_TAG`, `ADMIN_UNTAG`, `TIER_CHANGED`, `HEAL` (architecture doc 3.2).
+list: `RESTRICTION`, `ADMIN_TAG`, `ADMIN_UNTAG`, `TIER_CHANGED`, `HEAL` (architecture doc 3.2), and
+since 1.9.0 the conduct stamp `HANDOFF_QUALITY` (section 1.8), which no event read returns.
 
 **Not penalized** (spec 4.11): a race the system caused (stock or trip capacity lost at funding:
 `trip_full`, `listing_out_of_stock`), a farmer cancelling during `awaiting_transport`, a request
@@ -201,6 +203,123 @@ With `reputationPenalties` off none of the four runs, and nothing in ESC-33 is l
   `SHARED_DEVICE_TRADE` fraud signal. With no active points nothing is banked.
 - An order that went through a dispute ends at `dispute_resolved`, never `settled`
   (`order-lifecycle.md`), so it neither completes nor earns back (proposed).
+
+### 1.8 Conduct stamp (GCR-03, BUILT server, 1.9.0)
+
+Server-internal: nothing here is on the wire yet. GCR-04 reads it into `verifiedPct` behind
+`conductRewards`; GCR-07 shows it to admins. Design: `specs/features/good-conduct-rewards.md` sections
+4, 5 and 8. Built in `Helpers/ConductScoring.cs` (pure), `Services/ConductStampService.cs`,
+`Data/ReputationEventRepository.Conduct.cs`. **Not flagged** (stamping runs before anything shows).
+
+**When.** Only the money mirror writes `settled`, for every settle path (release, ledger sweep,
+manual payout close, trucker leg, the hourly order-money sweep), so the orders stream sees every
+settle. The reputation-stream Lambda stamps each `MODIFY` record whose new image is `settled` and
+whose old image is not (rule R13's test), from the record's full new image, before the penalty
+derivation and whatever `reputationPenalties` says. Best effort: up to 3 attempts, then
+`CONDUCT_STAMP_FAILED gaveUp=true` in the log; a stamp is never parked, never a batch item failure,
+never retried later, and never blocks, fails or delays a settlement. A parked record replayed by
+`reputation_unpark` is not stamped (its projected images lack the fields; its live pass stamped it).
+**As built**: reputation-stream has none of the deliveries, ratings or trip-locations tables yet, so
+it stamps nothing on a deployed stack until TASK FUP-550 adds them (the service is not built without
+`DELIVERIES_TABLE`).
+
+**The row.** One `HANDOFF_QUALITY` row per party of the order (farmer, the trucker of a trucked
+order, buyer; a self-pickup has no trucker row), under the party's `userId` with the slot
+`HANDOFF#{orderId}`: the key is the idempotency key `{orderId}:{partyId}`. The first write goes only
+into a free slot, in one transaction with a check that the party's users row exists and carries no
+`deletionState` (the rule of every reputation writer), so settling twice (a stream replay, a retry)
+writes one row per party and a deleting account gets none. The users row's `reputation` map is never
+written: a stamp changes no aggregate.
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `userId`, `eventId` | S | the party, `HANDOFF#{orderId}` |
+| `code` | S | `HANDOFF_QUALITY` |
+| `party` | S | `farmer`, `trucker` or `buyer` |
+| `orderId`, `farmerId`, `buyerId`, `truckerId` | S | the order and its parties (`truckerId` absent on a self-pickup); admin only |
+| `offered` | N | steps that applied (not left out) |
+| `earned` | N | steps taken |
+| `steps` | L of M | each `{ id, result, reason }`: `result` is `earned`, `missed` or `left_out`; `reason` only on `left_out` |
+| `counted` | BOOL | whether the order counts toward the party's number (below) |
+| `notCountedReason` | S | only when not counted |
+| `orderTotal` | N | the order total |
+| `occurredAt` | S | the settle (the order's `updatedAt` at the settle, else the record's time) |
+| `recordedAt` | S | the first write (the re-evaluation window starts here) |
+| `reevaluatedAt` | S | after the one re-evaluation |
+| `version` | N | 1, 2 after the re-evaluation |
+| `purgeAt` | N | TTL, `occurredAt` + 400 days (the penalty retention) |
+
+No `status`, `dueDay` or `appealStatus`: a stamp is never on `DueIndex` or `AppealStatusIndex`,
+never expires through the daily job, and cannot be appealed or decided (section 6 and 9.3 refuse a
+row that is not an order event).
+
+**Steps** (spec 4, the measurable ones). A step is `left_out` when the party could not take it
+(spec 5), so it is neither in `offered` nor in `earned`.
+
+| Party | Step id | Earned when | Left out when |
+|---|---|---|---|
+| farmer | `as_described` | no dispute upheld for `wrong_quantity` or `quality_mismatch` (the delivery's `disputeResolution` `buyer_wins` with that `disputeReason`) | never |
+| farmer | `stock_current` | the order was not declined with `crop_not_ready` | never |
+| trucker | `pickup_scanned` | `pickupMethod` `qr` (`code`: missed) | no method recorded (`not_recorded`) |
+| trucker | `pickup_fix` | `gpsPickup` stored (a far one is refused at the handoff, so a stored one is inside 5 km) | see the fix rule below |
+| trucker | `pickup_photo` | `pickupPhotoRef` attached, its key's time (the server's presign time) within 30 minutes of the server's `pickedUpAt`, either side (both are receipt times, so a pickup queued offline and sent with its photo scores as one made online); outside: missed | see the photo rule below |
+| trucker | `picked_up_on_day` | the pickup's Ethiopia day (`pickupCapturedAt`, else `pickedUpAt`) is on or before the departure's (`pickupDate`) | no `pickupDate` or pickup time (`not_recorded`) |
+| trucker | `trip_shared` | the trucker's `fix` pings of the trip (by `capturedAt`, the phone's time) from the pickup to the drop-off (`pickupCapturedAt` or `pickedUpAt`, `dropoffCapturedAt` or `confirmedAt`) leave no stretch longer than 90 minutes, with at least one, and none `mocked` | `pickupPlatform` `web` (`web`), absent (`old_client`), the pings not read (`not_recorded`) |
+| buyer | `confirmed_in_person` | `confirmedAt` with no `autoConfirmedAt` (a system confirm for a silent buyer: missed) | no `confirmedAt` (`not_recorded`) |
+| buyer | `dropoff_scanned` | `dropoffMethod` `qr` (`code`: missed) | no method recorded (`not_recorded`) |
+| buyer | `dropoff_fix` | `gpsDropoff` stored | see the fix rule below |
+| buyer | `dropoff_photo` | `dropoffPhotoRef` attached | see the photo rule below |
+| buyer | `dropoff_place_set` | `deliveryLatitude` and `deliveryLongitude` on the order | a self-pickup (`self_pickup`) |
+| buyer | `rated_parties` | a rating of the buyer's for the farmer and, on a trucked order, the trucker (ids `{orderId}:{rateeId}`) | the ratings not read (`not_recorded`) |
+| buyer | `fair_disputes` | no dispute on the order resolved against the buyer (`disputeResolution` `farmer_wins`: missed) | never |
+
+- **Fix rule**: with a stored point the step is earned, or left out as `coarse_fix` when the stamped
+  `{leg}GpsAccuracyM` is above 1,000 m (spec 4.4, the live ping's precision). Without a point the
+  stamped `{leg}GpsStatus` decides: `timeout` left out (`no_signal`); `denied`, `denied_forever`,
+  `services_off` missed (the party chose); absent left out (`old_client`).
+- **Photo rule**: a photo attached earns the step (the pickup's under its 30 minute rule). Without
+  one the leg's platform decides: `android` missed; `web` left out (`web`: a desktop browser may have
+  no camera, and `platform` cannot tell a phone's browser apart, so a web photo taken still earns it);
+  absent left out (`old_client`).
+- **No delivery row** (none on the order, or it names another order): every step that reads it is
+  left out (`not_recorded`).
+- **Not scored yet**: the farm point (FUP-442), the check-ins `crops_ready` and `arrived_dropoff`
+  (GCR-13, flags off), identity verified (counted once per window, not per order: GCR-04's
+  aggregate), and two live steps not measurable as written, the listing kept current and the
+  drop-off code made ready (TASK FUP-560).
+
+**Which orders count** (spec 5; the earn-back rules of 1.6). Every party of a settled order gets its
+row; an order that does not count is still stamped, with `counted: false` and the first reason that
+applies, in this order:
+
+| `notCountedReason` | When |
+|---|---|
+| `disputed` | the delivery is disputed (`disputedBy`, status `disputed` or a `disputeResolution`) and not resolved for this party: an open dispute for nobody, `farmer_wins` for the farmer and the trucker, `buyer_wins` (or the FUP-64 `disputeOverrideAt` on a paid-out order) for the buyer. A disputed order ends at `dispute_resolved`, never `settled`, so this is rare |
+| `below_minimum` | the order total below 500 ETB |
+| `fraud_signal` | a `SELF_TRADE` or `SHARED_DEVICE_TRADE` signal on this order on any of its parties |
+| `fraud_unchecked` | the fraud signals could not be read (no count rather than one a self-trade could buy) |
+| `pair_cap` | with another party of this order the party already has 2 counted stamps settled within 30 days before or after (both ways, so arrival order does not matter) |
+
+**Late evidence** (spec 8 item 8). A rating or a handoff photo that arrives after the stamp
+re-evaluates the order once, within 14 days of `recordedAt`: every party's stamp is evaluated again
+from the rows as they are then (`recordedAt` and `occurredAt` kept), written over the old one only
+while it has no `reevaluatedAt`, and marked with it, so a second late arrival does nothing. Triggers
+(sync, after the operation's own write, never changing its answer): a pickup or drop-off
+`delivery_photo` attached, and the buyer's rating that completes the set `rated_parties` asks for
+(the farmer, and the trucker of a trucked order), so two ratings sent in one batch take the one
+re-evaluation together. Evidence that arrives before the settle needs nothing: the stamp reads it.
+The common path (evidence before the settle) costs one read: the stamp of the party whose evidence
+arrived.
+
+**Readers.** The buyer rows are the first buyer rows in the table; no existing read changes with
+them or with the farmers' and truckers' stamps. `ReputationEventRepository.QueryEventsAsync`, which
+every reader of the events goes through (the party's own read and the public summary of sections 2
+and 3, the event list of section 4, the policy and its caps, earn-back and restriction checks, the
+read-lag check, the daily job, the recompute and the backfills, the admin read of 9.1), filters
+`HANDOFF_QUALITY` out before its `eventsReadCap` counts, so a stamp never pushes an event past the
+cap. The appeal (section 6) reads one row by key and refuses anything that is not an order event;
+the admin decision (9.3) looks among the filtered rows. The indexes never see a stamp. Account deletion removes the user's whole partition, stamps
+included. No read returns a stamp yet; a buyer still has no `reputation` map.
 
 ---
 
@@ -1090,7 +1209,7 @@ platform pair).
    no client field sets a point, a tier or a restriction.
 2. One event per (user, slot): `REQUEST#{orderId}`, `CANCEL#{orderId}`, `TRIP_CANCEL#{tripId}`,
    `NOSHOW#{orderId}`, `OVERDUE#{orderId}`, `COMPLETED#{orderId}`. A replayed stream record never
-   counts twice.
+   counts twice. One conduct stamp per (user, order): `HANDOFF#{orderId}` (1.9.0), never an event.
 3. The aggregate on the users row is written in the same transaction as the event that changes
    it, conditioned on the aggregate's own `version`; it is never written by the profile update
    path and never bumps the row's `version`.
@@ -1107,6 +1226,7 @@ platform pair).
 
 | Version | Date | Change |
 |---|---|---|
+| 1.9.0 | 2026-11-27 | GCR-03 BUILT (server, not flagged, no wire change): new section 1.8, the conduct stamp. When an order reaches `settled`, the reputation stream writes one `HANDOFF_QUALITY` row per party (farmer, trucker, buyer: the first buyer rows in the table) at `HANDOFF#{orderId}`, idempotent on `{orderId}:{partyId}`, under a check that the party is not being deleted: `offered`, `earned`, the step list with the left-out reasons of spec 5, and `counted` with `notCountedReason` (every party gets its row; a non-counted order is stamped as not counted). A late rating that completes the buyer's ratings, or a pickup or drop-off photo, re-evaluates the order once within 14 days. Every event read leaves the stamps out (`QueryEventsAsync` filters them before its cap), so no existing read changes. Not scored yet: the listing kept current and the drop-off code made ready (TASK FUP-560). As built, reputation-stream has none of the tables the stamp reads, so nothing is stamped on a deployed stack until TASK FUP-550 |
 | 1.8.1 | 2026-11-13 | Doc fix (ESC-36): `DELIVERY_OVERDUE` comes from T8 behind `dropoffClassification`, not `pickupClassification` (section 11). No wire change |
 | 1.8.0 | 2026-11-12 | FUP-162 (server, no wire change): the rows without `ratingsAggregatedAt` that section 2 "As built" describes get stamped: the order-cron `reputation_backfill_ratings` also Scans the users table once for the farmers and truckers without a `woreda` (resumable with `scanFrom`), and a rating for an unstamped ratee stamps their aggregate after the create (`rating-api.md` 1.5.0). The reads of sections 2 and 3 stay read-only. |
 | 1.7.0 | 2026-11-12 | FUP-160 BUILT (server, no endpoint or field change): the one-off stamp of the owner fields of section 7 on rows created before `reputationPenalties` went on, the order-cron action `reputation_stamp_owner_copies` (owners from the active partitions of the crop and trip status indexes, so owners without a `woreda` too; the reputation as read; behind `reputationPenalties`; a `startAt` cursor; a rerun writes nothing). Run it before `reputationPublicTags` goes on (architecture doc 12.1 step 6, 12.3). |
@@ -1120,5 +1240,5 @@ platform pair).
 
 ---
 
-**Last Updated**: 2026-11-12
-**Version**: 1.6.0
+**Last Updated**: 2026-11-27
+**Version**: 1.9.0
