@@ -137,12 +137,15 @@ bool isFraudAccountHeldMessage(String? message) =>
 /// Whether a /sync per-operation error message is a permanent order
 /// rejection whose local change the client must undo: every `ORDER_*` code
 /// except `ORDER_KYC_REQUIRED`, which keeps its own revert and Fayda prompt
-/// (specs/contracts/sync-protocol.md 1.10.0). Replaying the same payload gets
-/// the same answer, so these are never retried.
+/// (specs/contracts/sync-protocol.md 1.10.0), and the refusals of an order
+/// create for the buyer's profile ([isOrderProfileRefusalMessage], 1.73.0),
+/// which a retry can pass. Replaying the same payload gets the same answer,
+/// so these are never retried.
 bool isRevertableRejectionMessage(String? message) =>
     message != null &&
     message.startsWith('ORDER_') &&
-    !isKycRequiredMessage(message);
+    !isKycRequiredMessage(message) &&
+    !isOrderProfileRefusalMessage(message);
 
 /// Sync rejection prefix when the buyer cancels an accepted order before its
 /// pickup deadline passed, or after the crops were picked up (ESC-06,
@@ -652,12 +655,39 @@ bool isUnretryableFraudSignalMessage(String? message) =>
             message.contains(_immutableFieldText)));
 
 /// What a server before sync-protocol.md 1.72.0 sent under `CROP_VALIDATION`
-/// and `TRIP_VALIDATION` when the owner's profile could not be read or had no
-/// name. A retry can pass both, so they keep retrying.
+/// and `TRIP_VALIDATION`, and one before 1.73.0 under `ORDER_VALIDATION` and
+/// `DELIVERY_VALIDATION`, when a profile could not be read or had no name: the
+/// owner's or buyer's (`Your profile could not be read. ...`, `Add your name
+/// to your profile before ...`) or a delivery party's (`The farmer profile
+/// could not be read. ...`, `The farmer has no name on their profile. ...`).
+/// A retry can pass all of them, so they keep retrying.
 const List<String> _oldServerProfileTexts = [
   'profile could not be read',
   'Add your name to your profile',
+  'has no name on their profile',
 ];
+
+/// Sync rejection prefix when an order create's buyer profile cannot be read
+/// (FUP-553, sync-protocol.md 1.73.0). Nothing was written; a retry can pass.
+const String orderProfileUnavailableCode = 'ORDER_PROFILE_UNAVAILABLE';
+
+/// Sync rejection prefix when an order create's buyer has no name on their
+/// profile (FUP-553, sync-protocol.md 1.73.0). Nothing was written; the same
+/// order passes once the buyer adds a name.
+const String orderProfileIncompleteCode = 'ORDER_PROFILE_INCOMPLETE';
+
+/// Whether a /sync per-operation error message refuses an order create for
+/// the buyer's profile (FUP-553, sync-protocol.md 1.73.0):
+/// [orderProfileUnavailableCode], [orderProfileIncompleteCode], or the same
+/// texts under `ORDER_VALIDATION` from an older server
+/// ([_oldServerProfileTexts]). The only `ORDER_*` refusals that are retried
+/// besides `ORDER_KYC_REQUIRED`: the local order is kept and sent again.
+bool isOrderProfileRefusalMessage(String? message) =>
+    message != null &&
+    (message.startsWith(orderProfileUnavailableCode) ||
+        message.startsWith(orderProfileIncompleteCode) ||
+        (message.startsWith('ORDER_VALIDATION:') &&
+            _oldServerProfileTexts.any(message.contains)));
 
 /// Whether a /sync per-operation error message refuses a crop listing or trip
 /// for its contents (FUP-74, sync-protocol.md 1.72.0): any `CROP_VALIDATION`
@@ -670,6 +700,20 @@ bool isListingValidationMessage(String? message) =>
     message != null &&
     (message.startsWith('CROP_VALIDATION:') ||
         message.startsWith('TRIP_VALIDATION:')) &&
+    !_oldServerProfileTexts.any(message.contains);
+
+/// Whether a /sync per-operation error message refuses a delivery change for
+/// its contents (FUP-553, sync-protocol.md 1.73.0): any `DELIVERY_VALIDATION`.
+/// Since the server sends `DELIVERY_PROFILE_UNAVAILABLE` and
+/// `DELIVERY_PROFILE_INCOMPLETE` for a party's profile, the code judges only
+/// the operation and the rows it names (an order no longer accepted, a
+/// listing deleted, a slot another delivery holds, none of which come back),
+/// so the same one always gets the same answer: permanent, not reverted, as
+/// [isListingValidationMessage]. The profile texts of an older server
+/// ([_oldServerProfileTexts]) are not among them.
+bool isDeliveryValidationMessage(String? message) =>
+    message != null &&
+    message.startsWith('DELIVERY_VALIDATION:') &&
     !_oldServerProfileTexts.any(message.contains);
 
 /// Whether a /sync per-operation error message refuses a profile edit for its
