@@ -25,6 +25,11 @@ namespace WeredaConnect.Server.Functions;
 ///
 /// Raw <see cref="Stream"/> in and out, parsed with <see cref="JsonDocument"/> (AOT), like the
 /// other stream consumers.
+///
+/// GCR-03 (reputation-api.md 1.9.0 section 1.8): every order reaches <c>settled</c> through this stream (only the
+/// money mirror writes it, for every settle path), so the conduct stamp of a settled order is written here, once per
+/// settle record, before the penalty derivation and whatever its flag: not flagged, best effort
+/// (<see cref="ConductStampService.TryStampAsync"/> never throws), never parked and never a batch item failure.
 /// </summary>
 public class ReputationStreamFunction
 {
@@ -38,11 +43,17 @@ public class ReputationStreamFunction
     private readonly IAmazonSQS? _sqs;
     private readonly string? _parkedQueueUrl;
     private readonly bool _penaltiesEnabled;
+    private readonly ConductStampService? _conduct;
 
-    /// <summary>Default constructor for the Lambda runtime. With the flag off nothing is built.</summary>
+    /// <summary>
+    /// Default constructor for the Lambda runtime. With the flag off only the conduct stamp is built (GCR-03; null
+    /// on a stack without its tables).
+    /// </summary>
     public ReputationStreamFunction()
     {
         _penaltiesEnabled = ReputationFlags.PenaltiesEnabled;
+        var dynamoDb = new AmazonDynamoDBClient();
+        _conduct = ConductStampService.FromEnvironment(dynamoDb);
         if (!_penaltiesEnabled)
         {
             return;
@@ -56,7 +67,6 @@ public class ReputationStreamFunction
                                 ?? throw new InvalidOperationException("DEVICE_TOKENS_TABLE is not set.");
         var fraudSignalsTable = Environment.GetEnvironmentVariable("FRAUD_SIGNALS_TABLE");
 
-        var dynamoDb = new AmazonDynamoDBClient();
         var settings = ReputationPolicySettings.LoadForContainer(line => LambdaLogger.Log(line));
         var fraud = string.IsNullOrEmpty(fraudSignalsTable)
             ? null
@@ -80,12 +90,14 @@ public class ReputationStreamFunction
 
     /// <summary>Constructor for testing.</summary>
     public ReputationStreamFunction(
-        ReputationRecordProcessor? processor, IAmazonSQS? sqs, string? parkedQueueUrl, bool penaltiesEnabled)
+        ReputationRecordProcessor? processor, IAmazonSQS? sqs, string? parkedQueueUrl, bool penaltiesEnabled,
+        ConductStampService? conduct = null)
     {
         _processor = processor;
         _sqs = sqs;
         _parkedQueueUrl = parkedQueueUrl;
         _penaltiesEnabled = penaltiesEnabled;
+        _conduct = conduct;
     }
 
     /// <summary>Lambda entry point: <see cref="ProcessBatchAsync"/> as the partial-batch response.</summary>
@@ -103,7 +115,8 @@ public class ReputationStreamFunction
     public async Task<StreamBatchResponse> ProcessBatchAsync(Stream input, ILambdaContext context)
     {
         var failures = new List<StreamBatchItemFailure>();
-        if (!_penaltiesEnabled || _processor == null)
+        var penalties = _penaltiesEnabled && _processor != null;
+        if (!penalties && _conduct == null)
         {
             if (!_disabledLogged)
             {
@@ -122,10 +135,20 @@ public class ReputationStreamFunction
 
         foreach (var record in records.EnumerateArray())
         {
+            if (_conduct != null && SettledOrder(record) is { } settled)
+            {
+                await _conduct.TryStampAsync(settled, context.Logger);
+            }
+
+            if (!penalties)
+            {
+                continue;
+            }
+
             var sequence = SequenceOf(record);
             try
             {
-                await _processor.HandleRecordAsync(record, context.Logger);
+                await _processor!.HandleRecordAsync(record, context.Logger);
             }
             catch (Exception ex)
             {
@@ -174,6 +197,29 @@ public class ReputationStreamFunction
             context.Logger.LogError($"{ParkFailedToken} reason=send [{ex.GetType().Name}]");
             return false;
         }
+    }
+
+    /// <summary>
+    /// GCR-03: the order a <c>MODIFY</c> record settles (the new image <c>settled</c>, the old one not, as rule R13
+    /// reads it), from the record's full new image; null for any other record. A parked record is never stamped:
+    /// its projected images lack what the stamp reads, and its live pass already stamped it.
+    /// </summary>
+    internal static ConductOrder? SettledOrder(JsonElement record)
+    {
+        if (!record.TryGetProperty("eventName", out var eventName) || eventName.GetString() != "MODIFY"
+            || !record.TryGetProperty("dynamodb", out var dynamodb) || dynamodb.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var oldImage = new StreamImage(dynamodb.TryGetProperty("OldImage", out var o) ? o : null);
+        var newImage = new StreamImage(dynamodb.TryGetProperty("NewImage", out var n) ? n : null);
+        if (!oldImage.Exists || !newImage.Exists || newImage.String("status") != "settled" || oldImage.String("status") == "settled")
+        {
+            return null;
+        }
+
+        return ConductOrder.FromImage(newImage, OrderNotifyStreamFunction.RecordTimeOf(dynamodb));
     }
 
     private static string SequenceOf(JsonElement record)
