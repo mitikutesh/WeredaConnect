@@ -6295,6 +6295,30 @@ class AppLocalizationsOm extends AppLocalizations {
       'Qabxii adabbii qabdu. Bitattoonni hanga ammaatti homaa hin argan. Bal\'inaaf \"Amanamummaa koo\" banaa.';
 
   @override
+  String get notifAppealExcusedTitle => 'Qabxiin adabbii haqameera';
+
+  @override
+  String notifAppealExcusedBody(String event) {
+    return '$event. Gareen keenya qabxii haqeera.';
+  }
+
+  @override
+  String get notifAppealUpheldTitle => 'Qabxiin adabbii ni tura';
+
+  @override
+  String notifAppealUpheldBody(String event) {
+    return '$event. Gareen keenya sakatta\'ee qabxii tursiiseera.';
+  }
+
+  @override
+  String get notifAppealDecidedTitle => 'Galmeen keessan sakatta\'ameera';
+
+  @override
+  String notifAppealDecidedBody(String event) {
+    return '$event. Murtii garee keenyaa ilaaluuf \"Amanamummaa koo\" banaa.';
+  }
+
+  @override
   String get notifPickupReminderTitle => 'Fudhannaaf mirkaneessaa';
 
   @override

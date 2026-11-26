@@ -10547,6 +10547,42 @@ abstract class AppLocalizations {
   /// **'You have penalty points. Buyers see nothing yet. Open My reputation for the details.'**
   String get notifTierWarningBody;
 
+  /// Inbox title of appeal_decided when an admin excused the record (FUP-195, notifications-api.md 1.8.0). am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Penalty points removed'**
+  String get notifAppealExcusedTitle;
+
+  /// Inbox body of appeal_decided, excused: the record (the event line of My reputation, without a full stop) and that its points no longer count. The admin's note follows it in reputationAppealNote
+  ///
+  /// In en, this message translates to:
+  /// **'{event}. Our team removed the points.'**
+  String notifAppealExcusedBody(String event);
+
+  /// Inbox title of appeal_decided when an admin upheld the record (an appeal, or a late delivery review)
+  ///
+  /// In en, this message translates to:
+  /// **'The penalty points stay'**
+  String get notifAppealUpheldTitle;
+
+  /// Inbox body of appeal_decided, upheld: the record (the event line of My reputation, without a full stop) and that its points stay. The admin's note follows it in reputationAppealNote
+  ///
+  /// In en, this message translates to:
+  /// **'{event}. Our team reviewed it and kept the points.'**
+  String notifAppealUpheldBody(String event);
+
+  /// Inbox title of appeal_decided with a decision this app version does not know
+  ///
+  /// In en, this message translates to:
+  /// **'Your record was reviewed'**
+  String get notifAppealDecidedTitle;
+
+  /// Inbox body of appeal_decided with a decision this app version does not know: the record and where to read the decision
+  ///
+  /// In en, this message translates to:
+  /// **'{event}. Open My reputation to see our team\'s decision.'**
+  String notifAppealDecidedBody(String event);
+
   /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of pickup_reminder: the pickup check-in closes soon and the reader has not checked in
   ///
   /// In en, this message translates to:
