@@ -1,7 +1,7 @@
 # Escrow Protocol Contract (Telebirr Integration)
 
 ## Version
-2.30.0
+2.31.0
 
 ## Parties
 - **Mobile** (client) -- initiates payment intents, displays escrow status, submits disputes
@@ -3772,6 +3772,20 @@ status partition (`pending`, the default, or `reviewed`; anything else is `400 A
 per call, never a Scan (`fraud-detection-architecture.md` section 19). `GET /admin/disputes` and
 `GET /admin/escrows?status=..` still read as described above.
 
+Since 2.31.0 (FUP-80) `GET /admin/disputes` and `GET /admin/escrows?status=..` no longer scan either:
+each is a Query of one status partition (`disputed` for the Disputes list) of the escrows'
+`StatusExpiresIndex` (partition `status`, sort `expiresAt`, projection all), the index the settlement
+sweeps already read. Every escrow is written with `status` and `expiresAt`, so the index holds them all.
+A page is at most `limit` rows (default 20; a `limit` outside 1 to 100 reads 20), oldest `expiresAt` first, and its `nextToken`
+is the index key of its last row, so the next page starts right after it: no row is skipped or
+repeated, and a full last page is followed by an empty one without a token. A token that does not
+decode, or whose key belongs to another status or to the table (a token of the unfiltered list, or
+one handed out before 2.31.0), is `400 ADMIN_005` (`field: nextToken`); the admin app starts the list
+again on a reload. `GET /admin/escrows` without a status still reads one Scan page, and
+`GET /admin/transactions?status=..` now reads that status partition of the orders'
+`StatusCreatedAtIndex`, newest first, instead of the whole table (the search stays a filter; the
+answer is unchanged). No index was added.
+
 ### Roles and clients
 Admin only. Farmer, trucker and buyer see the result through their usual pulls: the order at
 `dispute_resolved`, the delivery at `cancelled` (with `cancelReason`) or `disputed`. Both statuses were
@@ -6584,6 +6598,7 @@ refusal of 1.9.0 ends with P.8. 1.x escrows keep all of them until they are sett
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.31.0 | 2026-11-27 | Status-filtered admin lists on existing indexes (FUP-80, the 1.21.0 Admin section): `GET /admin/disputes` and `GET /admin/escrows?status=..` are a Query of that status partition of `StatusExpiresIndex`, oldest `expiresAt` first, one page of `limit` rows whose `nextToken` is the last row's index key; a token of another status or of the table (one handed out before this version) is `400 ADMIN_005`. `GET /admin/transactions?status=..` reads that partition of the orders' `StatusCreatedAtIndex` instead of a Scan. No new index, no infra change, no party read changes. The admin app shows the escrow detail status and the from and to states of the timeline, the escrow audit trail and the audit log by their labels, and the audit log search matches the labels too. |
 | 2.30.0 | 2026-11-26 | Handoff evidence on the dispute evidence read (FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0). Each handoff of `GET /admin/disputes/{escrowId}/evidence` adds `gpsStatus`, `gpsCapturedAt`, `gpsAccuracyM` and `platform` from the delivery's server-only stamps; `capturedAt` is also the drop-off's and the self-pickup's phone time (`dropoffCapturedAt`); `method` comes from the delivery's `pickupMethod` or `dropoffMethod`, else the audit metadata as before. The dispute stamp's `pickupMethod` and `confirmMethod` take the delivery's method first too. The admin dispute page names the cause of a missing fix (en, am, om), an approximate fix, the fix's time and accuracy, the app, and a handoff made offline and sent later. Admin only; no party read changes. 2.29.0 belongs to a change in flight. |
 | 2.29.0 | 2026-11-26 | Doc only: the order's `commissionRate` is the SSM rate at create unless an admin agreed another rate before payment (`order-lifecycle.md` 2.26.0, `POST /admin/orders/{orderId}/commission`); the order escrow's split is unchanged (the commission is the remainder of the new `orderTotal`). No escrow wire change |
 | 2.28.0 | 2026-11-19 | Persona simulation BUG-8 and BUG-6 (fraud spec 3.44.0 Rule 7). A buyer's `not_delivered` dispute while the delivery is `pickedUp` or `inTransit` before its deadline (T8, else `pickedUpAt` + 72h) is refused with `422 ESCROW_INVALID_TRANSITION` ("The goods are still on the way. ..."); other reasons, the farmer and later disputes unchanged (§Not delivered while on the road). A new dispute stamps the server-only `disputeHandoffEvidence` (how and by whom each leg was confirmed, GPS fix sent, `confirmedByDisputer`), returned as `DisputeDto.handoffEvidence` on admin routes only (§Handoff evidence on a dispute). Clients: mobile and web show `escrowErrorDisputeGoodsOnTheWay`; released apps show the shared invalid transition text. |
