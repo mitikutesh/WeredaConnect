@@ -694,7 +694,7 @@ describe("DisputeDetailPage evidence (FRD-14)", () => {
     expect(within(panel).getByRole("heading", { name: "Handoffs" })).toBeTruthy();
     expect(within(panel).getByText("Pickup")).toBeTruthy();
     expect(within(panel).getByText("QR scanned by Trucker · Dawit")).toBeTruthy();
-    expect(within(panel).getByText(`Scanned on the phone at ${formatDateTime("2026-10-27T05:04:40Z")}`)).toBeTruthy();
+    expect(within(panel).getByText(`Done on the phone at ${formatDateTime("2026-10-27T05:04:40Z")}`)).toBeTruthy();
     expect(within(panel).getByText("8.15040, 38.81960")).toBeTruthy();
     expect(within(panel).getByText("0.4 km from the listing")).toBeTruthy();
     expect(within(panel).getByText("Drop-off")).toBeTruthy();
@@ -719,6 +719,88 @@ describe("DisputeDetailPage evidence (FRD-14)", () => {
     await user.click(screen.getByRole("tab", { name: "Trip trail" }));
     await user.click(screen.getByRole("tab", { name: "Timeline" }));
     expect(screen.getByText("No handoff yet: the goods were not picked up.")).toBeTruthy();
+  });
+
+  /* FUP-440, GCR-02: the evidence the server stamped on each leg. */
+  it("the Timeline tab names why a handoff had no fix, an approximate fix, its time and accuracy, a late send and the app", async () => {
+    const [pickup, dropoff] = evidence().handoffs;
+    mocks.evidence.data = {
+      ...evidence(),
+      handoffs: [
+        {
+          ...pickup,
+          gpsStatus: "approximate",
+          gpsCapturedAt: "2026-10-27T05:04:30Z",
+          gpsAccuracyM: 1799.6,
+          platform: "android",
+        },
+        // The drop-off confirmed offline at 06:00 and received at 08:00, without a fix: location was off.
+        { ...dropoff, gps: undefined, distanceKm: undefined, gpsStatus: "services_off", capturedAt: "2026-10-27T06:00:00Z", platform: "web" },
+      ],
+    };
+    await openTab("Timeline");
+
+    const panel = screen.getByRole("tabpanel");
+    const [pickupItem, dropoffItem] = within(panel).getAllByRole("listitem");
+    expect(within(pickupItem).getByText("Approximate location only")).toBeTruthy();
+    expect(
+      within(pickupItem).getByText(
+        `Fix taken on the phone at ${formatDateTime("2026-10-27T05:04:30Z")} · Accurate to about 1800 m`,
+      ),
+    ).toBeTruthy();
+    expect(within(pickupItem).getByText("Android app")).toBeTruthy();
+    // Scanned 20 seconds before the server got it: not late.
+    expect(within(pickupItem).queryByText("Made offline, sent later")).toBeNull();
+
+    expect(within(dropoffItem).getByText("No GPS fix: location was off on the phone")).toBeTruthy();
+    expect(within(dropoffItem).queryByText("No GPS fix at the handoff")).toBeNull();
+    expect(within(dropoffItem).getByText(`Done on the phone at ${formatDateTime("2026-10-27T06:00:00Z")}`)).toBeTruthy();
+    expect(within(dropoffItem).getByText("Made offline, sent later")).toBeTruthy();
+    expect(within(dropoffItem).getByText("Web app")).toBeTruthy();
+  });
+
+  it("each cause of a missing fix has its own words, and an unknown status keeps the old line", async () => {
+    const causes: Record<string, string> = {
+      denied: "No GPS fix: location permission was refused",
+      denied_forever: "No GPS fix: location permission is blocked for good",
+      timeout: "No GPS fix: no signal in time",
+      gps_off: "No GPS fix at the handoff",
+    };
+    mocks.evidence.data = {
+      ...evidence(),
+      handoffs: Object.keys(causes).map((gpsStatus) => ({ leg: "self_pickup", at: "2026-10-27T08:00:00Z", gpsStatus })),
+    };
+    await openTab("Timeline");
+
+    const items = within(screen.getByRole("tabpanel")).getAllByRole("listitem");
+    Object.values(causes).forEach((text, i) => expect(within(items[i]).getByText(text)).toBeTruthy());
+    expect(screen.queryByText("Made offline, sent later")).toBeNull();
+  });
+
+  it("a stamped leg without a fix names the cause from the evidence read", () => {
+    const [pickup, dropoff] = evidence().handoffs;
+    mocks.evidence.data = {
+      ...evidence(),
+      handoffs: [{ ...pickup, gps: undefined, gpsStatus: "denied_forever" }, dropoff],
+    };
+    mocks.escrow.data = stampedEscrow({
+      deliveryId: "del-101",
+      deliveryStatus: "delivered",
+      selfPickup: false,
+      pickedUpAt: "2026-10-27T05:05:00Z",
+      pickupMethod: "qr",
+      pickupBy: "trucker-1",
+      pickupFix: false,
+      confirmedAt: "2026-10-27T08:00:00Z",
+      confirmMethod: "code",
+      confirmedBy: "buyer-1",
+      dropoffFix: true,
+    });
+    renderPage();
+
+    expect(screen.getByText("No GPS fix: location permission is blocked for good")).toBeTruthy();
+    expect(screen.queryByText("No GPS fix at the handoff")).toBeNull();
+    expect(screen.getByText("GPS fix sent")).toBeTruthy();
   });
 
   it("the Photos tab shows the pickup photo full size on click and says the drop-off photo is missing", async () => {
