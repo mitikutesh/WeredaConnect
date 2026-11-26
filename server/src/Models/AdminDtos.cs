@@ -180,6 +180,14 @@ public sealed record FraudSignalDto
     public string? OrderId { get; init; }
 
     /// <summary>
+    /// FUP-202: on a row written onto a user other than the one whose request caused it (ESC-33,
+    /// fraud-detection-architecture.md section 14.3: the <c>GPS_ANOMALY</c> row on a delivery's trucker), the user
+    /// whose request did (the buyer whose confirm caused it). Null on every other row. Admin only: no party-facing
+    /// API returns a signal row.
+    /// </summary>
+    public string? SourceUserId { get; init; }
+
+    /// <summary>
     /// FRD-19: on an <c>AI_ADVISORY</c> row, the AI reviewer's concern (<c>none</c>, <c>low</c>, <c>medium</c> or
     /// <c>high</c>). Its explanation is the <see cref="Description"/>. Advice only (fraud-detection-architecture.md
     /// section 21): its weight is capped and never counts toward CRITICAL.
