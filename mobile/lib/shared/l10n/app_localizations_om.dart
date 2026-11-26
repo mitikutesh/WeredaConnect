@@ -3483,6 +3483,19 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get finishDeletingTitle => 'Haquun herrega keessanii haa xumuramu?';
+
+  @override
+  String get finishDeletingBody =>
+      'Herrega kana haquu jalqabdaniittu, garuu haquun ammallee hin xumuramne. Hanga xumuramutti, appiin jijjiirama keessan olkaa\'uu hin danda\'u.';
+
+  @override
+  String get finishDeletingButton => 'Haquu xumuri';
+
+  @override
+  String get finishDeletingLater => 'Amma miti';
+
+  @override
   String get deletedUser => 'Fayyadamaa haqame';
 
   @override
