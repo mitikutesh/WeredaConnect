@@ -403,10 +403,6 @@ public static class NotificationRules
     }
 
     /// <summary>
-    /// The cron's markers: a reminder 6 hours before a party's answer is due, and the pickup that
-    /// did not happen by <c>pickupDeadlineAt</c>. Each fires once, when the attribute appears.
-    /// </summary>
-    /// <summary>
     /// Order-lifecycle 2.26.0: an admin agreed another commission on an unpaid order (the status stays). Only the
     /// buyer is told, since only the buyer's total moves: the farmer's crop cost and the trucker's transport cost stay.
     /// The order create writes the rate once and the sync strips it from clients, so a rate that moved on an unpaid
@@ -427,6 +423,10 @@ public static class NotificationRules
             (NotificationParams.OrderTotalBefore, Money(old.Number("orderTotal")))));
     }
 
+    /// <summary>
+    /// The cron's markers: a reminder 6 hours before a party's answer is due, and the pickup that
+    /// did not happen by <c>pickupDeadlineAt</c>. Each fires once, when the attribute appears.
+    /// </summary>
     private static void OrderMarkers(EventSet events, StreamImage old, StreamImage row)
     {
         if (Appeared(old, row, FarmerReminderAtField))
