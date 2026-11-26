@@ -229,6 +229,158 @@ public sealed class EscrowFunctionOldAppStatusTests
         await _escrowRepo.Received(1).QueryByBuyerAsync(BuyerId, "held", 50, null);
     }
 
+    /// <summary>Each party and build, with the filter an app sends and the rows it must list (in page order).</summary>
+    public static TheoryData<string, string, string?, string, string[]> FilteredReads()
+    {
+        var data = new TheoryData<string, string, string?, string, string[]>();
+        foreach (var (userId, role) in Parties)
+        {
+            foreach (var build in new string?[] { null, "1" })
+            {
+                data.Add(userId, role, build, "escrowed", ["e-held", "e-escrowed"]);
+                data.Add(userId, role, build, "disputed", ["e-verdict", "e-disputed"]);
+            }
+
+            data.Add(userId, role, "2", "escrowed", ["e-escrowed"]);
+            data.Add(userId, role, "2", "disputed", ["e-disputed"]);
+        }
+
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(FilteredReads))]
+    public async Task History_OldAppsFilter_ListsTheRowsShownUnderThatStatus(
+        string userId, string role, string? build, string filter, string[] expected)
+    {
+        // FUP-108: an old app's escrowed chip lists held rows and its disputed chip dispute_resolved rows, as
+        // its unfiltered list shows them. The page is read unfiltered with the same limit and cursor, and the
+        // next page's cursor is the query's, so the pages are those the stored filter would give.
+        var rows = new List<Dictionary<string, object>>
+        {
+            Row("held", "e-held"), Row("dispute_resolved", "e-verdict"), Row("escrowed", "e-escrowed"),
+            Row("disputed", "e-disputed"), Row("released", "e-released")
+        };
+        var cursor = new Dictionary<string, AttributeValue> { { "escrowId", new AttributeValue { S = "e-released" } } };
+        foreach (var status in new string?[] { null, "escrowed", "disputed" })
+        {
+            var page = (rows.Where(r => status == null || (string)r["status"] == status).ToList(),
+                (Dictionary<string, AttributeValue>?)cursor);
+            _escrowRepo.QueryByBuyerAsync(BuyerId, status, 20, null).Returns(page);
+            _escrowRepo.QueryByFarmerAsync(FarmerId, status, 20, null).Returns(page);
+            _escrowRepo.QueryByTruckerAsync(TruckerId, status, 20, null).Returns(page);
+        }
+
+        var request = Request("GET", "/escrow/history", userId, role, build);
+        request.QueryStringParameters = new Dictionary<string, string> { { "status", filter } };
+
+        var response = await Function().FunctionHandler(request, _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        using var doc = JsonDocument.Parse(response.Body);
+        var listed = doc.RootElement.GetProperty("escrows").EnumerateArray().ToList();
+        listed.Select(e => e.GetProperty("escrowId").GetString()).Should().Equal(expected);
+        var oldApp = build != "2";
+        listed.Select(e => e.GetProperty("status").GetString()).Should().AllBe(filter,
+            oldApp ? "an old app reads each row as the status it filtered by" : "the stored value");
+        doc.RootElement.GetProperty("hasMore").GetBoolean().Should().BeTrue();
+        doc.RootElement.GetProperty("total").GetInt32().Should().Be(expected.Length);
+
+        var queried = oldApp ? null : filter;
+        switch (role)
+        {
+            case "buyer":
+                await _escrowRepo.Received(1).QueryByBuyerAsync(BuyerId, queried, 20, null);
+                break;
+            case "farmer":
+                await _escrowRepo.Received(1).QueryByFarmerAsync(FarmerId, queried, 20, null);
+                break;
+            default:
+                await _escrowRepo.Received(1).QueryByTruckerAsync(TruckerId, queried, 20, null);
+                break;
+        }
+
+        NothingWritten(rows[0], "held");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("1")]
+    public async Task History_OldAppsFilter_ByAStatusNoOtherIsShownAs_StaysTheQueryFilter(string? build)
+    {
+        _escrowRepo.QueryByFarmerAsync(FarmerId, "released", 20, null)
+            .Returns((new List<Dictionary<string, object>> { Row("released") }, (Dictionary<string, AttributeValue>?)null));
+        var request = Request("GET", "/escrow/history", FarmerId, "farmer", build);
+        request.QueryStringParameters = new Dictionary<string, string> { { "status", "released" } };
+
+        var response = await Function().FunctionHandler(request, _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        response.Body.Should().Contain("\"status\":\"released\"");
+        await _escrowRepo.Received(1).QueryByFarmerAsync(FarmerId, "released", 20, null);
+    }
+
+    [Theory]
+    [InlineData(null, "escrowed", new[] { "escrowed", "held" })]
+    [InlineData(null, "disputed", new[] { "disputed", "dispute_resolved" })]
+    [InlineData(null, "released", null)]
+    [InlineData(null, "held", null)]
+    [InlineData(null, "", null)]
+    [InlineData("2", "escrowed", null)]
+    [InlineData("2", "disputed", null)]
+    public void HistoryFilterStatuses_AreTheStoredStatusesShownAsTheFilter(string? build, string filter, string[]? expected)
+    {
+        var request = new APIGatewayProxyRequest
+        {
+            Headers = build == null ? null : new Dictionary<string, string> { { "X-App-Build", build } }
+        };
+
+        var statuses = EscrowStatusCompat.HistoryFilterStatuses(filter, request);
+
+        if (expected == null)
+        {
+            statuses.Should().BeNull();
+            return;
+        }
+
+        statuses.Should().Equal(expected);
+        statuses!.Should().OnlyContain(stored => EscrowStatusCompat.ForOldApp(stored) == filter);
+    }
+
+    [Theory]
+    [InlineData(null, "escrowed", "disputed")]
+    [InlineData("1", "escrowed", "disputed")]
+    [InlineData("2", "held", "dispute_resolved")]
+    public void DeletionBlockers_EscrowStatusIsShownAsTheAppReadsIt_OtherBlockersUnchanged(
+        string? build, string expectedHeld, string expectedVerdict)
+    {
+        // FUP-108: the 409 ACCOUNT_002 names each blocking escrow's status; an old app gets it as FUP-61 shows it.
+        var request = new APIGatewayProxyRequest
+        {
+            Headers = build == null ? null : new Dictionary<string, string> { { "X-App-Build", build } }
+        };
+        var blockers = new[]
+        {
+            Blocker(AccountDeletionPolicy.BlockerEscrow, "e-held", "held", "farmer"),
+            Blocker(AccountDeletionPolicy.BlockerEscrow, "e-verdict", "dispute_resolved", "buyer"),
+            Blocker(AccountDeletionPolicy.BlockerEscrow, "e-released", "released", "farmer"),
+            Blocker(AccountDeletionPolicy.BlockerEscrow, "e-trucker", "completed", "trucker"),
+            Blocker(AccountDeletionPolicy.BlockerDispute, "e-disputed", "disputed", "buyer"),
+            Blocker(AccountDeletionPolicy.BlockerOrder, "order-1", "funded", "buyer"),
+            Blocker(AccountDeletionPolicy.BlockerPaymentReview, "order-2", "order_payment_unmatched", "buyer")
+        };
+
+        var shown = EscrowStatusCompat.ForCaller(blockers, request);
+
+        shown.Select(b => b.Status).Should().Equal(
+            expectedHeld, expectedVerdict, "released", "completed", "disputed", "funded", "order_payment_unmatched");
+        shown.Select(b => (b.Type, b.Id, b.Role)).Should().Equal(blockers.Select(b => (b.Type, b.Id, b.Role)));
+        blockers[0].Status.Should().Be("held", "the stored blocker list is not changed");
+    }
+
+    private static AccountDeletionBlocker Blocker(string type, string id, string status, string role)
+        => new() { Type = type, Id = id, Status = status, Role = role };
+
     /// <summary>What a shipped app really sends: headers, none of them X-App-Build.</summary>
     [Theory]
     [InlineData(BuyerId, "buyer")]
