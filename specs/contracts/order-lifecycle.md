@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.26.0
+2.27.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -167,7 +167,9 @@ quintals out of it, so stock held by funded and later orders is never part of `q
 
 ## Order Create Validation (server-enforced, 1.2.0)
 
-`POST /sync` with `entityType: order`, `action: create` is bound to the server's own listing and trip records; the client's copy is checked, never trusted (SIM-05). Every failure is `ORDER_VALIDATION` (except `TRIP_CAPACITY_EXCEEDED`, 2.0.0, and `ORDER_TRIP_NOT_ELIGIBLE`, 2.3.0) and nothing is written. Client-sent money fields (`cropCost`, `commissionRate`, `commissionAmount`, `orderTotal`) are stripped before validation.
+`POST /sync` with `entityType: order`, `action: create` is bound to the server's own listing and trip records; the client's copy is checked, never trusted (SIM-05). Every failure is `ORDER_VALIDATION` (except `TRIP_CAPACITY_EXCEEDED`, 2.0.0, `ORDER_TRIP_NOT_ELIGIBLE`, 2.3.0, and the buyer profile codes below, 2.27.0) and nothing is written.
+
+Before the listing and trip reads, `buyerName` is stamped from the buyer's profile (display name, else the Fayda legal name; FUP-99), never kept from the client, and `dropoffPlace` from the same read (2.2.0). A profile that cannot be read (no users row, or no users table configured) is refused `ORDER_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.`, one with neither name `ORDER_PROFILE_INCOMPLETE: Add your name to your profile before placing an order.` (2.27.0, FUP-553; both were `ORDER_VALIDATION`). A retry can pass both, so clients retry them and keep the local order, unlike every other `ORDER_*` refusal (`sync-protocol.md` 1.73.0). Client-sent money fields (`cropCost`, `commissionRate`, `commissionAmount`, `orderTotal`) are stripped before validation.
 
 | Rule | Rejection message |
 |---|---|
@@ -467,7 +469,8 @@ caller's, read once per `/sync` batch; a score that could not be read is LOW at 
 ## Refused order changes (1.11.0, ESC-12 part A)
 
 Every `ORDER_*` error the server returns for an order operation, except
-`ORDER_KYC_REQUIRED`, is permanent: the same command gets the same answer. That
+`ORDER_KYC_REQUIRED` and, since 2.27.0, `ORDER_PROFILE_UNAVAILABLE` and `ORDER_PROFILE_INCOMPLETE`
+(Order Create Validation), is permanent: the same command gets the same answer. That
 includes the transition refusals above (`ORDER_VALIDATION`, `ORDER_UNAUTHORIZED`), the
 held-escrow refusal of an accept, the live payment range check and the live payment method
 refusal (`ORDER_PAYMENT_METHOD_UNAVAILABLE`, 1.19.0), and since 2.0.0 the commitment refusals
@@ -1194,6 +1197,7 @@ confirm step naming the old and the new total.
 
 ## Changelog
 
+- **2.27.0 (2026-11-27)**: Buyer profile refusals of an order create (FUP-553, `sync-protocol.md` 1.73.0): a create whose buyer profile cannot be read answers `ORDER_PROFILE_UNAVAILABLE`, one whose profile has no name `ORDER_PROFILE_INCOMPLETE`, with the same sentences (both were `ORDER_VALIDATION`). The mobile queue retries both and keeps the local order (before, the order was removed); web shows them as a failure. Nothing else changes. Also client only (FUP-552): on web a farmer's cancel of an order they accepted, or a trucker's drop-out, answered `AUTH_040` opens the password prompt in neutral words and is sent once more after it.
 - **2.26.0 (2026-11-26)**: Admin commission change (section above, `notifications-api.md` 1.7.0): the commission is negotiable per order. `POST /admin/orders/{orderId}/commission` (`admin` group, `commissionRate` 0 to 0.20 with at most 4 decimals, `reason` 10 to 500, `expectedVersion`) sets another rate on a `created` or `pending_payment` order with no verified or held payment, recomputes `commissionAmount` and `orderTotal` from the unchanged `cropCost` and `transportCost`, stamps the server-only `commissionChange`, writes the `admin_commission_changed` audit row and tells the buyer `order_commission_changed`. Errors `COMMISSION_CHANGE_INVALID`, `COMMISSION_CHANGE_NOT_ALLOWED`, `COMMISSION_CHANGE_CHANGED`. Clients: every commission row shows the order's own rate (no fixed 5 %); the admin transaction page has the form. Also client only: Home's Pending Orders tile counts the orders waiting for the farmer's answer and opens Orders on a "Waiting for you" chip (the Pending chip still means not paid yet), and the old web addresses `/marketplace` and `/listings` redirect to `/find-crops` and `/my-crops`.
 - **2.25.0 (2026-11-19)**: Persona simulation BUG-7 and BUG-8 (fraud spec 3.44.0 Rule 7, `escrow-protocol.md` 2.28.0). An order create on a trip whose `fromWoreda` is neither the listing's `woreda` nor its `locationName` (trimmed, case and inner spaces ignored) is accepted and records the weight 0 review flag `ORDER_ROUTE_MISMATCH` on the buyer. T8 (`dropoffDeadlineAt`, else `pickedUpAt` + `delivery-overdue-hours`) also opens the buyer's `not_delivered` escrow dispute of goods on the road. No wire change.
 - **2.24.2 (2026-11-19)**: Client only, no server change (persona simulation BUG-29): the demo payment screen defaults to Telebirr instead of the bank transfer, and offers the CBE transfer only when a real account number is configured; the placeholder `1000XXXXXXXXXX` is never shown. The reference stays the full order id (SIM-54). `ORDER_PAYMENT_METHOD_UNAVAILABLE` and the stored `cbe_transfer` default of the mobile order create are unchanged.
