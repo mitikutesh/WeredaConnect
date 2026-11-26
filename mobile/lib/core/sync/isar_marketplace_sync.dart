@@ -1164,7 +1164,6 @@ class IsarMarketplaceSync implements MarketplaceSync {
       ..locationName =
           m['locationName'] as String? ?? m['woreda'] as String? ?? ''
       ..description = m['description'] as String? ?? ''
-      ..farmerReliability = (m['farmerReliability'] as num?)?.toDouble()
       ..readOwnerReputation(m)
       ..audioNoteRef = m['audioNoteRef'] as String?
       ..photos = parseCropPhotos(m['photos'])

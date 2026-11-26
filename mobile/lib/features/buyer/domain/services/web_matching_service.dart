@@ -328,7 +328,6 @@ class WebMatchingService extends BaseMatchingService {
       ..locationName =
           m['locationName'] as String? ?? m['woreda'] as String? ?? ''
       ..description = m['description'] as String? ?? ''
-      ..farmerReliability = (m['farmerReliability'] as num?)?.toDouble()
       ..readOwnerReputation(m)
       ..status = ListingStatus.active
       ..createdAt =
