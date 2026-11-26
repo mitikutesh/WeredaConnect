@@ -1178,11 +1178,13 @@ public partial class SyncFunction
                 // ESC-34, ESC-36: with both flags off the entity does not exist (the unsupported answer below).
                 PickupJudgement.EntityType when PickupJudgementOn || DropoffJudgementOn
                     => await ProcessHandoffCheckInAsync(operation, authenticatedUserId, context),
+                // FUP-74 (sync-protocol.md 1.72.0): SYNC_VALIDATION, which every client since March 2026 treats as
+                // permanent, so a build older than FUP-18 stops resending its `cropListing` operation.
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
                     Status = "error",
-                    Message = $"Unsupported entity type: '{operation.EntityType}'."
+                    Message = $"SYNC_VALIDATION: Unsupported entity type: '{operation.EntityType}'."
                 }
             };
 
@@ -2919,7 +2921,7 @@ public partial class SyncFunction
                     // FUP-98: the same profile read gives the woreda the screen below exempts.
                     string? farmerProfileWoreda = null;
                     var cropContactError = await StampOwnerContactAsync(
-                        operation.Data, authenticatedUserId!, "farmerName", "farmerPhone", context,
+                        operation.Data, authenticatedUserId!, "farmerName", "farmerPhone", "CROP", context,
                         owner => farmerProfileWoreda = owner.Woreda);
                     if (cropContactError != null)
                     {
@@ -2927,7 +2929,7 @@ public partial class SyncFunction
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = $"CROP_VALIDATION: {cropContactError}"
+                            Message = cropContactError
                         };
                     }
 
@@ -3445,14 +3447,14 @@ public partial class SyncFunction
                     }
 
                     var tripContactError = await StampOwnerContactAsync(
-                        operation.Data, authenticatedUserId!, "truckerName", "truckerPhone", context);
+                        operation.Data, authenticatedUserId!, "truckerName", "truckerPhone", "TRIP", context);
                     if (tripContactError != null)
                     {
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = $"TRIP_VALIDATION: {tripContactError}"
+                            Message = tripContactError
                         };
                     }
 
@@ -9102,24 +9104,28 @@ public partial class SyncFunction
     /// <summary>
     /// SIM-40: a new listing shows buyers the owner's name and phone, so they come
     /// from the users table, never from the client (a spoofed phone redirected buyers).
-    /// Returns an error message when the profile cannot be read or has no name.
+    /// Returns the refusal message when the profile cannot be read
+    /// (<c>{codePrefix}_PROFILE_UNAVAILABLE</c>) or has no name (<c>{codePrefix}_PROFILE_INCOMPLETE</c>),
+    /// <paramref name="codePrefix"/> being <c>CROP</c> or <c>TRIP</c>. FUP-74 (sync-protocol.md 1.72.0):
+    /// the profile decides these, not the operation, so they are not <c>CROP_VALIDATION</c> or
+    /// <c>TRIP_VALIDATION</c>, which clients treat as permanent.
     /// <paramref name="onProfileRead"/> gets the profile once it is read, so a caller that needs
     /// more of it (FUP-98: the crop create's profile woreda) does not read it again.
     /// </summary>
     private async Task<string?> StampOwnerContactAsync(
-        Dictionary<string, object> data, string ownerId, string nameKey, string phoneKey,
+        Dictionary<string, object> data, string ownerId, string nameKey, string phoneKey, string codePrefix,
         ILambdaContext context, Action<UserDto>? onProfileRead = null)
     {
         if (_userRepo == null)
         {
             context.Logger.LogError($"Cannot stamp {phoneKey}: user repository not configured.");
-            return "Your profile could not be read. Please try again later.";
+            return $"{codePrefix}_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.";
         }
 
         var owner = await _userRepo.GetUserByIdAsync(ownerId);
         if (owner == null)
         {
-            return "Your profile could not be read. Please try again later.";
+            return $"{codePrefix}_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.";
         }
 
         onProfileRead?.Invoke(owner);
@@ -9131,7 +9137,7 @@ public partial class SyncFunction
             : null;
         if (name == null)
         {
-            return "Add your name to your profile before creating a listing.";
+            return $"{codePrefix}_PROFILE_INCOMPLETE: Add your name to your profile before creating a listing.";
         }
 
         data[nameKey] = name.Trim();
