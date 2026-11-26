@@ -811,6 +811,9 @@ public partial class SyncFunction
         // FRD-12: the uploads bucket a delivery_photo attach checks (its S3 client is made on first
         // use). Absent env → attaches are deferred.
         UploadsBucket = Environment.GetEnvironmentVariable("UPLOADS_BUCKET");
+
+        // GCR-03: a late rating or handoff photo re-evaluates the order's conduct stamp once (not flagged).
+        ConductStamps = BuildConductStamps(reputationEventsTable, usersTable, fraudSignalsTable.Length > 0);
     }
 
     /// <summary>
@@ -1882,6 +1885,8 @@ public partial class SyncFunction
             // FUP-162: an unstamped ratee gets their full aggregate first, so the refresh reads it.
             await HealRateeAggregateAsync(rateeId, ratee, rateeRole, context);
             await RefreshRateeReputationAsync(rateeId, context);
+            // GCR-03: a late rating re-evaluates the settled order's conduct stamp once.
+            await ReevaluateConductAfterRatingAsync(order, orderId, rateeId, context);
         }
 
         return createResult.IsSuccess

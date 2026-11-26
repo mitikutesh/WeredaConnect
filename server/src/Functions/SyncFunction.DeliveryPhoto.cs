@@ -288,6 +288,8 @@ public partial class SyncFunction
 
         context.Logger.LogInformation(
             $"DELIVERY_PHOTO attached deliveryId={MoneyAlarmLog.LogId(deliveryId)} type={type} bytes={size} late={late}");
+        // GCR-03: a photo attached after the order settled re-evaluates its conduct stamp once (never throws).
+        await ReevaluateConductAfterPhotoAsync(existing, type, context);
         return new SyncOperationResult
         {
             OperationId = operation.OperationId,

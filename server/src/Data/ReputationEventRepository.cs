@@ -15,8 +15,10 @@ namespace WeredaConnect.Server.Data;
 /// appealedAt) and <c>DueIndex</c> (dueDay, dueAt, keys only). The users row is read for its
 /// account state and written only on the <c>reputation</c> path, never its own
 /// <c>version</c> or <c>updatedAt</c> (user-entity.md 2.0.0 invariant 12).
+/// GCR-03: the same table holds the conduct stamps (<c>HANDOFF#</c>, <see cref="IConductStampRepository"/>,
+/// <c>ReputationEventRepository.Conduct.cs</c>); the event reads here never return them.
 /// </summary>
-public sealed class ReputationEventRepository : IReputationEventRepository
+public sealed partial class ReputationEventRepository : IReputationEventRepository
 {
     public const string DueIndex = "DueIndex";
     public const string AppealStatusIndex = "AppealStatusIndex";
@@ -118,14 +120,7 @@ public sealed class ReputationEventRepository : IReputationEventRepository
     public async Task<(IReadOnlyList<ReputationEvent> Rows, bool Truncated)> QueryEventsAsync(string userId, int cap)
     {
         var rows = new List<ReputationEvent>();
-        var request = new QueryRequest
-        {
-            TableName = _eventsTable,
-            KeyConditionExpression = "userId = :u",
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":u"] = S(userId) },
-            // Strongly consistent so that the users version check covers what was read (6.1).
-            ConsistentRead = true
-        };
+        var request = BuildEventsQuery(userId);
 
         Dictionary<string, AttributeValue>? startKey = null;
         do
@@ -152,6 +147,26 @@ public sealed class ReputationEventRepository : IReputationEventRepository
 
         return (rows, false);
     }
+
+    /// <summary>
+    /// The user's event rows: the whole partition but the GCR-03 conduct stamps, filtered out before the cap
+    /// counts, so a stamp never changes what any reputation read, the policy, the daily job or an admin read
+    /// sees (and never pushes an event past <c>eventsReadCap</c>). Exposed for the request-shape tests.
+    /// </summary>
+    internal QueryRequest BuildEventsQuery(string userId) => new()
+    {
+        TableName = _eventsTable,
+        KeyConditionExpression = "userId = :u",
+        FilterExpression = "attribute_not_exists(#code) OR #code <> :stamp",
+        ExpressionAttributeNames = new Dictionary<string, string> { ["#code"] = "code" },
+        ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+        {
+            [":u"] = S(userId),
+            [":stamp"] = S(ReputationCodes.HandoffQuality)
+        },
+        // Strongly consistent so that the users version check covers what was read (6.1).
+        ConsistentRead = true
+    };
 
     /// <inheritdoc />
     public async Task<ReputationCommitOutcome> CommitAsync(ReputationWrite write)

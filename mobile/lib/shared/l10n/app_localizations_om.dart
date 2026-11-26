@@ -3048,6 +3048,17 @@ class AppLocalizationsOm extends AppLocalizations {
       'Mirkanaa\'eera. Kaffaltii keessan irra deebi\'amaa jira.';
 
   @override
+  String get stepUpOtherMessage =>
+      'Nageenya keessaniif, itti fufuu keessan dura isin ta\'uu keessan mirkaneessaa.';
+
+  @override
+  String get faydaStepUpOtherMessage =>
+      'Itti fufuuf isin ta\'uu keessan Faayidaadhaan mirkaneessaa. Jecha iccitii keessanis gaafatamuu dandeessu.';
+
+  @override
+  String get stepUpDoneRetrying => 'Mirkanaa\'eera. Irra deebi\'amaa jira.';
+
+  @override
   String get faydaStateMismatch =>
       'Yeroon Faayidaa darbeera. Maaloo mirkaneessa irra deebi\'aa jalqabaa.';
 

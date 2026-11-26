@@ -22,7 +22,8 @@ import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 ///
 /// Explains what is deleted and what is kept, asks once to confirm, then
 /// sends the request (online only). Blocking items are listed by type; the
-/// password prompt is the AUTH_040 step-up used for payments. On success the
+/// password prompt is the AUTH_040 step-up used for payments, with words
+/// that name no payment (FUP-167). On success the
 /// AuthBloc wipes the device and the app returns to the login screen.
 class DeleteAccountScreen extends StatelessWidget {
   /// Sends the request; defaults to the app's API client (tests inject one).
@@ -65,7 +66,11 @@ class DeleteAccountScreen extends StatelessWidget {
     return BlocProvider<AccountDeletionBloc>(
       create: _createBloc,
       child: _DeleteAccountView(
-        confirmPassword: confirmPassword ?? showStepUpDialog,
+        confirmPassword: confirmPassword ??
+            (c) => showStepUpDialog(
+                  c,
+                  message: AppLocalizations.of(c)!.stepUpOtherMessage,
+                ),
       ),
     );
   }

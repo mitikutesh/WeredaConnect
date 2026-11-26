@@ -926,7 +926,7 @@ class SyncExecutor {
     var failed = 0;
     var deferred = 0;
     var stepUpRequired = 0;
-    var faydaStepUpRequired = false;
+    final stepUpWaiting = <StepUpRequired>[];
     final operationErrors = <String, String>{};
     final rejected = <(SyncOperation, String?)>[];
     final heldForUpdate = <(SyncOperation, String)>[];
@@ -1029,12 +1029,16 @@ class SyncExecutor {
           if (status == 'error' && isStepUpRequiredMessage(message)) {
             await _syncQueue.revertToPending(operationId);
             stepUpRequired++;
-            final withFayda = isFaydaStepUpRequiredMessage(message);
-            faydaStepUpRequired |= withFayda;
+            final waiting = StepUpRequired(
+              withFayda: isFaydaStepUpRequiredMessage(message),
+              kind: _stepUpKindOf(operation),
+            );
+            stepUpWaiting.add(waiting);
             stepUpHeld.add(operationId);
             _securityEvents.holdStepUp(
               _stepUpHolder(operationId),
-              withFayda: withFayda,
+              withFayda: waiting.withFayda,
+              kind: waiting.kind,
             );
             continue;
           }
@@ -1129,7 +1133,8 @@ class SyncExecutor {
     if (stepUpRequired > 0) {
       // One prompt for the batch. Fayda wins: after a Fayda login the
       // password-tier ops still need a password, and the retry asks again.
-      _securityEvents.emit(StepUpRequired(withFayda: faydaStepUpRequired));
+      // It names what its ops are (FUP-181).
+      _securityEvents.emit(StepUpRequired.forAll(stepUpWaiting));
     }
 
     // Use the first fraud-related error as the batch error message for UI
@@ -1668,6 +1673,19 @@ class SyncExecutor {
     } on FormatException {
       return null;
     }
+  }
+
+  /// What an operation held for a step-up is, for the prompt's words
+  /// (FUP-181). The server asks for one before an order's payment, a
+  /// delivery dispute, and a farmer or trucker dropping out of an order they
+  /// accepted (other).
+  static StepUpKind _stepUpKindOf(SyncOperation operation) {
+    final status = _statusOf(operation);
+    if (operation.entityType == 'order' && status == 'payment_submitted') {
+      return StepUpKind.payment;
+    }
+    if (status == 'disputed') return StepUpKind.dispute;
+    return StepUpKind.other;
   }
 
   /// Whether a delivery operation moves the delivery to `pickedUp`.
