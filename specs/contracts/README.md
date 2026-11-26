@@ -61,7 +61,7 @@ Each contract file follows this structure:
 | User Entity (profile read and edit: `GET /user/profile`, the `/sync` `user` entity) | `user-entity.md` | 2.3.0 | Mobile, Web, Backend, Admin, Infrastructure |
 | Rating API | `rating-api.md` | 1.7.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Reputation API (penalty events, tiers, appeals, gates; events, aggregate, reads, appeal, gates and admin endpoints BUILT on the server; app BUILT behind the flags, ESC-31) | `reputation-api.md` | 1.8.1 | Mobile, Web, Backend, Admin, Infrastructure |
-| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.25.0 | Mobile, Backend, Admin |
+| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.26.0 | Mobile, Backend, Admin |
 | Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.30.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
 | Delivery Verification API | `delivery-verification-api.md` | 2.19.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Account Deletion | `account-deletion.md` | 1.7.4 | Mobile, Backend, Infrastructure, Admin |
@@ -70,7 +70,7 @@ Each contract file follows this structure:
 | Buyer Match API | `match-api.md` | 1.5.1 | Mobile, Backend |
 | Match Events (`match_event` sync entity) | `match-events.md` | n/a | Mobile, Backend |
 | Push Alerts API (device tokens, `buyer_intent` sync, `GET /intents`) | `push-alerts-api.md` | 1.5.0 | Mobile, Web, Backend, Infrastructure |
-| Notifications API (order, delivery, money and reputation inbox + push) | `notifications-api.md` | 1.6.0 | Mobile, Web, Backend, Infrastructure |
+| Notifications API (order, delivery, money and reputation inbox + push) | `notifications-api.md` | 1.7.0 | Mobile, Web, Backend, Infrastructure |
 | Live Trip (`location_ping` check-ins, track, admin trail, `truck_nearby`) | `live-trip-api.md` | 1.1.2 | Mobile, Web, Backend, Infrastructure, Admin |
 | In-App Messaging (context-scoped chat) | `messaging.md` | 1.6.0 | Mobile, Backend, Admin |
 | Data Models | `data-models.md` | 1.24.0 | Mobile, Backend |

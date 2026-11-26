@@ -45,6 +45,12 @@ public static class NotificationTypes
     public const string OrderCancelled = "order_cancelled";
     public const string OrderExpiredUnpaid = "order_expired_unpaid";
     public const string PaymentFailed = "payment_failed";
+
+    /// <summary>
+    /// Order-lifecycle 2.26.0: to the buyer, an admin agreed another commission on their unpaid order (the
+    /// <c>commissionRate</c> changed while the order is <c>created</c> or <c>pending_payment</c>).
+    /// </summary>
+    public const string OrderCommissionChanged = "order_commission_changed";
     public const string RequestReminder = "request_reminder";
     public const string PickupOverdue = "pickup_overdue";
     public const string PickupMissed = "pickup_missed";
@@ -108,7 +114,7 @@ public static class NotificationTypes
     {
         PaymentConfirmed, OrderRequest, FarmerAccepted, TransportRequest, OrderConfirmed, OrderRejected,
         TransportFailed, TransportFailedKeepCrops, RequestExpired, RequestOnHold, OrderCancelled, OrderExpiredUnpaid,
-        PaymentFailed, RequestReminder, PickupOverdue, PickupMissed,
+        OrderCommissionChanged, PaymentFailed, RequestReminder, PickupOverdue, PickupMissed,
         DeliveryScheduled, BuyerCollecting, PickedUp, HandoffRecorded, InTransit, TruckNearby, Delivered, DeliveredPayoutPending,
         OrderSettled, RefundSent, PayoutSent, PayoutBlocked, PayoutProcessing,
         DisputeOpened, DisputeReceived, DisputeResolved, UnderReview,
@@ -164,4 +170,13 @@ public static class NotificationParams
     public const string FromTier = "fromTier";
     public const string ToTier = "toTier";
     public const string RestrictedUntil = "restrictedUntil";
+
+    /// <summary>
+    /// Order-lifecycle 2.26.0, <c>order_commission_changed</c>: the new rate as a fraction (<c>0.025</c>), the new
+    /// total and the total before, in ETB with 2 decimals. The total is also <see cref="AmountEtb"/>, as on every
+    /// buyer's order event.
+    /// </summary>
+    public const string CommissionRate = "commissionRate";
+    public const string OrderTotal = "orderTotal";
+    public const string OrderTotalBefore = "orderTotalBefore";
 }

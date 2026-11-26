@@ -1,7 +1,7 @@
 # Notifications API Contract
 
 ## Version
-1.6.0
+1.7.0
 
 ## Parties
 - **Mobile** (client): pulls the inbox, renders the entries and the Action-needed cards, receives the Android push, opens the order on tap
@@ -207,6 +207,7 @@ card; the set is `NotificationTypes.ActionRequired`.
 | `awaiting_transport` | `transport_failed` (`reason` = `transportFailure`; `trucker_no_show` has its own words, 1.6.0) | `transport_failed_keep_crops` if the farmer had accepted (same `reason`); `request_on_hold` if the farmer had not answered yet (the trip was full or gone right after funding, which closes the farmer's `order_request`) | `request_expired`, only when the trucker let the request expire; `pickup_missed` (`reason: trucker_no_show`) when the pickup judgement found no arrival (the pickup judged row below) | buyer, 48h (`buyerChoiceDeadlineAt`) |
 | `cancelled` | `order_expired_unpaid` for an unpaid order the cron cancelled; otherwise `order_cancelled`, unless the buyer cancelled (`reason` = a server `cancelReason`; `farmer_no_show` and `buyer_no_show` have their own words, 1.6.0) | `request_expired` when the farmer let the request expire; otherwise `order_cancelled` unless the farmer cancelled; paid orders only | `order_cancelled` when the trucker had been asked or had accepted and did not cancel | none |
 | `payment_failed` | `payment_failed` | - | - | buyer |
+| `commissionRate` changed while the status stays `created` or `pending_payment` (an admin agreed another commission, `order-lifecycle.md` 2.26.0; 1.7.0) | `order_commission_changed` (`commissionRate`, `orderTotal`, `orderTotalBefore`) | - (the crop leg does not move) | - (the transport leg does not move) | none |
 | `pickup_confirmed` | `picked_up` | `handoff_recorded` | - | none |
 | `in_transit` | `in_transit` | - | - | none |
 | `delivered` | `delivered` | `delivered_payout_pending` | `delivered_payout_pending` | buyer, 48h to dispute, then rate |
@@ -342,6 +343,8 @@ a type carries only the keys its text needs, and a missing key renders as nothin
 | `activePoints` | `penalty_recorded` (1.5.0): the party's active points right after it |
 | `fromTier`, `toTier` | `tier_changed` (1.5.0): `good`, `warning`, `low` or `restricted` (the party's own internal tier) |
 | `restrictedUntil` | `tier_changed` to `restricted` (1.5.0): ISO 8601 UTC end of the restriction; absent while an admin review is open |
+| `commissionRate` | `order_commission_changed` (1.7.0): the new rate as a fraction, digits and a point only (`0.025` is 2.5 %, `0` is no commission); clients show it as a percent |
+| `orderTotal`, `orderTotalBefore` | `order_commission_changed` (1.7.0): the order total at the new rate and before it, in ETB with two decimals (`orderTotal` equals the buyer's `amountEtb`) |
 
 Clients render the inbox text from `type` + `params` with their own localization (ARB keys per
 type in all three languages), so a language switch re-renders the whole history. The push text
@@ -403,6 +406,11 @@ is the server's rendering of the same `type` + `params` at send time and is not 
   `deadlineAt` (T9 for the drop-off). A judged outcome's `reason` (section 4) picks that outcome's
   own title and body, as the push does; an older build reads the type's own words. am and om are
   machine drafted (native review owed).
+- Since 1.7.0 `order_commission_changed` reads "Order total changed" and names the new rate and
+  total ("The platform commission on this order is now 2.5%. New total: 3,809.01 ETB. Nothing has
+  been paid yet."); without a readable `commissionRate` or `orderTotal` it asks the buyer to open
+  the order before paying. Not action-required: the buyer pays when they choose. A build before it
+  reads "Order update". am and om are machine drafted (native review owed).
 - Mobile keeps the newest 200 entries per user in Isar and the cursor in shared preferences; a pull
   with no entries on the device (first sign-in, or after a logout cleared them) ignores the stored
   cursor and reads the newest page. Web keeps the entries for the session and the read marker (the
@@ -443,6 +451,7 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.7.0 | 2026-11-26 | `order_commission_changed`: to the buyer only, when an admin agreed another commission on their unpaid order (`POST /admin/orders/{orderId}/commission`, `order-lifecycle.md` 2.26.0). Derived from the orders `MODIFY` whose `commissionRate` moved while the status stays `created` or `pending_payment` (the existing filter already passes it; no infra change). Params `commissionRate`, `orderTotal`, `orderTotalBefore` (and `amountEtb`, the new total). Push text in en, am and om, inbox text on both clients (am and om machine drafted, native review owed). Not action-required. |
 | 1.6.0 | 2026-11-13 | Check-in pushes (FUP-286 and FUP-338, spec 4.12), behind `pickupClassification` and `dropoffClassification` (nothing is sent with a flag off). Six types: `pickup_reminder` (each party who has not checked in, until `pickupDeadlineAt`, from the new `pickupReminderAt` marker), `trucker_arrived` and `buyer_arrived` (the farmer, when the arrival check-in lands), `crops_ready` (the trucker or the buyer collecting), `delivery_arrived` (the buyer, when the trucker's drop-off check-in counts, `deadlineAt` = T9) and `delivery_confirm_reminder` (the buyer before T9, from the new `dropoffReminderAt` marker); the three with a deadline are action-required. T9 is the order cron's own rule with `silent-buyer-hours` (the notifier reads the order timings). The judged outcomes speak in their own words through `reason` on existing types: `trucker_no_show` (`transport_failed`, `transport_failed_keep_crops`, and `pickup_missed` to the trucker judged absent), `farmer_no_show` and `buyer_no_show` (`order_cancelled`), `both_present_no_scan` and `unchecked_check_in` (`pickup_overdue`, `pickup_missed`), `auto_confirmed` (`delivered` to the buyer, `delivered_payout_pending` to the farmer), `delivery_overdue`, `silent_buyer` and `dropoff_out_of_range` (`dispute_opened` to all three, from the order row; the escrow row's system dispute stays silent). A pickup judged `scanned` no longer tells the parties the pickup was late. Push text in en, am and om, inbox text on both clients (am and om machine drafted, native review owed). `order-lifecycle.md` 2.23.0 |
 | 1.5.1 | 2026-11-12 | Clients (ESC-31, `reputation-api.md` 1.6.0): `penalty_recorded` and `tier_changed` have their own inbox title and body in en, am and om, and the inbox entry opens My reputation on the phone and the web. A tapped push still opens the app (TASK FUP-205). No server or wire change. |
 | 1.5.0 | 2026-11-07 | Two reputation types (ESC-28, `reputation-api.md` section 10): `penalty_recorded` and `tier_changed`, to the party only, from a fourth source, the reputation-events table stream (`INSERT`, filtered on `code`); params `eventId`, `code`, `points`, `activePoints`, `fromTier`, `toTier`, `restrictedUntil`; entity `reputation` with no `orderId`; push text in en, am and om (am and om await native review). Behind `reputationPenalties` (no row is written while it is off). Client inbox text and the My reputation tap: ESC-31 |
@@ -455,6 +464,6 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 ---
 
-**Last Updated**: 2026-11-13
-**Version**: 1.6.0
+**Last Updated**: 2026-11-26
+**Version**: 1.7.0
 **Status**: Draft

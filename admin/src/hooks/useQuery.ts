@@ -508,6 +508,44 @@ export function useReopenPickup() {
   });
 }
 
+/** The answer of a commission change (order-lifecycle.md 2.26.0). */
+export interface CommissionChangeResult {
+  orderId?: string;
+  status?: string;
+  commissionRate?: number;
+  commissionAmount?: number;
+  orderTotal?: number;
+  commissionRateBefore?: number;
+  orderTotalBefore?: number;
+  version?: number;
+  alreadyApplied?: boolean;
+  message?: string;
+}
+
+// An admin agrees another commission rate for one unpaid order (created or pending_payment). The transaction page,
+// the orders and the audit log reload either way, so a refusal (the order moved or took a payment) shows the order as
+// it is now.
+export function useChangeCommission() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      orderId,
+      ...body
+    }: {
+      orderId: string;
+      /** A fraction, 0 to 0.20, at most 4 decimals. */
+      commissionRate: number;
+      reason: string;
+      expectedVersion: number;
+    }) => api.post<CommissionChangeResult>(`/admin/orders/${encodeURIComponent(orderId)}/commission`, body),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "orders"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+  });
+}
+
 // Unapplied payments (FUP-02): captured Telebirr payments the webhook did not apply.
 // The server pages through the escrow audit, so a page can be empty while more remain.
 export function useUnappliedPayments() {

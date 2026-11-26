@@ -54,6 +54,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_s
 import 'package:wereda_connect/features/live_trip/presentation/widgets/trucker_hero_card.dart';
 import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
@@ -620,6 +621,25 @@ class _SyncChipState extends State<_SyncChip> {
 }
 
 /// Places a Home dashboard tile or recent-activity row can open.
+/// How many of the farmer's order rows (`GET /orders?farmerId=`) wait for
+/// their answer: funded, the farmer's answer still pending (an unstamped
+/// funded row is still theirs to answer). The wire side of
+/// [canFarmerRespond], so Home's Pending Orders tile and the Orders tab's
+/// "Waiting for you" agree.
+@visibleForTesting
+int farmerTurnOrderCount(List<dynamic> items) => items.where((item) {
+      if (item is! Map) return false;
+      final status = item['status'];
+      if (status is! String ||
+          orderStatusFromWire(status) != OrderStatus.funded.name) {
+        return false;
+      }
+      final answer = item['farmerResponse'];
+      return answer == null ||
+          answer == '' ||
+          answer == CommitmentResponse.pending;
+    }).length;
+
 enum _HomeDest {
   sellCrops,
   myCrops,
@@ -627,6 +647,10 @@ enum _HomeDest {
   findCrops,
   findTrips,
   orders,
+
+  /// Orders, opened on the orders waiting for the farmer's answer (the
+  /// Pending Orders tile).
+  ordersYourTurn,
   deliveries,
   payments,
 }
@@ -684,6 +708,13 @@ Future<void> _openHomeDest(
       await tabOrPush(RoleTab.myTrips, const BrowseTripsScreen());
     case _HomeDest.findCrops:
       await webOrPush('/find-crops', const FindCropsScreen());
+    case _HomeDest.ordersYourTurn:
+      // The tile's count is these orders: the tab opens on exactly them.
+      ordersFilterRequest.value = ordersFilterYourTurn;
+      await tabOrPush(
+        RoleTab.orders,
+        const Scaffold(body: OrdersTabScreen(showBackButton: true)),
+      );
     case _HomeDest.orders:
       // Orders isn't a trucker tab (truckers act on deliveries), so it
       // pushes for them.
@@ -1267,7 +1298,9 @@ class _OverviewStatsState extends State<_OverviewStats> {
             activeListings: _countByStatus(crops, 'available') +
                 _countByStatus(crops, 'active'),
             reservedListings: _countByStatus(crops, 'reserved'),
-            pendingOrders: _countOrdersByStatus(orderItems, const {'funded'}),
+            // Waiting for the farmer's answer, the Orders tab's "Waiting
+            // for you" (and the action card's) rule, not every funded order.
+            pendingOrders: farmerTurnOrderCount(orderItems),
             escrowEtb: _sumOrders(
               orderItems,
               escrowHeldOrderStatusNames,
@@ -1434,11 +1467,13 @@ class _OverviewStatsState extends State<_OverviewStats> {
                 (q, s) => q.statusEqualTo(s),
               )
               .findAll();
-          final pending = await isar.orders
+          final funded = await isar.orders
               .filter()
               .farmerIdEqualTo(userId)
               .statusEqualTo(OrderStatus.funded)
-              .count();
+              .findAll();
+          final pending =
+              funded.where((o) => canFarmerRespond(o, userId)).length;
           final inTransit = await isar.deliverys
               .filter()
               .farmerIdEqualTo(userId)
@@ -1602,7 +1637,7 @@ class _OverviewStatsState extends State<_OverviewStats> {
             emphasized: true,
           ),
           tile(
-            _HomeDest.orders,
+            _HomeDest.ordersYourTurn,
             label: l10n.pendingOrders,
             value: count(stats.pendingOrders),
             sub: l10n.homeTileWaitingForYou,

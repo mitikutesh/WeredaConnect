@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
@@ -78,12 +79,25 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     emit(const OrderLoading());
     try {
       await _refreshOrders(event.userId, event.role);
+      final yourTurn = event.statusFilter == ordersFilterYourTurn;
       final orders = await _repository.getOrdersByUser(
         event.userId,
         role: event.role,
-        statusFilter: event.statusFilter,
+        statusFilter: yourTurn ? 'funded' : event.statusFilter,
       );
-      emit(OrdersLoaded(orders: orders, statusFilter: event.statusFilter));
+      emit(
+        OrdersLoaded(
+          orders: yourTurn
+              ? [
+                  for (final order in orders)
+                    if (canFarmerRespond(order, event.userId) ||
+                        canTruckerRespond(order, event.userId))
+                      order,
+                ]
+              : orders,
+          statusFilter: event.statusFilter,
+        ),
+      );
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }

@@ -377,6 +377,8 @@ public partial class SyncFunction
         PickupJudgement.PickupLatitudeField, PickupJudgement.PickupLongitudeField,
         // FUP-287: the stamp of an admin's re-open of the judgement (written only by the admin Lambda).
         PickupReopen.Field,
+        // Order-lifecycle 2.26.0: the stamp of an admin's commission change (written only by the admin Lambda).
+        OrderCommissionChange.Field,
         // ESC-36: the drop-off judgement, its deadline, the drop-off check-in (written only by
         // handoff_check_in) and the drop-off points stamped at pickup. The order's disputeReason (written
         // only by the order cron's T8 and T9; rule R12 reads it) is not in AllowedOrderFields, so a client

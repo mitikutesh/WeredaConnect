@@ -66,6 +66,7 @@ import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/features/order/presentation/commission_label.dart';
 
 /// Full order detail screen (the Buyer · Order detail and Farmer · Answer a
 /// new order boards): the order named in the header with its status, who
@@ -1835,7 +1836,9 @@ class _BuyerTotalRow extends StatelessWidget {
             const SizedBox(height: 9),
             FwMoneyRow(
               key: const Key('order_buyer_commission'),
-              label: l10n.platformCommission,
+              // The order's own rate: set at creation, and an admin may
+              // agree another one before the buyer pays.
+              label: commissionLabelFor(l10n, order.commissionRate),
               amount: l10n.etbCurrency(formatEtbAmount(commission)),
             ),
             const Divider(height: 22),

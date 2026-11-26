@@ -505,6 +505,67 @@ public class NotificationRulesTests
         Tells(events, (Buyer, T.OrderCancelled), (Farmer, T.OrderCancelled));
     }
 
+    // ===== orders: an admin's commission change on an unpaid order (order-lifecycle 2.26.0) =====
+
+    [Theory]
+    [InlineData("created")]
+    [InlineData("pending_payment")]
+    public void CommissionChanged_OnAnUnpaidOrder_TellsOnlyTheBuyer_TheNewRateAndTotals(string status)
+    {
+        var events = OrderChange(
+            TripOrder(status, ("commissionRate", 0.05), ("commissionAmount", 2000), ("orderTotal", 43500), ("version", 2)),
+            TripOrder(status, ("commissionRate", 0.025), ("commissionAmount", 1000), ("orderTotal", 42500), ("version", 3)));
+
+        Tells(events, (Buyer, T.OrderCommissionChanged));
+        var buyer = For(events, Buyer);
+        buyer.Push.Should().BeTrue();
+        buyer.DeadlineUtc.Should().BeNull("nothing is due: the buyer pays when they choose");
+        buyer.Params[P.CommissionRate].Should().Be("0.025");
+        buyer.Params[P.OrderTotal].Should().Be("42500.00");
+        buyer.Params[P.OrderTotalBefore].Should().Be("43500.00");
+        buyer.Params[P.AmountEtb].Should().Be("42500.00", "the buyer's total, as on every buyer event");
+        buyer.Params.Values.Should().NotContain(v => v.Contains("+251"));
+    }
+
+    [Fact]
+    public void CommissionChanged_ToZero_StillTellsTheBuyer()
+    {
+        var events = OrderChange(
+            TripOrder("created", ("commissionRate", 0.05), ("orderTotal", 43500)),
+            TripOrder("created", ("commissionRate", 0), ("orderTotal", 41500)));
+
+        For(events, Buyer).Params[P.CommissionRate].Should().Be("0");
+    }
+
+    [Fact]
+    public void CommissionUnchanged_OnAnUnpaidOrder_TellsNobody()
+    {
+        var events = OrderChange(
+            TripOrder("created", ("commissionRate", 0.05), ("version", 2)),
+            TripOrder("created", ("commissionRate", 0.05), ("version", 3), ("dropoffNote", "Gate 2")));
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CommissionOnAnOrderWithoutARate_TellsNobody()
+    {
+        // A row from before the rate was stored: no "before" to compare, so no change is claimed.
+        var events = OrderChange(TripOrder("created"), TripOrder("created", ("commissionRate", 0.05)));
+
+        events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void CommissionMoving_WithAStatusMove_TellsTheStatusMoveOnly()
+    {
+        var events = OrderChange(
+            TripOrder("payment_submitted", ("commissionRate", 0.05)),
+            TripOrder("payment_failed", ("commissionRate", 0.03)));
+
+        Tells(events, (Buyer, T.PaymentFailed));
+    }
+
     // ===== orders: payment failure, logistics, money =====
 
     [Fact]
