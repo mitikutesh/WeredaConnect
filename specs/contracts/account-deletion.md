@@ -1,7 +1,7 @@
 # Account Deletion Contract
 
 ## Version
-1.7.3
+1.7.4
 
 ## Parties
 - **Mobile / Web** (client, ACC-03): Profile > "Delete account" flow, step-up re-auth, local wipe. Mobile and web are a platform pair and ship together.
@@ -278,7 +278,7 @@ Every DynamoDB table in `infra/lib/stacks/database-stack.ts` and `infra/lib/cons
 | `crops` | Delete (withdraw and scrub) | Step 7 rule per status. Remove `farmerPhone`, `latitude`, `longitude`, `locationName`, `description`, `audioNoteRef`, `photoIds` (1.3.3: no photo URL is signed again; the objects expire with the photos bucket lifecycle, `crop-listing-api.md` 1.6.0); `farmerName` to sentinel. Keep `cropId`, `listingId`, `farmerId`, `cropType`, `quantity`, `pricePerKg`, `woreda`, `status`, `deletedAt`, timestamps, `version` |
 | `trips` | Delete (withdraw and scrub) | Step 7 rule per status. Remove `truckerPhone`, `vehiclePlate`, `vehicleDescription`; `truckerName` to sentinel. Keep `tripId`, `truckerId`, `fromWoreda`, `toWoreda`, `departureDate`, `capacity`, `pricePerQuintal`, `matchedListings`, `status`, `deletedAt`, timestamps, `version` |
 | `orders` | Anonymize (kept as money record) | The user's copied name to sentinel. Ids, `quantity`, `pricePerUnit`, `transportCost`, `paymentMethod`, `cbeTransactionId`, `telebirr*` fields, statuses, reasons and timestamps unchanged. Unpaid orders are cancelled first (step 8) |
-| `deliveries` | Anonymize | The user's copied name to sentinel, phone removed. Evidence kept: `gpsPickup`, `gpsDropoff`, `pickupPhotoRef`, `dropoffPhotoRef`, `qrToken`, `qrNonce`, `gpsAnomalyFlag`, `disputeReason`, `disputedBy`, statuses, timestamps. Found via the Lookups table, including the `ListingIndex` fallback |
+| `deliveries` | Anonymize | The user's copied name to sentinel, phone removed. Evidence kept: `gpsPickup`, `gpsDropoff`, the handoff evidence stamps (`{leg}GpsStatus`, `{leg}GpsCapturedAt`, `{leg}GpsAccuracyM`, `{leg}Method`, `{leg}Platform`, `dropoffCapturedAt`, 1.7.4), `pickupPhotoRef`, `dropoffPhotoRef`, `qrToken`, `qrNonce`, `gpsAnomalyFlag`, `disputeReason`, `disputedBy`, statuses, timestamps. Found via the Lookups table, including the `ListingIndex` fallback |
 | `escrows` | Retain (money record) with one pseudonymization write | Money, ids, status, flags, `expiresAt`, dispute fields never change. The only write is the user's copied `buyerName` or `farmerName` to sentinel (see Open Points 2) |
 | `escrow-audit` | Retain untouched | Append-only. Holds ids, `ipAddress`, notes and, for payer mismatches, the last 4 phone digits (`payerSuffix`). Never rewritten. Read by the `payment_review` blocker |
 | `transaction-audit` | Retain untouched, append only | Never rewritten. Deletion appends `account_deletion_started` and `account_deleted` (checked writes), `account_deletion_aborted` on a step 9 abort, and one `order_cancelled` per step 8 order. Since 1.7.2 the table also holds the user's `profile_edited` rows (FUP-317, `user-entity.md` 2.3.0) under `profile-{userId}`, with the old and new `displayName`, `woreda` and `companyName`: kept like every audit row, so a deleted account's old names stay there; the admin user detail does not show them once `deletionState` is set, and the admin audit log never shows them. Whether the deletion should remove that partition is open (TASK FUP-419) |
@@ -446,6 +446,7 @@ Not built yet (follow-ups):
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.7.4 | 2026-11-26 | The `deliveries` row lists the server-only handoff evidence stamps of `delivery-verification-api.md` 2.19.0 (FUP-440, GCR-01, GCR-02: GPS status, the fix's time and accuracy, QR or code, the app, the drop-off's phone time) as evidence kept, like `gpsPickup` and `gpsDropoff`. None is personal data on its own; the deletion steps do not touch them. No behaviour change |
 | 1.7.3 | 2026-11-13 | The `transaction-audit` row lists the `profile_edited` rows of FUP-317 (`user-entity.md` 2.3.0): partition `profile-{userId}` with the old and new profile names and woreda, kept after a deletion (no deletion step removes them; open as TASK FUP-419), not shown by the admin user detail for a deleting or deleted account nor by the audit log. No behaviour change of the deletion |
 | 1.7.2 | 2026-11-13 | The S3 uploads bucket row: delivery photos are kept as their copies under `evidence/photos/` (FUP-140, `delivery-verification-api.md` 2.14.0); the old line named a `photos/` Glacier rule that matched no key and is removed. No behaviour change |
 | 1.7.1 | 2026-11-12 | The escrow-idempotency retention row lists the FUP-05 manual payout reference rows (`payout-ref#`, 400 days, no party data; escrow-protocol 2.12.0). No behaviour change |
