@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
@@ -20,6 +19,7 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/features/order/presentation/commission_label.dart';
 
 /// The buyer's trip log (LT-11, the Buyer · Trip log board): the check-ins of
 /// the buyer's window with their times on the viewer's clock and the town
@@ -1091,10 +1091,7 @@ class _PriceBreakdown extends StatelessWidget {
     // detail: the farmer and the trucker see their own leg).
     final commission = isBuyer ? order.commissionAmount : null;
     final rate = order.commissionRate;
-    final commissionLabel = rate == null || rate <= 0
-        ? l10n.escrowPlatformCommission
-        : '${l10n.escrowPlatformCommission} · '
-            '${NumberFormat('0.##').format(rate * 100)}%';
+    final commissionLabel = commissionLabelFor(l10n, rate);
     Widget row(String label, double amount, {String? detail}) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 5),
           child: Row(

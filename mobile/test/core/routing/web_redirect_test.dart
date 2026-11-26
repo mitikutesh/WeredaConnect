@@ -93,9 +93,23 @@ void main() {
       }
       expect(webRedirect(_signedIn(UserRole.trucker), '/trips'), isNull);
       expect(webRedirect(_signedIn(UserRole.farmer), '/my-crops'), isNull);
-      expect(webRedirect(_signedIn(UserRole.farmer), '/listings'), isNull);
       expect(webRedirect(_signedIn(UserRole.buyer), '/find-crops'), isNull);
-      expect(webRedirect(_signedIn(UserRole.buyer), '/marketplace'), isNull);
+    });
+
+    // Old bookmarks open the tab itself: the bar marks it and shows its
+    // create button (on the old address it marked nothing).
+    test('an old tab address goes to the tab', () {
+      expect(
+        webRedirect(_signedIn(UserRole.farmer), '/listings'),
+        '/my-crops',
+      );
+      expect(
+        webRedirect(_signedIn(UserRole.buyer), '/marketplace'),
+        '/find-crops',
+      );
+      // The tabs themselves stay put (no redirect loop).
+      expect(webRedirect(_signedIn(UserRole.farmer), '/my-crops'), isNull);
+      expect(webRedirect(_signedIn(UserRole.buyer), '/find-crops'), isNull);
     });
 
     // Hard product rule: a buyer browses ALL trips; with no Home, `/trips`
