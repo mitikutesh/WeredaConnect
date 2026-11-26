@@ -1,7 +1,7 @@
 # Notifications API Contract
 
 ## Version
-1.7.0
+1.7.1
 
 ## Parties
 - **Mobile** (client): pulls the inbox, renders the entries and the Action-needed cards, receives the Android push, opens the order on tap
@@ -165,8 +165,10 @@ Rules:
   order the device has not pulled yet from `GET /orders/{orderId}` first. A push without `orderId`
   opens the app. The reputation types (1.5.0) carry no `orderId` and `data.entity: reputation`:
   since ESC-31 (1.5.1) the inbox entry of either type opens My reputation on the phone and the
-  web; a tapped push still opens the app (TASK FUP-205). The foreground handler pulls the inbox with `since` (and the order) instead of
-  showing a tray entry, with one follow-up pull 3 seconds later.
+  web, and since FUP-205 (1.7.1) a tapped push of either type opens My reputation on the phone,
+  from the background and after a cold start (a buyer, who never gets one, is not sent there).
+  The foreground handler pulls the inbox with `since` (and the order, when there is one) instead
+  of showing a tray entry, with one follow-up pull 3 seconds later.
 - Inbox-only events send no push: `dispute_received` (the disputer's own receipt) and
   `under_review` (an escrow frozen for fraud review).
 - Never a phone number in `title`, `body` or `data`. Names are the display names the order row
@@ -451,6 +453,7 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.7.1 | 2026-11-27 | Client (FUP-205): a tapped `penalty_recorded` or `tier_changed` push opens My reputation on the phone, from the background and after a cold start, for a signed-in farmer or trucker; the foreground push pulls the inbox (no order to pull). No server or wire change |
 | 1.7.0 | 2026-11-26 | `order_commission_changed`: to the buyer only, when an admin agreed another commission on their unpaid order (`POST /admin/orders/{orderId}/commission`, `order-lifecycle.md` 2.26.0). Derived from the orders `MODIFY` whose `commissionRate` moved while the status stays `created` or `pending_payment` (the existing filter already passes it; no infra change). Params `commissionRate`, `orderTotal`, `orderTotalBefore` (and `amountEtb`, the new total). Push text in en, am and om, inbox text on both clients (am and om machine drafted, native review owed). Not action-required. |
 | 1.6.0 | 2026-11-13 | Check-in pushes (FUP-286 and FUP-338, spec 4.12), behind `pickupClassification` and `dropoffClassification` (nothing is sent with a flag off). Six types: `pickup_reminder` (each party who has not checked in, until `pickupDeadlineAt`, from the new `pickupReminderAt` marker), `trucker_arrived` and `buyer_arrived` (the farmer, when the arrival check-in lands), `crops_ready` (the trucker or the buyer collecting), `delivery_arrived` (the buyer, when the trucker's drop-off check-in counts, `deadlineAt` = T9) and `delivery_confirm_reminder` (the buyer before T9, from the new `dropoffReminderAt` marker); the three with a deadline are action-required. T9 is the order cron's own rule with `silent-buyer-hours` (the notifier reads the order timings). The judged outcomes speak in their own words through `reason` on existing types: `trucker_no_show` (`transport_failed`, `transport_failed_keep_crops`, and `pickup_missed` to the trucker judged absent), `farmer_no_show` and `buyer_no_show` (`order_cancelled`), `both_present_no_scan` and `unchecked_check_in` (`pickup_overdue`, `pickup_missed`), `auto_confirmed` (`delivered` to the buyer, `delivered_payout_pending` to the farmer), `delivery_overdue`, `silent_buyer` and `dropoff_out_of_range` (`dispute_opened` to all three, from the order row; the escrow row's system dispute stays silent). A pickup judged `scanned` no longer tells the parties the pickup was late. Push text in en, am and om, inbox text on both clients (am and om machine drafted, native review owed). `order-lifecycle.md` 2.23.0 |
 | 1.5.1 | 2026-11-12 | Clients (ESC-31, `reputation-api.md` 1.6.0): `penalty_recorded` and `tier_changed` have their own inbox title and body in en, am and om, and the inbox entry opens My reputation on the phone and the web. A tapped push still opens the app (TASK FUP-205). No server or wire change. |
@@ -464,6 +467,6 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 ---
 
-**Last Updated**: 2026-11-26
-**Version**: 1.7.0
+**Last Updated**: 2026-11-27
+**Version**: 1.7.1
 **Status**: Draft

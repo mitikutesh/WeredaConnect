@@ -1,7 +1,7 @@
 # Reputation API Contract
 
 ## Version
-1.8.1
+1.8.2
 
 ## Status
 PARTLY BUILT (1.8.0). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
@@ -969,8 +969,9 @@ whenever the tier stored on the users row changes (a penalty, the daily job, a r
 **As built in the apps (1.5.0, ESC-31, `notifications-api.md` 1.5.1)**: both types have their own
 inbox title and body in en, am and om (`penalty_recorded` names the event and its points;
 `tier_changed` says what the new tier means in the words of My reputation), and tapping the inbox
-entry opens My reputation on the phone and the web. A tapped push still opens the app, not My
-reputation (TASK FUP-205).
+entry opens My reputation on the phone and the web. A tapped push of either type opens My
+reputation on the phone too, from the background and after a cold start (FUP-205,
+`notifications-api.md` 1.7.1).
 
 ---
 
@@ -1107,6 +1108,7 @@ platform pair).
 
 | Version | Date | Change |
 |---|---|---|
+| 1.8.2 | 2026-11-27 | Doc only (FUP-205, `notifications-api.md` 1.7.1): a tapped `penalty_recorded` or `tier_changed` push opens My reputation on the phone. No wire change |
 | 1.8.1 | 2026-11-13 | Doc fix (ESC-36): `DELIVERY_OVERDUE` comes from T8 behind `dropoffClassification`, not `pickupClassification` (section 11). No wire change |
 | 1.8.0 | 2026-11-12 | FUP-162 (server, no wire change): the rows without `ratingsAggregatedAt` that section 2 "As built" describes get stamped: the order-cron `reputation_backfill_ratings` also Scans the users table once for the farmers and truckers without a `woreda` (resumable with `scanFrom`), and a rating for an unstamped ratee stamps their aggregate after the create (`rating-api.md` 1.5.0). The reads of sections 2 and 3 stay read-only. |
 | 1.7.0 | 2026-11-12 | FUP-160 BUILT (server, no endpoint or field change): the one-off stamp of the owner fields of section 7 on rows created before `reputationPenalties` went on, the order-cron action `reputation_stamp_owner_copies` (owners from the active partitions of the crop and trip status indexes, so owners without a `woreda` too; the reputation as read; behind `reputationPenalties`; a `startAt` cursor; a rerun writes nothing). Run it before `reputationPublicTags` goes on (architecture doc 12.1 step 6, 12.3). |
