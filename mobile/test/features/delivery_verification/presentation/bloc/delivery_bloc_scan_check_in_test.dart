@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
@@ -97,6 +98,52 @@ void main() {
     );
     await done;
     expect(sink.scans, isEmpty);
+  });
+
+  // FUP-440: the screen's capture reaches the repository unchanged, for
+  // the handoff's gpsStatus and the fix's own time and accuracy.
+  test('the capture goes with the pickup and the drop-off', () async {
+    final fix = GpsCaptureResult.success(
+      latitude: 9.0,
+      longitude: 38.7,
+      accuracy: 12,
+      capturedAt: DateTime.utc(2026, 11, 26, 7),
+    );
+    const noFix = GpsCaptureResult.unavailable(
+      GpsCaptureResult.permissionDeniedReason,
+    );
+    final captured = <Object?>[];
+    when(
+      () => repository.confirmPickup(
+        deliveryId: any(named: 'deliveryId'),
+        truckerId: any(named: 'truckerId'),
+        gpsCapture: any(named: 'gpsCapture'),
+      ),
+    ).thenAnswer((i) async => captured.add(i.namedArguments[#gpsCapture]));
+    when(
+      () => repository.confirmDelivery(
+        deliveryId: any(named: 'deliveryId'),
+        buyerId: any(named: 'buyerId'),
+        gpsCapture: any(named: 'gpsCapture'),
+      ),
+    ).thenAnswer((i) async => captured.add(i.namedArguments[#gpsCapture]));
+
+    var done = expectLater(bloc.stream, emitsThrough(isA<PickupConfirmed>()));
+    bloc.add(
+      ConfirmPickup(deliveryId: 'del-1', truckerId: 't-1', gpsCapture: fix),
+    );
+    await done;
+    done = expectLater(bloc.stream, emitsThrough(isA<DeliveryConfirmed>()));
+    bloc.add(
+      const ConfirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'b-1',
+        gpsCapture: noFix,
+      ),
+    );
+    await done;
+
+    expect(captured, [same(fix), same(noFix)]);
   });
 
   test('a self-pickup without a trip records nothing', () async {
