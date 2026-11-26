@@ -227,8 +227,9 @@ public partial class AdminFunction
 
     /// <summary>
     /// The handoffs the delivery went through: the trucker's pickup and the buyer's drop-off, or the
-    /// buyer's self-pickup at the farm. Who and how come from the transition's audit row (the latest
-    /// one of its action); the GPS from the delivery. The planned point is read only for a handoff with
+    /// buyer's self-pickup at the farm. Who comes from the transition's audit row (the latest one of its
+    /// action), and how too for a delivery without the stamped method; the GPS and its evidence from the
+    /// delivery. The planned point is read only for a handoff with
     /// a GPS fix, best effort: a failed read leaves the distance out.
     /// </summary>
     private async Task<List<AdminHandoffEvidenceDto>> HandoffsAsync(
@@ -252,7 +253,7 @@ public partial class AdminFunction
         {
             var planned = delivery.GpsPickup != null ? await PlannedPickupAsync(delivery, context) : null;
             handoffs.Add(Handoff("pickup", delivery.PickedUpAt, GetStringOrNull(row, "pickupCapturedAt"),
-                pickupEvent, delivery.GpsPickup, planned, delivery));
+                pickupEvent, delivery.GpsPickup, planned, delivery, row, HandoffEvidence.PickupLeg));
         }
 
         if (delivery.ConfirmedAt != null || deliveredEvent != null)
@@ -265,13 +266,20 @@ public partial class AdminFunction
                     : await PlannedDropoffAsync(row, orderRow, delivery.GpsDropoff, context);
             }
 
-            handoffs.Add(Handoff(selfPickup ? SelfPickupType : "dropoff", delivery.ConfirmedAt, null,
-                deliveredEvent, delivery.GpsDropoff, planned, delivery));
+            // A self-pickup's confirm is stamped as the drop-off leg, where its point (gpsDropoff) is stored.
+            handoffs.Add(Handoff(selfPickup ? SelfPickupType : "dropoff", delivery.ConfirmedAt,
+                HandoffEvidence.StoredText(row, HandoffEvidence.DropoffCapturedAtField),
+                deliveredEvent, delivery.GpsDropoff, planned, delivery, row, HandoffEvidence.DropoffLeg));
         }
 
         return handoffs;
     }
 
+    /// <summary>
+    /// One handoff. FUP-440, GCR-01 and GCR-02 (escrow-protocol 2.30.0): the evidence stamped on the delivery
+    /// for <paramref name="evidenceLeg"/> (the GPS status, the fix's time and accuracy, the app); the method
+    /// from the delivery, else from the audit row for a delivery confirmed before the stamp.
+    /// </summary>
     private static AdminHandoffEvidenceDto Handoff(
         string leg,
         string? at,
@@ -279,7 +287,9 @@ public partial class AdminFunction
         Dictionary<string, object>? auditEvent,
         LatLngDto? gps,
         LatLngDto? planned,
-        DeliveryDto delivery)
+        DeliveryDto delivery,
+        Dictionary<string, object> row,
+        string evidenceLeg)
     {
         var actorId = auditEvent != null ? GetStringOrNull(auditEvent, "actor") : null;
         return new AdminHandoffEvidenceDto
@@ -293,8 +303,13 @@ public partial class AdminFunction
                 : actorId == delivery.BuyerId ? "buyer"
                 : actorId == delivery.FarmerId ? "farmer"
                 : null,
-            Method = auditEvent != null ? HandoffMethodOf(GetStringOrNull(auditEvent, "metadata")) : null,
+            Method = HandoffEvidence.MethodOf(row, evidenceLeg)
+                ?? (auditEvent != null ? HandoffMethodOf(GetStringOrNull(auditEvent, "metadata")) : null),
             Gps = gps,
+            GpsStatus = HandoffEvidence.StoredText(row, HandoffEvidence.GpsStatusField(evidenceLeg)),
+            GpsCapturedAt = HandoffEvidence.StoredText(row, HandoffEvidence.GpsCapturedAtField(evidenceLeg)),
+            GpsAccuracyM = HandoffEvidence.AccuracyOf(row, evidenceLeg),
+            Platform = HandoffEvidence.StoredText(row, HandoffEvidence.PlatformField(evidenceLeg)),
             Planned = planned,
             DistanceKm = DistanceKm(gps, planned)
         };

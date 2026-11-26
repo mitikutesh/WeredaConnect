@@ -2172,6 +2172,36 @@ public class EscrowServiceTests
     }
 
     [Fact]
+    public void HandoffEvidence_TakesTheMethodStampedOnTheDelivery_ElseTheAuditRows()
+    {
+        // GCR-01: the delivery's own pickupMethod and dropoffMethod win; a delivery from before them keeps the
+        // audit row's, and a stamp that is not qr or code is no method.
+        var delivery = new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "status", "delivered" },
+            { "pickedUpAt", "2026-11-19T06:00:00.0000000Z" }, { "pickupMethod", "code" },
+            { "confirmedAt", "2026-11-19T08:47:45.0000000Z" }, { "dropoffMethod", "typed" }
+        };
+        var audit = new List<Dictionary<string, object>>
+        {
+            new() { { "entityType", "delivery" }, { "entityId", DeliveryId }, { "action", "picked_up" },
+                { "actor", "trucker-1" }, { "metadata", "handoff=qr" }, { "timestamp", "2026-11-19T06:00:01Z" } },
+            new() { { "entityType", "delivery" }, { "entityId", DeliveryId }, { "action", "delivered" },
+                { "actor", BuyerId }, { "metadata", "handoff=qr" }, { "timestamp", "2026-11-19T08:47:46Z" } }
+        };
+
+        var evidence = DisputeHandoffEvidence.Build(delivery, audit, BuyerId)!;
+
+        Assert.Equal("code", evidence["pickupMethod"]);
+        Assert.Equal("qr", evidence["confirmMethod"]);
+        delivery.Remove("pickupMethod");
+        delivery["dropoffMethod"] = "code";
+        evidence = DisputeHandoffEvidence.Build(delivery, audit, BuyerId)!;
+        Assert.Equal("qr", evidence["pickupMethod"]);
+        Assert.Equal("code", evidence["confirmMethod"]);
+    }
+
+    [Fact]
     public void HandoffEvidence_IsNeverOnAPartysEscrowRead()
     {
         // The party mapper builds the dispute without it, whatever the row holds.
