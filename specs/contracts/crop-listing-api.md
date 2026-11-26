@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.17.0
+1.18.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -588,7 +588,7 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 - Farmers can only create/update/delete their own listings
 - Server validates `farmerId` matches JWT `sub` claim
 - `farmerId`, `farmerName` and `farmerPhone` are immutable after create. An update that changes any of them is rejected with `CROP_VALIDATION: <field> is immutable and cannot be changed on update.` and nothing is written. Echoing the stored values (phone in any accepted spelling) is allowed; the server strips them before writing.
-- On create, `farmerName` and `farmerPhone` are set by the server from the farmer's profile; values sent by the client are ignored. The name is the profile display name, else the legal name received from Fayda. If the profile cannot be read, or has neither name, the create is rejected with `CROP_VALIDATION`.
+- On create, `farmerName` and `farmerPhone` are set by the server from the farmer's profile; values sent by the client are ignored. The name is the profile display name, else the legal name received from Fayda. If the profile cannot be read the create is rejected with `CROP_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.`, and if it has neither name with `CROP_PROFILE_INCOMPLETE: Add your name to your profile before creating a listing.` (1.18.0; both were `CROP_VALIDATION`). A retry can pass both, so clients retry them, and every `CROP_VALIDATION` is permanent on the clients (`sync-protocol.md` 1.72.0).
 
 ### Rate Limiting
 - **API Gateway (all routes)**: the HTTP API stage throttles each route at 25 requests/second steady with a burst of 50 (`DefaultRouteSettings` in `infra/lib/stacks/api-stack.ts`). The limit is shared by all callers, not counted per user or per IP. Over it, API Gateway answers `429` with its own body (`{"message":"Too Many Requests"}`), no `error.code` and no `Retry-After`
@@ -645,9 +645,10 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.15.0 | 2026-11-16 | Deleted and sold listings are not written again (rule 11 extended, new rule 12, `sync-protocol.md` 1.67.0). A `delete` of a listing already deleted writes nothing and its farmer gets `success` with the stored version (FUP-494); the write's condition carries the check, so a second delete between the read and the write gets the same answer. Before, a delete at the stored version was written again (`deletedAt` and the version moved). An `update` of a `sold` listing writes nothing and its farmer gets `conflict` with the stored row, message `CROP_SOLD: The listing is sold.` (FUP-495), also in the write's condition. Before, an update without a `status` wrote onto a sold listing. Anyone else keeps `CROP_UNAUTHORIZED`. Server only, no client change |
 | 1.16.0 | 2026-11-19 | One listing per lot (new rule 13, persona simulation 2026-11-19 BUG-2, fraud spec 3.43.0 Rule 1): a `create` of a lot the farmer already lists (an active listing of the same crop type, quantity and place: the woreda, and within 1 km when both carry a point) is refused with `FRAUD_DUPLICATE_LISTING` at any price and age; the price band of the last hour stays. Another quantity, woreda or field, and a sold or deleted listing, pass. Server only; clients already treat the code as permanent and explain it |
 | 1.17.0 | 2026-11-19 | A create for an existing id is a conflict, not a fraud refusal (persona simulation BUG-13, rule 8, `sync-protocol.md` 1.70.0): the id is looked up before the fraud listing checks, which are skipped for an id that exists; the farmer's re-queued create gets the create-conflict echo with the row and no fraud signal. No client change. |
+| 1.18.0 | 2026-11-27 | The owner's profile has its own codes (FUP-74, `sync-protocol.md` 1.72.0): a create whose profile cannot be read is `CROP_PROFILE_UNAVAILABLE`, one whose profile has no name `CROP_PROFILE_INCOMPLETE`; both were `CROP_VALIDATION`, which now judges only the operation and is permanent on mobile. Nothing else changes |
 
 ---
 
-**Last Updated**: 2026-11-19
-**Version**: 1.17.0
+**Last Updated**: 2026-11-27
+**Version**: 1.18.0
 **Status**: Implemented (Phase R3)
