@@ -5476,6 +5476,24 @@ abstract class AppLocalizations {
   /// **'Confirmed. Retrying your payment.'**
   String get stepUpDone;
 
+  /// Password step-up dialog (AUTH_040) when the action is neither a payment nor a dispute: a farmer or trucker dropping out of an accepted order, deleting the account, or several kinds waiting together (FUP-167, FUP-181). am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'For your safety, confirm it\'s you before you continue.'**
+  String get stepUpOtherMessage;
+
+  /// Fayda step-up dialog (AUTH_041) when the waiting action is not a payment or a dispute (FUP-181). am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm it\'s you with Fayda to continue. You may also be asked for your password.'**
+  String get faydaStepUpOtherMessage;
+
+  /// Snackbar after a successful background step-up for an action that is not a payment (a dispute, a drop-out), FUP-181. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed. Trying again.'**
+  String get stepUpDoneRetrying;
+
   /// Fayda callback state mismatch or FAYDA_002
   ///
   /// In en, this message translates to:
