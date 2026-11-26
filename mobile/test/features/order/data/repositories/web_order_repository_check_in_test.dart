@@ -235,6 +235,11 @@ void main() {
         AppErrorCode.checkInNotOpen,
         en.errorCheckInNotOpen,
       ),
+      // The same since sync-protocol.md 1.72.0 (FUP-74).
+      "SYNC_VALIDATION: Unsupported entity type: 'handoff_check_in'.": (
+        AppErrorCode.checkInNotOpen,
+        en.errorCheckInNotOpen,
+      ),
     };
 
     for (final MapEntry(key: message, value: (code, text)) in cases.entries) {

@@ -1018,9 +1018,10 @@ void main() {
         isRevertableListingRejectionMessage('FRAUD_DUPLICATE_LISTING: dup'),
         isFalse,
       );
-      // CROP_VALIDATION and TRIP_VALIDATION also wrap a failed profile read
-      // on the server, so a prefix alone is not deterministic, and the same
-      // payload goes through once the app is updated.
+      // CROP_VALIDATION and TRIP_VALIDATION say nothing the server holds
+      // (permanent, not undone, since 1.72.0) and an older server's carry a
+      // failed profile read, and the same payload goes through once the app
+      // is updated.
       for (final message in [
         null,
         '',
@@ -1116,6 +1117,75 @@ void main() {
       ]) {
         expect(
           isUnretryableFraudSignalMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+      }
+    });
+
+    // FUP-74 (sync-protocol.md 1.72.0): the profile refusals left
+    // CROP_VALIDATION and TRIP_VALIDATION; an older server's still keep
+    // retrying.
+    test('CROP_VALIDATION and TRIP_VALIDATION but the profile texts', () {
+      for (final message in [
+        'CROP_VALIDATION: Invalid cropType.',
+        'CROP_VALIDATION: Unknown fields: photos',
+        'CROP_VALIDATION: farmerId is immutable and cannot be changed on '
+            'update.',
+        'TRIP_VALIDATION: capacity is required and must be a number.',
+        "TRIP_VALIDATION: 'matched' is set by the server when the trip is "
+            'fully booked.',
+      ]) {
+        expect(isListingValidationMessage(message), isTrue, reason: message);
+      }
+      for (final message in [
+        null,
+        '',
+        'CROP_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+        'CROP_VALIDATION: The farmer profile could not be read.',
+        'CROP_VALIDATION: Add your name to your profile before creating a '
+            'listing.',
+        'TRIP_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+        'TRIP_VALIDATION: Add your name to your profile before creating a '
+            'listing.',
+        'CROP_PROFILE_UNAVAILABLE: Your profile could not be read. Please '
+            'try again later.',
+        'TRIP_PROFILE_INCOMPLETE: Add your name to your profile before '
+            'creating a listing.',
+        'DELIVERY_VALIDATION: Invalid gpsPickup.',
+        'ORDER_VALIDATION: x',
+        'CROP_VALIDATION',
+      ]) {
+        expect(
+          isListingValidationMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+      }
+    });
+
+    // FUP-315 (sync-protocol.md 1.72.0).
+    test('a profile edit refused for its values', () {
+      for (final message in [
+        'USER_PROFILE_VALIDATION: displayName must not be empty.',
+        'AUTH_027: Remove the phone number from woreda. Contact opens after '
+            'payment is held in escrow.',
+      ]) {
+        expect(isProfileEditRefusalMessage(message), isTrue, reason: message);
+      }
+      for (final message in [
+        null,
+        '',
+        'USER_PROFILE_CONFLICT: try again.',
+        'USER_PROFILE_UNAVAILABLE: try again.',
+        'USER_PROFILE_NOT_FOUND: x',
+        'USER_PROFILE_UNAUTHORIZED: A user can only update their own profile.',
+        'AUTH_025: suspended',
+      ]) {
+        expect(
+          isProfileEditRefusalMessage(message),
           isFalse,
           reason: '$message',
         );
