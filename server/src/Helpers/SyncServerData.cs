@@ -33,7 +33,10 @@ public static class SyncServerData
     {
         "version",
         // Crop listing (CropDto); the row stores the quantity as "quantity".
-        "quantity", "quantityKg", "pricePerKg", "latitude", "longitude", "farmerReliability",
+        "quantity", "quantityKg", "pricePerKg", "latitude", "longitude",
+        // FUP-186: no longer in CropDto, but crop rows from before ESC-30 still store it and apps
+        // before FUP-186 read it as a number, so a /sync row that carries it keeps it numeric.
+        "farmerReliability",
         // ESC-29: the owner's copied reputation on crop and trip rows.
         OwnerReputationFields.EffectiveRatingField, OwnerReputationFields.RatingCountField,
         OwnerReputationFields.ReliabilityPctField,
