@@ -216,6 +216,30 @@ describe("DisputeDetailPage Trip trail tab (LT-13)", () => {
     expect(mocks.trailIds).toContain("del-101");
   });
 
+  it("heads the page with the reason when it is a known code, under a Dispute eyebrow", () => {
+    mocks.escrow.data = { escrow: { ...escrow().escrow, dispute: { reason: "wrong_quantity", createdAt: "2026-10-27T09:50:00Z" } } };
+    renderPage();
+
+    const heading = screen.getByRole("heading", { name: "Wrong quantity" });
+    expect(heading.tagName).toBe("H2");
+    expect(screen.queryByRole("heading", { name: "Dispute" })).toBeNull();
+    expect(heading.parentElement?.previousElementSibling?.textContent).toBe("Dispute");
+    // The case card still shows the reason as the server sent it.
+    expect(screen.getByText("wrong_quantity")).toBeTruthy();
+  });
+
+  it("keeps Dispute as the heading, with no eyebrow, for other, free text or no reason", () => {
+    for (const reason of ["other", "The sacks were wet.", undefined]) {
+      mocks.escrow.data = { escrow: { ...escrow().escrow, dispute: { reason, createdAt: "2026-10-27T09:50:00Z" } } };
+      const { unmount } = renderPage();
+
+      const heading = screen.getByRole("heading", { name: "Dispute" });
+      expect(heading.parentElement?.previousElementSibling?.getAttribute("aria-label")).toBe("Breadcrumb");
+      expect(screen.getAllByText("Dispute")).toHaveLength(1);
+      unmount();
+    }
+  });
+
   it("says the trail is loading", () => {
     mocks.trail.isLoading = true;
     renderPage();
@@ -382,6 +406,19 @@ describe("DisputeDetailPage Decide", () => {
     expect(screen.getByText("Every verdict is written to the audit log under your admin account.")).toBeTruthy();
   });
 
+  // Page M board: the admin wears black. Farmer wins is the black button, Buyer wins the outlined one.
+  it("draws Farmer Wins as the black button and Buyer Wins as the outlined one", () => {
+    renderPage();
+    expect(screen.getByRole("button", { name: "Farmer Wins" }).className).toContain("btn-ink");
+    expect(screen.getByRole("button", { name: "Buyer Wins" }).className).toContain("btn-outline");
+  });
+
+  it("links back to the Disputes list from the breadcrumb", () => {
+    renderPage();
+    const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(crumb).getByRole("link", { name: "Disputes" }).getAttribute("href")).toBe("/disputes");
+  });
+
   it("sends the verdict, then says it was saved", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -423,9 +460,10 @@ describe("DisputeDetailPage Decide", () => {
     };
     renderPage();
 
-    expect(screen.getByText("Buyer · Sara")).toBeTruthy();
-    expect(screen.getByText("Farmer · Abebe")).toBeTruthy();
-    expect(screen.getByText("Trucker · Dawit")).toBeTruthy();
+    // Each party in its role colour: buyer green, farmer plum, trucker blue.
+    expect(screen.getByText("Buyer · Sara").className).toContain("text-buyer");
+    expect(screen.getByText("Farmer · Abebe").className).toContain("text-farmer");
+    expect(screen.getByText("Trucker · Dawit").className).toContain("text-trucker");
     expect(
       screen.getByText(
         `Crop ${formatETB(28000, "en")} · Trucker ${formatETB(1500, "en")} · Commission ${formatETB(1400, "en")}`,

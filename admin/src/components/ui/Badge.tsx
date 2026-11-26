@@ -8,15 +8,16 @@ type Variant =
   | "info"
   | "transit";
 
-/* Token-driven — mirrors the mobile StatusChip vocabulary so the same
- * state reads the same color in the app and the admin console. */
+/* Token-driven: the same state reads the same colour in the app and the
+ * admin console (page M: what waits is orange tint, what is wrong is the
+ * error tint, the rest is a neutral chip). */
 const variants: Record<Variant, string> = {
-  default: "bg-text-muted/10 text-text-muted",
-  success: "bg-success/10 text-success",
-  warning: "bg-warning/10 text-warning",
-  danger: "bg-danger/10 text-danger",
-  info: "bg-info/10 text-info",
-  transit: "bg-transit/10 text-transit",
+  default: "bg-chip text-slate",
+  success: "bg-success-tint text-success-ink",
+  warning: "bg-orange-tint text-orange-ink",
+  danger: "bg-danger-tint text-danger-ink",
+  info: "bg-chip text-ink-soft",
+  transit: "bg-orange-tint text-orange-ink",
 };
 
 interface BadgeProps {
@@ -27,7 +28,7 @@ interface BadgeProps {
 export function Badge({ variant = "default", children }: BadgeProps) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${variants[variant]}`}
+      className={`inline-flex min-h-[22px] items-center rounded-md px-2 text-[11px] font-bold ${variants[variant]}`}
     >
       {children}
     </span>

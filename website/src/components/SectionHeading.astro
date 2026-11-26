@@ -13,9 +13,9 @@ const { eyebrow, title, subtitle, id, onDark = false, class: className = 'max-w-
 ---
 
 <div class:list={['flex flex-col gap-4 animate-on-scroll', className]}>
-  <p class:list={['eyebrow', onDark ? 'text-on-dark' : 'text-accent-dark']}>{eyebrow}</p>
+  <p class:list={['eyebrow', onDark ? 'text-ink-muted' : 'text-slate']}>{eyebrow}</p>
   <h2 id={id} class="m-0 text-[clamp(32px,3.4vw,46px)] leading-[1.1] tracking-[-0.02em] font-extrabold">{title}</h2>
   {subtitle && (
-    <p class:list={['m-0 text-lg leading-[1.6]', onDark ? 'text-on-dark' : 'text-text-muted']}>{subtitle}</p>
+    <p class:list={['m-0 text-lg leading-[1.6]', onDark ? 'text-ink-muted' : 'text-slate']}>{subtitle}</p>
   )}
 </div>

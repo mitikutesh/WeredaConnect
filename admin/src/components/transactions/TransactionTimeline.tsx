@@ -28,7 +28,7 @@ export function HandoffPhoto({
 }) {
   return (
     <a href={url} target="_blank" rel="noopener noreferrer" aria-label={openLabel} className="inline-block">
-      <img src={url} alt={label} loading="lazy" className={`${size} rounded-lg border border-gray-200 object-cover`} />
+      <img src={url} alt={label} loading="lazy" className={`${size} rounded-[14px] border border-line object-cover`} />
     </a>
   );
 }
@@ -47,7 +47,7 @@ const entityIcon: Record<string, ReactNode> = {
 export function TransactionTimeline({ timeline }: { timeline: Row[] }) {
   const { t } = useLocale();
   if (timeline.length === 0) {
-    return <p className="text-sm text-text-muted">{t("common.noData")}</p>;
+    return <p className="text-sm text-slate">{t("common.noData")}</p>;
   }
 
   return (
@@ -59,7 +59,7 @@ export function TransactionTimeline({ timeline }: { timeline: Row[] }) {
         const loc = formatGps(ev.location);
         return (
           <li key={i} className="flex gap-3">
-            <div className="mt-0.5 text-text-muted">{entityIcon[entity] || <ArrowRight size={16} />}</div>
+            <div className="mt-0.5 text-slate">{entityIcon[entity] || <ArrowRight size={16} />}</div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium">{timelineActionLabel(s(ev.action), t)}</span>
@@ -69,27 +69,27 @@ export function TransactionTimeline({ timeline }: { timeline: Row[] }) {
                     : t(`transactions.entity_${entity}`)}
                 </Badge>
               </div>
-              <p className="text-xs text-text-muted">
+              <p className="text-xs text-slate">
                 {ev.timestamp ? formatDateTime(s(ev.timestamp)) : ""}
                 {ev.actor ? ` · ${s(ev.actor)}` : ""}
               </p>
               {from && to ? (
-                <p className="text-xs text-text-muted">
+                <p className="text-xs text-slate">
                   {from} <ArrowRight size={10} className="inline" /> {to}
                 </p>
               ) : null}
               {loc ? (
-                <p className="flex items-center gap-1 text-xs text-text-muted">
+                <p className="flex items-center gap-1 text-xs text-slate">
                   <MapPin size={10} /> {loc}
                 </p>
               ) : null}
-              {ev.telebirrRef ? <p className="font-mono text-xs text-text-muted">{s(ev.telebirrRef)}</p> : null}
+              {ev.telebirrRef ? <p className="font-mono text-xs text-slate">{s(ev.telebirrRef)}</p> : null}
               {ev.ipAddress ? (
-                <p className="text-xs text-text-muted">
+                <p className="text-xs text-slate">
                   {t("transactions.ip")} {s(ev.ipAddress)}
                 </p>
               ) : null}
-              {ev.detail ? <p className="text-xs text-text-muted">{s(ev.detail)}</p> : null}
+              {ev.detail ? <p className="text-xs text-slate">{s(ev.detail)}</p> : null}
             </div>
           </li>
         );

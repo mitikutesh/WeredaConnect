@@ -6,7 +6,7 @@ import PageHeader from '../PageHeader.astro';
 import RoleSteps from '../RoleSteps.astro';
 import EscrowFlow from '../EscrowFlow.astro';
 import DownloadCTA from '../DownloadCTA.astro';
-import { roles } from '../roles';
+import { roles, roleTones } from '../roles';
 
 interface Props {
   locale: Locale;
@@ -24,16 +24,16 @@ const { locale } = Astro.props;
     {roles.map((role) => (
       <a
         href={`#${role.anchor}`}
-        class="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-border-light bg-white px-4 py-2.5 text-[15px] font-bold text-text-dark no-underline transition-colors hover:border-primary"
+        class="inline-flex min-h-[44px] items-center gap-2 rounded-full border-[1.5px] border-edge bg-white px-4 py-2.5 text-[15px] font-bold text-ink no-underline transition-colors hover:bg-paper"
       >
-        <Icon name={role.icon} size={18} class="text-primary" />
+        <Icon name={role.icon} size={18} class={roleTones[role.key].text} />
         <span>{t(locale, `howItWorks.${role.key}.short`)}</span>
       </a>
     ))}
   </nav>
 </PageHeader>
 
-{roles.map((role, i) => <RoleSteps locale={locale} role={role} tone={i % 2 === 0 ? 'white' : 'cream'} />)}
+{roles.map((role, i) => <RoleSteps locale={locale} role={role} tone={i % 2 === 0 ? 'paper' : 'white'} />)}
 
 <EscrowFlow locale={locale} />
 <DownloadCTA locale={locale} />

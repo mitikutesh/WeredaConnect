@@ -5,9 +5,11 @@
     "tagline": "Mala'ummaa Loojistiiksii Qonnaa Hawaasa Baadiyyaa Itoophiyaa"
   },
   "nav": {
+    "label": "Bulchiinsa",
     "dashboard": "Daashboordii",
     "escrows": "Eeskiroo",
     "disputes": "Waldhabdee",
+    "disputesOpen": "Waldhabdee, {count} banaa",
     "manualPayouts": "Kaffaltii Harkaan",
     "unappliedPayments": "Kaffaltiiwwan Hin Hojjetamne",
     "fraudReview": "Gamaaggama Gosoota",
@@ -140,6 +142,7 @@
     "recordedChoice": "Filannoo galmaa'e",
     "noChoice": "Ammaaf hin jiru",
     "loadMore": "Dabalata fe'i",
+    "breadcrumb": "Karaa fuulaa",
     "detailTitle": "Waldhabdee",
     "evidence": "Ragaa",
     "raisedAt": "Kan dhiyaate",
@@ -147,7 +150,15 @@
     "decide": "Murteessi",
     "frozen": "{amount} dhaabbateera",
     "auditNote": "Murtiin hundi akkaawuntii bulchiinsaa keessan jalatti galmee odiitii keessatti barreeffama.",
-    "verdict_partial_refund": "Kutaadhaan kan qoodame"
+    "verdict_partial_refund": "Kutaadhaan kan qoodame",
+    "reasonTitle_damaged_goods": "Meeshaa miidhame",
+    "reasonTitle_wrong_quantity": "Hamma dogoggoraa",
+    "reasonTitle_wrong_crop": "Gosa midhaan dogoggoraa",
+    "reasonTitle_not_delivered": "Hin geejjibamne",
+    "reasonTitle_quality_mismatch": "Qulqullinni wal hin simne",
+    "reasonTitle_delivery_overdue": "Geejjibni tureera",
+    "reasonTitle_silent_buyer": "Bitaan callisee jira",
+    "reasonTitle_dropoff_out_of_range": "Konkolaattichi bakka buufannaa irraa km 5 ol fagaatee galmeesse"
   },
   "trail": {
     "tab": "Karaa imalaa",

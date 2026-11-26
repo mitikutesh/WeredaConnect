@@ -13,7 +13,7 @@ const { locale } = Astro.props;
 const steps: IconName[] = ['wallet', 'truck', 'check', 'shieldCheck'];
 ---
 
-<section aria-labelledby="escrow-title" class="bg-primary-dark px-6 py-24 text-white">
+<section aria-labelledby="escrow-title" class="bg-ink px-6 py-24 text-white">
   <div class="mx-auto max-w-[1200px] flex flex-col gap-12">
     <SectionHeading
       id="escrow-title"
@@ -32,21 +32,21 @@ const steps: IconName[] = ['wallet', 'truck', 'check', 'shieldCheck'];
               class:list={[
                 // 268px basis = the canvas's 220px content-box card plus padding, so the
                 // fourth card drops to its own full-width row at desktop, as drawn.
-                'flex min-w-0 flex-[1_1_268px] flex-col gap-3.5 rounded-[20px] border p-6 animate-on-scroll',
-                last ? 'border-accent bg-accent' : 'border-white/15 bg-white/[0.08]',
+                'flex min-w-0 flex-[1_1_268px] flex-col gap-3.5 rounded-3xl border p-6 animate-on-scroll',
+                last ? 'border-orange bg-orange text-ink' : 'border-white/15 bg-ink-card',
               ]}
             >
-              <span class:list={['flex h-11 w-11 items-center justify-center rounded-[14px] bg-white', last ? 'text-accent-dark' : 'text-primary']}>
+              <span class="flex h-11 w-11 items-center justify-center rounded-[14px] bg-white text-ink">
                 <Icon name={icon} size={22} />
               </span>
-              <span class:list={['text-xs font-bold uppercase tracking-[0.1em]', last ? 'text-white' : 'text-on-dark']}>
+              <span class:list={['text-xs font-bold uppercase tracking-[0.1em]', last ? 'text-ink' : 'text-ink-muted']}>
                 {t(locale, 'howItWorks.escrow.step')} {n}
               </span>
               <h3 class="m-0 text-lg font-bold">{t(locale, `howItWorks.escrow.step${n}.title`)}</h3>
-              <p class:list={['m-0 text-sm leading-[1.55]', last ? 'text-white' : 'text-on-dark']}>{t(locale, `howItWorks.escrow.step${n}.text`)}</p>
+              <p class:list={['m-0 text-sm leading-[1.55]', last ? 'text-ink' : 'text-ink-muted']}>{t(locale, `howItWorks.escrow.step${n}.text`)}</p>
             </li>
             {!last && (
-              <li aria-hidden="true" class="flex w-6 flex-none items-center justify-center text-on-dark">
+              <li aria-hidden="true" class="flex w-6 flex-none items-center justify-center text-ink-muted">
                 <Icon name="arrowRight" size={20} />
               </li>
             )}

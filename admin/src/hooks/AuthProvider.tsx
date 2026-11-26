@@ -1,26 +1,6 @@
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  type ReactNode,
-} from "react";
+import { useState, useEffect, useCallback, type ReactNode } from "react";
 import * as auth from "@/lib/auth";
-
-interface AuthContextValue {
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  user: { phone: string; groups: string[] } | null;
-  login: (phone: string, password: string) => Promise<auth.LoginResult>;
-  submitTotp: (code: string) => Promise<auth.LoginResult>;
-  completeMfaSetup: (code: string, deviceName: string) => Promise<auth.LoginResult>;
-  completeNewPassword: (newPassword: string) => Promise<auth.LoginResult>;
-  cancelChallenge: () => void;
-  logout: () => void;
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null);
+import { AuthContext } from "./useAuth";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -92,10 +72,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-  return ctx;
 }
