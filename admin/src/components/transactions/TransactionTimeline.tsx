@@ -3,7 +3,7 @@ import { ArrowRight, MapPin, ShoppingCart, Truck, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { useLocale } from "@/hooks/useLocale";
 import { formatDateTime } from "@/lib/i18n";
-import { formatGps, timelineActionLabel, timelineEntityVariant } from "@/lib/transaction";
+import { formatGps, stateLabel, timelineActionLabel, timelineEntityVariant } from "@/lib/transaction";
 
 type Row = Record<string, unknown>;
 
@@ -75,7 +75,7 @@ export function TransactionTimeline({ timeline }: { timeline: Row[] }) {
               </p>
               {from && to ? (
                 <p className="text-xs text-slate">
-                  {from} <ArrowRight size={10} className="inline" /> {to}
+                  {stateLabel(entity, from, t)} <ArrowRight size={10} className="inline" /> {stateLabel(entity, to, t)}
                 </p>
               ) : null}
               {loc ? (

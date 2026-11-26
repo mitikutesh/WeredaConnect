@@ -595,6 +595,7 @@
     "firstSeen": "First seen",
     "entity": "Entity",
     "timeline": "Transaction timeline",
+    "sourceUser": "Caused by",
     "riskScore": "Risk score {score} ({tier})",
     "tier_low": "Low",
     "tier_medium": "Medium",

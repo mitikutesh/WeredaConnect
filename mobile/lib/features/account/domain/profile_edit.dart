@@ -49,6 +49,18 @@ class ProfileChanges {
         if (companyName != null) 'companyName': companyName,
       };
 
+  /// The profile text a decoded `user` operation [data] carries
+  /// ([toSyncData]); a language change carries none.
+  factory ProfileChanges.fromSyncData(Object? data) {
+    String? text(String key) =>
+        data is Map && data[key] is String ? data[key] as String : null;
+    return ProfileChanges(
+      displayName: text('displayName'),
+      woreda: text('woreda'),
+      companyName: text('companyName'),
+    );
+  }
+
   @override
   bool operator ==(Object other) =>
       other is ProfileChanges &&

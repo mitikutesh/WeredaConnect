@@ -7,7 +7,7 @@ namespace WeredaConnect.Server.Helpers;
 /// <see cref="ClientAppBuild.Read"/>) may predate that client and would resend an unknown code on every
 /// reconnect, so it gets the same sentence under a code every client treats as permanent:
 /// <c>ORDER_VALIDATION</c> on an order, <c>SYNC_VALIDATION</c> on anything else (<c>TRIP_VALIDATION</c>
-/// and <c>CROP_VALIDATION</c> stay retryable on every client).
+/// and <c>CROP_VALIDATION</c> are retried by every client before sync-protocol.md 1.72.0).
 /// </summary>
 public static class OldClientRefusal
 {

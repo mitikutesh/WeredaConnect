@@ -46,6 +46,18 @@ void main() {
 
       expect(changes.toSyncData(), {'displayName': 'Abebe K.'});
     });
+
+    // FUP-315: a queued edit read back from its operation.
+    test('fromSyncData reads the profile text of an operation', () {
+      const changes = ProfileChanges(woreda: 'Meki', companyName: 'Meki Grain');
+      expect(ProfileChanges.fromSyncData(changes.toSyncData()), changes);
+      expect(
+        ProfileChanges.fromSyncData({'preferredLanguage': 'am'}).isEmpty,
+        isTrue,
+      );
+      expect(ProfileChanges.fromSyncData(null).isEmpty, isTrue);
+      expect(ProfileChanges.fromSyncData({'displayName': 7}).isEmpty, isTrue);
+    });
   });
 
   group('ProfileValues', () {

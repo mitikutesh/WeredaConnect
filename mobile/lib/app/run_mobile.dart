@@ -9,6 +9,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
 import 'package:wereda_connect/core/database/contact_phone_purge.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/models/user.dart';
@@ -203,6 +204,11 @@ Future<void> runMobile({
   final dropoffCheckInPreflight = DropoffCheckInSyncPreflight(
     waiting: syncQueue.hasWaitingOperationsFor,
   );
+  // FUP-315: a profile edit refused for good puts the server's profile back
+  // on the phone and in the session, which the AuthBloc below holds.
+  final profileRepository =
+      ProfileRepository(syncQueue: syncQueue, api: ApiClient());
+  late final AuthBloc authBloc;
   final syncExecutor = SyncExecutor(
     syncQueue: syncQueue,
     connectivityMonitor: connectivityMonitor,
@@ -225,8 +231,19 @@ Future<void> runMobile({
     },
     // Any other permanent order rejection: server wins, the local order goes
     // back to the server's view (sync-protocol.md 1.10.0); so do refused
-    // deliveries, crop listings and trips (1.11.0, 1.12.0, 1.17.0).
-    onPermanentRejection: marketplaceSync.revertRejected,
+    // deliveries, crop listings and trips (1.11.0, 1.12.0, 1.17.0), and a
+    // refused profile edit (1.72.0, FUP-315).
+    onPermanentRejection: (operation, message) async {
+      if (operation.entityType == userProfileEntityType) {
+        await profileRepository.revertRefusedEdit(
+          operation.entityId,
+          apply: (values) =>
+              _showServerProfile(authBloc, operation.entityId, values),
+        );
+        return;
+      }
+      await marketplaceSync.revertRejected(operation, message);
+    },
     // LT-08: LOCATION_SHARING_ENDED stops sharing for the trip; a pickup
     // refused for good drops the trip's waiting check-ins.
     onLocationSharingEnded: checkInEngine.onSharingEnded,
@@ -260,7 +277,7 @@ Future<void> runMobile({
   }
 
   // AuthBloc with Isar for offline data cleanup on logout
-  final authBloc = AuthBloc(
+  authBloc = AuthBloc(
     isar: IsarService.instance.isInitialized ? IsarService.instance.db : null,
     // Logout asks the server to stop pushing to this device's FCM token.
     pushTokenProvider: PushNotificationService.currentToken,
@@ -320,6 +337,32 @@ Future<void> runMobile({
         marketplaceSync: marketplaceSync,
         checkInEngine: checkInEngine,
       ),
+    ),
+  );
+}
+
+/// FUP-315: after a refused profile edit, the phone's copy of [userId]'s
+/// profile and the signed-in session take the server's [values], as the edit
+/// screen applies a server read.
+Future<void> _showServerProfile(
+  AuthBloc authBloc,
+  String userId,
+  ProfileValues values,
+) async {
+  final auth = authBloc.state;
+  await OfflineAuthCache().updateProfile(
+    userId: userId,
+    phoneNumber: auth is AuthAuthenticated ? auth.phoneNumber ?? '' : '',
+    displayName: values.displayName,
+    woreda: values.woreda,
+    buyerType: values.buyerType,
+    companyName: values.companyName,
+  );
+  authBloc.add(
+    AuthProfileChanged(
+      userId: userId,
+      userName: values.displayName,
+      woreda: values.woreda,
     ),
   );
 }

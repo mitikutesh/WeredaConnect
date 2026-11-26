@@ -132,6 +132,7 @@ only needed inside the 90 day windows, and purging them bounds the partition a b
 | `OVERRIDE#{at}` | `ADMIN_TAG` or `ADMIN_UNTAG` | `tag` (`low` or `clear`), `until`, `reason`, `by`, `status` (`active`, `ended`, `replaced`), `dueDay`/`dueAt` = `until` |
 | `TIER#{at}#{cause}` | `TIER_CHANGED` | `fromTier`, `toTier`, `restrictedUntil`; feeds `tier_changed`. `{cause}` is the slot that changed it, or `daily` and `refresh` (as built: unique when several orders of one write share a time) |
 | `HEAL#{yyyy-mm-dd}` | `HEAL` | `dueDay` = that day, `dueAt` = first write; upserted by any writer that leaves a best-effort step behind; deleted by the daily job |
+| `HANDOFF#{orderId}` | `HANDOFF_QUALITY` | GCR-03, the conduct stamp of a settled order, on farmers, truckers and buyers (`reputation-api.md` 1.9.0 section 1.8 has the attributes). No `status`, `dueDay` or `appealStatus`; written outside the reputation transaction (no aggregate changes) under a check of the users row; every event read filters it out |
 
 ### 3.3 Indexes
 

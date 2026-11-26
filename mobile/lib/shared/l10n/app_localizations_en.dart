@@ -3020,6 +3020,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get stepUpDone => 'Confirmed. Retrying your payment.';
 
   @override
+  String get stepUpOtherMessage =>
+      'For your safety, confirm it\'s you before you continue.';
+
+  @override
+  String get faydaStepUpOtherMessage =>
+      'Confirm it\'s you with Fayda to continue. You may also be asked for your password.';
+
+  @override
+  String get stepUpDoneRetrying => 'Confirmed. Trying again.';
+
+  @override
   String get faydaStateMismatch =>
       'The Fayda session expired. Please start verification again.';
 

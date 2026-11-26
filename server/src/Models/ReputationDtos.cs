@@ -261,6 +261,12 @@ public static class ReputationCodes
     public const string TierChanged = "TIER_CHANGED";
     public const string Heal = "HEAL";
 
+    /// <summary>
+    /// GCR-03: the conduct stamp of a settled order (reputation-api.md 1.9.0 section 1.8). Not an event: no
+    /// points, no tier, never in a party's event list; the event reads leave it out.
+    /// </summary>
+    public const string HandoffQuality = "HANDOFF_QUALITY";
+
     /// <summary>Codes that can carry points (the ones a party can appeal and that notify).</summary>
     public static readonly IReadOnlySet<string> Penalties = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -305,6 +311,9 @@ public static class ReputationSlots
     public const string Override = "OVERRIDE#";
     public const string Tier = "TIER#";
     public const string Heal = "HEAL#";
+
+    /// <summary>GCR-03: the conduct stamp, <c>HANDOFF#{orderId}</c>, one per party and order.</summary>
+    public const string Handoff = "HANDOFF#";
 }
 
 /// <summary>Why a penalty got 0 points (reputation-api.md section 4).</summary>

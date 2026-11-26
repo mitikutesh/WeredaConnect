@@ -83,11 +83,14 @@ bool isCheckInRejectionMessage(String? message) =>
 
 /// Whether the server does not take check-ins at all: with
 /// `pickupClassification` off the entity is unsupported, as every unknown
-/// one (`Unsupported entity type: 'handoff_check_in'.`). Permanent too: the
-/// same operation can only get the same answer, so it must not loop.
+/// one (`SYNC_VALIDATION: Unsupported entity type: 'handoff_check_in'.`
+/// since sync-protocol.md 1.72.0, FUP-74; without the code before).
+/// Permanent too: the same operation can only get the same answer, so it must
+/// not loop.
 bool isCheckInUnsupportedMessage(String? message) =>
     message != null &&
-    message.startsWith('Unsupported entity type') &&
+    (message.startsWith('Unsupported entity type') ||
+        message.startsWith('SYNC_VALIDATION: Unsupported entity type')) &&
     message.contains("'$handoffCheckInEntityType'");
 
 /// [isCheckInRejectionMessage] or [isCheckInUnsupportedMessage].

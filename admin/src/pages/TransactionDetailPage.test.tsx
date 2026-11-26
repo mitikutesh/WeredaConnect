@@ -108,6 +108,22 @@ describe("TransactionDetailPage timeline labels (FUP-35)", () => {
     expect(screen.getByText("Some future action")).toBeTruthy();
     expect(screen.queryByText("some_future_action")).toBeNull();
   });
+
+  /* FUP-80: the from and to states read as each leg's status labels. */
+  it("labels the from and to states of each leg", () => {
+    mocks.detail.data = detailWithTimeline([
+      { ...refusalRow, action: "hold_success", fromState: "initiated", toState: "escrowed" },
+      { ...refusalRow, entity: "order", action: "payment_verified", fromState: "payment_submitted", toState: "funded" },
+      { ...refusalRow, entity: "delivery", action: "picked_up", fromState: "pending", toState: "pickedUp" },
+    ]);
+
+    renderPage();
+
+    expect(screen.getByText(/Initiated\s*Held in escrow/)).toBeTruthy();
+    expect(screen.getByText(/Payment submitted\s*Paid/)).toBeTruthy();
+    expect(screen.getByText(/Pending\s*Picked up/)).toBeTruthy();
+    expect(screen.queryByText(/escrowed|payment_submitted|pickedUp/)).toBeNull();
+  });
 });
 
 function detailWithEscrow(escrow: Record<string, unknown>) {
