@@ -21,8 +21,25 @@ internal sealed class FakeConductStamps : IConductStampRepository
     public Exception? ThrowOnPut { get; set; }
     public int ThrowTimes { get; set; } = int.MaxValue;
 
+    /// <summary>GCR-04: the figure's reads, and a failure to throw from them.</summary>
+    public List<(string UserId, DateTime Since, int Cap)> CountedQueries { get; } = new();
+    public Exception? ThrowOnCountedQuery { get; set; }
+
     public Task<IReadOnlyList<ConductStamp>> QueryStampsAsync(string userId, int cap)
         => Task.FromResult<IReadOnlyList<ConductStamp>>(Rows.Values.Where(r => r.UserId == userId).Take(cap).ToList());
+
+    /// <summary>The table's filter: this user's counted stamps after <paramref name="sinceUtc"/>, then the cap.</summary>
+    public Task<(IReadOnlyList<ConductStamp> Rows, bool Truncated)> QueryCountedStampsAsync(string userId, DateTime sinceUtc, int cap)
+    {
+        CountedQueries.Add((userId, sinceUtc, cap));
+        if (ThrowOnCountedQuery != null)
+        {
+            throw ThrowOnCountedQuery;
+        }
+
+        var matching = Rows.Values.Where(r => r.UserId == userId && r.Counted && r.OccurredAt > sinceUtc).ToList();
+        return Task.FromResult<(IReadOnlyList<ConductStamp>, bool)>((matching.Take(cap).ToList(), matching.Count > cap));
+    }
 
     public Task<ConductStamp?> GetStampAsync(string userId, string orderId)
     {
