@@ -66,10 +66,17 @@ public class AdminFraudReviewQueueTests
                     return Task.FromResult(Page(null, _scoreRows.GetValueOrDefault(userId)?.ToArray() ?? []));
                 }
 
+                // One status partition's own pages first (FUP-555: the dashboard counts several partitions of
+                // one index), then the index's.
+                var partition = query.ExpressionAttributeValues.TryGetValue(":status", out var status)
+                    ? $"{query.IndexName}#{status.S}"
+                    : null;
                 return Task.FromResult(
-                    query.IndexName != null && _indexPages.TryGetValue(query.IndexName, out var pages) && pages.Count > 0
-                        ? pages.Dequeue()
-                        : Page(null));
+                    partition != null && _indexPages.TryGetValue(partition, out var own) && own.Count > 0
+                        ? own.Dequeue()
+                        : query.IndexName != null && _indexPages.TryGetValue(query.IndexName, out var pages) && pages.Count > 0
+                            ? pages.Dequeue()
+                            : Page(null));
             });
         _ddb.ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ScanResponse
@@ -126,6 +133,9 @@ public class AdminFraudReviewQueueTests
         new() { Items = rows.ToList(), LastEvaluatedKey = lastKey ?? new Dictionary<string, AttributeValue>() };
 
     private void IndexPages(string index, params QueryResponse[] pages) => _indexPages[index] = new Queue<QueryResponse>(pages);
+
+    private void PartitionPages(string index, string status, params QueryResponse[] pages) =>
+        _indexPages[$"{index}#{status}"] = new Queue<QueryResponse>(pages);
 
     private List<QueryRequest> Queries => _ddb.ReceivedCalls()
         .Select(c => c.GetArguments()[0]).OfType<QueryRequest>().ToList();
@@ -581,7 +591,7 @@ public class AdminFraudReviewQueueTests
         IndexPages(FraudIndex,
             new QueryResponse { Count = 7, LastEvaluatedKey = new Dictionary<string, AttributeValue> { { "userId", new AttributeValue { S = "u" } } } },
             new QueryResponse { Count = 2, LastEvaluatedKey = new Dictionary<string, AttributeValue>() });
-        IndexPages(EscrowIndex, new QueryResponse { Count = 3, LastEvaluatedKey = new Dictionary<string, AttributeValue>() });
+        PartitionPages(EscrowIndex, "held", new QueryResponse { Count = 3, LastEvaluatedKey = new Dictionary<string, AttributeValue>() });
 
         var response = await GetAsync("/admin/dashboard/stats");
 
@@ -597,10 +607,10 @@ public class AdminFraudReviewQueueTests
             && q.ExpressionAttributeValues[":status"].S == "pending"
             && q.FilterExpression == "(attribute_not_exists(#recordType) OR #recordType = :signalRecord)");
         signalCounts[1].ExclusiveStartKey["userId"].S.Should().Be("u");
-        var heldCount = IndexQueries(EscrowIndex).Single();
+        // FUP-555: the escrowed and disputed counts read their own partitions of the same index.
+        var heldCount = IndexQueries(EscrowIndex).Single(q => q.ExpressionAttributeValues[":status"].S == "held");
         heldCount.Select.Should().Be(Select.COUNT);
         heldCount.TableName.Should().Be(EscrowsTable);
-        heldCount.ExpressionAttributeValues[":status"].S.Should().Be("held");
     }
 
     // ──────────────────────────────────────────────

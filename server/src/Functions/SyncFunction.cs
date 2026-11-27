@@ -8220,7 +8220,9 @@ public partial class SyncFunction
 
         try
         {
-            var order = await _orderRepo.GetByIdAsync(orderId);
+            // FUP-76: strongly consistent, because the write below uses this read's version: a pickedUp then
+            // inTransit (or a check-in) in one batch must see the first advance, not conflict on the old version.
+            var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
             if (order == null)
             {
                 return;
