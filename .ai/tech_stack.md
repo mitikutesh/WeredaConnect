@@ -46,7 +46,7 @@ Single source of truth for dependency versions and technology choices.
 | Lambda | `Amazon.Lambda.APIGatewayEvents` | 2.7.3 | |
 | Lambda | `Amazon.Lambda.Serialization.SystemTextJson` | 2.4.5 | |
 | JSON | `System.Text.Json` | 10.0.0 | AOT source generators |
-| Database | `AWSSDK.DynamoDBv2` | 3.7.400 | |
+| Database | `AWSSDK.DynamoDBv2` | 4.1 | All `AWSSDK.*` packages move together on 4.x; `AwsSdkDefaults` keeps v3's empty collections |
 | Database | `Dapper` | 2.1.0 | |
 | Testing | `xUnit` | 2.9.0 | |
 | Mocking | `NSubstitute` | 5.1.0 | AOT-compatible |

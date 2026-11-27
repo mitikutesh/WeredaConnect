@@ -92,7 +92,7 @@ public sealed class PayoutReferenceBackfillTests
             start = _escrows.FindIndex(e => e["escrowId"].S == after["escrowId"].S && e["createdAt"].S == after["createdAt"].S) + 1;
         }
 
-        var page = _escrows.Skip(start).Take(request.Limit > 0 ? request.Limit : 100).ToList();
+        var page = _escrows.Skip(start).Take(request.Limit is int lim && lim > 0 ? lim : 100).ToList();
         var last = start + page.Count < _escrows.Count && page.Count > 0
             ? new Dictionary<string, AttributeValue> { ["escrowId"] = page[^1]["escrowId"], ["createdAt"] = page[^1]["createdAt"] }
             : new Dictionary<string, AttributeValue>();

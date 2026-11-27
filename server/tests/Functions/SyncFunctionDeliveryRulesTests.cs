@@ -247,7 +247,7 @@ public class SyncFunctionDeliveryRulesTests
     {
         SetupDelivery(Delivery("pending", version: 1));
         _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable
-                && r.ConsistentRead
+                && r.ConsistentRead == true
                 && r.ExpressionAttributeValues.ContainsKey(":id")
                 && r.ExpressionAttributeValues[":id"].S == DeliveryId))
             .Returns(new QueryResponse

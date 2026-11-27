@@ -335,7 +335,7 @@ public sealed class CognitoAuthService : ICognitoAuthService
                 AccessToken = result.AccessToken,
                 IdToken = result.IdToken,
                 RefreshToken = result.RefreshToken,
-                ExpiresIn = result.ExpiresIn
+                ExpiresIn = result.ExpiresIn ?? 0
             });
         }
         catch (NotAuthorizedException)
@@ -406,7 +406,7 @@ public sealed class CognitoAuthService : ICognitoAuthService
                 AccessToken = result.AccessToken,
                 IdToken = result.IdToken,
                 RefreshToken = null, // Cognito does not rotate refresh tokens
-                ExpiresIn = result.ExpiresIn
+                ExpiresIn = result.ExpiresIn ?? 0
             });
         }
         catch (NotAuthorizedException)

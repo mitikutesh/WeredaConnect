@@ -60,7 +60,7 @@ internal sealed class LabelFeatureSnapshotReader
                 Truncated = units.Truncated,
                 WindowDays = units.WindowDays,
                 AccountAgeDays = user == null ? null : AgeDays(Str(user, "createdAt"), nowUtc),
-                FaydaVerified = user == null ? null : user.TryGetValue("faydaVerified", out var fayda) && fayda.BOOL,
+                FaydaVerified = user == null ? null : user.TryGetValue("faydaVerified", out var fayda) && fayda.BOOL == true,
                 Role = role,
                 CompletedEscrows = completed?.Count,
                 CompletedEscrowsPartial = completed?.Partial
@@ -134,7 +134,7 @@ internal sealed class LabelFeatureSnapshotReader
             Limit = CompletedReadLimit,
             ScanIndexForward = false
         });
-        return (response.Count, response.LastEvaluatedKey is { Count: > 0 });
+        return (response.Count ?? 0, response.LastEvaluatedKey is { Count: > 0 });
     }
 
     private static string RoleCode(string? role) => role is "farmer" or "trucker" or "buyer" ? role : "other";

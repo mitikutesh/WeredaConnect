@@ -2859,7 +2859,7 @@ public partial class AdminFunction
             {
                 statusQuery.ExclusiveStartKey = lastKey;
                 var page = await _dynamoDb.QueryAsync(statusQuery);
-                scanned += page.ScannedCount;
+                scanned += page.ScannedCount ?? 0;
                 pageItems = page.Items;
                 pageKey = page.LastEvaluatedKey;
             }
@@ -2871,7 +2871,7 @@ public partial class AdminFunction
                 }
 
                 var resp = await _dynamoDb.ScanAsync(scanRequest);
-                scanned += resp.ScannedCount;
+                scanned += resp.ScannedCount ?? 0;
                 pageItems = resp.Items;
                 pageKey = resp.LastEvaluatedKey;
             }
@@ -3381,7 +3381,7 @@ public partial class AdminFunction
             }
 
             var response = await _dynamoDb.ScanAsync(request);
-            count += response.Count;
+            count += response.Count ?? 0;
             lastKey = response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null;
         } while (lastKey != null);
 
@@ -3421,7 +3421,7 @@ public partial class AdminFunction
             }
 
             var response = await _dynamoDb.ScanAsync(request);
-            count += response.Count;
+            count += response.Count ?? 0;
             lastKey = response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null;
         } while (lastKey != null);
 
@@ -3461,7 +3461,7 @@ public partial class AdminFunction
             }
 
             var response = await _dynamoDb.ScanAsync(request);
-            count += response.Count;
+            count += response.Count ?? 0;
             lastKey = response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null;
         } while (lastKey != null);
 
@@ -3690,7 +3690,7 @@ public partial class AdminFunction
             }
 
             var response = await _dynamoDb.QueryAsync(request);
-            count += response.Count;
+            count += response.Count ?? 0;
             lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
         }
         while (lastKey != null);

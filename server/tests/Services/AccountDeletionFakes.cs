@@ -80,7 +80,7 @@ internal sealed class FakeAccountDeletionRepository : IAccountDeletionRepository
         Hit(nameof(TryMarkInProgressAsync));
         if (!Users.TryGetValue(userId, out var row)
             || (row.TryGetValue("deletionState", out var ds) && ds.S != AccountDeletionPolicy.InProgress)
-            || (row.TryGetValue("suspended", out var s) && s.BOOL))
+            || (row.TryGetValue("suspended", out var s) && s.BOOL == true))
         {
             return Task.FromResult<string?>(null);
         }
