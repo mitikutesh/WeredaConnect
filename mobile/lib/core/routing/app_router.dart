@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:wereda_connect/core/routing/route_names.dart';
 import 'package:wereda_connect/core/utils/entity_id.dart';
+import 'package:wereda_connect/features/account/presentation/widgets/finish_deletion_listener.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/forgot_password_screen.dart';
@@ -118,14 +119,18 @@ GoRouter createWebRouter(AuthBloc authBloc) {
         observers: [pushedRoutes],
         builder: (context, state, child) => MessageArrivalListener(
           child: SecurityPromptListener(
-            // LT-09: a trucker's first pickup scan of a trip asks whether
-            // to share where the truck is.
-            child: ShareConsentListener(
-              child: AdaptiveShell(
-                pushedRoutes: pushedRoutes,
-                // FUP-75: "reload for the latest app" above every page while
-                // the server refuses this bundle's orders.
-                child: AppUpdateBanner(child: child),
+            // FUP-104: a write refused while the account's deletion is
+            // unfinished offers "Finish deleting".
+            child: FinishDeletionListener(
+              // LT-09: a trucker's first pickup scan of a trip asks whether
+              // to share where the truck is.
+              child: ShareConsentListener(
+                child: AdaptiveShell(
+                  pushedRoutes: pushedRoutes,
+                  // FUP-75: "reload for the latest app" above every page
+                  // while the server refuses this bundle's orders.
+                  child: AppUpdateBanner(child: child),
+                ),
               ),
             ),
           ),

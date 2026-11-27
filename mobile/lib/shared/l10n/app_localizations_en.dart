@@ -3458,6 +3458,19 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get finishDeletingTitle => 'Finish deleting your account?';
+
+  @override
+  String get finishDeletingBody =>
+      'You started deleting this account, but the deletion is not finished. Until it is, the app cannot save your changes.';
+
+  @override
+  String get finishDeletingButton => 'Finish deleting';
+
+  @override
+  String get finishDeletingLater => 'Not now';
+
+  @override
   String get deletedUser => 'Deleted user';
 
   @override

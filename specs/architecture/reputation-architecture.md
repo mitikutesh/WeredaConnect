@@ -605,7 +605,8 @@ the one notify Lambda means no new SNS or device-token grants elsewhere. `notifi
 gets the two types in ESC-28.
 
 ESC-31 (as built): the inbox entry of either type has its own text and opens My reputation on the
-phone and the web. A tapped push still opens the app (TASK FUP-205).
+phone and the web. A tapped push of either type opens My reputation on the phone, from the
+background and after a cold start (FUP-205).
 
 ### 9.1 The app (ESC-31, as built)
 

@@ -1,7 +1,7 @@
 # Reputation API Contract
 
 ## Version
-1.10.0
+1.10.1
 
 ## Status
 PARTLY BUILT (1.10.0). BUILT in GCR-04 (1.10.0, server, behind `conductRewards`, off everywhere): the verified handoffs figure of section 1.9, `verifiedPct` and `verifiedOrders90d` on the reads of sections 2 and 3. BUILT in GCR-03 (1.9.0, server, not flagged): the conduct stamp of section 1.8 (no read returns a stamp; GCR-04 reads them into the figure). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
@@ -1142,8 +1142,9 @@ whenever the tier stored on the users row changes (a penalty, the daily job, a r
 **As built in the apps (1.5.0, ESC-31, `notifications-api.md` 1.5.1)**: both types have their own
 inbox title and body in en, am and om (`penalty_recorded` names the event and its points;
 `tier_changed` says what the new tier means in the words of My reputation), and tapping the inbox
-entry opens My reputation on the phone and the web. A tapped push still opens the app, not My
-reputation (TASK FUP-205).
+entry opens My reputation on the phone and the web. A tapped push of either type opens My
+reputation on the phone too, from the background and after a cold start (FUP-205,
+`notifications-api.md` 1.7.1).
 
 ---
 
@@ -1288,6 +1289,7 @@ platform pair).
 
 | Version | Date | Change |
 |---|---|---|
+| 1.10.1 | 2026-11-27 | Doc only (FUP-205, `notifications-api.md` 1.7.1): a tapped `penalty_recorded` or `tier_changed` push opens My reputation on the phone. No wire change |
 | 1.10.0 | 2026-11-27 | GCR-04 BUILT (server, behind the new flag `conductRewards`, off in dev, staging and prod): new section 1.9, the verified handoffs figure. `GET /reputation/me` and `GET /reputation/{userId}` add `verifiedPct` (`round(100 x sum(earned) / sum(offered))` over the party's counted `HANDOFF_QUALITY` stamps settled in the last 90 days, the window of `reliabilityPct`, half up; absent below 3 counted orders or with no step offered; spec 5) and `verifiedOrders90d` (those counted orders, 0 included), read through their own filtered Query; the event reads still never see a stamp. Public summary: independent of `reputationPublicTags`. A failed stamp read leaves both fields out (`CONDUCT_READ_FAILED`), the rest answers. With the flag off no stamp is read and no answer changes (a byte-for-byte test). Identity verified stays out of the figure (TASK FUP-575). Section 11: the fourth flag, on the reputation Lambda only, no new grant |
 | 1.9.0 | 2026-11-27 | GCR-03 BUILT (server, not flagged, no wire change): new section 1.8, the conduct stamp. When an order reaches `settled`, the reputation stream writes one `HANDOFF_QUALITY` row per party (farmer, trucker, buyer: the first buyer rows in the table) at `HANDOFF#{orderId}`, idempotent on `{orderId}:{partyId}`, under a check that the party is not being deleted: `offered`, `earned`, the step list with the left-out reasons of spec 5, and `counted` with `notCountedReason` (every party gets its row; a non-counted order is stamped as not counted). A late rating that completes the buyer's ratings, or a pickup or drop-off photo, re-evaluates the order once within 14 days. Every event read leaves the stamps out (`QueryEventsAsync` filters them before its cap), so no existing read changes. Not scored yet: the listing kept current and the drop-off code made ready (TASK FUP-560). As built, reputation-stream has none of the tables the stamp reads, so nothing is stamped on a deployed stack until TASK FUP-550 |
 | 1.8.1 | 2026-11-13 | Doc fix (ESC-36): `DELIVERY_OVERDUE` comes from T8 behind `dropoffClassification`, not `pickupClassification` (section 11). No wire change |
@@ -1304,4 +1306,4 @@ platform pair).
 ---
 
 **Last Updated**: 2026-11-27
-**Version**: 1.10.0
+**Version**: 1.10.1

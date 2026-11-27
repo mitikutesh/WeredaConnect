@@ -3352,6 +3352,19 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String get finishDeletingTitle => 'የመለያዎ ስረዛ ይጠናቀቅ?';
+
+  @override
+  String get finishDeletingBody =>
+      'ይህን መለያ መሰረዝ ጀምረዋል፣ ግን ስረዛው ገና አልተጠናቀቀም። እስኪጠናቀቅ ድረስ መተግበሪያው ለውጦችዎን ማስቀመጥ አይችልም።';
+
+  @override
+  String get finishDeletingButton => 'ስረዛውን ጨርስ';
+
+  @override
+  String get finishDeletingLater => 'አሁን አይደለም';
+
+  @override
   String get deletedUser => 'የተሰረዘ ተጠቃሚ';
 
   @override
