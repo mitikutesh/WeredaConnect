@@ -6388,6 +6388,28 @@ public partial class SyncFunctionTests
         await DidNotWriteTheOrder();
     }
 
+    [Theory]
+    [InlineData("held", "The payment for this delivery is under review, so it cannot be disputed now.")]
+    [InlineData("dispute_resolved", "The dispute on the payment for this delivery is already decided, so it cannot be disputed again.")]
+    public async Task DeliveryUpdate_Disputed_StatusOldAppsAreShownAsAnother_IsRefusedWithoutTheStatus(
+        string status, string sentence)
+    {
+        // FUP-108: apps before build 2 are shown held as escrowed and dispute_resolved as disputed (FUP-61),
+        // so the refusal gives the reason in words; the audit keeps the stored status.
+        var rig = DisputeFunction(OrderEscrowRow(status: status));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        Assert.Contains($"DELIVERY_DISPUTE_REFUSED: {sentence} Contact support.", response.Body);
+        Assert.DoesNotContain("status: ", response.Body);
+        Assert.DoesNotContain(status, response.Body);
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+        await rig.AuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(d =>
+            (string)d["action"] == "dispute_refused_not_held" && (string)d["escrowId"] == OrderEscrowId));
+    }
+
     [Fact]
     public async Task DeliveryUpdate_Disputed_FundedOrderWithoutEscrow_IsRefused_AndAlarmed()
     {

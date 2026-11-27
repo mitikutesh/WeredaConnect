@@ -112,7 +112,7 @@ public class AccountDeletionFunction
             outcome: outcome.Result == AccountDeletionResult.Completed ? "success" : "failure",
             sourceIp: AuditLogger.GetSourceIp(request));
 
-        return ToResponse(userId, outcome);
+        return ToResponse(userId, outcome, request);
     }
 
     /// <summary>True only for exactly <c>{ "confirm": true }</c>.</summary>
@@ -133,7 +133,7 @@ public class AccountDeletionFunction
         }
     }
 
-    private static APIGatewayProxyResponse ToResponse(string userId, AccountDeletionOutcome outcome)
+    private static APIGatewayProxyResponse ToResponse(string userId, AccountDeletionOutcome outcome, APIGatewayProxyRequest request)
     {
         switch (outcome.Result)
         {
@@ -151,7 +151,9 @@ public class AccountDeletionFunction
                 {
                     Code = "ACCOUNT_002",
                     Message = "Finish or cancel your active orders, deliveries and disputes before deleting your account.",
-                    Blockers = outcome.Blockers.Take(AccountDeletionPolicy.MaxListedBlockers).ToList(),
+                    // FUP-108: an old app gets each escrow's status as it is shown it (FUP-61).
+                    Blockers = EscrowStatusCompat.ForCaller(
+                        outcome.Blockers.Take(AccountDeletionPolicy.MaxListedBlockers), request),
                     BlockerCount = outcome.Blockers.Count
                 });
 

@@ -126,6 +126,41 @@ public class AccountDeletionFunctionTests
         first.GetProperty("role").GetString().Should().Be("buyer");
     }
 
+    [Theory]
+    [InlineData(null, "escrowed", "disputed")]
+    [InlineData("1", "escrowed", "disputed")]
+    [InlineData("2", "held", "dispute_resolved")]
+    public async Task Blocked_EscrowBlockers_NameTheStatusTheAppIsShown(string? build, string held, string verdict)
+    {
+        // FUP-108: an app before build 2 is shown held as escrowed and dispute_resolved as disputed (FUP-61),
+        // so its 409 names them that way too; the stored rows keep their status.
+        _repo.Escrows.Add(Escrow("escrow-held", "held"));
+        _repo.Escrows.Add(Escrow("escrow-verdict", "dispute_resolved"));
+        var request = Req();
+        if (build != null)
+        {
+            request.Headers = new Dictionary<string, string> { { "X-App-Build", build } };
+        }
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        response.StatusCode.Should().Be(409);
+        var blockers = Json(response).GetProperty("error").GetProperty("blockers").EnumerateArray()
+            .ToDictionary(b => b.GetProperty("id").GetString()!, b => b.GetProperty("status").GetString());
+        blockers.Should().Equal(new Dictionary<string, string?> { { "escrow-held", held }, { "escrow-verdict", verdict } });
+        _repo.Escrows.Select(e => e["status"]).Should().Equal("held", "dispute_resolved");
+    }
+
+    private static Dictionary<string, object> Escrow(string escrowId, string status) => new()
+    {
+        ["escrowId"] = escrowId,
+        ["createdAt"] = "2026-10-01T00:00:00Z",
+        ["status"] = status,
+        ["buyerId"] = UserId,
+        ["farmerId"] = "farmer-1",
+        ["version"] = "1"
+    };
+
     [Fact]
     public async Task StartedButNotFinished_Returns503_WithTheStateAndARetryDelay()
     {

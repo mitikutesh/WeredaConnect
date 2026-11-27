@@ -1,7 +1,7 @@
 # Reputation Architecture
 
 ## Version
-1.10.0 | 2026-11-13 (FUP-245)
+1.11.0 | 2026-11-27 (FUP-186)
 
 ## Status
 PARTLY BUILT. ESC-28 (the core write side) is built and ships dark: sections 3 (the table and
@@ -689,6 +689,9 @@ public copy the server puts on crop and trip rows for buyers.
   (`reputation-api.md` 1.6.0 section 7, "As built in the apps").
 - The push alert Lambda scores with the neutral value (it has no public tags flag).
 - `farmerReliability` is also dropped from client payloads on `/sync`.
+- FUP-186 (`crop-listing-api.md` 1.19.0, `match-api.md` 1.6.0): `CropDto` and `MatchDto` no longer
+  return `farmerReliability`, and the apps no longer parse or store it. Old crop rows keep the
+  stored attribute.
 
 ---
 
@@ -1194,6 +1197,7 @@ How the build reads points the design left open:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.11.0 | 2026-11-27 | FUP-186: section 11 records that `CropDto` and `MatchDto` no longer return `farmerReliability` and the apps no longer parse or store it (`crop-listing-api.md` 1.19.0, `match-api.md` 1.6.0); old crop rows keep the stored attribute |
 | 1.10.0 | 2026-11-13 | FUP-245: 13.1 `GPS_ANOMALY`, with `dropoffClassification` on the trucker's row reads ESC-36's drop-off check-in first (it clears or leaves no row; an out-of-range attempt alone leaves none) and falls back to the road check-ins of FUP-203 only without it (`fraud-detection-architecture.md` 3.38.0). |
 | 1.9.0 | 2026-11-13 | ESC-36 built the producer of R12 (T8, behind `dropoffClassification`: the order `disputed` with `disputeReason: delivery_overdue` in one write) and the silent buyer of 13 (T9 reads the trucker's stored tier; no event). FUP-204: R12 rests on the trucker alone and is written plainly (fraud spec 3.37.0 section 15.3) |
 | 1.8.0 | 2026-11-12 | ESC-34 built the producer of R10 and R11 (the pickup judgement, behind `pickupClassification`, off everywhere): their order fields are as shipped, plus `truckerResponse` / `farmerResponse` `no_show`, which no rule reads. FUP-204: R11's candidate carries `ReportedBy` (the self-pickup buyer, else the order's trucker), carried to the event in memory only, and the reliability hook writes that event's `NO_SHOW` through the attribution guard (`fraud-detection-architecture.md` 3.36.0, 15.3); R10 rests on the trucker alone. 7.4: the stream needs no `pickupClassification` of its own. |

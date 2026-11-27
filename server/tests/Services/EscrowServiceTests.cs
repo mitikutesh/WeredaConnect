@@ -4210,6 +4210,31 @@ public class EscrowServiceTests
         Assert.False(result.IsSuccess);
         Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error!.Code);
         Assert.Equal(422, result.Error.HttpStatus);
+        Assert.Equal("Cannot dispute escrow in 'released' state. Must be 'escrowed'.", result.Error.Message);
+    }
+
+    [Theory]
+    [InlineData("held", "This payment is under review, so it cannot be disputed now.")]
+    [InlineData("dispute_resolved", "The dispute on this payment is already decided, so it cannot be disputed again.")]
+    public async Task DisputeAsync_StatusOldAppsAreShownAsAnother_NamesNoStatus(string status, string message)
+    {
+        // FUP-108: apps before build 2 are shown held as escrowed and dispute_resolved as disputed (FUP-61),
+        // so the refusal gives the reason in words and names no stored status, for every app.
+        _mockEscrowRepo.GetByIdAsync("escrow-001").Returns(MakeEscrowItem(status: status));
+
+        var result = await _service.DisputeAsync(new DisputeEscrowRequest
+        {
+            EscrowId = "escrow-001",
+            DisputedBy = BuyerId,
+            Reason = "damaged_goods",
+            IdempotencyKey = $"{BuyerId}:escrow-001:dispute:1708171200000"
+        }, BuyerId);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("ESCROW_INVALID_TRANSITION", result.Error!.Code);
+        Assert.Equal(422, result.Error.HttpStatus);
+        Assert.Equal(message, result.Error.Message);
+        Assert.Equal(message, EscrowService.DisputeRaceRefusal(MakeEscrowItem(status: status)).Error!.Message);
     }
 
     // ──────────────────────────────────────────────

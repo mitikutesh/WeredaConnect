@@ -2462,9 +2462,7 @@ public sealed partial class EscrowService
 
         if (currentStatus != "escrowed")
         {
-            return EscrowResult<DisputeEscrowResponse>.Failure(
-                422, "ESCROW_INVALID_TRANSITION",
-                $"Cannot dispute escrow in '{currentStatus}' state. Must be 'escrowed'.");
+            return DisputeRefusedStatus(currentStatus);
         }
 
         // 5a. ESC-02: a settlement already waiting in the manual payout queue cannot be
@@ -2735,8 +2733,7 @@ public sealed partial class EscrowService
             "escrowed" when IsRefundScheduled(latest) => DisputeRefusedRefundScheduled(),
             "escrowed" => EscrowResult<DisputeEscrowResponse>.Failure(
                 409, "ESCROW_INVALID_TRANSITION", "The escrow changed while the dispute was recorded. Try again."),
-            _ => EscrowResult<DisputeEscrowResponse>.Failure(
-                422, "ESCROW_INVALID_TRANSITION", $"Cannot dispute escrow in '{status}' state. Must be 'escrowed'.")
+            _ => DisputeRefusedStatus(status)
         };
     }
 
@@ -6740,6 +6737,21 @@ public sealed partial class EscrowService
         "A refund to the buyer is scheduled for this escrow; it can no longer be disputed.");
 
     /// <summary>
+    /// 422 ESCROW_INVALID_TRANSITION: no dispute on an escrow in <paramref name="status"/>, which is not
+    /// <c>escrowed</c>. FUP-108: the text names the stored status only where every app knows it. Apps before
+    /// build 2 are shown <c>held</c> as <c>escrowed</c> and <c>dispute_resolved</c> as <c>disputed</c>
+    /// (FUP-61, <see cref="EscrowStatusCompat"/>), and "in 'escrowed' state" would contradict the refusal,
+    /// so for those two the text gives the reason in words, to every app alike.
+    /// </summary>
+    internal static EscrowResult<DisputeEscrowResponse> DisputeRefusedStatus(string status) => EscrowResult<DisputeEscrowResponse>.Failure(
+        422, "ESCROW_INVALID_TRANSITION", status switch
+        {
+            EscrowHoldFields.Status => "This payment is under review, so it cannot be disputed now.",
+            "dispute_resolved" => "The dispute on this payment is already decided, so it cannot be disputed again.",
+            _ => $"Cannot dispute escrow in '{status}' state. Must be 'escrowed'."
+        });
+
+    /// <summary>
     /// 202 ESCROW_034: the settlement is waiting in the manual payout queue and this call made no
     /// payout. Whether an earlier gateway call did depends on the queue reason (ESC-05:
     /// <c>GATEWAY_OUTCOME_UNKNOWN</c> may have paid). Returned to the cron and the admin
@@ -6862,14 +6874,22 @@ public sealed partial class EscrowService
 
     /// <summary>
     /// Get the authenticated user's payment history with optional filters and pagination.
+    /// <paramref name="anyOfStatuses"/> (FUP-108, an old app's filter) replaces <paramref name="status"/>
+    /// with several stored statuses: the page is read unfiltered and filtered here, which lists the same
+    /// rows and pages as the query's status filter would, since DynamoDB also filters after the limit.
     /// </summary>
     public async Task<EscrowResult<GetEscrowHistoryResponse>> GetHistoryAsync(
         string userId, string? status, string? role, string? fromDate, string? toDate,
-        int limit, string? nextToken)
+        int limit, string? nextToken, IReadOnlyList<string>? anyOfStatuses = null)
     {
         if (limit < 1 || limit > 50)
         {
             limit = 20;
+        }
+
+        if (anyOfStatuses is { Count: > 0 })
+        {
+            status = null;
         }
 
         // Decode pagination token
@@ -6909,7 +6929,12 @@ public sealed partial class EscrowService
             lastEvaluatedKey = result.LastEvaluatedKey;
         }
 
-        // 2. Apply date filters (post-query)
+        // 2. Apply the status filter of several stored statuses and the date filters (post-query)
+        if (anyOfStatuses is { Count: > 0 })
+        {
+            items = items.Where(i => anyOfStatuses.Contains(GetString(i, "status"))).ToList();
+        }
+
         if (!string.IsNullOrEmpty(fromDate))
         {
             items = items

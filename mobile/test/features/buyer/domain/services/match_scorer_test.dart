@@ -39,7 +39,6 @@ void main() {
     double lon = 0,
     DateTime? createdAt,
     int? ownerReliabilityPct,
-    double? farmerReliability,
   }) {
     return CropListing()
       ..listingId = 'c1'
@@ -53,7 +52,6 @@ void main() {
       ..locationName = locationName
       ..description = ''
       ..ownerReliabilityPct = ownerReliabilityPct
-      ..farmerReliability = farmerReliability
       ..status = ListingStatus.active
       ..createdAt = createdAt ?? now
       ..updatedAt = now
@@ -361,17 +359,6 @@ void main() {
           reason: 'ownerReliabilityPct $pct',
         );
       }
-    });
-
-    test('the old farmerReliability no longer moves the score', () {
-      // Rows synced before ESC-30 may still hold it (null or 1.0 in
-      // practice). It is ignored: such a row scores as neutral.
-      final legacy = scorer.scoreListing(
-        intent(),
-        listing(farmerReliability: 1.0),
-        now,
-      );
-      expect(legacy, closeTo(0.97, 1e-9));
     });
 
     test('golden ranking order with reliability is identical across platforms',

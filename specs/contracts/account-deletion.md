@@ -1,7 +1,7 @@
 # Account Deletion Contract
 
 ## Version
-1.7.4
+1.8.0
 
 ## Parties
 - **Mobile / Web** (client, ACC-03): Profile > "Delete account" flow, step-up re-auth, local wipe. Mobile and web are a platform pair and ship together.
@@ -98,6 +98,7 @@ The same body is returned for a replay after completion. The ID token still veri
 
 - `type` is one of `order`, `escrow`, `delivery`, `dispute`, `payment_review`.
 - `role` is the user's role on that row (`buyer`, `farmer`, `trucker`).
+- `status` is the row's stored status, except on an `escrow` blocker to an app with no `X-App-Build` or a build below 2 (1.8.0, FUP-108): `held` reads `escrowed` and `dispute_resolved` reads `disputed`, as on every escrow read (`escrow-protocol.md` 1.31.0 and 2.32.0).
 - At most 20 blockers are listed. `blockerCount` is the full count.
 
 ### 503 Service Unavailable (started, not finished)
@@ -446,6 +447,7 @@ Not built yet (follow-ups):
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.8.0 | 2026-11-27 | The `409 ACCOUNT_002` escrow blockers carry the status an old app reads (FUP-108, `escrow-protocol.md` 2.32.0): to an app with no `X-App-Build` or a build below 2, `held` reads `escrowed` and `dispute_resolved` reads `disputed`. The other blockers, the stored rows and what blocks are unchanged |
 | 1.7.4 | 2026-11-26 | The `deliveries` row lists the server-only handoff evidence stamps of `delivery-verification-api.md` 2.19.0 (FUP-440, GCR-01, GCR-02: GPS status, the fix's time and accuracy, QR or code, the app, the drop-off's phone time) as evidence kept, like `gpsPickup` and `gpsDropoff`. None is personal data on its own; the deletion steps do not touch them. No behaviour change |
 | 1.7.3 | 2026-11-13 | The `transaction-audit` row lists the `profile_edited` rows of FUP-317 (`user-entity.md` 2.3.0): partition `profile-{userId}` with the old and new profile names and woreda, kept after a deletion (no deletion step removes them; open as TASK FUP-419), not shown by the admin user detail for a deleting or deleted account nor by the audit log. No behaviour change of the deletion |
 | 1.7.2 | 2026-11-13 | The S3 uploads bucket row: delivery photos are kept as their copies under `evidence/photos/` (FUP-140, `delivery-verification-api.md` 2.14.0); the old line named a `photos/` Glacier rule that matched no key and is removed. No behaviour change |

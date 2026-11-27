@@ -249,6 +249,22 @@ void main() {
     });
 
     test(
+        'FUP-186: a crop that still carries the retired farmerReliability is '
+        'stored like any other', () async {
+      stubApi(
+        crops: [
+          {..._cropJson(), 'farmerReliability': 1.0},
+        ],
+        trips: [_tripJson()],
+      );
+      await buildSync().pullAll();
+
+      final stored = await isar.cropListings.where().findAll();
+      expect(stored.single.listingId, 'crop-1');
+      expect(stored.single.ownerReliabilityPct, isNull);
+    });
+
+    test(
         'ESC-31: the rest of the owner reputation copy is stored on crops '
         'and trips, and cleared when the server stops sending it', () async {
       const owner = {
