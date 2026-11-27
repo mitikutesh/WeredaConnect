@@ -1,10 +1,10 @@
 # Reputation API Contract
 
 ## Version
-1.11.0
+1.12.0
 
 ## Status
-PARTLY BUILT (1.11.0). BUILT in FUP-195 and FUP-199 (1.11.0, server and app): the `appeal_decided` notice of an admin's decision (section 10) and the admin audit row a replay writes when the first write failed (section 9). BUILT in GCR-04 (1.10.0, server, behind `conductRewards`, off everywhere): the verified handoffs figure of section 1.9, `verifiedPct` and `verifiedOrders90d` on the reads of sections 2 and 3. BUILT in GCR-03 (1.9.0, server, not flagged): the conduct stamp of section 1.8 (no read returns a stamp; GCR-04 reads them into the figure). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
+PARTLY BUILT (1.12.0). BUILT in GCR-07 and FUP-576 (1.12.0, server, admin app and infra, no new grant): the verified handoffs figure on the admin read (9.1, whatever `conductRewards` says), the conduct stamps of the order's parties on the admin transaction view (9.5), and the alarm on `CONDUCT_READ_FAILED` (1.9). BUILT in FUP-195 and FUP-199 (1.11.0, server and app): the `appeal_decided` notice of an admin's decision (section 10) and the admin audit row a replay writes when the first write failed (section 9). BUILT in GCR-04 (1.10.0, server, behind `conductRewards`, off everywhere): the verified handoffs figure of section 1.9, `verifiedPct` and `verifiedOrders90d` on the reads of sections 2 and 3. BUILT in GCR-03 (1.9.0, server, not flagged): the conduct stamp of section 1.8 (no read returns a stamp; GCR-04 reads them into the figure). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
 the server side of the two notifications (section 10) and the flags and policy parameter
 (section 11). BUILT in ESC-29 (server): the reads (sections 2 to 4), the appeal photo and the appeal
 (5, 6), the copied owner fields (7) and the gates (8). BUILT in ESC-32: the admin endpoints
@@ -208,7 +208,7 @@ With `reputationPenalties` off none of the four runs, and nothing in ESC-33 is l
 ### 1.8 Conduct stamp (GCR-03, BUILT server, 1.9.0)
 
 Server-internal: no stamp row is on the wire. Since 1.10.0 GCR-04 reads the rows into `verifiedPct` and
-`verifiedOrders90d` behind `conductRewards` (section 1.9); GCR-07 shows them to admins. Design: `specs/features/good-conduct-rewards.md` sections
+`verifiedOrders90d` behind `conductRewards` (section 1.9); since 1.12.0 (GCR-07) admins see the figure on 9.1 and each party's stamp on the transaction view (9.5). Design: `specs/features/good-conduct-rewards.md` sections
 4, 5 and 8. Built in `Helpers/ConductScoring.cs` (pure), `Services/ConductStampService.cs`,
 `Data/ReputationEventRepository.Conduct.cs`. **Not flagged** (stamping runs before anything shows).
 
@@ -347,7 +347,7 @@ users row field, no aggregate, no daily job. Built in `Helpers/ConductScoring.cs
   `verifiedPct` means below the minimum; neither field means the flag is off or the stamps could not
   be read.
 - A stamp with `counted: false` (any `notCountedReason`) counts toward neither value. Its `offered` and
-  `earned` stay on the row for GCR-07.
+  `earned` stay on the row, and an admin sees them on the transaction view (9.5).
 - **Not in the figure**: identity verified (spec 4.1, "counted once per window, not per order"). The
   figure reads the stamps only; adding the step needs the users row's `faydaVerified` and a decision on
   which roles get it (TASK FUP-575).
@@ -357,13 +357,16 @@ users row field, no aggregate, no daily job. Built in `Helpers/ConductScoring.cs
   `CONDUCT_READ_TRUNCATED` and the figure is from the rows read (above 11 counted orders a day for 90
   days). A Query that fails logs `CONDUCT_READ_FAILED` with the exception's type, and the answer goes
   out `200` without both fields, the rest unchanged. The reputation Lambda's existing `dynamodb:Query`
-  on the table covers it: no new grant.
+  on the table covers it: no new grant. **Alarm (1.12.0, FUP-576)**: `{prefix}-conduct-read-failed` at 5
+  `CONDUCT_READ_FAILED` lines in an hour on the reputation and admin log groups (a rate: the next read tries
+  again); `CONDUCT_READ_TRUNCATED` is counted on the same log groups (metric `ConductReadTruncated`) with no
+  alarm.
 - **Where**: the own view (section 2) and the public summary (section 3, whatever
   `reputationPublicTags` says: the flags are independent, spec 8 item 7). Not on the event list
-  (section 4), the admin read (9.1, GCR-07), the owner fields of section 7 (GCR-05), `GET /ratings` or
-  match.
+  (section 4), the owner fields of section 7 (GCR-05), `GET /ratings` or match. Since 1.12.0 (GCR-07) also
+  on the admin read (9.1), there whatever `conductRewards` says.
 - **Who** (unchanged): a farmer or trucker gets their own figure on section 2, and on section 3 for
-  themselves; a buyer gets a farmer's or trucker's on section 3; nobody gets a buyer's (a buyer target
+  themselves; a buyer gets a farmer's or trucker's on section 3; nobody but an admin (9.1, 9.5) gets a buyer's (a buyer target
   is `404`, a buyer on section 2 `403`, both decided before any stamp is read). The buyer standing is
   GCR-11.
 - **Flag off** (every environment): no stamp is read and the answers of sections 2 and 3 are byte for
@@ -976,6 +979,16 @@ buyer`); `500 REPUTATION_SERVER_ERROR`.
   `uploads/appeals/{that user's id}/` with the file name shape of section 6; any other stored
   value is not signed. The admin Lambda may read objects only under `uploads/photos/` and
   `uploads/appeals/`.
+- **Verified handoffs (1.12.0, GCR-07)**: `reputation` carries `verifiedPct` and `verifiedOrders90d`
+  as section 1.9 computes them at the read's `asOf`, whatever `conductRewards` says (the admin app shows
+  the figure before the flag shows it to anyone else), for any role, a buyer's included. The same two
+  fields are on the `reputation` of the 9.3 and 9.4 answers. One extra Query of the user's counted
+  `HANDOFF#` slots per answer, covered by the admin Lambda's existing `dynamodb:Query` on the table. A
+  failed Query logs `CONDUCT_READ_FAILED` and leaves both fields out; the rest of the answer is
+  unchanged. The admin app's reputation panel (farmers and truckers; a buyer has no panel, and a buyer's
+  stamps show per order on the transaction view, 9.5) reads both fields present as the figure,
+  `verifiedOrders90d` alone as below the minimum of 3 counted orders (or, at 3 or more, as no step
+  offered), and neither as not available.
 
 ### 9.2 GET /admin/reputation/appeals
 
@@ -1136,6 +1149,43 @@ force); `503 REPUTATION_UNAVAILABLE`; `500 REPUTATION_SERVER_ERROR`.
   `DueIndex` at their `until` so the daily job ends them.
 - A suspended target can be tagged, restricted and lifted; its tier stays `restricted` while the
   suspension lasts.
+
+### 9.5 Conduct stamps on the transaction view (GCR-07, BUILT 1.12.0)
+
+`GET /admin/transactions/{orderId}` (the admin transaction view, admin authorizer) adds `conduct`: the
+stamp of 1.8 of each party of the order, so an admin can see why the order scored as it did for each of
+them. Read whatever `conductRewards` says. Built in `Functions/AdminFunction.Reputation.cs`
+(`ConductAsync`) and the admin app's transaction detail page.
+
+```json
+"conduct": {
+  "parties": [
+    { "party": "trucker", "userId": "t-77aa", "offered": 4, "earned": 3, "counted": true,
+      "steps": [ { "id": "pickup_scanned", "result": "earned" },
+                 { "id": "pickup_fix", "result": "left_out", "reason": "no_signal" },
+                 { "id": "dropoff_photo", "result": "missed" } ],
+      "occurredAt": "2026-11-20T10:00:00.000Z", "recordedAt": "2026-11-20T10:00:05.000Z",
+      "reevaluatedAt": "2026-11-21T08:00:00.000Z" }
+  ],
+  "readFailed": true
+}
+```
+- **Who is read**: the order's `farmerId`, `truckerId` (absent on a self-pickup, so no read) and
+  `buyerId`, in that order, one strongly consistent Query on the full key `userId` +
+  `HANDOFF#{orderId}` each (the shape of `GetStampAsync`), covered by the admin Lambda's existing
+  `dynamodb:Query` on the table: no new grant. A party without a stamp is not listed.
+- `parties` empty: nothing is stamped for the order yet (it has not settled, or the stamp writer is not
+  deployed yet, TASK FUP-550).
+- Per party: `offered`, `earned`, `counted`, `notCountedReason` (only when `counted` is false), every
+  step with its `result` (`earned`, `missed`, `left_out`) and, on a `left_out` step only, its
+  `reason` (1.8), `occurredAt` (the settle), `recordedAt` (the first write) and `reevaluatedAt` (only
+  after the one late re-evaluation).
+- `readFailed: true` only when at least one party's read failed: that party is left out, the others are
+  listed and the rest of the transaction view answers as before. Each failure logs
+  `ADMIN_CONDUCT_READ_FAILED order={orderId} party={party} [{exception type}]` (no user id).
+- `conduct` is absent when the admin Lambda has no reputation table configured.
+- Admin only: no party route returns a stamp; the buyer's stamp reaches the farmer and the trucker only
+  through GCR-11, which waits for decision D2.
 
 ---
 
@@ -1321,6 +1371,7 @@ platform pair).
 
 | Version | Date | Change |
 |---|---|---|
+| 1.12.0 | 2026-11-27 | GCR-07 and FUP-576 BUILT (server, admin app, infra; no new grant, no party route changed). Section 9.1: the admin read (and the `reputation` of the 9.3 and 9.4 answers) adds `verifiedPct` and `verifiedOrders90d` as section 1.9 computes them, whatever `conductRewards` says, for any role. New section 9.5: `GET /admin/transactions/{orderId}` adds `conduct`, each party's stamp of 1.8 (`offered`, `earned`, `counted`, `notCountedReason`, the steps with their results and left-out reasons, `occurredAt`, `recordedAt`, `reevaluatedAt`), one Query on the full key per party, and `readFailed` when a party's read failed (`ADMIN_CONDUCT_READ_FAILED`). Section 1.9: the alarm `{prefix}-conduct-read-failed` (5 `CONDUCT_READ_FAILED` lines in an hour on the reputation and admin log groups) and the `ConductReadTruncated` count with no alarm |
 | 1.11.0 | 2026-11-27 | FUP-195 and FUP-199 BUILT (server, apps; no endpoint or field change). Section 10: a third notification, `appeal_decided` (params `eventId`, `code`, `decision`, `note`), when an admin excuses or upholds an event; the decision write of 9.3 stamps `decidedVersion` so the notifier (new image only) can tell its own record, and the reputation-events source gains a second filter, the `MODIFY` of a row with `decidedVersion` and no `appealStatus` (`notifications-api.md` 1.8.0). Section 9: the admin audit row is put once at a deterministic key (the user, the change's own time), and a replay (`alreadyDecided`, `alreadyApplied`) writes it when the first write failed, so each change has exactly one row. (1.10.0 is taken by an open branch) |
 | 1.10.1 | 2026-11-27 | Doc only (FUP-205, `notifications-api.md` 1.7.1): a tapped `penalty_recorded` or `tier_changed` push opens My reputation on the phone. No wire change |
 | 1.10.0 | 2026-11-27 | GCR-04 BUILT (server, behind the new flag `conductRewards`, off in dev, staging and prod): new section 1.9, the verified handoffs figure. `GET /reputation/me` and `GET /reputation/{userId}` add `verifiedPct` (`round(100 x sum(earned) / sum(offered))` over the party's counted `HANDOFF_QUALITY` stamps settled in the last 90 days, the window of `reliabilityPct`, half up; absent below 3 counted orders or with no step offered; spec 5) and `verifiedOrders90d` (those counted orders, 0 included), read through their own filtered Query; the event reads still never see a stamp. Public summary: independent of `reputationPublicTags`. A failed stamp read leaves both fields out (`CONDUCT_READ_FAILED`), the rest answers. With the flag off no stamp is read and no answer changes (a byte-for-byte test). Identity verified stays out of the figure (TASK FUP-575). Section 11: the fourth flag, on the reputation Lambda only, no new grant |

@@ -247,6 +247,10 @@ namespace WeredaConnect.Server;
 // FUP-287: the pickup judgement's evidence and its re-open
 [JsonSerializable(typeof(AdminPickupEvidenceDto))]
 [JsonSerializable(typeof(AdminCheckInEvidenceDto))]
+// GCR-07: the conduct stamps of the order's parties on the transaction view (reputation-api.md 9.5)
+[JsonSerializable(typeof(AdminConductDto))]
+[JsonSerializable(typeof(AdminConductPartyDto))]
+[JsonSerializable(typeof(ConductStep))]
 [JsonSerializable(typeof(Dictionary<string, AdminCheckInEvidenceDto>))]
 [JsonSerializable(typeof(AdminPickupReopenDto))]
 [JsonSerializable(typeof(PickupReopenRequest))]

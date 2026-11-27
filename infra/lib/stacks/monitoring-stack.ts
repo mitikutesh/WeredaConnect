@@ -63,6 +63,8 @@ interface DynamoTableDef {
  * FUP-436 (not in the count above either): 3 alarms, one metric each ($0.30), and 3 log filter metrics without a
  * default (TruckerPayoutsNewlyOverdue, ReleasesBlockedNewlyOverdue, LedgerRowsNewlyOverdue), billed only in the
  * hours a line is written.
+ * FUP-576 (not in the count above either): 1 alarm, one metric ($0.10), and 2 log filter metrics without a default
+ * (ConductReadFailed, ConductReadTruncated), billed only in the hours a line is written.
  *
  * References Lambda functions and DynamoDB tables by name (no cross-stack refs needed).
  */
@@ -2337,7 +2339,10 @@ export class MonitoringStack extends cdk.Stack {
       OrderCron: orderCronLogGroup,
       Sync: syncLogGroup,
       // FUP-163: an admin suspend or unsuspend writes the heal marker and refreshes the copies.
+      // GCR-07: the admin reputation read computes the verified handoffs figure too.
       Admin: adminLogGroup,
+      // FUP-576: the reputation reads (GET /reputation/me and /reputation/{userId}) and their verified figure.
+      Reputation: logs.LogGroup.fromLogGroupName(this, 'ReputationReadLogGroup', `/aws/lambda/${prefix}-reputation`),
     };
     const reputationLogAlarm = (
       token: string,
@@ -2512,6 +2517,39 @@ export class MonitoringStack extends cdk.Stack {
           'its code and time in the admin reputation history and review the party in Fraud Review by hand.',
       },
     );
+
+    // FUP-576 (reputation-api.md 1.9): the verified handoffs figure is best effort. A failed stamps Query leaves
+    // verifiedPct out of that one answer, and the next read tries again, so a rate alarms (as for the copies).
+    // The reputation reads query only while conductRewards is on; the admin read (GCR-07) always does.
+    const conductReadFailedAlarm = reputationLogAlarm(
+      'CONDUCT_READ_FAILED',
+      'ConductReadFailed',
+      ['Reputation', 'Admin'],
+      {
+        nameSuffix: 'conduct-read-failed',
+        label: 'Conduct Read Failed',
+        threshold: 5,
+        period: cdk.Duration.hours(1),
+        description:
+          'At least 5 reads of the conduct stamps failed in an hour (CONDUCT_READ_FAILED user=<masked id> ' +
+          '[<exception type>] in the reputation or admin log group; reputation-api.md 1.9). Each such answer went ' +
+          'out without verifiedPct and verifiedOrders90d, so farmers, truckers and buyers saw no verified ' +
+          'handoffs figure (the rest of the reputation was unchanged). Usually throttling on the reputation-events ' +
+          'table or a missing dynamodb:Query grant on it. Read the logged exception type and fix the cause; ' +
+          'nothing needs replaying, the next read computes the figure again.',
+      },
+    );
+    // More counted stamps in the 90 day window than the read cap (1,000): the figure comes from the rows read.
+    // A volume to look at, not a page, so a filter without an alarm, billed only in the hours a line is written.
+    for (const source of ['Reputation', 'Admin'] as const) {
+      new logs.MetricFilter(this, `ConductReadTruncated${source}Filter`, {
+        logGroup: reputationLogGroups[source],
+        filterPattern: logs.FilterPattern.literal('"CONDUCT_READ_TRUNCATED"'),
+        metricNamespace,
+        metricName: 'ConductReadTruncated',
+        metricValue: '1',
+      });
+    }
 
     // ─── FRD-16: fraud signal metrics and the risk alarms ────────────
     // Fraud spec section 23.1. Synthetic test: scripts/fraud_alarms_synthetic.sh.
@@ -2984,6 +3022,8 @@ export class MonitoringStack extends cdk.Stack {
           reputationParkFailedAlarm,
           // FUP-201 ESC-33 fraud hooks
           reputationFraudHookFailedAlarm,
+          // FUP-576 the verified handoffs figure's stamp reads
+          conductReadFailedAlarm,
           // FRD-16 fraud signal volume and risk alarms
           signalVolumeSpikeAlarm,
           riskScoreUnavailableAlarm,
