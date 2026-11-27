@@ -123,6 +123,23 @@ public class MatchFunctionTests
     }
 
     [Fact]
+    public async Task Match_RowFromBeforeEsc30_ReturnsNoFarmerReliability()
+    {
+        // FUP-186: an old crop row keeps its stored farmerReliability; the match answer no longer carries it.
+        var legacy = CropItem("crop-legacy");
+        legacy["farmerReliability"] = "1";
+        StubType("wheat", legacy);
+        StubType("barley");
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(queryParams: new Dictionary<string, string> { { "cropType", "wheat" } }), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal("crop-legacy", ParseMatches(response.Body)[0].GetProperty("cropId").GetString());
+        Assert.DoesNotContain("farmerReliability", response.Body);
+    }
+
+    [Fact]
     public async Task Match_IncludesSubstitutes_RankedBelowExact()
     {
         StubType("wheat", CropItem("wheat-1", cropType: "wheat"));

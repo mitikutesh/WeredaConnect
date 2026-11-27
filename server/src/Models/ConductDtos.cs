@@ -10,6 +10,15 @@ public sealed record ConductStep(string Id, string Result, string? Reason = null
 public sealed record ConductResult(string Party, int Offered, int Earned, IReadOnlyList<ConductStep> Steps);
 
 /// <summary>
+/// GCR-04 (reputation-api.md 1.10.0 section 1.9): a party's verified handoffs figure at read time
+/// (<see cref="Helpers.ConductScoring.Verified"/>). <see cref="Pct"/> is null below
+/// <see cref="Helpers.ConductScoring.VerifiedMinOrders"/> counted orders, or when none of them offered a step;
+/// <see cref="Orders90d"/> is the counted orders it is computed from. Not serialized itself: its two values go
+/// onto <see cref="ReputationDto"/>.
+/// </summary>
+public sealed record ConductVerified(int? Pct, int Orders90d);
+
+/// <summary>
 /// GCR-03: the <c>HANDOFF_QUALITY</c> row of one party of one settled order in the reputation events table
 /// (key <c>userId</c> = the party, <c>eventId</c> = <c>HANDOFF#{orderId}</c>, so one row per
 /// <c>{orderId}:{partyId}</c>). Stored apart from the penalty rows: no reader of <see cref="ReputationEvent"/>

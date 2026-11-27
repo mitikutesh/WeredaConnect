@@ -23,6 +23,7 @@ import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/device_signing_key_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
@@ -131,6 +132,10 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   /// FUP-285: the phone's sync results ([_onSyncResult]). Null where there
   /// is no sync executor (web).
   StreamSubscription<SyncBatchResult>? _syncResults;
+
+  /// FUP-552: the cancel or drop-out sent again after the password prompt.
+  /// A second AUTH_040 for it ends in the neutral text, not another prompt.
+  OrderEvent? _resentAfterStepUp;
 
   @override
   void initState() {
@@ -268,6 +273,34 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     });
   }
 
+  /// FUP-552: the server asked for a fresh password (AUTH_040) before a
+  /// farmer's cancel of an order they accepted or a trucker's drop-out, which
+  /// web sends at once (the phone queues both and its sync prompts). Ask for
+  /// it in neutral words, then send the same [retry] once more. A cancelled
+  /// prompt, or a second refusal of the resent change, leaves it unsent and
+  /// says so in the same words ([code]).
+  Future<void> _retryAfterStepUp(OrderEvent retry, AppErrorCode code) async {
+    final bloc = context.read<OrderBloc>();
+    var confirmed = false;
+    if (!identical(retry, _resentAfterStepUp)) {
+      confirmed = await showStepUpDialog(
+        context,
+        message: AppLocalizations.of(context)!.stepUpOtherMessage,
+      );
+    }
+    if (!mounted) return;
+    if (confirmed && !bloc.isClosed) {
+      _resentAfterStepUp = retry;
+      bloc.add(retry);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(localizeErrorCode(code, AppLocalizations.of(context)!)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -327,6 +360,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               SnackBar(content: Text(l10n.orderCancelledSuccess)),
             );
             leaveOrderDetail(context);
+          } else if (state is OrderError && state.stepUpRetry != null) {
+            _retryAfterStepUp(state.stepUpRetry!, state.code).ignore();
           } else if (state is OrderError) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(

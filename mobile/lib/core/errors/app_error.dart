@@ -33,6 +33,12 @@ enum AppErrorCode {
   /// The server wants the user to re-enter their password (AUTH_040).
   stepUpRequired,
 
+  /// AUTH_040 on an action that is not a payment: a farmer cancelling an
+  /// order they accepted, or a trucker dropping out of one (FUP-552). On web
+  /// it is sent at once, so the screen asks for the password in neutral
+  /// words and sends it again; the text says the same without the payment.
+  stepUpOtherRequired,
+
   /// A higher-risk payment needs a fresh Fayda login (AUTH_041); at MEDIUM risk
   /// above 10,000 ETB or at HIGH risk (FRD-04). A password prompt may follow.
   faydaStepUpRequired,
@@ -483,6 +489,7 @@ String localizeErrorCode(
     AppErrorCode.secureConnection => l10n.errorSecureConnectionFailed,
     AppErrorCode.conflict => l10n.errorConflict,
     AppErrorCode.stepUpRequired => l10n.stepUpRequiredMessage,
+    AppErrorCode.stepUpOtherRequired => l10n.stepUpOtherMessage,
     AppErrorCode.faydaStepUpRequired => l10n.faydaStepUpMessage,
     AppErrorCode.kycRequired => l10n.kycRequiredFaydaMessage,
     AppErrorCode.kycPhoneRequired => l10n.kycRequiredPhoneMessage,

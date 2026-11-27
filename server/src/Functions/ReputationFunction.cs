@@ -23,6 +23,8 @@ namespace WeredaConnect.Server.Functions;
 /// buyer reads only the public summary of a farmer or trucker; nobody reads a buyer's. The routes
 /// sit behind the app user pool's authorizer, so an admin token never reaches them (admins use the
 /// admin routes, ESC-32). The reads are not flagged; the two POSTs need <c>reputationPenalties</c>.
+/// GCR-04: with <c>conductRewards</c> on, the two reputation reads also carry the verified figure from the caller's
+/// or the target's conduct stamps (one more Query); off, no stamp is read and no answer changes.
 /// </summary>
 public class ReputationFunction
 {
@@ -43,17 +45,30 @@ public class ReputationFunction
     public const int DefaultEventsPage = 50;
     public const int MaxEventsPage = 100;
 
+    /// <summary>GCR-04: the stamps could not be read; the answer goes out without the verified figure.</summary>
+    public const string ConductReadFailedToken = "CONDUCT_READ_FAILED";
+
+    /// <summary>GCR-04: more counted stamps than <see cref="ConductScoring.VerifiedReadCap"/>; the figure is from the first ones read.</summary>
+    public const string ConductReadTruncatedToken = "CONDUCT_READ_TRUNCATED";
+
     private readonly IReputationEventRepository _repo;
     private readonly ReputationService _service;
     private readonly ITransactionAuditRepository? _audit;
     private readonly IAmazonS3? _s3;
     private readonly string? _uploadsBucket;
+    private readonly IConductStampRepository? _stamps;
 
     /// <summary><c>reputationPenalties</c>: the appeal endpoints work; the own view reports it. Off by default.</summary>
     internal bool PenaltiesEnabled { get; init; } = ReputationFlags.PenaltiesEnabled;
 
     /// <summary><c>reputationPublicTags</c>: the public summary carries the tier, the effective rating and the reliability. Off by default.</summary>
     internal bool PublicTags { get; init; } = ReputationFlags.PublicTagsEnabled;
+
+    /// <summary>
+    /// GCR-04, <c>conductRewards</c>: the own view and the public summary carry <c>verifiedPct</c> and
+    /// <c>verifiedOrders90d</c>. Off by default; off, the stamps are never read.
+    /// </summary>
+    internal bool ConductRewards { get; init; } = ReputationFlags.ConductRewardsEnabled;
 
     /// <summary>The server clock; tests set it.</summary>
     internal Func<DateTime> Clock { get; init; } = () => DateTime.UtcNow;
@@ -69,7 +84,10 @@ public class ReputationFunction
         _uploadsBucket = Environment.GetEnvironmentVariable("UPLOADS_BUCKET");
 
         var dynamoDb = new AmazonDynamoDBClient();
-        _repo = new ReputationEventRepository(dynamoDb, eventsTable, usersTable);
+        var repo = new ReputationEventRepository(dynamoDb, eventsTable, usersTable);
+        _repo = repo;
+        // GCR-04: the conduct stamps live in the same table (the HANDOFF# slots); read only while conductRewards is on.
+        _stamps = repo;
         // The policy parameter is read only while the feature is on (reputation-api.md section 11);
         // off, the reads show the stored state under the defaults.
         var settings = ReputationFlags.PenaltiesEnabled
@@ -86,13 +104,15 @@ public class ReputationFunction
         ReputationService service,
         ITransactionAuditRepository? audit = null,
         IAmazonS3? s3 = null,
-        string? uploadsBucket = null)
+        string? uploadsBucket = null,
+        IConductStampRepository? stamps = null)
     {
         _repo = repo ?? throw new ArgumentNullException(nameof(repo));
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _audit = audit;
         _s3 = s3;
         _uploadsBucket = uploadsBucket;
+        _stamps = stamps;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(APIGatewayProxyRequest request, ILambdaContext context)
@@ -113,9 +133,9 @@ public class ReputationFunction
         {
             return (request.HttpMethod, route) switch
             {
-                ("GET", ["me"]) => await GetOwnAsync(callerId, role),
+                ("GET", ["me"]) => await GetOwnAsync(callerId, role, context),
                 ("GET", ["me", "events"]) => await GetOwnEventsAsync(request, callerId, role),
-                ("GET", [var userId]) => await GetPublicAsync(callerId, role, Uri.UnescapeDataString(userId)),
+                ("GET", [var userId]) => await GetPublicAsync(callerId, role, Uri.UnescapeDataString(userId), context),
                 ("POST", ["appeals", "photo-url"]) => await PostPhotoUrlAsync(request, callerId, role, context),
                 ("POST", ["events", var eventId, "appeal"]) => await PostAppealAsync(request, callerId, role, EventIdOf(request, eventId), context),
                 _ => LambdaResponse.Error(404, NotFoundCode, "No such reputation route.")
@@ -130,7 +150,7 @@ public class ReputationFunction
 
     // ===== section 2: GET /reputation/me =====
 
-    private async Task<APIGatewayProxyResponse> GetOwnAsync(string callerId, string? role)
+    private async Task<APIGatewayProxyResponse> GetOwnAsync(string callerId, string? role, ILambdaContext context)
     {
         if (!IsParty(role))
         {
@@ -148,14 +168,15 @@ public class ReputationFunction
             return Forbidden("Only farmers and truckers have a reputation.");
         }
 
+        var conduct = await VerifiedAsync(callerId, read.AsOf, context);
         return LambdaResponse.Ok(
-            new GetReputationResponse { Reputation = ReputationReadModels.Own(read, _service.Settings, PenaltiesEnabled) },
+            new GetReputationResponse { Reputation = ReputationReadModels.Own(read, _service.Settings, PenaltiesEnabled, conduct) },
             AppJsonContext.Default.GetReputationResponse);
     }
 
     // ===== section 3: GET /reputation/{userId} =====
 
-    private async Task<APIGatewayProxyResponse> GetPublicAsync(string callerId, string? role, string targetId)
+    private async Task<APIGatewayProxyResponse> GetPublicAsync(string callerId, string? role, string targetId, ILambdaContext context)
     {
         // The table of section 3, decided before any read for a farmer or trucker, so the answer
         // never tells them whether another id exists.
@@ -172,9 +193,43 @@ public class ReputationFunction
             return NotFound();
         }
 
+        var conduct = await VerifiedAsync(targetId, read.AsOf, context);
         return LambdaResponse.Ok(
-            new GetReputationResponse { Reputation = ReputationReadModels.Public(read, PublicTags) },
+            new GetReputationResponse { Reputation = ReputationReadModels.Public(read, PublicTags, conduct) },
             AppJsonContext.Default.GetReputationResponse);
+    }
+
+    /// <summary>
+    /// GCR-04 (reputation-api.md 1.10.0 section 1.9): the verified figure of a farmer or trucker at
+    /// <paramref name="now"/> (the read's own time, so it shares the reliability's window), or null while
+    /// <c>conductRewards</c> is off (nothing is read). One Query of the party's counted stamps in the window. Best
+    /// effort: a read that fails is logged (<see cref="ConductReadFailedToken"/>) and leaves both fields out, so the
+    /// rest of the reputation still answers.
+    /// </summary>
+    private async Task<ConductVerified?> VerifiedAsync(string userId, DateTime now, ILambdaContext context)
+    {
+        if (!ConductRewards || _stamps == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var (rows, truncated) = await _stamps.QueryCountedStampsAsync(
+                userId, now - ConductScoring.VerifiedWindow, ConductScoring.VerifiedReadCap);
+            if (truncated)
+            {
+                context.Logger.LogWarning(
+                    $"{ConductReadTruncatedToken} user={MoneyAlarmLog.LogId(userId)} cap={ConductScoring.VerifiedReadCap}");
+            }
+
+            return ConductScoring.Verified(rows, now);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"{ConductReadFailedToken} user={MoneyAlarmLog.LogId(userId)} [{ex.GetType().Name}]");
+            return null;
+        }
     }
 
     // ===== section 4: GET /reputation/me/events =====
