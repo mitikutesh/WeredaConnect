@@ -3978,6 +3978,54 @@ public partial class SyncFunctionTests
         Assert.Equal("Real Buyer", _createdOrder!["buyerName"]);
     }
 
+    // FUP-553 (sync-protocol.md 1.73.0): the buyer's profile decides these, not the operation, and a
+    // retry can pass both, so they are not ORDER_VALIDATION, which clients treat as permanent and
+    // revert (the local order removed).
+    [Fact]
+    public async Task OrderCreate_BuyerProfileMissing_AnswersTheProfileUnavailableCode()
+    {
+        SetupListing();
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns((UserDto?)null);
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp());
+
+        Assert.Equal(
+            "ORDER_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.",
+            FirstResultMessage(body));
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_BuyerProfileWithoutAnyName_AnswersTheProfileIncompleteCode()
+    {
+        SetupListing();
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns(new UserDto
+        {
+            UserId = "buyer-001",
+            PhoneNumber = "+251933333333",
+            DisplayName = "  ",
+            FullName = null,
+            Role = "buyer",
+            Woreda = "Jimma",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "buyerName", "Client Name" }
+        }));
+
+        Assert.Equal(
+            "ORDER_PROFILE_INCOMPLETE: Add your name to your profile before placing an order.",
+            FirstResultMessage(body));
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
     [Fact]
     public async Task OrderCreate_ListingNotFound_ReturnsValidationError()
     {
@@ -5471,8 +5519,12 @@ public partial class SyncFunctionTests
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
 
-        Assert.Contains("DELIVERY_VALIDATION", response.Body);
-        Assert.Contains("farmer has no name", response.Body);
+        // FUP-553 (sync-protocol.md 1.73.0): the same create passes once the farmer adds a name,
+        // so not DELIVERY_VALIDATION, which clients treat as permanent.
+        Assert.Equal(
+            "DELIVERY_PROFILE_INCOMPLETE: The farmer has no name on their profile. "
+                + "Ask them to add one before creating a delivery.",
+            FirstResultMessage(response.Body));
         await DidNotWriteDelivery();
     }
 
@@ -5487,8 +5539,27 @@ public partial class SyncFunctionTests
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
 
-        Assert.Contains("DELIVERY_VALIDATION", response.Body);
-        Assert.Contains("farmer profile could not be read", response.Body);
+        // FUP-553: the profile decides it, not the operation.
+        Assert.Equal(
+            "DELIVERY_PROFILE_UNAVAILABLE: The farmer profile could not be read. Please try again later.",
+            FirstResultMessage(response.Body));
+        await DidNotWriteDelivery();
+    }
+
+    // FUP-553: the trucker's own profile (the trucker flow's third party) gets the same code.
+    [Fact]
+    public async Task DeliveryCreate_TruckerWithoutAnyName_IsRejectedWithTheProfileCode()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles();
+        _mockUserRepo.GetUserByIdAsync(TestTruckerId)
+            .Returns(PartyProfile(TestTruckerId, "trucker", "+251900100002", null));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        var message = FirstResultMessage(response.Body);
+        Assert.StartsWith("DELIVERY_PROFILE_INCOMPLETE: The trucker has no name", message);
         await DidNotWriteDelivery();
     }
 
