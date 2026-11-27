@@ -53,9 +53,9 @@ dependencies:
   shimmer: ^3.0.0
 
   # F-12: Delivery Verification
-  crypto: ^3.0.6
+  crypto: ^3.0.8
   qr_flutter: ^4.1.0
-  mobile_scanner: ^7.4.2
+  mobile_scanner: ^7.5.0
   geolocator: ^14.0.1
   image_picker: ^1.2.3
   flutter_image_compress: ^2.5.1
