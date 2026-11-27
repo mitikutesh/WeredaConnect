@@ -56,14 +56,14 @@ Each contract file follows this structure:
 
 | Contract | File | Version | Parties |
 |----------|------|---------|---------|
-| Sync Protocol | `sync-protocol.md` | 1.72.0 | Mobile, Backend |
+| Sync Protocol | `sync-protocol.md` | 1.73.0 | Mobile, Backend |
 | Authentication API | `auth-api.md` | 2.16.0 | Mobile, Backend, Infrastructure |
 | User Entity (profile read and edit: `GET /user/profile`, the `/sync` `user` entity) | `user-entity.md` | 2.3.0 | Mobile, Web, Backend, Admin, Infrastructure |
 | Rating API | `rating-api.md` | 1.7.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Reputation API (penalty events, tiers, appeals, gates; events, aggregate, reads, appeal, gates and admin endpoints BUILT on the server; app BUILT behind the flags, ESC-31; the GCR-03 conduct stamp BUILT on the server, 1.9.0; the GCR-04 verified handoffs figure BUILT on the server behind `conductRewards`, 1.10.0) | `reputation-api.md` | 1.10.0 | Mobile, Web, Backend, Admin, Infrastructure |
-| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.26.0 | Mobile, Backend, Admin |
+| Order Lifecycle (status levels & escrow semantics) | `order-lifecycle.md` | 2.27.0 | Mobile, Backend, Admin |
 | Escrow Protocol (Telebirr escrow, payouts, disputes, money alarms) | `escrow-protocol.md` | 2.31.0 | Mobile, Web, Backend, Admin, Infrastructure, Telebirr Gateway |
-| Delivery Verification API | `delivery-verification-api.md` | 2.19.0 | Mobile, Web, Backend, Infrastructure, Admin |
+| Delivery Verification API | `delivery-verification-api.md` | 2.20.0 | Mobile, Web, Backend, Infrastructure, Admin |
 | Account Deletion | `account-deletion.md` | 1.7.4 | Mobile, Backend, Infrastructure, Admin |
 | Crop Listing API | `crop-listing-api.md` | 1.18.0 | Mobile, Web, Backend, Infrastructure |
 | Trip Listing API | `trip-listing-api.md` | 2.11.0 | Mobile, Backend |
