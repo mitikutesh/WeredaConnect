@@ -7,6 +7,7 @@ using FluentAssertions;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
@@ -432,6 +433,69 @@ public class AdminFunctionTests
         response.StatusCode.Should().Be(200);
         response.Body.Should().Contain("order-z"); // found on page 2, not dropped
         response.Body.Should().Contain("Zewde");
+    }
+
+    [Fact]
+    public async Task ListTransactions_ByStatus_ReadsThatPartitionOfTheOrderStatusIndex_NewestFirst_AndNeverScans()
+    {
+        // FUP-80: a status is one partition of StatusCreatedAtIndex, not a Scan of every order; search stays a filter.
+        var db = Substitute.For<IAmazonDynamoDB>();
+        var queries = new List<QueryRequest>();
+        // The handler reuses one request across pages, so each page's start key is copied when it is sent.
+        var startKeys = new List<string?>();
+        Dictionary<string, AttributeValue> Order(string orderId, string createdAt) => new()
+        {
+            ["orderId"] = S(orderId),
+            ["buyerId"] = S("buyer-1"),
+            ["buyerName"] = S("Almaz"),
+            ["farmerId"] = S("farmer-1"),
+            ["cropType"] = S("teff"),
+            ["status"] = S("funded"),
+            ["createdAt"] = S(createdAt),
+            ["updatedAt"] = S(createdAt),
+        };
+        db.QueryAsync(
+                Arg.Do<QueryRequest>(q =>
+                {
+                    queries.Add(q);
+                    startKeys.Add(q.ExclusiveStartKey is { Count: > 0 } key ? key["orderId"].S : null);
+                }),
+                Arg.Any<CancellationToken>())
+            .Returns(
+                new QueryResponse
+                {
+                    Items = [Order("order-2", "2026-07-02T00:00:00Z")],
+                    ScannedCount = 1,
+                    LastEvaluatedKey = new Dictionary<string, AttributeValue>
+                    {
+                        ["orderId"] = S("order-2"),
+                        ["createdAt"] = S("2026-07-02T00:00:00Z"),
+                        ["status"] = S("funded"),
+                    },
+                },
+                new QueryResponse
+                {
+                    Items = [Order("order-1", "2026-07-01T00:00:00Z")],
+                    ScannedCount = 1,
+                    LastEvaluatedKey = new Dictionary<string, AttributeValue>(),
+                });
+
+        var response = await TransactionFunction(db).FunctionHandler(
+            AdminGetWithQuery("/admin/transactions", new() { ["status"] = "funded", ["search"] = "Almaz" }), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        await db.DidNotReceive().ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>());
+        queries.Should().HaveCount(2).And.OnlyContain(q =>
+            q.TableName == OrdersTable && q.IndexName == "StatusCreatedAtIndex"
+            && q.KeyConditionExpression == "#status = :status"
+            && q.ExpressionAttributeValues[":status"].S == "funded"
+            && !q.ScanIndexForward
+            && q.FilterExpression.Contains("contains(#buyerName, :search)"));
+        startKeys.Should().Equal(null, "order-2");
+        var body = JsonDocument.Parse(response.Body).RootElement;
+        body.GetProperty("transactions").EnumerateArray().Select(t => t.GetProperty("orderId").GetString())
+            .Should().Equal("order-2", "order-1");
+        body.GetProperty("total").GetInt32().Should().Be(2);
     }
 
     [Fact]
@@ -1368,19 +1432,20 @@ public class AdminFunctionTests
         LabelPuts.Should().ContainSingle();
     }
 
-    // ===== FUP-16: filtered admin lists page past filtered-out rows =====
+    // ===== FUP-80 (was FUP-16): the status lists read one partition of StatusExpiresIndex, page after page =====
 
-    private static Dictionary<string, AttributeValue> PageKey(string escrowId)
-        => new() { { "escrowId", S(escrowId) }, { "createdAt", S("2026-10-01T10:00:00Z") } };
+    private const string EscrowStatusIndex = "StatusExpiresIndex";
 
-    private static ScanResponse ScanPage(Dictionary<string, AttributeValue>? lastKey, params string[] disputedIds) => new()
+    private static Dictionary<string, AttributeValue> ListedEscrow(string escrowId, string status, string expiresAt) => new()
     {
-        Items = disputedIds.Select(id => new Dictionary<string, AttributeValue>
-        {
-            { "escrowId", S(id) }, { "createdAt", S("2026-10-01T10:00:00Z") }, { "status", S("disputed") },
-            { "buyerId", S("buyer-1") }, { "farmerId", S("farmer-1") }, { "amount", Num("100") }
-        }).ToList(),
-        LastEvaluatedKey = lastKey ?? new Dictionary<string, AttributeValue>()
+        { "escrowId", S(escrowId) }, { "createdAt", S("2026-10-01T10:00:00Z") }, { "status", S(status) },
+        { "expiresAt", S(expiresAt) }, { "buyerId", S("buyer-1") }, { "farmerId", S("farmer-1") }, { "amount", Num("100") }
+    };
+
+    private static Dictionary<string, AttributeValue> IndexKeyOf(Dictionary<string, AttributeValue> row) => new()
+    {
+        { "escrowId", row["escrowId"] }, { "createdAt", row["createdAt"] }, { "status", row["status"] },
+        { "expiresAt", row["expiresAt"] }
     };
 
     /// <summary>A database whose user-name lookup (list enrichment) finds nobody.</summary>
@@ -1396,60 +1461,183 @@ public class AdminFunctionTests
         return db;
     }
 
-    [Fact]
-    public async Task ListDisputes_KeepsScanningPastPagesWithoutMatches_UntilTheLimitMatches()
+    /// <summary>
+    /// A database whose escrows <c>StatusExpiresIndex</c> holds <paramref name="rows"/>, answered the way DynamoDB
+    /// answers: the asked status partition, oldest <c>expiresAt</c> first, at most <c>Limit</c> rows after the start
+    /// key, and the last row's index key whenever the page is full (so a full last page is followed by an empty one).
+    /// </summary>
+    private static IAmazonDynamoDB StatusIndexDb(List<QueryRequest> queries, params Dictionary<string, AttributeValue>[] rows)
     {
         var db = ListDb();
-        var scans = new List<ScanRequest>();
-        db.ScanAsync(Arg.Do<ScanRequest>(scans.Add), Arg.Any<CancellationToken>())
-            .Returns(ScanPage(PageKey("e-10")), ScanPage(PageKey("e-20"), "escrow-a"), ScanPage(PageKey("e-30"), "escrow-b"),
-                ScanPage(null, "escrow-c"));
+        db.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var query = ci.ArgAt<QueryRequest>(0);
+                queries.Add(query);
+                var partition = rows
+                    .Where(r => query.IndexName == EscrowStatusIndex
+                                && r["status"].S == query.ExpressionAttributeValues[":status"].S)
+                    .OrderBy(r => r["expiresAt"].S, StringComparer.Ordinal)
+                    .ThenBy(r => r["escrowId"].S, StringComparer.Ordinal)
+                    .ToList();
+                var start = query.ExclusiveStartKey is { Count: > 0 } key
+                    ? partition.FindIndex(r => r["escrowId"].S == key["escrowId"].S) + 1
+                    : 0;
+                var page = partition.Skip(start).Take(query.Limit).ToList();
+                return Task.FromResult(new QueryResponse
+                {
+                    Items = page,
+                    LastEvaluatedKey = page.Count == query.Limit
+                        ? IndexKeyOf(page[^1])
+                        : new Dictionary<string, AttributeValue>()
+                });
+            });
+        return db;
+    }
+
+    /// <summary>Every page of an escrow list, following its <c>nextToken</c> (at most 10 calls): the ids in page order.</summary>
+    private async Task<(List<string> Ids, int Calls)> WalkAsync(
+        IAmazonDynamoDB db, string path, string listName, Dictionary<string, string> query)
+    {
         var fn = new AdminFunction(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+        var ids = new List<string>();
+        string? token = null;
+        var calls = 0;
+        do
+        {
+            var pageQuery = new Dictionary<string, string>(query);
+            if (token != null)
+            {
+                pageQuery["nextToken"] = token;
+            }
 
-        var response = await fn.FunctionHandler(
-            AdminGetWithQuery("/admin/disputes", new Dictionary<string, string> { { "limit", "2" } }), _context);
+            var response = await fn.FunctionHandler(AdminGetWithQuery(path, pageQuery), _context);
+            response.StatusCode.Should().Be(200, response.Body);
+            var body = JsonDocument.Parse(response.Body).RootElement;
+            ids.AddRange(body.GetProperty(listName).EnumerateArray().Select(e => e.GetProperty("escrowId").GetString()!));
+            token = body.TryGetProperty("nextToken", out var next) && next.ValueKind == JsonValueKind.String
+                ? next.GetString()
+                : null;
+            calls++;
+        }
+        while (token != null && calls < 10);
 
-        response.StatusCode.Should().Be(200, response.Body);
-        response.Body.Should().Contain("escrow-a").And.Contain("escrow-b").And.NotContain("escrow-c");
-        scans.Should().HaveCount(3);
-        scans[0].ExclusiveStartKey.Should().BeNullOrEmpty();
-        scans[1].ExclusiveStartKey["escrowId"].S.Should().Be("e-10");
-        scans[2].ExclusiveStartKey["escrowId"].S.Should().Be("e-20");
-        scans.Should().OnlyContain(r => r.Limit == 2 && r.ExpressionAttributeValues[":value"].S == "disputed");
-        // The next page resumes after the last page read.
-        response.Body.Should().Contain("\"nextToken\":\"");
+        return (ids, calls);
     }
 
     [Fact]
-    public async Task ListEscrows_ByStatus_StopsAtThePageBudget_AndHandsBackANextToken()
+    public async Task ListDisputes_WalksTheDisputedPartitionOfTheStatusIndex_WithoutGapsOrRepeats_AndNeverScans()
     {
-        var db = ListDb();
-        var scans = new List<ScanRequest>();
-        db.ScanAsync(Arg.Do<ScanRequest>(scans.Add), Arg.Any<CancellationToken>())
-            .Returns(_ => ScanPage(PageKey($"e-{scans.Count}")));
-        var fn = new AdminFunction(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+        var queries = new List<QueryRequest>();
+        var db = StatusIndexDb(queries,
+            ListedEscrow("escrow-c", "disputed", "2026-10-03T00:00:00Z"),
+            ListedEscrow("escrow-x", "escrowed", "2026-10-01T12:00:00Z"),
+            ListedEscrow("escrow-a", "disputed", "2026-10-01T00:00:00Z"),
+            ListedEscrow("escrow-e", "disputed", "2026-10-05T00:00:00Z"),
+            ListedEscrow("escrow-y", "dispute_resolved", "2026-10-02T12:00:00Z"),
+            ListedEscrow("escrow-b", "disputed", "2026-10-02T00:00:00Z"),
+            ListedEscrow("escrow-d", "disputed", "2026-10-04T00:00:00Z"));
 
-        var response = await fn.FunctionHandler(AdminGetWithQuery("/admin/escrows",
-            new Dictionary<string, string> { { "status", "dispute_resolved" }, { "limit", "20" } }), _context);
+        var (ids, calls) = await WalkAsync(db, "/admin/disputes", "disputes", new() { { "limit", "2" } });
 
-        response.StatusCode.Should().Be(200, response.Body);
-        scans.Should().HaveCount(25);
-        response.Body.Should().Contain("\"escrows\":[]").And.Contain("\"nextToken\":\"");
+        // Every disputed escrow once, in the index's order, and nothing of another status.
+        ids.Should().Equal("escrow-a", "escrow-b", "escrow-c", "escrow-d", "escrow-e");
+        calls.Should().Be(3);
+        queries.Should().HaveCount(3).And.OnlyContain(q =>
+            q.TableName == EscrowsTable && q.IndexName == EscrowStatusIndex
+            && q.KeyConditionExpression == "#status = :status"
+            && q.ExpressionAttributeValues[":status"].S == "disputed"
+            && q.ScanIndexForward && q.Limit == 2 && q.FilterExpression == null);
+        queries[0].ExclusiveStartKey.Should().BeNullOrEmpty();
+        queries[1].ExclusiveStartKey.Should().BeEquivalentTo(IndexKeyOf(ListedEscrow("escrow-b", "disputed", "2026-10-02T00:00:00Z")));
+        queries[2].ExclusiveStartKey["escrowId"].S.Should().Be("escrow-d");
+        await db.DidNotReceive().ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ListEscrows_WithoutAStatus_ReadsOnePage()
+    public async Task ListEscrows_ByStatus_WalksThePartition_AFullLastPageEndsWithAnEmptyOne_WithoutGapsOrRepeats()
+    {
+        var queries = new List<QueryRequest>();
+        var db = StatusIndexDb(queries,
+            ListedEscrow("escrow-4", "dispute_resolved", "2026-10-04T00:00:00Z"),
+            ListedEscrow("escrow-1", "dispute_resolved", "2026-10-01T00:00:00Z"),
+            ListedEscrow("escrow-x", "disputed", "2026-10-02T12:00:00Z"),
+            ListedEscrow("escrow-3", "dispute_resolved", "2026-10-03T00:00:00Z"),
+            ListedEscrow("escrow-2", "dispute_resolved", "2026-10-02T00:00:00Z"));
+
+        var (ids, calls) = await WalkAsync(db, "/admin/escrows", "escrows",
+            new() { { "status", "dispute_resolved" }, { "limit", "2" } });
+
+        ids.Should().Equal("escrow-1", "escrow-2", "escrow-3", "escrow-4");
+        calls.Should().Be(3, "the second page was full, so DynamoDB handed back a key and the third page is empty");
+        queries.Should().OnlyContain(q => q.IndexName == EscrowStatusIndex
+                                          && q.ExpressionAttributeValues[":status"].S == "dispute_resolved");
+        await db.DidNotReceive().ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ListEscrows_ByStatus_ATokenOfAnotherStatusOrOfTheScan_Returns400Admin005_AndReadsNothing()
+    {
+        var queries = new List<QueryRequest>();
+        var db = StatusIndexDb(queries);
+        var fn = new AdminFunction(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+        var otherStatus = PaginationTokenHelper.EncodeNextToken(
+            IndexKeyOf(ListedEscrow("escrow-a", "disputed", "2026-10-01T00:00:00Z")));
+        var scanToken = PaginationTokenHelper.EncodeNextToken(
+            new() { { "escrowId", S("escrow-a") }, { "createdAt", S("2026-10-01T10:00:00Z") } });
+
+        foreach (var token in new[] { otherStatus, scanToken, "forged.token" })
+        {
+            var response = await fn.FunctionHandler(AdminGetWithQuery("/admin/escrows",
+                new() { { "status", "escrowed" }, { "nextToken", token } }), _context);
+
+            response.StatusCode.Should().Be(400, token);
+            response.Body.Should().Contain("ADMIN_005");
+        }
+
+        var disputes = await fn.FunctionHandler(
+            AdminGetWithQuery("/admin/disputes", new() { { "nextToken", scanToken } }), _context);
+        disputes.StatusCode.Should().Be(400);
+        disputes.Body.Should().Contain("ADMIN_005");
+        queries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ListEscrows_WithoutAStatus_ReadsOneScanPagePerCall_AndTheNextTokenWalksOnWithoutGapsOrRepeats()
     {
         var db = ListDb();
         var scans = new List<ScanRequest>();
-        db.ScanAsync(Arg.Do<ScanRequest>(scans.Add), Arg.Any<CancellationToken>())
-            .Returns(ScanPage(PageKey("e-1"), "escrow-a"));
-        var fn = new AdminFunction(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
+        var rows = new[]
+        {
+            ListedEscrow("escrow-a", "escrowed", "2026-10-01T00:00:00Z"),
+            ListedEscrow("escrow-b", "disputed", "2026-10-02T00:00:00Z"),
+            ListedEscrow("escrow-c", "released", "2026-10-03T00:00:00Z")
+        };
+        db.ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var scan = ci.ArgAt<ScanRequest>(0);
+                scans.Add(scan);
+                var start = scan.ExclusiveStartKey is { Count: > 0 } key
+                    ? Array.FindIndex(rows, r => r["escrowId"].S == key["escrowId"].S) + 1
+                    : 0;
+                var page = rows.Skip(start).Take(scan.Limit).ToList();
+                return Task.FromResult(new ScanResponse
+                {
+                    Items = page,
+                    LastEvaluatedKey = start + page.Count < rows.Length
+                        ? new Dictionary<string, AttributeValue> { { "escrowId", page[^1]["escrowId"] }, { "createdAt", page[^1]["createdAt"] } }
+                        : new Dictionary<string, AttributeValue>()
+                });
+            });
 
-        var response = await fn.FunctionHandler(AdminGet("/admin/escrows"), _context);
+        var (ids, calls) = await WalkAsync(db, "/admin/escrows", "escrows", new() { { "limit", "2" } });
 
-        response.StatusCode.Should().Be(200, response.Body);
-        scans.Should().ContainSingle();
+        ids.Should().Equal("escrow-a", "escrow-b", "escrow-c");
+        calls.Should().Be(2);
+        scans.Should().HaveCount(2).And.OnlyContain(s => s.FilterExpression == null && s.Limit == 2);
+        scans[1].ExclusiveStartKey["escrowId"].S.Should().Be("escrow-b");
+        await db.DidNotReceive().QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>());
     }
 
     // ===== FUP-16: a verdict the legs cannot follow needs a disposition =====
@@ -2094,8 +2282,12 @@ public class AdminFunctionTests
         item["buyerId"] = S("buyer-1");
         item["farmerId"] = S("farmer-1");
         item["amount"] = Num("100");
-        db.ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new ScanResponse { Items = [item], LastEvaluatedKey = new Dictionary<string, AttributeValue>() });
+        // FUP-80: the awaiting-settlement tab reads the dispute_resolved partition of StatusExpiresIndex.
+        db.QueryAsync(
+                Arg.Is<QueryRequest>(q => q.IndexName == EscrowStatusIndex
+                                          && q.ExpressionAttributeValues[":status"].S == "dispute_resolved"),
+                Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [item], LastEvaluatedKey = new Dictionary<string, AttributeValue>() });
         var fn = new AdminFunction(db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
 
         var response = await fn.FunctionHandler(AdminGetWithQuery("/admin/escrows",

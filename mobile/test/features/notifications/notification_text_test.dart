@@ -24,11 +24,11 @@ AppNotification _entry(String type, [Map<String, String> params = const {}]) =>
 void main() {
   const locales = [Locale('en'), Locale('am'), Locale('om')];
 
-  test('the type list matches the server (41 types, no repeats)', () {
-    // 33 order types, since ESC-31 the two reputation types, and since
-    // FUP-286 and FUP-338 the six check-in types.
-    expect(notificationTypes, hasLength(41));
-    expect(notificationTypes.toSet(), hasLength(41));
+  test('the type list matches the server (42 types, no repeats)', () {
+    // 33 order types, since ESC-31 the two reputation types, since FUP-286
+    // and FUP-338 the six check-in types, and the agreed commission.
+    expect(notificationTypes, hasLength(42));
+    expect(notificationTypes.toSet(), hasLength(42));
     expect(
       notificationTypes.toSet().containsAll(reputationNotificationTypes),
       isTrue,
@@ -212,6 +212,42 @@ void main() {
       expect(
         notificationStyle('truck_nearby').icon,
         notificationStyle('in_transit').icon,
+      );
+    });
+  });
+
+  group('order_commission_changed', () {
+    test('names the new rate and total, and that nothing was paid', () {
+      final en = lookupAppLocalizations(const Locale('en'));
+      final text = notificationText(
+        en,
+        _entry('order_commission_changed', {
+          'commissionRate': '0.025',
+          'orderTotal': '2990',
+          'orderTotalBefore': '3060',
+        }),
+      );
+      expect(text.title, 'Order total changed');
+      expect(
+        text.body,
+        'The platform commission on this order is now 2.5%. '
+        'New total: 2,990.00 ETB. Nothing has been paid yet.',
+      );
+    });
+
+    for (final code in ['en', 'am', 'om']) {
+      test('$code: without the figures it still says what changed', () {
+        final l10n = lookupAppLocalizations(Locale(code));
+        final text = notificationText(l10n, _entry('order_commission_changed'));
+        expect(text.title, l10n.notifCommissionChangedTitle);
+        expect(text.body, l10n.notifCommissionChangedBodyNoTotal);
+      });
+    }
+
+    test('asks for no action', () {
+      expect(
+        actionRequiredNotificationTypes,
+        isNot(contains('order_commission_changed')),
       );
     });
   });

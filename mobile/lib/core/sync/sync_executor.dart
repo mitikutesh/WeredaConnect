@@ -347,6 +347,13 @@ class SyncBatchResult {
 ///   `pickupClassification` off gives it → reject, never retried, undo
 ///   through [PermanentRejectionHandler] (which reads the order again) and
 ///   announce
+/// - `error` with `CROP_VALIDATION` or `TRIP_VALIDATION` (FUP-74), but the
+///   profile texts an older server still sends under them → reject, never
+///   retried, not undone, announced
+/// - `error` with `USER_PROFILE_VALIDATION` or `AUTH_027` on a profile edit
+///   (`user`, FUP-315) → reject, never retried, undo through
+///   [PermanentRejectionHandler] (the server's profile goes back on the
+///   phone) and announce
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
 ///
 /// A refused `create` also rejects the operations queued behind it for that
@@ -899,6 +906,7 @@ class SyncExecutor {
                 entityId: op.entityId,
               ),
               'timestamp': op.createdAt.toIso8601String(),
+              'platform': SyncQueue.platform,
             },
           )
           .toList(),
@@ -918,7 +926,7 @@ class SyncExecutor {
     var failed = 0;
     var deferred = 0;
     var stepUpRequired = 0;
-    var faydaStepUpRequired = false;
+    final stepUpWaiting = <StepUpRequired>[];
     final operationErrors = <String, String>{};
     final rejected = <(SyncOperation, String?)>[];
     final heldForUpdate = <(SyncOperation, String)>[];
@@ -1021,12 +1029,16 @@ class SyncExecutor {
           if (status == 'error' && isStepUpRequiredMessage(message)) {
             await _syncQueue.revertToPending(operationId);
             stepUpRequired++;
-            final withFayda = isFaydaStepUpRequiredMessage(message);
-            faydaStepUpRequired |= withFayda;
+            final waiting = StepUpRequired(
+              withFayda: isFaydaStepUpRequiredMessage(message),
+              kind: _stepUpKindOf(operation),
+            );
+            stepUpWaiting.add(waiting);
             stepUpHeld.add(operationId);
             _securityEvents.holdStepUp(
               _stepUpHolder(operationId),
-              withFayda: withFayda,
+              withFayda: waiting.withFayda,
+              kind: waiting.kind,
             );
             continue;
           }
@@ -1082,7 +1094,8 @@ class SyncExecutor {
           // Permanent server rejections (fraud, validation, ORDER_*) will
           // never succeed on retry, so mark them rejected (retryFailed()
           // skips them); they are settled after the batch.
-          if (_isPermanentRejection(message)) {
+          if (_isPermanentRejection(message) ||
+              _isRefusedProfileEdit(operation, message)) {
             await _syncQueue.markAsRejected(operationId);
             rejected.add((operation, message));
           } else {
@@ -1120,7 +1133,8 @@ class SyncExecutor {
     if (stepUpRequired > 0) {
       // One prompt for the batch. Fayda wins: after a Fayda login the
       // password-tier ops still need a password, and the retry asks again.
-      _securityEvents.emit(StepUpRequired(withFayda: faydaStepUpRequired));
+      // It names what its ops are (FUP-181).
+      _securityEvents.emit(StepUpRequired.forAll(stepUpWaiting));
     }
 
     // Use the first fraud-related error as the batch error message for UI
@@ -1320,7 +1334,10 @@ class SyncExecutor {
   /// can pass: every `*_UNAUTHORIZED` code but a role gate, a rating of
   /// another user's order and a changed immutable field (1.27.0, FUP-110).
   /// A role gate also answers a token without the role claim, so it retries
-  /// ([isUnretryableFraudSignalMessage]).
+  /// ([isUnretryableFraudSignalMessage]). Since 1.72.0 (FUP-74) every
+  /// `CROP_VALIDATION` and `TRIP_VALIDATION` is permanent too, but the
+  /// profile texts an older server still sends under them
+  /// ([isListingValidationMessage]).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
@@ -1339,8 +1356,16 @@ class SyncExecutor {
         isLocationRejectionMessage(message) ||
         isDeliveryPhotoRejectionMessage(message) ||
         isCheckInRefusalMessage(message) ||
-        isUnretryableFraudSignalMessage(message);
+        isUnretryableFraudSignalMessage(message) ||
+        isListingValidationMessage(message);
   }
+
+  /// FUP-315 (sync-protocol.md 1.72.0): a profile edit refused for its values
+  /// ([isProfileEditRefusalMessage]) gets the same answer every time; the
+  /// phone's copy of the profile goes back to the server's. Only on a `user`
+  /// operation: elsewhere these codes mean nothing to the queue.
+  static bool _isRefusedProfileEdit(SyncOperation operation, String? message) =>
+      operation.entityType == 'user' && isProfileEditRefusalMessage(message);
 
   /// Whether a crop listing or trip refusal undoes the local change
   /// (sync-protocol.md 1.17.0). Only the codes that say what the server
@@ -1359,16 +1384,19 @@ class SyncExecutor {
   /// through [PermanentRejectionHandler]: any order refusal, any `ORDER_*`
   /// code, a refused delivery cancel, dispute or handoff, a message into a
   /// closed thread, a crop listing or trip refused by a code that says
-  /// what the server holds, and any refused arrival check-in (FUP-285: its
+  /// what the server holds, any refused arrival check-in (FUP-285: its
   /// mark is the operation itself, gone once rejected; the handler reads
-  /// the order again, which shows a late one kept for review).
+  /// the order again, which shows a late one kept for review), and a profile
+  /// edit refused for its values (FUP-315: the handler puts the server's
+  /// profile back).
   static bool _revertsLocalChange(SyncOperation operation, String? message) =>
       operation.entityType == 'order' ||
       operation.entityType == handoffCheckInEntityType ||
       isRevertableRejectionMessage(message) ||
       isRevertableDeliveryRejectionMessage(message) ||
       isContactLockedMessage(message) ||
-      _isRevertableListingOrTripRejection(operation.entityType, message);
+      _isRevertableListingOrTripRejection(operation.entityType, message) ||
+      _isRefusedProfileEdit(operation, message);
 
   /// Whether a reverted [operation] leaves the "Sync failed" count
   /// ([SyncQueue.markRevertedFor]) once [PermanentRejectionHandler] returned:
@@ -1376,13 +1404,14 @@ class SyncExecutor {
   /// user was told why, so nothing is left to act on. A crop listing or trip
   /// for the codes its revert undoes, every delivery the handler gets (it is
   /// always put back, FUP-25), a message refused because its thread is
-  /// closed (removed), and a refused arrival check-in (nothing local to put
-  /// back, FUP-285). Orders never count.
+  /// closed (removed), a refused arrival check-in (nothing local to put
+  /// back, FUP-285) and a refused profile edit (FUP-315). Orders never count.
   static bool _leavesFailedCount(SyncOperation operation, String? message) =>
       switch (operation.entityType) {
         'delivery' => true,
         handoffCheckInEntityType => true,
         'message' => isContactLockedMessage(message),
+        'user' => isProfileEditRefusalMessage(message),
         _ => _isRevertableListingOrTripRejection(operation.entityType, message),
       };
 
@@ -1644,6 +1673,19 @@ class SyncExecutor {
     } on FormatException {
       return null;
     }
+  }
+
+  /// What an operation held for a step-up is, for the prompt's words
+  /// (FUP-181). The server asks for one before an order's payment, a
+  /// delivery dispute, and a farmer or trucker dropping out of an order they
+  /// accepted (other).
+  static StepUpKind _stepUpKindOf(SyncOperation operation) {
+    final status = _statusOf(operation);
+    if (operation.entityType == 'order' && status == 'payment_submitted') {
+      return StepUpKind.payment;
+    }
+    if (status == 'disputed') return StepUpKind.dispute;
+    return StepUpKind.other;
   }
 
   /// Whether a delivery operation moves the delivery to `pickedUp`.

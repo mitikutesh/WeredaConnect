@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Lambda.APIGatewayEvents;
@@ -303,6 +304,66 @@ public class AdminFraudReviewQueueTests
         }
 
         Queries.Should().BeEmpty();
+    }
+
+    // ──────────────────────────────────────────────
+    // FUP-202: the user whose request caused a row written onto another user
+    // ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task List_ARowWrittenOntoATrucker_NamesTheBuyerWhoseConfirmCausedIt_AndOtherRowsCarryNoSource()
+    {
+        var at = DateTime.UtcNow.AddHours(-1);
+        var trucker = SignalRow("trucker-1", "GPS_ANOMALY", at, entityType: "delivery", entityId: "del-9");
+        trucker[FraudDetectionService.SourceUserIdAttribute] = new AttributeValue { S = "buyer-9" };
+        var buyer = SignalRow("buyer-9", "GPS_ANOMALY", at, entityType: "delivery", entityId: "del-9");
+        IndexPages(FraudIndex, Page(null, trucker, buyer));
+
+        var response = await GetAsync("/admin/fraud-signals");
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var signals = Json(response).GetProperty("signals").EnumerateArray().ToList();
+        signals.Should().HaveCount(2);
+        signals[0].GetProperty("userId").GetString().Should().Be("trucker-1");
+        signals[0].GetProperty("sourceUserId").GetString().Should().Be("buyer-9");
+        signals[1].GetProperty("userId").GetString().Should().Be("buyer-9");
+        signals[1].TryGetProperty("sourceUserId", out _).Should().BeFalse("the buyer's own row was caused by the buyer");
+    }
+
+    /// <summary>
+    /// FUP-202: the source user is admin only. The DTO that carries it is used by the admin Lambda alone, and the row
+    /// attribute is read only by the attribution guard of the signal writer and by the admin list, so no party-facing
+    /// route can return it. A new reader has to be added here on purpose.
+    /// </summary>
+    [Fact]
+    public void TheSourceUser_IsReadOnlyByTheAttributionGuardAndTheAdminList()
+    {
+        var src = ServerSourceDirectory();
+        var files = Directory.EnumerateFiles(src, "*.cs", SearchOption.AllDirectories)
+            .Select(path => (Name: Path.GetRelativePath(src, path).Replace('\\', '/'), Text: File.ReadAllText(path)))
+            .ToList();
+
+        files.Where(f => f.Text.Contains("FraudSignalDto")).Select(f => f.Name)
+            .Should().BeEquivalentTo("AppJsonContext.cs", "Models/AdminDtos.cs", "Functions/AdminFunction.cs");
+        // The attribute by its constant or its name as a string (a doc comment's paramref is not a read).
+        files.Where(f => f.Text.Contains("SourceUserIdAttribute") || Regex.IsMatch(f.Text, "(?<!name=)\"sourceUserId\""))
+            .Select(f => f.Name)
+            .Should().BeEquivalentTo("Services/FraudDetectionService.cs", "Functions/AdminFunction.cs");
+    }
+
+    /// <summary><c>server/src</c>, found by walking up from the test output to the repository root.</summary>
+    private static string ServerSourceDirectory()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir != null; dir = dir.Parent)
+        {
+            var candidate = Path.Combine(dir.FullName, "server", "src");
+            if (File.Exists(Path.Combine(candidate, "AppJsonContext.cs")))
+            {
+                return candidate;
+            }
+        }
+
+        throw new InvalidOperationException("server/src not found above the test output directory.");
     }
 
     [Fact]

@@ -251,6 +251,9 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(AdminPickupReopenDto))]
 [JsonSerializable(typeof(PickupReopenRequest))]
 [JsonSerializable(typeof(PickupReopenResponse))]
+// Order-lifecycle 2.26.0: an admin's commission change on one unpaid order
+[JsonSerializable(typeof(CommissionChangeRequest))]
+[JsonSerializable(typeof(CommissionChangeResponse))]
 [JsonSerializable(typeof(AdminAuditEntryDto))]
 [JsonSerializable(typeof(List<AdminAuditEntryDto>))]
 [JsonSerializable(typeof(AdminAuditListResponse))]

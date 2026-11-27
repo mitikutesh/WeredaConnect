@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.18.0
+2.19.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -113,6 +113,48 @@ Photo refs (1.25.0, FRD-12): a handoff photo is attached by its own `delivery_ph
 or update is still checked (any value that is not this delivery's photo key fails the operation
 with `DELIVERY_INVALID_FIELD`, Validation Rules item 8) but a valid key is dropped, not written:
 it would skip the attach's checks of the taker and the object.
+
+**Handoff evidence (2.19.0, FUP-440, GCR-01, GCR-02).** The operation that confirms a handoff (the
+trucker's `pickedUp`, the buyer's `delivered`, the self-pickup confirm) may carry, all optional:
+
+| Input | Where | Values |
+|---|---|---|
+| `gpsStatus` | `data` | With the point: `fix`, or `approximate` (Android granted only coarse location). Without a point: `services_off`, `denied`, `denied_forever`, `timeout` |
+| `capturedAt` | inside `gpsPickup` / `gpsDropoff` | ISO 8601 UTC, the fix's own time |
+| `accuracyM` | inside the point | number, metres |
+| `platform` | the operation, beside `operationId` (`sync-protocol.md` 1.71.0) | `android`, `web` |
+
+`gpsStatus` is input only: the unknown field check accepts it beside `scannedQrNonce` and it is never
+stored raw. `capturedAt` and `accuracyM` are read from the point and never stored in it: the stored
+point stays `latitude` and `longitude`. In the same update as the transition the server stamps,
+server-only, per leg: `pickup` for `pickedUp`, `dropoff` for `delivered` (the self-pickup confirm
+included, whose point is `gpsDropoff`):
+
+| Stored | From |
+|---|---|
+| `{leg}GpsStatus` | `gpsStatus`, when it is one of the six values and fits the point: `fix` and `approximate` only with the leg's point, the other four only without one |
+| `{leg}GpsCapturedAt` | the point's `capturedAt`, under the plausibility rule of `pickupCapturedAt` (at most 5 minutes after the operation reached the server, not older than 30 days), stored in UTC |
+| `{leg}GpsAccuracyM` | the point's `accuracyM`, a JSON number from 0 to 100,000 |
+| `{leg}Method` | `qr` (the nonce scanned) or `code` (the typed code, T-1), from the nonce check the server already runs; no client input. Absent when no nonce was checked (a cash drop-off picked up without a QR before FRD-11) |
+| `{leg}Platform` | the operation's `platform`, exactly `android` or `web` |
+| `dropoffCapturedAt` | the drop-off operation's `timestamp`, under the same plausibility rule (the pickup's is `pickupCapturedAt`, 1.23.0) |
+
+A value that fails its check is left out and the handoff goes through: evidence never refuses a
+handoff. Absent input stores nothing, so an old client's handoff stores only `{leg}Method`;
+deliveries confirmed before 2.19.0 have none of the fields, and their method is only in the
+transition's audit row (`metadata: handoff=qr` or `handoff=code`, still written). The fields are never
+returned to a client: every `/sync` result (success, conflict and the other echoes) drops them as it
+drops the photo version ids, and `GET /deliveries` and `GET /deliveries/{id}` map a `DeliveryDto`
+without them. A client that sends one in `data` is refused with
+`DELIVERY_VALIDATION: Unknown fields: <field>` and nothing is written, as for `pickupCapturedAt`.
+Admins read them on the dispute evidence (`escrow-protocol.md` 2.30.0). Nothing scores them: no fraud
+weight (FRD may add one later from data). An account deletion keeps them as handoff evidence, like
+`gpsPickup` and `gpsDropoff` (`account-deletion.md` 1.7.4).
+
+Rollout: the server deploys before the apps. A server before 2.19.0 refuses a handoff that carries
+`gpsStatus` (`DELIVERY_VALIDATION: Unknown fields: gpsStatus`), so that handoff fails; it ignores the
+operation's `platform` (an unknown member of the body) and the point's `capturedAt` and `accuracyM`
+(it reads and stores only `latitude` and `longitude`).
 
 Order coupling (v1.4.0, SIM-11): a successful `pickedUp`, `inTransit` or `delivered`
 transition advances the linked order to `pickup_confirmed`, `in_transit` or
@@ -721,6 +763,12 @@ on the `nearbyNotifiedAt` stamp only), so attaching a photo sends no push.
 | `autoConfirmedAt` | string | No | Server-only, read-only | When the order cron confirmed the delivery for a silent buyer (T9, 2.10.0); absent when the buyer confirmed |
 | `pickedUpAt` | string (ISO 8601) | No | -- | Timestamp when trucker picked up crops |
 | `pickupCapturedAt` | string (ISO 8601) | No | Server-only | When the phone made the pickup scan: the `pickedUp` operation's `timestamp`, stamped with `pickedUpAt` (1.23.0, FRD-09). Stored only when plausible (not more than 5 minutes after the operation reached the server, not older than 30 days); absent otherwise and on deliveries picked up before 1.23.0. The fraud rule for a delivery too fast for its distance reads it (`fraud-detection-architecture.md` 15.1); a client value is never written |
+| `pickupGpsStatus` / `dropoffGpsStatus` | string | No | Server-only, never returned | Why the leg had no fix, or what kind it had: `fix`, `approximate`, `services_off`, `denied`, `denied_forever`, `timeout` (2.19.0, FUP-440, Create/Update Delivery "Handoff evidence"); the self-pickup confirm is the `dropoff` leg |
+| `pickupGpsCapturedAt` / `dropoffGpsCapturedAt` | string (ISO 8601) | No | Server-only, never returned | The fix's own time on the phone, when plausible (2.19.0) |
+| `pickupGpsAccuracyM` / `dropoffGpsAccuracyM` | number | No | Server-only, never returned, 0 to 100,000 | The fix's accuracy in metres (2.19.0) |
+| `pickupMethod` / `dropoffMethod` | string | No | Server-only, never returned | `qr` or `code`, how the leg was proven (2.19.0, GCR-01); absent before 2.19.0 |
+| `pickupPlatform` / `dropoffPlatform` | string | No | Server-only, never returned | `android` or `web`, the app the leg came from (2.19.0, GCR-02) |
+| `dropoffCapturedAt` | string (ISO 8601) | No | Server-only, never returned | The drop-off operation's `timestamp` (the phone's time of the confirm), when plausible as `pickupCapturedAt` (2.19.0) |
 | `confirmedAt` | string (ISO 8601) | No | -- | Timestamp when buyer confirmed receipt |
 | `disputeReason` | string | No | 0-500 chars | Reason for dispute (if status is disputed) |
 | `disputeResolution` | string | No | Server-only: `farmer_wins` or `buyer_wins` | The admin's dispute verdict, stamped on a `disputed` delivery (v1.8.0) |
@@ -2087,6 +2135,7 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.19.0 | 2026-11-26 | Handoff evidence (FUP-440, GCR-01, GCR-02; SPK-01 sections 2 and 6, `good-conduct-rewards.md` section 8 items 1 to 3; `sync-protocol.md` 1.71.0, `escrow-protocol.md` 2.30.0, `data-models.md` 1.24.0, `account-deletion.md` 1.7.4). A handoff may send `gpsStatus` in `data`, `capturedAt` and `accuracyM` inside its point, and the operation's `platform`; the server stamps, server-only and in the transition's own write, `{leg}GpsStatus`, `{leg}GpsCapturedAt`, `{leg}GpsAccuracyM`, `{leg}Method` (`qr` or `code`, from the nonce check), `{leg}Platform` and `dropoffCapturedAt` (Create/Update Delivery "Handoff evidence"). A bad value is left out, never refused; old clients are accepted with only the method stamped; never returned to a client, and a client value is an unknown field. The stored point stays latitude and longitude. Deploy the server first: an older one refuses `gpsStatus` as an unknown field. |
 | 2.18.0 | 2026-11-19 | A pickup without a fix (persona simulation BUG-5, FUP-448; fraud spec 3.44.0): still accepted, with the weight 0 review flag `PICKUP_NO_FIX` on the trucker; the trucker's `GPS_ANOMALY` row judges the check-ins against the listing's point when no `gpsPickup` was stored. A dispute stamps the handoff evidence for admins (`escrow-protocol.md` 2.28.0). No wire or client change. |
 | 1.0.0 | 2026-02-17 | Initial contract: CRUD endpoints, QR verification, GPS validation, photo evidence, state machine, offline behavior, Ethiopian context |
 | 1.1.0 | 2026-07-09 | Buyer self-pickup (`deliveryType: self_pickup`); QR nonce moved to a dedicated secret table (never echoed); server-side freshness + single-use; `deferred` sync status for unsynced secrets; listing-GPS mandatory for self-pickup confirmation |

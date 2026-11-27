@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import en from "@/i18n/en.json";
 import { t, type Locale } from "@/lib/i18n";
+import { NO_FIX_CAUSES } from "@/lib/evidence";
 import { NO_SHOW_EVENTS } from "@/lib/pickup";
 
 /* Every key the manual payouts page (ESC-02) reads must exist in all three locales,
@@ -295,6 +296,13 @@ describe("dispute evidence strings exist in every locale", () => {
     });
   }
 
+  it("FUP-440: names every cause of a missing fix and both platforms the server stores", () => {
+    const stored = [...NO_FIX_CAUSES.map((c) => `evidence.gpsCause_${c}`), "evidence.platform_android", "evidence.platform_web"];
+    for (const locale of locales) {
+      expect([locale, stored.filter((key) => t(key, locale) === key)]).toEqual([locale, []]);
+    }
+  });
+
   it("keeps the placeholders the tabs fill in", () => {
     const placeholders: Record<string, string[]> = {
       tabPhotosCount: ["{count}"],
@@ -302,6 +310,8 @@ describe("dispute evidence strings exist in every locale", () => {
       method_code: ["{who}"],
       method_unknown: ["{who}"],
       capturedAt: ["{time}"],
+      gpsFixAt: ["{time}"],
+      gpsAccuracy: ["{meters}"],
       fromListing: ["{km}"],
       fromDestination: ["{km}"],
       messageFromTo: ["{from}", "{to}"],
@@ -419,4 +429,32 @@ describe("pickup judgement strings exist in every locale", () => {
       expect(NO_SHOW_EVENTS.map((e) => `pickup.noShowEvent_${e}`).filter((key) => t(key, locale) === key)).toEqual([]);
     }
   });
+});
+
+/* The admin commission change of one unpaid order: every form text, the rate row, the error codes and the timeline
+ * label in every locale, with the placeholders the form fills in. */
+describe("commission change strings exist in every locale", () => {
+  const keys = [
+    ...Object.keys(en.commission).map((k) => `commission.${k}`),
+    "transactions.commissionRate",
+    "transactions.action_admin_commission_changed",
+    "errors.COMMISSION_CHANGE_INVALID",
+    "errors.COMMISSION_CHANGE_NOT_ALLOWED",
+    "errors.COMMISSION_CHANGE_CHANGED",
+  ];
+  const placeholders: Record<string, string[]> = {
+    "commission.current": ["{rate}", "{amount}", "{total}"],
+    "commission.preview": ["{amount}", "{total}"],
+    "commission.confirmText": ["{fromRate}", "{toRate}", "{fromTotal}", "{toTotal}"],
+    "commission.done": ["{rate}", "{total}"],
+  };
+
+  for (const locale of locales) {
+    it(`${locale} has every key and keeps the placeholders`, () => {
+      expect(keys.filter((key) => t(key, locale) === key)).toEqual([]);
+      for (const [key, names] of Object.entries(placeholders)) {
+        for (const name of names) expect(t(key, locale)).toContain(name);
+      }
+    });
+  }
 });

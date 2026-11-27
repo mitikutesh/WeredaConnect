@@ -459,6 +459,25 @@ public class SyncFunctionCommitmentTests
     }
 
     [Fact]
+    public async Task AClientSentCommissionChange_IsDropped_AndTheStoredStampNeverGoesBack()
+    {
+        // Order-lifecycle 2.26.0: only the admin Lambda writes commissionChange, and the party's echo leaves it out.
+        _order = Order("funded", version: 2, selfPickup: true);
+        _order[OrderCommissionChange.Field] = OrderCommissionChange.Stamp(0.05m, 0.025m, 3889.72m, 1, "2026-11-26T08:00:00.0000000Z");
+
+        var result = await SendAsync(FarmerId, new Dictionary<string, object>
+        {
+            { "status", "accepted" },
+            { "version", 2 },
+            { OrderCommissionChange.Field, new Dictionary<string, object> { { OrderCommissionChange.StampToRate, 0 } } }
+        }, enabled: false);
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        _written.Should().NotContainKey(OrderCommissionChange.Field);
+        result.GetProperty("serverData").TryGetProperty(OrderCommissionChange.Field, out _).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task FarmerAccept_TripOrder_StaysFunded_AndIsNotStampedYet()
     {
         _pickupClassification = true;

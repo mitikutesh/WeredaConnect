@@ -764,6 +764,34 @@ describe('ESC-28 reputation core outside dev', () => {
     }
     expect(envOf(api, SYNC_FN).REPUTATION_PENALTIES_ENABLED).toBe('true');
   });
+
+  test.each(['dev', 'staging', 'prod'])(
+    'GCR-04 %s: conductRewards synthesizes "false" on the reputation Lambda only, with no new grant',
+    (envName) => {
+      expect(environments[envName].conductRewards).toBe(false);
+      const { api } = stacks(environments[envName]);
+      const fn = `wereda-connect-${envName}-reputation`;
+      expect(envOf(api, fn).CONDUCT_REWARDS_ENABLED).toBe('false');
+      // No other Lambda reads it yet (the copies of GCR-05 and the ranking of GCR-08 add theirs).
+      const carriers = Object.values(api.findResources('AWS::Lambda::Function'))
+        .filter((r) => r.Properties.Environment?.Variables?.CONDUCT_REWARDS_ENABLED !== undefined)
+        .map((r) => r.Properties.FunctionName);
+      expect(carriers).toEqual([fn]);
+      // The figure rides the Query grant the reads already had: the same three actions on the events table.
+      expect(actionsOn(api, fn, 'ReputationEventsTable')).toEqual(['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:UpdateItem']);
+      expect(actionsOn(api, fn, 'UsersTable')).toEqual(['dynamodb:GetItem']);
+    },
+  );
+
+  test('GCR-04: turning conductRewards on reaches the reputation Lambda and leaves the other flags off', () => {
+    const { api } = stacks({ ...devConfig, conductRewards: true });
+    const env = envOf(api, REPUTATION_FN);
+    expect([env.CONDUCT_REWARDS_ENABLED, env.REPUTATION_PENALTIES_ENABLED, env.REPUTATION_PUBLIC_TAGS_ENABLED]).toEqual([
+      'true',
+      'false',
+      'false',
+    ]);
+  });
 });
 
 describe('ESC-28 reputation alarms (MonitoringStack)', () => {

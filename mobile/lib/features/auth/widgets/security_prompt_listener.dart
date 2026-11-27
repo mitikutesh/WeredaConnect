@@ -22,8 +22,9 @@ typedef KycPaymentResubmitter = Future<void> Function(
 
 /// Shows the prompts that background work cannot resolve on its own:
 ///
-/// - [StepUpRequired]: a queued payment hit AUTH_040 (password) or AUTH_041
-///   (Fayda login, for higher-risk payments; a password step may follow).
+/// - [StepUpRequired]: a queued payment, dispute or drop-out hit AUTH_040
+///   (password) or AUTH_041 (Fayda login, for higher-risk payments; a
+///   password step may follow). The prompt names which ([StepUpKind]).
 ///   After the user confirms,
 ///   [SecurityEvents.stepUpCompleted] fires and the sync workers retry the
 ///   still-pending operations.
@@ -110,16 +111,22 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
     _showing = true;
     try {
       switch (event) {
-        case StepUpRequired(:final withFayda):
-          final outcome = await _confirmStepUp(withFayda: withFayda);
+        case StepUpRequired(:final withFayda, :final kind):
+          final outcome =
+              await _confirmStepUp(withFayda: withFayda, kind: kind);
           // Cancelled: stay quiet for a while instead of reopening on every
           // background sync. A Fayda attempt that did not finish is not a
           // "no": the next sync asks again.
           if (outcome == StepUpOutcome.declined) _events.stepUpDeclined();
           if (outcome == StepUpOutcome.verified && mounted) {
+            final l10n = AppLocalizations.of(context)!;
             ScaffoldMessenger.maybeOf(context)?.showSnackBar(
               SnackBar(
-                content: Text(AppLocalizations.of(context)!.stepUpDone),
+                content: Text(
+                  kind == StepUpKind.payment
+                      ? l10n.stepUpDone
+                      : l10n.stepUpDoneRetrying,
+                ),
               ),
             );
           }
@@ -194,16 +201,34 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
   }
 
   /// The password prompt, or for a higher-risk payment (AUTH_041) the Fayda login.
-  /// The password prompt only closes unconfirmed when cancelled.
-  Future<StepUpOutcome> _confirmStepUp({required bool withFayda}) async {
+  /// The password prompt only closes unconfirmed when cancelled. Both name
+  /// what waits for them ([kind], FUP-181).
+  Future<StepUpOutcome> _confirmStepUp({
+    required bool withFayda,
+    required StepUpKind kind,
+  }) async {
+    final l10n = AppLocalizations.of(context)!;
     if (withFayda) {
       return showFaydaStepUpDialog(
         context,
         securityEvents: _events,
         verificationScreen: widget.verificationScreen,
+        message: switch (kind) {
+          StepUpKind.payment => l10n.faydaStepUpMessage,
+          StepUpKind.dispute => l10n.faydaStepUpDisputeMessage,
+          StepUpKind.other => l10n.faydaStepUpOtherMessage,
+        },
       );
     }
-    final ok = await showStepUpDialog(context, securityEvents: _events);
+    final ok = await showStepUpDialog(
+      context,
+      securityEvents: _events,
+      message: switch (kind) {
+        StepUpKind.payment => l10n.stepUpRequiredMessage,
+        StepUpKind.dispute => l10n.stepUpDisputeMessage,
+        StepUpKind.other => l10n.stepUpOtherMessage,
+      },
+    );
     return ok ? StepUpOutcome.verified : StepUpOutcome.declined;
   }
 

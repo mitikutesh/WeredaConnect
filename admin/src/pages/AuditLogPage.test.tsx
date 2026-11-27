@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { AuditLogPage } from "./AuditLogPage";
@@ -30,7 +31,21 @@ vi.mock("@/hooks/useQuery", () => ({
       ],
     },
   }),
-  useEscrowAudit: () => ({ isLoading: false, data: { auditEntries: [] } }),
+  useEscrowAudit: () => ({
+    isLoading: false,
+    data: {
+      auditEntries: [
+        {
+          escrowId: "escrow-1",
+          action: "hold_success",
+          actor: "system",
+          fromState: "initiated",
+          toState: "escrowed",
+          timestamp: "2026-11-02T07:00:00.0000000Z",
+        },
+      ],
+    },
+  }),
 }));
 
 vi.mock("@/hooks/useLocale", async () => {
@@ -55,5 +70,35 @@ describe("AuditLogPage", () => {
     // An entity without a translation keeps its raw name.
     expect(screen.getAllByText("fraud").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Fraud signal rejected (admin)").length).toBeGreaterThan(0);
+  });
+
+  /* FUP-80: the states read as the timeline names them, and a search matches the labels too. */
+  it("labels the states and finds a row by the words it shows as well as by its raw values", async () => {
+    const user = userEvent.setup();
+    render(<AuditLogPage />);
+
+    expect(screen.getAllByText("Initiated → Held in escrow").length).toBeGreaterThan(0);
+    // A row with only a to state shows that side alone.
+    expect(screen.getAllByText("→ Fraud confirmed").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText(/escrowed|fraud_confirmed/)).toHaveLength(0);
+
+    const search = screen.getByRole("textbox");
+    // The action label: the raw action is fraud_reject.
+    await user.type(search, "rejected (admin)");
+    expect(screen.getAllByText("Fraud signal rejected (admin)").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("Outcome labelled (admin)")).toHaveLength(0);
+    expect(screen.queryAllByText("Initiated → Held in escrow")).toHaveLength(0);
+
+    // A state label: the raw state is escrowed.
+    await user.clear(search);
+    await user.type(search, "held in escrow");
+    expect(screen.getAllByText("Initiated → Held in escrow").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("Fraud signal rejected (admin)")).toHaveLength(0);
+
+    // The raw values still match.
+    await user.clear(search);
+    await user.type(search, "fraud_reject");
+    expect(screen.getAllByText("Fraud signal rejected (admin)").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("Initiated → Held in escrow")).toHaveLength(0);
   });
 });

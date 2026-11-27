@@ -10,6 +10,7 @@ import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 /// Offline-first repository for delivery CRUD operations.
@@ -439,6 +440,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
     required String deliveryId,
     required String truckerId,
     LatLng? gpsPickup,
+    GpsCaptureResult? gpsCapture,
     String? photoRef,
     String? scannedQrNonce,
     String? scannedQrCode,
@@ -480,8 +482,11 @@ class DeliveryRepository extends BaseDeliveryRepository {
       syncData['gpsPickup'] = {
         'latitude': gpsPickup.latitude,
         'longitude': gpsPickup.longitude,
+        ...?gpsCapture?.pointEvidence,
       };
     }
+    // FUP-440: why there is no fix, or that there is one.
+    if (gpsCapture != null) syncData['gpsStatus'] = gpsCapture.gpsStatus;
 
     // No photo ref travels in the handoff op: the photo has its own
     // operation, queued below (FRD-12). Isar keeps the local path above so
@@ -516,6 +521,7 @@ class DeliveryRepository extends BaseDeliveryRepository {
     required String deliveryId,
     required String buyerId,
     LatLng? gpsDropoff,
+    GpsCaptureResult? gpsCapture,
     String? photoRef,
     String? scannedQrNonce,
     String? scannedQrCode,
@@ -555,8 +561,10 @@ class DeliveryRepository extends BaseDeliveryRepository {
       syncData['gpsDropoff'] = {
         'latitude': gpsDropoff.latitude,
         'longitude': gpsDropoff.longitude,
+        ...?gpsCapture?.pointEvidence,
       };
     }
+    if (gpsCapture != null) syncData['gpsStatus'] = gpsCapture.gpsStatus;
 
     // The photo has its own operation, as in confirmPickup.
 

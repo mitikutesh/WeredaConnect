@@ -285,7 +285,9 @@ void main() {
       find.textContaining('Phone numbers are not allowed here'),
       findsOneWidget,
     );
+    // FUP-315: the device and the session keep the server's values.
     expect(written, isEmpty);
+    verifyNever(() => bloc.add(any(that: isA<AuthProfileChanged>())));
     expect(popped, isEmpty);
   });
 
@@ -433,6 +435,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('Check your connection'), findsNothing);
+    // FUP-315: the device and the session keep the server's values.
     expect(written, isEmpty);
+    verifyNever(() => bloc.add(any(that: isA<AuthProfileChanged>())));
   });
 }

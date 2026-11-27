@@ -1,7 +1,7 @@
 # Data Models Contract
 
-**Version**: 1.22.0
-**Last Updated**: 2026-11-13
+**Version**: 1.24.0
+**Last Updated**: 2026-11-26
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
 
@@ -168,6 +168,7 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `autoConfirmedAt` | DateTime? | No | When the order cron confirmed the delivery for a silent buyer (1.17.0, ESC-36 T9) | Absent when the buyer confirmed |
 | `arrivalPhotoLateAt` | DateTime? | No | Server-only: when the arrival photo was attached as late evidence on the order cron's T8 dispute (1.19.0, FUP-373, behind `dropoffClassification`) | Absent on one taken on the road; read by the admin evidence, not stored by the apps |
 | `dropoffPhotoLateAt` | DateTime? | No | Server-only: when the buyer's drop-off photo was attached as late evidence on a dispute the order cron opened, without the buyer's confirm (1.21.0, FUP-140) | Absent on the photo of a confirmed delivery; read by the admin evidence, not stored by the apps |
+| `pickupGpsStatus`, `pickupGpsCapturedAt`, `pickupGpsAccuracyM`, `pickupMethod`, `pickupPlatform`; the same with `dropoff`; `dropoffCapturedAt` | server row only | No | Server-only handoff evidence (1.24.0, FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0): why a leg had no GPS fix or what kind, the fix's own time and accuracy, `qr` or `code`, `android` or `web`, and the drop-off's phone time. Stamped in the transition's write; the self-pickup confirm is the `dropoff` leg | Never returned to the apps, so no Isar or web model field; read by the admin dispute evidence |
 | `version` | int | Yes | Optimistic concurrency control | Incremented on each update |
 
 **Indexes**:
@@ -299,6 +300,9 @@ device; the admin reads the rows in the manual payout queue.
 | `retryCount` | int | Yes | Number of retry attempts | Max 3 retries before marking as failed |
 | `createdAt` | DateTime | Yes | UTC timestamp | When operation was queued |
 
+Not stored: the operation's wire `platform` (1.24.0, GCR-02, `sync-protocol.md` 1.71.0), `android` from
+the mobile queue and `web` from the web queue, is named by the queue when it sends the operation.
+
 **Indexes**:
 - `operationId` (unique) - Fast lookup
 - `idempotencyKey` (unique) - Prevent duplicate operations on retry
@@ -341,7 +345,7 @@ device; the admin reads the rows in the manual payout queue.
 | `cropCost` | double | Yes | `quantity × pricePerUnit`, to the santim (2 decimals, SIM-30) | server |
 | `tripId`, `truckerId`, `truckerName` | String? | No | The trip and its trucker; all present or all absent | client; `truckerName` from the trip; immutable |
 | `transportCost` | double? | No | `quantity / 100 × pricePerQuintal`, to the santim; 0 without a trip | server |
-| `commissionRate`, `commissionAmount` | double | Yes | Rate from SSM (default 0.05); `cropCost × rate` to the santim, never on transport | server |
+| `commissionRate`, `commissionAmount` | double | Yes | Rate from SSM (default 0.05) at create; since 1.23.0 an admin may set another rate (0 to 0.20) on an unpaid order (order-lifecycle 2.26.0); `cropCost × rate` to the santim, never on transport | server |
 | `orderTotal` | double | Yes | `cropCost + transportCost + commissionAmount`, an exact 2 decimal sum; what the buyer pays | server |
 | `paymentMethod` | String? | No | `telebirr` or `cbe_transfer` | buyer on `payment_submitted` |
 | `cbeTransactionId` | String? | No | Bank reference (demo builds) | buyer |
@@ -383,7 +387,7 @@ device; the admin reads the rows in the manual payout queue.
 | `dropoffConfirmAt` | String? | No | T9 (order-lifecycle 2.22.0, FUP-370): the counted drop-off check-in's `receivedAt` plus SSM `silent-buyer-hours`; only to the order's parties while it is on the road with `dropoffJudgement: pending`, with the judgement on. Computed on every read, never stored | server (read only) |
 | `disputeReason` | String? | No | Why the system disputed the order: `delivery_overdue` (T8, reputation rule R12), `dropoff_out_of_range` (T8 with the trucker's out-of-range attempt, no R12) or `silent_buyer` (T9) (2.18.0) | order cron |
 
-Stored on the row but never returned: `paymentSubmittedAt`, `pendingPaymentAt`, `paymentHoldUntil`, the Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`), `cancelNote`, `adminQueue`, `adminQueueEscrowId`, `moneySweepSkip`, `moneySweepSkipAt`, the farm's point stamped for the check-ins (`pickupLatitude`, `pickupLongitude`, 1.14.0), an admin's re-open stamp of the pickup judgement (`pickupReopen`: `at`, `exit`, `fromJudgement`, `fromVersion`, `deadlineAt`; 1.16.0, order-lifecycle 2.16.0, never echoed in a sync result either), the drop-off check-in as stored (`dropoffCheckIn`), the trucker's out-of-range attempt (`dropoffAttempt`) and the drop-off points stamped at pickup (`dropoffOrderLatitude`, `dropoffOrderLongitude`, `dropoffTripLatitude`, `dropoffTripLongitude`, `dropoffTripRead`, 1.17.0), the order cron's check-in reminder markers (`pickupReminderAt`, `dropoffReminderAt`; 1.21.0, order-lifecycle 2.23.0), the admin override flags (`refundOverride*`, `disputeOverride*`). Since 1.6.0 the order's next deadline (`nextDeadlineAt`, `nextDeadlineKind`, `deadlineShard`: the sparse `DeadlineIndex` the order cron reads; order-lifecycle 2.8.0) is server-only too: not in the `OrderDto` answers, but the `serverData` of a sync create or update result echoes the stored row and may carry it; clients ignore it. Clients may send only `status` and its companions (`rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId`) and, since order-lifecycle 2.0.0, the commands `farmerResponse` / `truckerResponse` (`accept` or `decline`) with `declineReason`, and since 2.5.0 the buyer's `dropoffNote` and since 2.9.0 `deliveryLatitude` with `deliveryLongitude` (on create, and on update until pickup); everything else above is dropped or refused (`order-lifecycle.md`, Order Update Rules).
+Stored on the row but never returned: `paymentSubmittedAt`, `pendingPaymentAt`, `paymentHoldUntil`, the Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`), `cancelNote`, `adminQueue`, `adminQueueEscrowId`, `moneySweepSkip`, `moneySweepSkipAt`, the farm's point stamped for the check-ins (`pickupLatitude`, `pickupLongitude`, 1.14.0), an admin's re-open stamp of the pickup judgement (`pickupReopen`: `at`, `exit`, `fromJudgement`, `fromVersion`, `deadlineAt`; 1.16.0, order-lifecycle 2.16.0, never echoed in a sync result either), the drop-off check-in as stored (`dropoffCheckIn`), the trucker's out-of-range attempt (`dropoffAttempt`) and the drop-off points stamped at pickup (`dropoffOrderLatitude`, `dropoffOrderLongitude`, `dropoffTripLatitude`, `dropoffTripLongitude`, `dropoffTripRead`, 1.17.0), the order cron's check-in reminder markers (`pickupReminderAt`, `dropoffReminderAt`; 1.21.0, order-lifecycle 2.23.0), an admin's commission change stamp (`commissionChange`: `at`, `fromRate`, `toRate`, `fromTotal`, `fromVersion`; 1.23.0, order-lifecycle 2.26.0, never echoed in a sync result either), the admin override flags (`refundOverride*`, `disputeOverride*`). Since 1.6.0 the order's next deadline (`nextDeadlineAt`, `nextDeadlineKind`, `deadlineShard`: the sparse `DeadlineIndex` the order cron reads; order-lifecycle 2.8.0) is server-only too: not in the `OrderDto` answers, but the `serverData` of a sync create or update result echoes the stored row and may carry it; clients ignore it. Clients may send only `status` and its companions (`rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId`) and, since order-lifecycle 2.0.0, the commands `farmerResponse` / `truckerResponse` (`accept` or `decline`) with `declineReason`, and since 2.5.0 the buyer's `dropoffNote` and since 2.9.0 `deliveryLatitude` with `deliveryLongitude` (on create, and on update until pickup); everything else above is dropped or refused (`order-lifecycle.md`, Order Update Rules).
 
 **Indexes (DynamoDB)**: `orderId` (PK); `StatusCreatedAtIndex` (the crons page it by status); the party indexes behind `GET /orders` (`buyerId`, `farmerId`, `truckerId`); the sparse `AdminQueueIndex`.
 
@@ -518,6 +522,8 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.20.0 | 2026-11-13 | Order gains `dropoffConfirmAt` (FUP-370, order-lifecycle 2.22.0): T9 as the server computes it with SSM `silent-buyer-hours`, in `GET /orders`, `GET /orders/{id}` and the `/sync` order rows for the order's parties while the drop-off waits for T9; computed on every read, never stored on the server. The Order Isar schema and web mirror store it (read by the shared order parse, so the pulls, the web repository and the conflict echo fill it; a row without it clears the copy), and the drop-off card's T9 prefers it over the receipt plus 48 hours estimate. Isar builds the new field on the next open | @Server @Mobile |
 | 1.21.0 | 2026-11-13 | The order row gains the server-only reminder markers `pickupReminderAt` and `dropoffReminderAt` (order-lifecycle 2.23.0, notifications-api 1.6.0; FUP-286 and FUP-338): written once by the order cron before a pending pickup judgement and before T9, dropped from client payloads, never returned in the `OrderDto`; no client schema change. 1.19.0 is FUP-373 and 1.20.0 FUP-370 | @Server |
 | 1.22.0 | 2026-11-13 | Delivery gains the server-only `dropoffPhotoLateAt` (FUP-140, `delivery-verification-api.md` 2.14.0): written with the buyer's drop-off photo attached as late evidence on a dispute the order cron opened (T8 or T9) that no admin decided, returned on the delivery reads for the admin's evidence. The apps neither store nor send it. The server-only kept-copy fields of 2.14.0 (`{type}PhotoKeptRef`, `{type}PhotoKeptVersionId`) never leave the server. |
+| 1.23.0 | 2026-11-26 | Order: `commissionRate` can be set per order by an admin before payment, and the row gains the server-only `commissionChange` stamp, never returned (order-lifecycle 2.26.0) | @Server |
+| 1.24.0 | 2026-11-26 | Delivery gains the server-only handoff evidence (FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0, `sync-protocol.md` 1.71.0): per leg `{leg}GpsStatus`, `{leg}GpsCapturedAt`, `{leg}GpsAccuracyM`, `{leg}Method` and `{leg}Platform`, and `dropoffCapturedAt`, stamped in the transition's write and never returned to the apps (no Isar or web model change). The sync operation's wire `platform` is named by the queue at send time, not stored. 1.23.0 belongs to a change in flight | @Server @Admin |
 
 ---
 

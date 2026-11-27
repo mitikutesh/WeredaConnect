@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   MANUAL_PAYOUTS_REFRESH_MS,
+  useChangeCommission,
   useFraudSignals,
   useHeldEscrows,
   useManualPayoutClaim,
@@ -132,4 +133,42 @@ describe("Manual payout claim hook (FUP-05)", () => {
 
     expect(api.post).toHaveBeenCalledWith(`/admin/payouts/escrow-order-ord-9/release%23farmer/${action}`);
   });
+});
+
+/* The admin commission change of one unpaid order (order-lifecycle.md 2.26.0). */
+describe("Commission change hook", () => {
+  beforeEach(() => {
+    api.post.mockReset();
+  });
+
+  it.each([
+    ["answers", () => api.post.mockResolvedValue({ alreadyApplied: false, commissionRate: 0.025 })],
+    ["is refused", () => api.post.mockRejectedValue(Object.assign(new Error("changed"), { code: "COMMISSION_CHANGE_CHANGED" }))],
+  ])(
+    "posts the rate, reason and version to the order's route, and reloads the transactions, orders and audit when the server %s",
+    async (_outcome, arrange) => {
+      arrange();
+      const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+      const invalidate = vi.spyOn(client, "invalidateQueries");
+      const { result } = renderHook(() => useChangeCommission(), {
+        wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
+      });
+
+      await result.current
+        .mutateAsync({ orderId: "ord 7/x", commissionRate: 0.025, reason: "Agreed with the buyer.", expectedVersion: 4 })
+        .catch(() => undefined);
+
+      expect(api.post).toHaveBeenCalledWith("/admin/orders/ord%207%2Fx/commission", {
+        commissionRate: 0.025,
+        reason: "Agreed with the buyer.",
+        expectedVersion: 4,
+      });
+      await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(3));
+      expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
+        ["admin", "transactions"],
+        ["admin", "orders"],
+        ["admin", "audit"],
+      ]);
+    },
+  );
 });

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
+
 import 'package:wereda_connect/core/models/sync_operation.dart';
 
 /// Web stub for SyncQueue — no Isar persistence on web.
@@ -10,6 +12,10 @@ class SyncQueue {
 
   static const int maxQueueSize = 1000;
   static const int maxRetries = 3;
+
+  /// The `platform` every web operation names when it is sent (GCR-02).
+  /// Web has no queue: [SyncPlatformInterceptor] stamps it.
+  static const String platform = 'web';
 
   Future<SyncOperation> enqueue({
     required String entityType,
@@ -121,6 +127,34 @@ class SyncQueue {
 
   /// Nothing held on web.
   void dispose() {}
+}
+
+/// Stamps [SyncQueue.platform] on every operation of a `POST /sync` (GCR-02).
+/// Web has no queue: each web repository builds and posts its own batch, so
+/// the stamp goes on here, once for all of them. An operation that already
+/// names a platform keeps it; the caller's maps are not changed.
+class SyncPlatformInterceptor extends Interceptor {
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    final body = options.data;
+    if (options.method == 'POST' &&
+        options.path == '/sync' &&
+        body is Map<String, dynamic>) {
+      final operations = body['operations'];
+      if (operations is List) {
+        options.data = <String, dynamic>{
+          ...body,
+          'operations': [
+            for (final op in operations)
+              op is Map<String, dynamic> && !op.containsKey('platform')
+                  ? <String, dynamic>{...op, 'platform': SyncQueue.platform}
+                  : op,
+          ],
+        };
+      }
+    }
+    handler.next(options);
+  }
 }
 
 /// Exception thrown when the sync queue is full.

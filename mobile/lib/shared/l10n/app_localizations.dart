@@ -4186,12 +4186,6 @@ abstract class AppLocalizations {
   /// **'Transport Cost'**
   String get transportCost;
 
-  /// Label for platform commission in price breakdown
-  ///
-  /// In en, this message translates to:
-  /// **'Platform Commission (5%)'**
-  String get platformCommission;
-
   /// Label for total order amount
   ///
   /// In en, this message translates to:
@@ -4659,12 +4653,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Transport Cost'**
   String get transportCostLabel;
-
-  /// Label for commission in price breakdown
-  ///
-  /// In en, this message translates to:
-  /// **'Commission (5%)'**
-  String get commissionLabel;
 
   /// Stale data indicator
   ///
@@ -5487,6 +5475,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Confirmed. Retrying your payment.'**
   String get stepUpDone;
+
+  /// Password step-up dialog (AUTH_040) when the action is neither a payment nor a dispute: a farmer or trucker dropping out of an accepted order, deleting the account, or several kinds waiting together (FUP-167, FUP-181). am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'For your safety, confirm it\'s you before you continue.'**
+  String get stepUpOtherMessage;
+
+  /// Fayda step-up dialog (AUTH_041) when the waiting action is not a payment or a dispute (FUP-181). am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm it\'s you with Fayda to continue. You may also be asked for your password.'**
+  String get faydaStepUpOtherMessage;
+
+  /// Snackbar after a successful background step-up for an action that is not a payment (a dispute, a drop-out), FUP-181. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed. Trying again.'**
+  String get stepUpDoneRetrying;
 
   /// Fayda callback state mismatch or FAYDA_002
   ///
@@ -6675,6 +6681,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Your order was closed because it was not paid in time. You can place a new order.'**
   String get notifOrderExpiredUnpaidBody;
+
+  /// Inbox: an admin agreed another platform commission for the buyer's unpaid order (notifications-api.md order_commission_changed)
+  ///
+  /// In en, this message translates to:
+  /// **'Order total changed'**
+  String get notifCommissionChangedTitle;
+
+  /// Inbox: an admin agreed another platform commission for the buyer's unpaid order (notifications-api.md order_commission_changed)
+  ///
+  /// In en, this message translates to:
+  /// **'The platform commission on this order is now {rate}. New total: {total}. Nothing has been paid yet.'**
+  String notifCommissionChangedBody(String rate, String total);
+
+  /// Inbox: an admin agreed another platform commission for the buyer's unpaid order (notifications-api.md order_commission_changed)
+  ///
+  /// In en, this message translates to:
+  /// **'The platform commission on this order changed. Open the order to see the new total before you pay.'**
+  String get notifCommissionChangedBodyNoTotal;
 
   /// Inbox entry title, notification type payment_failed
   ///
@@ -8518,6 +8542,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'waiting for you'**
   String get homeTileWaitingForYou;
+
+  /// Farmer Orders filter: the orders waiting for the farmer to accept or reject, what Home's Pending Orders tile counts
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for you'**
+  String get ordersFilterWaitingForYou;
 
   /// Fieldway design alignment (specs/design-canvas). Buyer home Escrow tile: line under the amount (the buyer's money in escrow)
   ///

@@ -377,6 +377,8 @@ public partial class SyncFunction
         PickupJudgement.PickupLatitudeField, PickupJudgement.PickupLongitudeField,
         // FUP-287: the stamp of an admin's re-open of the judgement (written only by the admin Lambda).
         PickupReopen.Field,
+        // Order-lifecycle 2.26.0: the stamp of an admin's commission change (written only by the admin Lambda).
+        OrderCommissionChange.Field,
         // ESC-36: the drop-off judgement, its deadline, the drop-off check-in (written only by
         // handoff_check_in) and the drop-off points stamped at pickup. The order's disputeReason (written
         // only by the order cron's T8 and T9; rule R12 reads it) is not in AllowedOrderFields, so a client
@@ -593,6 +595,12 @@ public partial class SyncFunction
             item.Remove(field);
         }
 
+        // FUP-440, GCR-01, GCR-02: the handoff evidence stamps are server-only (delivery-verification-api 2.19.0).
+        foreach (var field in HandoffEvidence.ServerOnlyFields)
+        {
+            item.Remove(field);
+        }
+
         return item;
     }
 
@@ -803,6 +811,9 @@ public partial class SyncFunction
         // FRD-12: the uploads bucket a delivery_photo attach checks (its S3 client is made on first
         // use). Absent env → attaches are deferred.
         UploadsBucket = Environment.GetEnvironmentVariable("UPLOADS_BUCKET");
+
+        // GCR-03: a late rating or handoff photo re-evaluates the order's conduct stamp once (not flagged).
+        ConductStamps = BuildConductStamps(reputationEventsTable, usersTable, fraudSignalsTable.Length > 0);
     }
 
     /// <summary>
@@ -1170,11 +1181,13 @@ public partial class SyncFunction
                 // ESC-34, ESC-36: with both flags off the entity does not exist (the unsupported answer below).
                 PickupJudgement.EntityType when PickupJudgementOn || DropoffJudgementOn
                     => await ProcessHandoffCheckInAsync(operation, authenticatedUserId, context),
+                // FUP-74 (sync-protocol.md 1.72.0): SYNC_VALIDATION, which every client since March 2026 treats as
+                // permanent, so a build older than FUP-18 stops resending its `cropListing` operation.
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
                     Status = "error",
-                    Message = $"Unsupported entity type: '{operation.EntityType}'."
+                    Message = $"SYNC_VALIDATION: Unsupported entity type: '{operation.EntityType}'."
                 }
             };
 
@@ -1872,6 +1885,8 @@ public partial class SyncFunction
             // FUP-162: an unstamped ratee gets their full aggregate first, so the refresh reads it.
             await HealRateeAggregateAsync(rateeId, ratee, rateeRole, context);
             await RefreshRateeReputationAsync(rateeId, context);
+            // GCR-03: a late rating re-evaluates the settled order's conduct stamp once.
+            await ReevaluateConductAfterRatingAsync(order, orderId, rateeId, context);
         }
 
         return createResult.IsSuccess
@@ -2911,7 +2926,7 @@ public partial class SyncFunction
                     // FUP-98: the same profile read gives the woreda the screen below exempts.
                     string? farmerProfileWoreda = null;
                     var cropContactError = await StampOwnerContactAsync(
-                        operation.Data, authenticatedUserId!, "farmerName", "farmerPhone", context,
+                        operation.Data, authenticatedUserId!, "farmerName", "farmerPhone", "CROP", context,
                         owner => farmerProfileWoreda = owner.Woreda);
                     if (cropContactError != null)
                     {
@@ -2919,7 +2934,7 @@ public partial class SyncFunction
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = $"CROP_VALIDATION: {cropContactError}"
+                            Message = cropContactError
                         };
                     }
 
@@ -3437,14 +3452,14 @@ public partial class SyncFunction
                     }
 
                     var tripContactError = await StampOwnerContactAsync(
-                        operation.Data, authenticatedUserId!, "truckerName", "truckerPhone", context);
+                        operation.Data, authenticatedUserId!, "truckerName", "truckerPhone", "TRIP", context);
                     if (tripContactError != null)
                     {
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = $"TRIP_VALIDATION: {tripContactError}"
+                            Message = tripContactError
                         };
                     }
 
@@ -5794,10 +5809,11 @@ public partial class SyncFunction
 
                     // Field whitelist — reject unknown fields
                     // FIX-005: scannedQrNonce is allowed in data for validation but not persisted;
-                    // so is its typed fallback scannedQrCode (T-1).
+                    // so is its typed fallback scannedQrCode (T-1), and the handoff's gpsStatus (FUP-440),
+                    // read only by the evidence stamp below.
                     var unknownFields = operation.Data.Keys
                         .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version"
-                            && k != "scannedQrNonce" && k != "scannedQrCode")
+                            && k != "scannedQrNonce" && k != "scannedQrCode" && k != HandoffEvidence.GpsStatusInput)
                         .ToList();
                     if (unknownFields.Count > 0)
                     {
@@ -6232,6 +6248,22 @@ public partial class SyncFunction
                             attrNames[tsAlias] = "confirmedAt";
                             attrValues[tsValAlias] = new AttributeValue { S = now };
                             updateParts.Add($"{tsAlias} = {tsValAlias}");
+                            i++;
+                        }
+                    }
+
+                    // FUP-440, GCR-01, GCR-02: the handoff's evidence (why no fix or what kind, the fix's time and
+                    // accuracy, QR or code, the app, the drop-off's phone time), server-only, in this same write.
+                    // A value that does not pass is left out, never refused (HandoffEvidence.Stamps).
+                    if (HandoffEvidence.LegOf(resolvedNewStatus) is { } evidenceLeg)
+                    {
+                        var evidenceStamps = HandoffEvidence.Stamps(evidenceLeg, operation.Data, handoffMethod,
+                            operation.Platform, operation.Timestamp, TransactionPatternRules.ParseUtc(now) ?? DateTime.UtcNow);
+                        foreach (var (stampName, stampValue) in evidenceStamps)
+                        {
+                            attrNames[$"#f{i}"] = stampName;
+                            attrValues[$":f{i}"] = stampValue;
+                            updateParts.Add($"#f{i} = :f{i}");
                             i++;
                         }
                     }
@@ -9077,24 +9109,28 @@ public partial class SyncFunction
     /// <summary>
     /// SIM-40: a new listing shows buyers the owner's name and phone, so they come
     /// from the users table, never from the client (a spoofed phone redirected buyers).
-    /// Returns an error message when the profile cannot be read or has no name.
+    /// Returns the refusal message when the profile cannot be read
+    /// (<c>{codePrefix}_PROFILE_UNAVAILABLE</c>) or has no name (<c>{codePrefix}_PROFILE_INCOMPLETE</c>),
+    /// <paramref name="codePrefix"/> being <c>CROP</c> or <c>TRIP</c>. FUP-74 (sync-protocol.md 1.72.0):
+    /// the profile decides these, not the operation, so they are not <c>CROP_VALIDATION</c> or
+    /// <c>TRIP_VALIDATION</c>, which clients treat as permanent.
     /// <paramref name="onProfileRead"/> gets the profile once it is read, so a caller that needs
     /// more of it (FUP-98: the crop create's profile woreda) does not read it again.
     /// </summary>
     private async Task<string?> StampOwnerContactAsync(
-        Dictionary<string, object> data, string ownerId, string nameKey, string phoneKey,
+        Dictionary<string, object> data, string ownerId, string nameKey, string phoneKey, string codePrefix,
         ILambdaContext context, Action<UserDto>? onProfileRead = null)
     {
         if (_userRepo == null)
         {
             context.Logger.LogError($"Cannot stamp {phoneKey}: user repository not configured.");
-            return "Your profile could not be read. Please try again later.";
+            return $"{codePrefix}_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.";
         }
 
         var owner = await _userRepo.GetUserByIdAsync(ownerId);
         if (owner == null)
         {
-            return "Your profile could not be read. Please try again later.";
+            return $"{codePrefix}_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.";
         }
 
         onProfileRead?.Invoke(owner);
@@ -9106,7 +9142,7 @@ public partial class SyncFunction
             : null;
         if (name == null)
         {
-            return "Add your name to your profile before creating a listing.";
+            return $"{codePrefix}_PROFILE_INCOMPLETE: Add your name to your profile before creating a listing.";
         }
 
         data[nameKey] = name.Trim();

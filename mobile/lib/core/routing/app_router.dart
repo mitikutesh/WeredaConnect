@@ -64,8 +64,16 @@ String? webRedirect(AuthState authState, String location) {
   // A role without a Home (the buyer) lands on its first tab, also from
   // `/`, where every sign-in and old bookmark arrives.
   if (!webRoutesForRole(authState.role).contains(location)) return landing;
-  return null;
+  // Old bookmarks open the tab itself, so the bar marks it and offers its
+  // create button.
+  return _legacyTabRoutes[location];
 }
+
+/// The addresses the tabs had before, and the tab each now is.
+const Map<String, String> _legacyTabRoutes = {
+  '/marketplace': '/find-crops',
+  '/listings': '/my-crops',
+};
 
 /// Creates the go_router configuration for web navigation.
 ///

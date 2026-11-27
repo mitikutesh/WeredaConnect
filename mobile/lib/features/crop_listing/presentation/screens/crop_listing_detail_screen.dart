@@ -49,6 +49,7 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/low_reputation_pill.dart';
 import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/features/order/presentation/commission_label.dart';
 
 /// Full detail view for a single crop listing (the Buyer · Crop detail and
 /// transport board): the crop and price large, the farmer, where it is (with
@@ -611,7 +612,7 @@ class _CropListingDetailScreenState extends State<CropListingDetailScreen> {
             ],
             const SizedBox(height: 8),
             FwMoneyRow(
-              label: l10n.commissionLabel,
+              label: commissionLabelFor(l10n, _pricing.commissionRate),
               amount: l10n.etbCurrency(formatEtbAmount(_commission)),
             ),
             const SizedBox(height: 10),

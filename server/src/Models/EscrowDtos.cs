@@ -755,7 +755,7 @@ public sealed record DisputeHandoffEvidenceDto
 
     public string? PickedUpAt { get; init; }
 
-    /// <summary><c>qr</c> or <c>code</c>; null when the audit row is missing or names neither.</summary>
+    /// <summary><c>qr</c> or <c>code</c>, stamped on the delivery since 2.30.0, else from the audit row; null when neither has it.</summary>
     public string? PickupMethod { get; init; }
 
     public string? PickupBy { get; init; }
@@ -765,7 +765,7 @@ public sealed record DisputeHandoffEvidenceDto
 
     public string? ConfirmedAt { get; init; }
 
-    /// <summary><c>qr</c> or <c>code</c>; null when the audit row is missing or names neither.</summary>
+    /// <summary><c>qr</c> or <c>code</c>, stamped on the delivery since 2.30.0, else from the audit row; null when neither has it.</summary>
     public string? ConfirmMethod { get; init; }
 
     public string? ConfirmedBy { get; init; }
