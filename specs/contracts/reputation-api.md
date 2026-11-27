@@ -1,10 +1,10 @@
 # Reputation API Contract
 
 ## Version
-1.10.1
+1.11.0
 
 ## Status
-PARTLY BUILT (1.10.0). BUILT in GCR-04 (1.10.0, server, behind `conductRewards`, off everywhere): the verified handoffs figure of section 1.9, `verifiedPct` and `verifiedOrders90d` on the reads of sections 2 and 3. BUILT in GCR-03 (1.9.0, server, not flagged): the conduct stamp of section 1.8 (no read returns a stamp; GCR-04 reads them into the figure). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
+PARTLY BUILT (1.11.0). BUILT in FUP-195 and FUP-199 (1.11.0, server and app): the `appeal_decided` notice of an admin's decision (section 10) and the admin audit row a replay writes when the first write failed (section 9). BUILT in GCR-04 (1.10.0, server, behind `conductRewards`, off everywhere): the verified handoffs figure of section 1.9, `verifiedPct` and `verifiedOrders90d` on the reads of sections 2 and 3. BUILT in GCR-03 (1.9.0, server, not flagged): the conduct stamp of section 1.8 (no read returns a stamp; GCR-04 reads them into the figure). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
 the server side of the two notifications (section 10) and the flags and policy parameter
 (section 11). BUILT in ESC-29 (server): the reads (sections 2 to 4), the appeal photo and the appeal
 (5, 6), the copied owner fields (7) and the gates (8). BUILT in ESC-32: the admin endpoints
@@ -898,7 +898,7 @@ the stored state before the rollout.
   status read, the row version read, and for an uphold the appeal status and `appealTextAt` read).
   A failed condition writes nothing; the request reads again and answers from what is stored, so
   two admins acting at once apply a change once: the loser gets the replay answer or the refusal.
-- **Audit**: one transaction-audit row per applied write, never for a replay: `fromState` and
+- **Audit**: one transaction-audit row per applied write: `fromState` and
   `toState` are `tier={tier};points={activePoints}` before and after, `metadata` is
   `event={eventId};note={note}` for a decision and `reason={reason};until={until}` for an action
   (`until` left out when there is none), followed by what else changed, since a tag, an untag or a
@@ -909,6 +909,21 @@ the stored state before the rollout.
   when an uphold gave a review's restriction its end. A body `until` that applied to nothing is
   not recorded. The actor is the admin's id. The appeal text is never written to the audit row or
   a log.
+- **One audit row per change, even when its write fails (1.11.0, FUP-199)**: the row is written
+  after the commit and best effort, so its write can fail while the change stands. It is put once
+  (`attribute_not_exists`) at a key that names the change: `transactionId` the user id,
+  `timestamp` the change's own time as stored (millisecond ISO: the decision's `decidedAt`, the
+  `OVERRIDE#` or `RESTRICTION#` row's time, the lift's `liftedAt`), `auditId`
+  `txaudit-{userId}-{action}-{that time's digits}`. A replay (`alreadyDecided`,
+  `alreadyApplied`) puts the same row again: when the first write landed nothing is written, when
+  it failed the replay writes it, so a change has exactly one row. A row written by a replay says
+  what the replay knows: the actor is the admin who made the change (`decidedBy` or the system
+  row's `by`), `fromState` is absent, `toState` is the state as the replay read it, the metadata
+  is the stored note (a decision) or the reason and end (an action) followed by
+  `replayedBy={the replaying admin}`, and there is no IP. A `lift` has no replay (a second lift is
+  `409 REPUTATION_NOT_RESTRICTED`), so its failed row stays missing (the `AuditLogger` line and the
+  writer's warning remain). A change audited before 1.11.0 has a row at a random key: a replay of
+  it adds a second row (none exist outside dev, every flag being off).
 - **Copies**: when the write changed the tier, the effective rating or the reliability, the owner
   fields on the user's active listings are rewritten in the same request (section 7). A copy that
   fails is logged (`REPUTATION_COPY_FAILED`), does not fail the action, and is retried by the
@@ -1059,7 +1074,8 @@ so deciding it on an older view cannot cost the party anything.
 - `uphold` on an expired event with an open appeal is allowed: it only closes the appeal.
 - "Decided" for the replay rule means the stored decision with no open appeal. `excuse` on an
   excused event and `uphold` on an upheld event answer `200`, `alreadyDecided: true`, with the
-  stored note (the new note is ignored) and no audit row. `excuse` on an upheld event and `uphold`
+  stored note (the new note is ignored) and no audit row (since 1.11.0, the row the first request
+  failed to write, section 9). `excuse` on an upheld event and `uphold`
   on an excused event are `409 REPUTATION_EVENT_DECIDED`. An upheld event the party then appealed
   (6.1, "After an admin decision") has an open appeal again and takes either decision.
 - A client that sends no `seenAppealTextAt` can uphold only an appeal with no party text (an
@@ -1073,8 +1089,9 @@ so deciding it on an older view cannot cost the party anything.
   points fall below `restrictAt`. A lifted row keeps `liftedAt` and `liftedBy`.
 - The event row keeps `appealDecision` (`excused` or `upheld`), `decidedAt`, `decidedBy` and
   `decisionNote`, and leaves `AppealStatusIndex`; an excused row also leaves `DueIndex`.
-- The party is not notified of a decision by itself (only through `tier_changed` when the tier
-  moved); the note shows in their event list (TASK FUP-195).
+- 1.11.0 (FUP-195): the write also stamps `decidedVersion`, the row `version` it leaves, and the
+  party is told `appeal_decided` with the decision and the note (section 10); a tier that moved
+  still comes as `tier_changed`, from its own row. The note also shows in their event list.
 
 ### 9.4 POST /admin/users/{userId}/reputation
 
@@ -1106,8 +1123,8 @@ force); `503 REPUTATION_UNAVAILABLE`; `500 REPUTATION_SERVER_ERROR`.
   `adminRestrictMaxDays` (restrict) ahead, both from the policy parameter. `lift` ignores `until`.
 - **Replay**: the same `tag`, `untag` or `restrict` again (same `until`, same `reason`) while it
   is in force answers `200` with `alreadyApplied: true` and writes nothing (no second row, no
-  audit row). A different `tag` or `untag` replaces the previous override, whose row becomes
-  `replaced`.
+  audit row; since 1.11.0 the audit row the first request failed to write, at its key, section
+  9). A different `tag` or `untag` replaces the previous override, whose row becomes `replaced`.
 - **`restrict` while any restriction is in force** (points, a review, or another admin's) is
   `409 REPUTATION_ALREADY_RESTRICTED`: nothing is stacked or silently extended. To change one,
   `lift` first, then `restrict`.
@@ -1124,14 +1141,29 @@ force); `503 REPUTATION_UNAVAILABLE`; `500 REPUTATION_SERVER_ERROR`.
 
 ## 10. Notifications (ESC-28 server BUILT, ESC-31 app)
 
-Two new inbox and push types for the party (`notifications-api.md`; ESC-28 bumps it). They come
-from the `reputation-events` table stream into `OrderNotifyStreamFunction`, like the order events
-(architecture doc 9). Behind `reputationPenalties`.
+Two new inbox and push types for the party (`notifications-api.md`; ESC-28 bumps it), and since
+1.11.0 a third (FUP-195, `notifications-api.md` 1.8.0). They come from the `reputation-events`
+table stream into `OrderNotifyStreamFunction`, like the order events (architecture doc 9). Behind
+`reputationPenalties`.
 
 | Type | When | `params` | Opens |
 |---|---|---|---|
 | `penalty_recorded` | a penalty row with `points` above 0 is recorded | `eventId`, `code`, `points`, `activePoints` | My reputation |
 | `tier_changed` | the tier changed (a `TIER_CHANGED` row) | `fromTier`, `toTier`, `restrictedUntil` when `toTier` is `restricted` | My reputation |
+| `appeal_decided` (1.11.0) | an admin excused or upheld one of the party's events (9.3), appealed or not | `eventId`, `code`, `decision` (`excused` or `upheld`), `note` (the admin's note) | My reputation |
+
+**`appeal_decided` as built (1.11.0, FUP-195)**: the stream carries the new image only, so the
+decision's own write is told apart by what it alone leaves on the row: `decidedVersion` (stamped
+by the decision, 9.3) equal to `version`, and no `appealStatus`. The source filter passes a
+`MODIFY` with `decidedVersion` and no `appealStatus`; the rules drop a later write of the row (an
+earn-back or the daily expiry moves `version` on), a row decided before 1.11.0 (no
+`decidedVersion`), a row that is not an order event, and a row whose `party` is not a farmer or a
+trucker. Only the row's party is told, never the buyer it names. The note is stored with control
+and format characters removed and any run of 9 or more digits (a phone number) cut to an ellipsis,
+and it is never in the push: the push says the decision, the inbox entry and My reputation show
+the note. A party whose tier moved gets `tier_changed` too. Push text and inbox text in en, am and
+om (am and om machine drafted, native review owed). A build before it reads the inbox entry as the
+generic "Order update" and its tap opens nothing (no `orderId`).
 
 `tier_changed` to `warning` is the private warning of spec 4.11. Push text in en, am and om
 (`Helpers/PushText.cs`; am and om await native review). As built: a `TIER_CHANGED` row is written
@@ -1289,6 +1321,7 @@ platform pair).
 
 | Version | Date | Change |
 |---|---|---|
+| 1.11.0 | 2026-11-27 | FUP-195 and FUP-199 BUILT (server, apps; no endpoint or field change). Section 10: a third notification, `appeal_decided` (params `eventId`, `code`, `decision`, `note`), when an admin excuses or upholds an event; the decision write of 9.3 stamps `decidedVersion` so the notifier (new image only) can tell its own record, and the reputation-events source gains a second filter, the `MODIFY` of a row with `decidedVersion` and no `appealStatus` (`notifications-api.md` 1.8.0). Section 9: the admin audit row is put once at a deterministic key (the user, the change's own time), and a replay (`alreadyDecided`, `alreadyApplied`) writes it when the first write failed, so each change has exactly one row. (1.10.0 is taken by an open branch) |
 | 1.10.1 | 2026-11-27 | Doc only (FUP-205, `notifications-api.md` 1.7.1): a tapped `penalty_recorded` or `tier_changed` push opens My reputation on the phone. No wire change |
 | 1.10.0 | 2026-11-27 | GCR-04 BUILT (server, behind the new flag `conductRewards`, off in dev, staging and prod): new section 1.9, the verified handoffs figure. `GET /reputation/me` and `GET /reputation/{userId}` add `verifiedPct` (`round(100 x sum(earned) / sum(offered))` over the party's counted `HANDOFF_QUALITY` stamps settled in the last 90 days, the window of `reliabilityPct`, half up; absent below 3 counted orders or with no step offered; spec 5) and `verifiedOrders90d` (those counted orders, 0 included), read through their own filtered Query; the event reads still never see a stamp. Public summary: independent of `reputationPublicTags`. A failed stamp read leaves both fields out (`CONDUCT_READ_FAILED`), the rest answers. With the flag off no stamp is read and no answer changes (a byte-for-byte test). Identity verified stays out of the figure (TASK FUP-575). Section 11: the fourth flag, on the reputation Lambda only, no new grant |
 | 1.9.0 | 2026-11-27 | GCR-03 BUILT (server, not flagged, no wire change): new section 1.8, the conduct stamp. When an order reaches `settled`, the reputation stream writes one `HANDOFF_QUALITY` row per party (farmer, trucker, buyer: the first buyer rows in the table) at `HANDOFF#{orderId}`, idempotent on `{orderId}:{partyId}`, under a check that the party is not being deleted: `offered`, `earned`, the step list with the left-out reasons of spec 5, and `counted` with `notCountedReason` (every party gets its row; a non-counted order is stamped as not counted). A late rating that completes the buyer's ratings, or a pickup or drop-off photo, re-evaluates the order once within 14 days. Every event read leaves the stamps out (`QueryEventsAsync` filters them before its cap), so no existing read changes. Not scored yet: the listing kept current and the drop-off code made ready (TASK FUP-560). As built, reputation-stream has none of the tables the stamp reads, so nothing is stamped on a deployed stack until TASK FUP-550 |
@@ -1306,4 +1339,4 @@ platform pair).
 ---
 
 **Last Updated**: 2026-11-27
-**Version**: 1.10.1
+**Version**: 1.11.0

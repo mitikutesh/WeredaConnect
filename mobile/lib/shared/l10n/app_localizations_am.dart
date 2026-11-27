@@ -6093,6 +6093,30 @@ class AppLocalizationsAm extends AppLocalizations {
       'የቅጣት ነጥቦች አሉዎት። ገዢዎች እስካሁን ምንም አያዩም። ለዝርዝሩ \"የእኔ ተዓማኒነት\"ን ይክፈቱ።';
 
   @override
+  String get notifAppealExcusedTitle => 'የቅጣት ነጥቦች ተወግደዋል';
+
+  @override
+  String notifAppealExcusedBody(String event) {
+    return '$event። ቡድናችን ነጥቦቹን አስወግዷል።';
+  }
+
+  @override
+  String get notifAppealUpheldTitle => 'የቅጣት ነጥቦቹ ይቆያሉ';
+
+  @override
+  String notifAppealUpheldBody(String event) {
+    return '$event። ቡድናችን መርምሮ ነጥቦቹን አቆይቷል።';
+  }
+
+  @override
+  String get notifAppealDecidedTitle => 'መዝገብዎ ተመርምሯል';
+
+  @override
+  String notifAppealDecidedBody(String event) {
+    return '$event። የቡድናችንን ውሳኔ ለማየት \"የእኔ ተዓማኒነት\"ን ይክፈቱ።';
+  }
+
+  @override
   String get notifPickupReminderTitle => 'ለመጫኛው ያረጋግጡ';
 
   @override

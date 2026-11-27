@@ -26,6 +26,7 @@ public class OrderNotifyStreamFunctionTests
     private const string DeliveriesArn = "arn:aws:dynamodb:eu-north-1:123:table/wereda-connect-dev-deliveries/stream/2026-10-26T00:00:00.000";
     private const string EscrowsArn = "arn:aws:dynamodb:eu-north-1:123:table/wereda-connect-dev-escrows/stream/2026-10-26T00:00:00.000";
     private const string MessagesArn = "arn:aws:dynamodb:eu-north-1:123:table/wereda-connect-dev-messages/stream/2026-10-26T00:00:00.000";
+    private const string ReputationArn = "arn:aws:dynamodb:eu-north-1:123:table/wereda-connect-dev-reputation-events/stream/2026-11-07T00:00:00.000";
 
     // 2026-10-26T12:00:00Z
     private const long RecordEpochSeconds = 1793016000;
@@ -111,6 +112,32 @@ public class OrderNotifyStreamFunctionTests
         push.Message.Should().NotContain("9.031").And.NotContain("38.74");
         // Action required: the push lives until T9 (the clock is a minute after the check-in).
         push.MessageAttributes["AWS.SNS.MOBILE.FCM.TTL"].StringValue.Should().Be(((48 * 60 - 1) * 60).ToString());
+    }
+
+    [Fact]
+    public async Task FUP195_AnAdminsDecision_TellsOnlyTheParty_InTheirLanguage_AndALaterWriteOfTheRowIsSilent()
+    {
+        var response = await RunAsync(DecisionRecord("seq-1", version: 2), DecisionRecord("seq-2", version: 3));
+
+        response.BatchItemFailures.Should().BeEmpty();
+        var row = _rows.Should().ContainSingle("the second record is a later write of the row (an earn-back)").Subject;
+        row.UserId.Should().Be("farmer-1");
+        row.Type.Should().Be(NotificationTypes.AppealDecided);
+        row.Entity.Should().Be("reputation");
+        row.SortKey.Should().Be($"{RecordTime:o}#{NotificationTypes.AppealDecided}#CANCEL#order-1");
+        row.OrderId.Should().BeNull();
+        row.Params[NotificationParams.Decision].Should().Be("excused");
+        row.Params[NotificationParams.Note].Should().Be("Flood closed the road; confirmed with the buyer.");
+
+        // The farmer's two devices, in Amharic; no order tag, nothing for the buyer the row names.
+        _published.Select(p => p.TargetArn).Should().Equal("arn:endpoint/farmer-1a", "arn:endpoint/farmer-1b");
+        var fcm = JsonDocument.Parse(JsonDocument.Parse(_published[0].Message).RootElement.GetProperty("GCM").GetString()!).RootElement;
+        fcm.GetProperty("data").GetProperty("event").GetString().Should().Be(NotificationTypes.AppealDecided);
+        fcm.GetProperty("data").GetProperty("entity").GetString().Should().Be("reputation");
+        fcm.GetProperty("data").TryGetProperty("orderId", out _).Should().BeFalse();
+        fcm.GetProperty("notification").TryGetProperty("tag", out _).Should().BeFalse();
+        fcm.GetProperty("notification").GetProperty("title").GetString().Should().Be("የቅጣት ነጥብ ተነስቷል");
+        _published[0].Message.Should().NotContain("Flood", "the note is in the inbox, never on the lock screen");
     }
 
     [Fact]
@@ -473,6 +500,26 @@ public class OrderNotifyStreamFunctionTests
             }
             """;
     }
+
+    /// <summary>
+    /// FUP-195: a recorded reputation-events MODIFY (new image only): the row of an excused event; with
+    /// <paramref name="version"/> 2 it is the decision's own write (decidedVersion 2), with 3 a later write.
+    /// </summary>
+    private static string DecisionRecord(string sequenceNumber, int version) => $$"""
+        {
+          "eventName": "MODIFY",
+          "eventSourceARN": "{{ReputationArn}}",
+          "dynamodb": {
+            "ApproximateCreationDateTime": {{RecordEpochSeconds}},
+            "SequenceNumber": "{{sequenceNumber}}",
+            "NewImage": { "userId": { "S": "farmer-1" }, "eventId": { "S": "CANCEL#order-1" }, "code": { "S": "LATE_CANCEL" },
+              "party": { "S": "farmer" }, "status": { "S": "excused" }, "buyerId": { "S": "buyer-1" }, "orderId": { "S": "order-1" },
+              "appealDecision": { "S": "excused" }, "decidedAt": { "S": "2026-10-26T11:59:59.000Z" }, "decidedBy": { "S": "admin-1" },
+              "decisionNote": { "S": "Flood closed the road; confirmed with the buyer." },
+              "version": { "N": "{{version}}" }, "decidedVersion": { "N": "2" } }
+          }
+        }
+        """;
 
     /// <summary>A recorded orders-table MODIFY: the mock payment was verified (payment_submitted to funded).</summary>
     private static string FundedRecord(string sequenceNumber = "seq-1", string orderId = "order-1")

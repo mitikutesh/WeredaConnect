@@ -1,7 +1,7 @@
 # Reputation Architecture
 
 ## Version
-1.11.0 | 2026-11-27 (FUP-186)
+1.12.0 | 2026-11-27 (FUP-195)
 
 ## Status
 PARTLY BUILT. ESC-28 (the core write side) is built and ships dark: sections 3 (the table and
@@ -608,6 +608,13 @@ ESC-31 (as built): the inbox entry of either type has its own text and opens My 
 phone and the web. A tapped push of either type opens My reputation on the phone, from the
 background and after a cold start (FUP-205).
 
+FUP-195 (as built, `reputation-api.md` 1.11.0): an admin's decision (6.5, 9.3 of the contract) is
+a `MODIFY` of the event row, and the stream has no old image, so the decision write stamps
+`decidedVersion` (the row `version` it leaves). A second filter on the source passes a `MODIFY`
+with `decidedVersion` and no `appealStatus`, and the rules tell the row's party `appeal_decided`
+(`decision`, the scrubbed `note`) only when `decidedVersion` equals `version`: a later earn-back
+or expiry of the row moves the version on and tells nobody.
+
 ### 9.1 The app (ESC-31, as built)
 
 `mobile/lib/features/reputation/` holds everything about the user's own reputation, for the phone
@@ -1198,6 +1205,7 @@ How the build reads points the design left open:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.12.0 | 2026-11-27 | FUP-195: section 9, the `appeal_decided` notice of an admin's decision: the decision write stamps `decidedVersion`, a second source filter passes the `MODIFY` of a decided row with no open appeal, and the rules keep only the decision's own record (`decidedVersion` equal to `version`). |
 | 1.11.0 | 2026-11-27 | FUP-186: section 11 records that `CropDto` and `MatchDto` no longer return `farmerReliability` and the apps no longer parse or store it (`crop-listing-api.md` 1.19.0, `match-api.md` 1.6.0); old crop rows keep the stored attribute |
 | 1.10.0 | 2026-11-13 | FUP-245: 13.1 `GPS_ANOMALY`, with `dropoffClassification` on the trucker's row reads ESC-36's drop-off check-in first (it clears or leaves no row; an out-of-range attempt alone leaves none) and falls back to the road check-ins of FUP-203 only without it (`fraud-detection-architecture.md` 3.38.0). |
 | 1.9.0 | 2026-11-13 | ESC-36 built the producer of R12 (T8, behind `dropoffClassification`: the order `disputed` with `disputeReason: delivery_overdue` in one write) and the silent buyer of 13 (T9 reads the trucker's stored tier; no event). FUP-204: R12 rests on the trucker alone and is written plainly (fraud spec 3.37.0 section 15.3) |

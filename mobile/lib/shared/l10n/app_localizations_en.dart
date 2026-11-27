@@ -6250,6 +6250,30 @@ class AppLocalizationsEn extends AppLocalizations {
       'You have penalty points. Buyers see nothing yet. Open My reputation for the details.';
 
   @override
+  String get notifAppealExcusedTitle => 'Penalty points removed';
+
+  @override
+  String notifAppealExcusedBody(String event) {
+    return '$event. Our team removed the points.';
+  }
+
+  @override
+  String get notifAppealUpheldTitle => 'The penalty points stay';
+
+  @override
+  String notifAppealUpheldBody(String event) {
+    return '$event. Our team reviewed it and kept the points.';
+  }
+
+  @override
+  String get notifAppealDecidedTitle => 'Your record was reviewed';
+
+  @override
+  String notifAppealDecidedBody(String event) {
+    return '$event. Open My reputation to see our team\'s decision.';
+  }
+
+  @override
   String get notifPickupReminderTitle => 'Check in for the pickup';
 
   @override

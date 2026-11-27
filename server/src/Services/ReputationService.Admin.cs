@@ -121,7 +121,7 @@ public sealed partial class ReputationService
             {
                 if (row.Status == ReputationStatuses.Excused)
                 {
-                    return ReputationAdminResult.Replay(before, rows, row);
+                    return ReputationAdminResult.Replay(before, rows, row, row.DecidedAt, row.DecidedBy);
                 }
 
                 if (!open && row.AppealDecision == DecisionUpheld)
@@ -156,7 +156,7 @@ public sealed partial class ReputationService
                     return row.Status == ReputationStatuses.Excused
                         ? ReputationAdminResult.Refused(ReputationAdminOutcome.EventDecided)
                         : row.AppealDecision == DecisionUpheld
-                            ? ReputationAdminResult.Replay(before, rows, row)
+                            ? ReputationAdminResult.Replay(before, rows, row, row.DecidedAt, row.DecidedBy)
                             : ReputationAdminResult.Refused(ReputationAdminOutcome.AppealClosed);
                 }
 
@@ -295,7 +295,7 @@ public sealed partial class ReputationService
                         var current = ReputationPolicy.ActiveOverride(rows, now);
                         if (current != null && current.Tag == tag && current.Until == tagEnd && current.Reason == reason)
                         {
-                            return ReputationAdminResult.Replay(before, rows, null);
+                            return ReputationAdminResult.Replay(before, rows, null, ReputationPolicy.Iso(current.RecordedAt), current.By);
                         }
 
                         // The latest tag or untag replaces every earlier one.
@@ -344,8 +344,9 @@ public sealed partial class ReputationService
                         var inForce = InForceRestrictions(rows, now);
                         if (inForce.Count > 0)
                         {
-                            return inForce.Any(r => r.Cause == ReputationCauses.Admin && r.Until == restrictEnd && r.Reason == reason)
-                                ? ReputationAdminResult.Replay(before, rows, null)
+                            var same = inForce.FirstOrDefault(r => r.Cause == ReputationCauses.Admin && r.Until == restrictEnd && r.Reason == reason);
+                            return same != null
+                                ? ReputationAdminResult.Replay(before, rows, null, ReputationPolicy.Iso(same.RecordedAt), same.By)
                                 : ReputationAdminResult.Refused(ReputationAdminOutcome.AlreadyRestricted);
                         }
 
@@ -481,7 +482,10 @@ public sealed partial class ReputationService
         }
 
         return new ReputationAdminResult(
-            ReputationAdminOutcome.Applied, before, ToRead(user, rowsAfter, now), rowsAfter, null);
+            ReputationAdminOutcome.Applied, before, ToRead(user, rowsAfter, now), rowsAfter, null)
+        {
+            ChangedAt = ReputationPolicy.Iso(now)
+        };
     }
 
     /// <summary>Every restriction row in force at <paramref name="now"/> (status active, started, not ended), any cause.</summary>
@@ -570,8 +574,22 @@ public sealed record ReputationAdminResult(
     /// </summary>
     public string? Detail { get; init; }
 
+    /// <summary>
+    /// FUP-199: when the change this result reports was written, as stored (millisecond ISO): the write's own time on
+    /// an applied change; on a replay the time read back from the stored change (the event's <c>decidedAt</c>, the
+    /// override's or the restriction's <c>recordedAt</c>, which is also the time in its row id). The key of the
+    /// change's one audit row, so a replay can write the row the first request failed to write, and never a second.
+    /// Null on a refusal, or a replay of a row that has no such time.
+    /// </summary>
+    public string? ChangedAt { get; init; }
+
+    /// <summary>FUP-199, on a replay: the admin who made the stored change (<c>decidedBy</c>, or the system row's <c>by</c>).</summary>
+    public string? ChangedBy { get; init; }
+
     public static ReputationAdminResult Refused(ReputationAdminOutcome outcome) => new(outcome, null, null, null, null);
 
-    public static ReputationAdminResult Replay(ReputationRead current, IReadOnlyList<ReputationEvent> rows, ReputationEvent? row)
-        => new(ReputationAdminOutcome.AlreadyApplied, current, current, rows, row);
+    /// <summary>The same change is stored: nothing written; <paramref name="changedAt"/> and <paramref name="changedBy"/> name it (FUP-199).</summary>
+    public static ReputationAdminResult Replay(
+        ReputationRead current, IReadOnlyList<ReputationEvent> rows, ReputationEvent? row, string? changedAt, string? changedBy)
+        => new(ReputationAdminOutcome.AlreadyApplied, current, current, rows, row) { ChangedAt = changedAt, ChangedBy = changedBy };
 }
