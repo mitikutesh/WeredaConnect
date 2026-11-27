@@ -114,7 +114,7 @@ internal static class DynamoDbHelper
             {
                 result[kvp.Key] = kvp.Value.BOOL;
             }
-            else if (kvp.Value.NULL)
+            else if (kvp.Value.NULL == true)
             {
                 continue; // skip nulls
             }
@@ -152,7 +152,7 @@ internal static class DynamoDbHelper
             {
                 result.Add(attr.BOOL);
             }
-            else if (attr.NULL)
+            else if (attr.NULL == true)
             {
                 continue; // skip nulls
             }

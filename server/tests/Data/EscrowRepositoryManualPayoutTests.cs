@@ -628,7 +628,7 @@ public class EscrowRepositoryManualPayoutTests
         var start = request.ExclusiveStartKey is { Count: > 0 } key
             ? index.FindIndex(i => i["escrowId"].S == key["escrowId"].S) + 1
             : 0;
-        var evaluated = index.Skip(start).Take(request.Limit > 0 ? request.Limit : index.Count).ToList();
+        var evaluated = index.Skip(start).Take(request.Limit is int lim && lim > 0 ? lim : index.Count).ToList();
         var filterQueued = request.FilterExpression?.Contains("attribute_not_exists(#manualPayout)") == true;
         var filterCapped = request.FilterExpression?.Contains(HoldCapFilter) == true;
         return new QueryResponse

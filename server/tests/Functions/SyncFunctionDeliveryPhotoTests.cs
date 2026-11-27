@@ -201,9 +201,9 @@ public sealed class SyncFunctionDeliveryPhotoTests
     {
         // The pickup landed a moment ago (earlier in this batch, or the web's handoff call): the eventually
         // consistent read may still show it pending. The consistent read decides.
-        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && !r.ConsistentRead), Arg.Any<CancellationToken>())
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.ConsistentRead != true), Arg.Any<CancellationToken>())
             .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { Delivery("pending") } });
-        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.ConsistentRead), Arg.Any<CancellationToken>())
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.ConsistentRead == true), Arg.Any<CancellationToken>())
             .Returns(new QueryResponse
             {
                 Items = new List<Dictionary<string, AttributeValue>> { Delivery("pickedUp", pickedUpAt: "2026-11-12T08:00:00Z") }
@@ -213,7 +213,7 @@ public sealed class SyncFunctionDeliveryPhotoTests
         var result = await SendAsync(TruckerId, "pickup", PickupKey);
 
         result.GetProperty("status").GetString().Should().Be("success", result.ToString());
-        await _dynamoDb.Received(1).QueryAsync(Arg.Is<QueryRequest>(r => r.ConsistentRead), Arg.Any<CancellationToken>());
+        await _dynamoDb.Received(1).QueryAsync(Arg.Is<QueryRequest>(r => r.ConsistentRead == true), Arg.Any<CancellationToken>());
         await _dynamoDb.Received(1).UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
     }
 
@@ -226,15 +226,15 @@ public sealed class SyncFunctionDeliveryPhotoTests
         var result = await SendAsync(TruckerId, "pickup", PickupKey);
 
         result.GetProperty("status").GetString().Should().Be("deferred");
-        await _dynamoDb.Received(1).QueryAsync(Arg.Is<QueryRequest>(r => r.ConsistentRead), Arg.Any<CancellationToken>());
+        await _dynamoDb.Received(1).QueryAsync(Arg.Is<QueryRequest>(r => r.ConsistentRead == true), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task FUP140_TheConsistentReadFailing_IsDeferred()
     {
-        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && !r.ConsistentRead), Arg.Any<CancellationToken>())
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.ConsistentRead != true), Arg.Any<CancellationToken>())
             .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { Delivery("pending") } });
-        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.ConsistentRead), Arg.Any<CancellationToken>())
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.ConsistentRead == true), Arg.Any<CancellationToken>())
             .Throws(new ProvisionedThroughputExceededException("throttled"));
         SetupObject(PickupKey, 1024);
 
@@ -626,9 +626,9 @@ public sealed class SyncFunctionDeliveryPhotoTests
     {
         var before = Delivery("pickedUp");
         var after = Delivery("pickedUp", pickupPhotoRef: "uploads/photos/del-photo/pickup-1600000000000.webp");
-        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && !r.ConsistentRead), Arg.Any<CancellationToken>())
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.ConsistentRead != true), Arg.Any<CancellationToken>())
             .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { before } });
-        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.ConsistentRead), Arg.Any<CancellationToken>())
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == DeliveriesTable && r.ConsistentRead == true), Arg.Any<CancellationToken>())
             .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { after } });
         _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
             .Throws(new ConditionalCheckFailedException("condition"));

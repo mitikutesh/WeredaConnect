@@ -114,7 +114,7 @@ public sealed class DeliveryPhotoCopyBackfillTests
             start = _rows.FindIndex(r => r["deliveryId"].S == after["deliveryId"].S && r["tripId"].S == after["tripId"].S) + 1;
         }
 
-        var page = _rows.Skip(start).Take(request.Limit > 0 ? request.Limit : 100).ToList();
+        var page = _rows.Skip(start).Take(request.Limit is int lim && lim > 0 ? lim : 100).ToList();
         var last = start + page.Count < _rows.Count && page.Count > 0
             ? new Dictionary<string, AttributeValue> { ["deliveryId"] = page[^1]["deliveryId"], ["tripId"] = page[^1]["tripId"] }
             : new Dictionary<string, AttributeValue>();

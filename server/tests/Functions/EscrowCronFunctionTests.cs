@@ -334,7 +334,7 @@ public class EscrowCronFunctionTests
                 var start = r.ExclusiveStartKey is { Count: > 0 } key
                     ? index.FindIndex(i => i["escrowId"].S == key["escrowId"].S) + 1
                     : 0;
-                var evaluated = index.Skip(start).Take(r.Limit).ToList();
+                var evaluated = index.Skip(start).Take(r.Limit ?? 0).ToList();
                 return new QueryResponse
                 {
                     Items = evaluated.Where(i => !(r.FilterExpression ?? "").Contains("attribute_not_exists(#manualPayout)")

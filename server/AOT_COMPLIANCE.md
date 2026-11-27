@@ -150,6 +150,12 @@ var config = new MyConfig
 ## ✅ APPROVED LIBRARIES
 
 ### AWS SDK
+All `AWSSDK.*` packages are on 4.x and must be upgraded together (one package on v4 with the
+rest on v3 does not compile). v4 leaves request and response collections null and makes value
+types nullable (`bool?`, `int?`); `src/AwsSdkDefaults.cs` sets
+`AWSConfigs.InitializeCollections = true` in a module initializer so the code keeps v3's empty
+collections, and reads of `BOOL`, `NULL`, `Count` and similar use `== true` or `?? 0`.
+
 - **AWSSDK.DynamoDBv2** ✅
 - **AWSSDK.S3** ✅
 - **AWSSDK.Lambda** ✅

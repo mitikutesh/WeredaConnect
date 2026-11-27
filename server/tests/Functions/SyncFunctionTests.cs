@@ -6099,9 +6099,9 @@ public partial class SyncFunctionTests
         var order = SetupExistingOrder(status: "accepted");
         order["activeDeliveryId"] = "del-001";
         SetupOrderUpdateSucceeds();
-        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table" && !r.ConsistentRead))
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table" && r.ConsistentRead != true))
             .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { DeliveryItemForOrder() } });
-        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table" && r.ConsistentRead))
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table" && r.ConsistentRead == true))
             .Returns(new QueryResponse
             {
                 Items = new List<Dictionary<string, AttributeValue>> { DeliveryItemForOrder(status: "pickedUp") }
@@ -6114,7 +6114,7 @@ public partial class SyncFunctionTests
 
         Assert.Contains("success", body);
         await _mockDynamoDb.Received().QueryAsync(Arg.Is<QueryRequest>(r =>
-            r.TableName == "test-deliveries-table" && r.ConsistentRead));
+            r.TableName == "test-deliveries-table" && r.ConsistentRead == true));
     }
 
     // --- SIM-60: a photo ref on a delivery update is a server upload key of this delivery ---

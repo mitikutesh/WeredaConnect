@@ -67,7 +67,7 @@ public sealed partial class ReputationEventRepository : IReputationEventReposito
             UserId = userId,
             Role = Str(item, "role") ?? string.Empty,
             DeletionState = Str(item, "deletionState"),
-            Suspended = item.TryGetValue("suspended", out var susp) && susp.IsBOOLSet && susp.BOOL,
+            Suspended = item.TryGetValue("suspended", out var susp) && susp.IsBOOLSet && susp.BOOL == true,
             MapVersion = map != null ? Int(map, "version") ?? 0 : null,
             StoredTier = map != null ? Str(map, "tier") : null,
             StoredEffectiveRating = map != null ? Dec(map, "effectiveRating") : null,
@@ -559,7 +559,7 @@ public sealed partial class ReputationEventRepository : IReputationEventReposito
         {
             request.ExclusiveStartKey = startKey;
             var page = await _dynamoDb.QueryAsync(request);
-            count += page.Count;
+            count += page.Count ?? 0;
             startKey = page.LastEvaluatedKey is { Count: > 0 } next ? next : null;
         }
         while (startKey != null);

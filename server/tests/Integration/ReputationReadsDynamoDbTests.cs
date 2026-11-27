@@ -245,7 +245,7 @@ public sealed class ReputationReadsDynamoDbTests
                 {
                     [":s"] = new() { S = "pending" }, [":u"] = new() { S = userId }
                 }
-            })).Count;
+            })).Count ?? 0;
             if (listed == 0)
             {
                 await Task.Delay(100);

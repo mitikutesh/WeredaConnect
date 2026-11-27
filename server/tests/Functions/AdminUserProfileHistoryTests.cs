@@ -71,7 +71,7 @@ public class AdminUserProfileHistoryTests
         => _ddb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
             .Returns(ci =>
             {
-                var limit = ci.ArgAt<QueryRequest>(0).Limit;
+                var limit = ci.ArgAt<QueryRequest>(0).Limit ?? 0;
                 return Task.FromResult(new QueryResponse
                 {
                     Items = rows.Take(limit).ToList(),

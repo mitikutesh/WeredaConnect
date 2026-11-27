@@ -156,7 +156,7 @@ public class OrderRepositoryTests
                 var query = ci.ArgAt<QueryRequest>(0);
                 return new QueryResponse
                 {
-                    Items = stored != null && query.IndexName == null && query.ConsistentRead
+                    Items = stored != null && query.IndexName == null && query.ConsistentRead == true
                         ? new List<Dictionary<string, AttributeValue>> { new(stored) }
                         : new List<Dictionary<string, AttributeValue>>()
                 };
@@ -193,7 +193,7 @@ public class OrderRepositoryTests
                 && r.ExpressionAttributeValues[":expectedVersion"].N == "1"),
             Arg.Any<CancellationToken>());
         await _mockDynamoDb.DidNotReceive().QueryAsync(
-            Arg.Is<QueryRequest>(r => !r.ConsistentRead), Arg.Any<CancellationToken>());
+            Arg.Is<QueryRequest>(r => r.ConsistentRead != true), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -212,7 +212,7 @@ public class OrderRepositoryTests
                 == created.Value!["createdAt"].ToString()),
             Arg.Any<CancellationToken>());
         await _mockDynamoDb.DidNotReceive().QueryAsync(
-            Arg.Is<QueryRequest>(r => !r.ConsistentRead), Arg.Any<CancellationToken>());
+            Arg.Is<QueryRequest>(r => r.ConsistentRead != true), Arg.Any<CancellationToken>());
     }
 
     [Fact]

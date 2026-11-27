@@ -489,7 +489,7 @@ public class AdminFunctionTests
             q.TableName == OrdersTable && q.IndexName == "StatusCreatedAtIndex"
             && q.KeyConditionExpression == "#status = :status"
             && q.ExpressionAttributeValues[":status"].S == "funded"
-            && !q.ScanIndexForward
+            && q.ScanIndexForward == false
             && q.FilterExpression.Contains("contains(#buyerName, :search)"));
         startKeys.Should().Equal(null, "order-2");
         var body = JsonDocument.Parse(response.Body).RootElement;
@@ -1601,7 +1601,7 @@ public class AdminFunctionTests
                 var start = query.ExclusiveStartKey is { Count: > 0 } key
                     ? partition.FindIndex(r => r["escrowId"].S == key["escrowId"].S) + 1
                     : 0;
-                var page = partition.Skip(start).Take(query.Limit).ToList();
+                var page = partition.Skip(start).Take(query.Limit ?? 0).ToList();
                 return Task.FromResult(new QueryResponse
                 {
                     Items = page,
@@ -1665,7 +1665,7 @@ public class AdminFunctionTests
             q.TableName == EscrowsTable && q.IndexName == EscrowStatusIndex
             && q.KeyConditionExpression == "#status = :status"
             && q.ExpressionAttributeValues[":status"].S == "disputed"
-            && q.ScanIndexForward && q.Limit == 2 && q.FilterExpression == null);
+            && q.ScanIndexForward == true && q.Limit == 2 && q.FilterExpression == null);
         queries[0].ExclusiveStartKey.Should().BeNullOrEmpty();
         queries[1].ExclusiveStartKey.Should().BeEquivalentTo(IndexKeyOf(ListedEscrow("escrow-b", "disputed", "2026-10-02T00:00:00Z")));
         queries[2].ExclusiveStartKey["escrowId"].S.Should().Be("escrow-d");
@@ -1739,7 +1739,7 @@ public class AdminFunctionTests
                 var start = scan.ExclusiveStartKey is { Count: > 0 } key
                     ? Array.FindIndex(rows, r => r["escrowId"].S == key["escrowId"].S) + 1
                     : 0;
-                var page = rows.Skip(start).Take(scan.Limit).ToList();
+                var page = rows.Skip(start).Take(scan.Limit ?? 0).ToList();
                 return Task.FromResult(new ScanResponse
                 {
                     Items = page,

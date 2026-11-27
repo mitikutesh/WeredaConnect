@@ -279,7 +279,7 @@ public sealed partial class ReputationEventRepository : IConductStampRepository
                 .Select(v => new ConductStep(Str(v.M, "id") ?? string.Empty, Str(v.M, "result") ?? string.Empty, Str(v.M, "reason")))
                 .ToList()
             : new List<ConductStep>(),
-        Counted = item.TryGetValue("counted", out var counted) && counted.IsBOOLSet && counted.BOOL,
+        Counted = item.TryGetValue("counted", out var counted) && counted.IsBOOLSet && counted.BOOL == true,
         NotCountedReason = Str(item, "notCountedReason"),
         OrderTotal = Dec(item, "orderTotal"),
         OccurredAt = Time(item, "occurredAt") ?? DateTime.MinValue,
