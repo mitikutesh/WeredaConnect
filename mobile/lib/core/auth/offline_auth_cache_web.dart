@@ -10,9 +10,7 @@ import 'package:wereda_connect/core/models/user.dart';
 /// user profiles to FlutterSecureStorage (which uses localStorage on web)
 /// so that authentication survives page refreshes.
 class OfflineAuthCache {
-  static const _storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  static const _storage = FlutterSecureStorage();
 
   static String _tokensKey(String phone) => 'cached_tokens_$phone';
   static String _userKey(String phone) => 'cached_user_$phone';

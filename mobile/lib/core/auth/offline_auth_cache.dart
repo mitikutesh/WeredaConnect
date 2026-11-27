@@ -29,9 +29,7 @@ import 'package:wereda_connect/core/models/user.dart';
 /// - Low-literacy users: Password requirements aligned with Cognito (minimum 8 chars + lowercase + digit)
 /// - Offline brute force protection critical on shared devices
 class OfflineAuthCache {
-  static const _secureStorage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  static const _secureStorage = FlutterSecureStorage();
 
   // PBKDF2 parameters (OWASP recommendations for 2026)
   static const _pbkdf2Iterations = 100000;

@@ -13,10 +13,7 @@ import 'package:wereda_connect/core/auth/device_name_stub.dart'
 /// short, PII-free description ("Android phone", "Chrome on Windows").
 class DeviceIdentity {
   DeviceIdentity({FlutterSecureStorage? storage, String? deviceName})
-      : _storage = storage ??
-            const FlutterSecureStorage(
-              aOptions: AndroidOptions(encryptedSharedPreferences: true),
-            ),
+      : _storage = storage ?? const FlutterSecureStorage(),
         _deviceNameOverride = deviceName;
 
   /// Secure storage key holding the install's device id.

@@ -17,10 +17,7 @@ class DeviceSigningKeyService {
   String? _cachedKey;
 
   DeviceSigningKeyService({FlutterSecureStorage? storage})
-      : _storage = storage ??
-            const FlutterSecureStorage(
-              aOptions: AndroidOptions(encryptedSharedPreferences: true),
-            );
+      : _storage = storage ?? const FlutterSecureStorage();
 
   /// Get or generate the device signing key (base64url-encoded).
   Future<String> getKey() async {

@@ -99,9 +99,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// It runs before the session is emitted, so it must never hold it long.
   static const profileLanguageBudget = Duration(seconds: 2);
 
-  static const _secureStorage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  static const _secureStorage = FlutterSecureStorage();
   static const _currentUserPhoneKey = 'current_user_phone';
 
   /// Secure storage key for the current user's ID.

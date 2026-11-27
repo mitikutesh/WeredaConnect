@@ -95,9 +95,7 @@ Future<void> main() async {
   );
 
   // Wire AuthInterceptor for automatic token injection and 401 refresh.
-  const secureStorage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  const secureStorage = FlutterSecureStorage();
 
   // Shares the API client's HTTP adapter, so the refresh token travels over
   // the same pinned connection as every other API call (MOB-02).
