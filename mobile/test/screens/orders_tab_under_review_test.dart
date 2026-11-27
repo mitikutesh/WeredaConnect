@@ -66,8 +66,9 @@ Payment _heldEscrow(String orderId) {
     ..version = 1;
 }
 
-/// FRD-06: the order list asks once for this party's held escrows and marks
-/// those orders "Under Review", for the buyer, the farmer and the trucker.
+/// FRD-06: the order list asks once for this party's held escrows (every
+/// page of them since FUP-79, read by the repository) and marks those orders
+/// "Under Review", for the buyer, the farmer and the trucker.
 void main() {
   late MockOrderBloc orderBloc;
   late MockAuthBloc authBloc;
@@ -96,12 +97,9 @@ void main() {
     when(() => escrowBloc.state).thenReturn(const EscrowInitial());
     when(() => escrowBloc.stream).thenAnswer((_) => const Stream.empty());
     when(
-      () => escrowRepo.refreshHistory(
+      () => escrowRepo.refreshHeldEscrows(
         userId: any(named: 'userId'),
-        statusFilter: any(named: 'statusFilter'),
-        roleFilter: any(named: 'roleFilter'),
-        limit: any(named: 'limit'),
-        nextToken: any(named: 'nextToken'),
+        role: any(named: 'role'),
       ),
     ).thenAnswer((_) async => [_heldEscrow('ord-held')]);
   });
@@ -156,11 +154,9 @@ void main() {
 
       expect(find.text(en.escrowStatusHeld), findsOneWidget);
       verify(
-        () => escrowRepo.refreshHistory(
+        () => escrowRepo.refreshHeldEscrows(
           userId: '${role.name}-1',
-          statusFilter: 'held',
-          roleFilter: role.name,
-          limit: 50,
+          role: role.name,
         ),
       ).called(1);
     });
@@ -232,12 +228,9 @@ void main() {
   });
 
   void heldReadAnswers(Future<List<Payment>> Function() answer) => when(
-        () => escrowRepo.refreshHistory(
+        () => escrowRepo.refreshHeldEscrows(
           userId: any(named: 'userId'),
-          statusFilter: any(named: 'statusFilter'),
-          roleFilter: any(named: 'roleFilter'),
-          limit: any(named: 'limit'),
-          nextToken: any(named: 'nextToken'),
+          role: any(named: 'role'),
         ),
       ).thenAnswer((_) => answer());
 
@@ -308,11 +301,9 @@ void main() {
     await tester.pumpAndSettle();
 
     verify(
-      () => escrowRepo.refreshHistory(
+      () => escrowRepo.refreshHeldEscrows(
         userId: any(named: 'userId'),
-        statusFilter: any(named: 'statusFilter'),
-        roleFilter: any(named: 'roleFilter'),
-        limit: any(named: 'limit'),
+        role: any(named: 'role'),
       ),
     ).called(1);
   });

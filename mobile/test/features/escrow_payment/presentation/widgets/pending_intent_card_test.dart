@@ -132,6 +132,38 @@ void main() {
 
     // FUP-70: lastError is a code; the card shows its localized text.
     for (final locale in ['en', 'am', 'om']) {
+      // FUP-182: a failed intent is labelled failed, not queued, and keeps
+      // its reason; it can no longer be cancelled.
+      testWidgets('$locale: a failed intent reads failed, with its reason',
+          (WidgetTester tester) async {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final intent = _makeIntent(
+          status: IntentStatus.failed,
+          lastError: 'ESCROW_039',
+        );
+
+        await tester.pumpWidget(
+          _wrapWithL10n(
+            PendingIntentCard(intent: intent, onCancel: () {}),
+            locale: locale,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.textContaining(l10n.escrowIntentFailedStatus),
+          findsOneWidget,
+        );
+        expect(find.textContaining(l10n.escrowQueuedStatus), findsNothing);
+        expect(
+          find.text(l10n.escrowErrorDeliveryPaymentUnavailable),
+          findsOneWidget,
+        );
+        expect(find.byIcon(Icons.error_outline), findsOneWidget);
+        expect(find.byIcon(Icons.sync), findsNothing);
+        expect(find.byType(TextButton), findsNothing);
+      });
+
       testWidgets('$locale: shows the text of the stored error code',
           (WidgetTester tester) async {
         final l10n = await AppLocalizations.delegate.load(Locale(locale));

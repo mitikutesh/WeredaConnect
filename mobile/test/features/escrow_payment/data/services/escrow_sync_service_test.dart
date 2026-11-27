@@ -586,6 +586,36 @@ void main() {
         expect(remaining, isEmpty);
       });
 
+      test(
+          'counts a failed intent from its failure, however long it waited '
+          '(FUP-182)', () async {
+        final now = DateTime.now().toUtc();
+        final queuedLongAgo = now.subtract(const Duration(days: 3));
+        await _insertTestIntent(
+          isar,
+          idempotencyKey: 'key-failed-recently',
+          status: IntentStatus.failed,
+          createdAt: queuedLongAgo,
+          lastAttemptAt: now.subtract(const Duration(hours: 1)),
+        );
+        await _insertTestIntent(
+          isar,
+          idempotencyKey: 'key-failed-yesterday',
+          deliveryId: 'del-002',
+          status: IntentStatus.failed,
+          createdAt: queuedLongAgo,
+          lastAttemptAt: now.subtract(const Duration(hours: 25)),
+        );
+
+        await syncService.cleanupStaleIntents();
+
+        final remaining = await isar.paymentIntents.where().findAll();
+        expect(
+          remaining.map((intent) => intent.idempotencyKey),
+          ['key-failed-recently'],
+        );
+      });
+
       test('deletes cancelled intents older than 24h', () async {
         final staleTime =
             DateTime.now().toUtc().subtract(const Duration(hours: 25));

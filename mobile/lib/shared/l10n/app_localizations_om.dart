@@ -1180,6 +1180,11 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String escrowFailedSection(int count) {
+    return 'Kan hin milkoofne ($count)';
+  }
+
+  @override
   String get escrowHistorySection => 'Seenaa';
 
   @override
@@ -1767,6 +1772,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get escrowQueuedStatus => 'Tarree irra';
+
+  @override
+  String get escrowIntentFailedStatus => 'Hin milkoofne';
 
   @override
   String get genericError => 'Rakkoon uumameera. Maaloo irra deebi\'ii yaali.';

@@ -1139,6 +1139,11 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String escrowFailedSection(int count) {
+    return 'ያልተሳኩ ($count)';
+  }
+
+  @override
   String get escrowHistorySection => 'ታሪክ';
 
   @override
@@ -1706,6 +1711,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get escrowQueuedStatus => 'ተራ ላይ';
+
+  @override
+  String get escrowIntentFailedStatus => 'አልተሳካም';
 
   @override
   String get genericError => 'ችግር ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።';

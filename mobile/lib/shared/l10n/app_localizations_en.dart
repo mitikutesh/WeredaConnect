@@ -1169,6 +1169,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String escrowFailedSection(int count) {
+    return 'Failed ($count)';
+  }
+
+  @override
   String get escrowHistorySection => 'History';
 
   @override
@@ -1759,6 +1764,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get escrowQueuedStatus => 'Queued';
+
+  @override
+  String get escrowIntentFailedStatus => 'Failed';
 
   @override
   String get genericError => 'Something went wrong. Please try again.';

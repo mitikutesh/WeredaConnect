@@ -41,8 +41,13 @@ class EscrowSyncService {
   /// Maximum number of retry attempts per intent.
   static const int maxRetries = 3;
 
-  /// Stale intent cleanup threshold.
+  /// Stale intent cleanup threshold. A failed intent counts it from
+  /// [failedAt], and the payment history lists it until then (FUP-182).
   static const Duration staleThreshold = Duration(hours: 24);
+
+  /// When [intent] failed: its last attempt, which the failure stamps.
+  static DateTime failedAt(PaymentIntent intent) =>
+      intent.lastAttemptAt ?? intent.createdAt;
 
   EscrowSyncService({
     required Isar isar,
@@ -187,12 +192,16 @@ class EscrowSyncService {
           .createdAtLessThan(cutoff)
           .deleteAll();
 
-      // Delete failed intents older than 24h
-      await _isar.paymentIntents
+      // Delete failed intents 24h after they failed: until then the payment
+      // history lists them (FUP-182), even when they waited long offline.
+      final failed = await _isar.paymentIntents
           .filter()
           .statusEqualTo(IntentStatus.failed)
-          .createdAtLessThan(cutoff)
-          .deleteAll();
+          .findAll();
+      await _isar.paymentIntents.deleteAll([
+        for (final intent in failed)
+          if (failedAt(intent).isBefore(cutoff)) intent.id,
+      ]);
 
       // Delete cancelled intents older than 24h
       await _isar.paymentIntents
