@@ -523,7 +523,7 @@ describe('ESC-28 reputation core (ApiStack)', () => {
     }
   });
 
-  test('order-notify-stream reads the reputation-events stream: INSERT of a penalty code or TIER_CHANGED, notify settings', () => {
+  test('order-notify-stream reads the reputation-events stream: INSERT of a penalty code or TIER_CHANGED, the MODIFY of a decided row, notify settings', () => {
     const fnId = lambdaId(api, NOTIFY_FN);
     const [notifyDlqId] = only(api, 'AWS::SQS::Queue', { QueueName: 'wereda-connect-dev-notify-dlq' });
     const onReputation = Object.values(
@@ -562,6 +562,19 @@ describe('ESC-28 reputation core (ApiStack)', () => {
                     'TIER_CHANGED',
                   ],
                 },
+              },
+            },
+          }),
+        },
+        {
+          // FUP-195: an admin's decision (appeal_decided). The stream has the new image only: a row the
+          // decision stamped (decidedVersion) with no open appeal; the rules keep the decision's own write.
+          Pattern: JSON.stringify({
+            eventName: ['MODIFY'],
+            dynamodb: {
+              NewImage: {
+                decidedVersion: { N: [{ exists: true }] },
+                appealStatus: { S: [{ exists: false }] },
               },
             },
           }),

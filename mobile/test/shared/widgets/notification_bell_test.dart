@@ -231,6 +231,114 @@ void main() {
     expect(find.text('4 penalty points'), findsOneWidget);
   });
 
+  /// The bell of the signed-in [userId] over [entries], with My reputation's
+  /// repository, its sheet open (FUP-195).
+  Future<void> pumpReputationBell(
+    WidgetTester tester, {
+    required String userId,
+    required UserRole role,
+    required List<AppNotification> entries,
+  }) async {
+    when(() => authBloc.state).thenReturn(
+      AuthAuthenticated(userId: userId, tokens: _tokens, role: role),
+    );
+    final reputation = MockReputationRepository();
+    when(() => reputation.loadOwn(userId, force: any(named: 'force')))
+        .thenAnswer(
+      (_) async => snapshot(ownReputation()),
+    );
+    when(() => reputation.loadEvents(userId))
+        .thenAnswer((_) async => eventsResult(const []));
+    final inbox = _FakeInbox(entries);
+    addTearDown(inbox.close);
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<BaseNotificationRepository>.value(value: inbox),
+          Provider<ReputationRepository>.value(value: reputation),
+        ],
+        child: BlocProvider<AuthBloc>.value(
+          value: authBloc,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(body: Center(child: HeaderBell())),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.notifications_outlined));
+    await tester.pumpAndSettle();
+  }
+
+  // FUP-195: an admin's decision opens My reputation, as tier_changed does.
+  testWidgets('a decision on a record opens My reputation', (tester) async {
+    await pumpReputationBell(
+      tester,
+      userId: 'trucker-001',
+      role: UserRole.trucker,
+      entries: [
+        AppNotification()
+          ..notificationId = 'n-decided'
+          ..userId = 'trucker-001'
+          ..type = 'appeal_decided'
+          ..entity = 'reputation'
+          ..entityId = 'OVERDUE#ord-1'
+          ..params = jsonEncode({
+            'eventId': 'OVERDUE#ord-1',
+            'code': 'DELIVERY_OVERDUE',
+            'decision': 'excused',
+            'note': 'The road was closed by the flood.',
+          })
+          ..createdAt = DateTime.now().toUtc(),
+      ],
+    );
+
+    expect(find.text('Penalty points removed'), findsOneWidget);
+    expect(
+      find.textContaining('Note from our team: The road was closed'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Penalty points removed'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MyReputationScreen), findsOneWidget);
+    expect(
+      tester.widget<MyReputationScreen>(find.byType(MyReputationScreen)).userId,
+      'trucker-001',
+    );
+  });
+
+  // How a build older than a type reads it: the generic line, and a tap on
+  // an entry without an order only closes the sheet.
+  testWidgets('a type this build does not know opens nothing', (tester) async {
+    await pumpReputationBell(
+      tester,
+      userId: 'farmer-001',
+      role: UserRole.farmer,
+      entries: [
+        AppNotification()
+          ..notificationId = 'n-new'
+          ..userId = 'farmer-001'
+          ..type = 'something_new'
+          ..entity = 'reputation'
+          ..entityId = 'CANCEL#ord-1'
+          ..params = jsonEncode({'decision': 'excused'})
+          ..createdAt = DateTime.now().toUtc(),
+      ],
+    );
+
+    final en = lookupAppLocalizations(const Locale('en'));
+    expect(find.text(en.notifGenericTitle), findsOneWidget);
+    await tester.tap(find.text(en.notifGenericTitle));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MyReputationScreen), findsNothing);
+    expect(find.text(en.notifGenericTitle), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   double sheetHeight(WidgetTester tester) =>
       tester.getSize(find.byType(DraggableScrollableSheet)).height;
 

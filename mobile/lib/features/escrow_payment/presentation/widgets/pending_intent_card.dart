@@ -9,7 +9,9 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 /// A queued payment intent, waiting to sync when connectivity returns, as a
 /// white card with a sync tile, the amount, the delivery and a Cancel action.
-/// Shown in the pending section of PaymentHistoryScreen.
+/// Shown in the pending section of PaymentHistoryScreen. A failed intent
+/// (FUP-182) reads "Failed" with its reason on an error tile, and offers
+/// no Cancel.
 class PendingIntentCard extends StatelessWidget {
   final PaymentIntent intent;
   final VoidCallback? onCancel;
@@ -26,6 +28,7 @@ class PendingIntentCard extends StatelessWidget {
     final deliveryId = intent.deliveryId.length > 8
         ? intent.deliveryId.substring(0, 8)
         : intent.deliveryId;
+    final failed = intent.status == IntentStatus.failed;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
@@ -37,12 +40,15 @@ class PendingIntentCard extends StatelessWidget {
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                color: AppTheme.orangeTint,
+                color: failed
+                    ? AppTheme.statusErrorContainer
+                    : AppTheme.orangeTint,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(
-                Icons.sync,
-                color: context.roleColors.primary,
+                failed ? Icons.error_outline : Icons.sync,
+                color:
+                    failed ? AppTheme.statusError : context.roleColors.primary,
                 size: 20,
               ),
             ),
@@ -54,7 +60,8 @@ class PendingIntentCard extends StatelessWidget {
                   AmountDisplay(amount: intent.amount),
                   const SizedBox(height: 2),
                   Text(
-                    '${l10n.escrowDeliveryShort(deliveryId)} · ${l10n.escrowQueuedStatus}',
+                    '${l10n.escrowDeliveryShort(deliveryId)} · '
+                    '${failed ? l10n.escrowIntentFailedStatus : l10n.escrowQueuedStatus}',
                     style: FwText.body,
                   ),
                   if (intent.lastError != null)

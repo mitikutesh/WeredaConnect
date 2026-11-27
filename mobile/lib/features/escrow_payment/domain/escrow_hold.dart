@@ -74,22 +74,55 @@ Future<bool> isOrderEscrowHeld(
 ) async =>
     (await readOrderEscrow(repository, orderId))?.status == PaymentStatus.held;
 
-/// The orders whose escrow is `held`, among the newest escrows the server
-/// lists for this party: one `GET /escrow/history?status=held` page of up to
-/// 50 (the server filters within its page). [role] is the caller's
-/// `UserRole.name`. Mobile falls back to its cache offline; a failure reads as
-/// none held.
+/// Rows per page of the held read (the server's most).
+const heldHistoryPageLimit = 50;
+
+/// The most pages the held read asks for: the party's 200 newest escrows.
+/// A party with fewer than 50 still makes one call (FUP-79); at exactly 50
+/// the server still hands a token, so a second call answers empty.
+const heldHistoryMaxPages = 4;
+
+/// The most cached held rows the phone reads again by id after the held
+/// pages, per load (FUP-79): the list waits for them (the farmer's Accept is
+/// enabled once the held read ends), so the rest wait for the next load.
+const heldRereadMax = 5;
+
+/// One page of `GET /escrow/history`: its rows and the token of the next page
+/// (null on the last one).
+typedef EscrowHistoryPage = ({List<Payment> rows, String? nextToken});
+
+/// Reads `GET /escrow/history?status=held` page after page through [page]
+/// (FUP-79). The server applies `limit` to the index before the status
+/// filter, so one page holds only the held rows among the next 50 escrows,
+/// and a held escrow further back comes on a later page. Stops on the last
+/// page or after [heldHistoryMaxPages]; an error propagates.
+Future<List<Payment>> readHeldPages(
+  Future<EscrowHistoryPage> Function(String? nextToken) page,
+) async {
+  final rows = <Payment>[];
+  String? nextToken;
+  for (var read = 0; read < heldHistoryMaxPages; read++) {
+    final answer = await page(nextToken);
+    rows.addAll(answer.rows);
+    nextToken = answer.nextToken;
+    if (nextToken == null) break;
+  }
+  return rows;
+}
+
+/// The orders whose escrow is `held`, read with
+/// [BaseEscrowRepository.refreshHeldEscrows] (the party's 200 newest escrows,
+/// see [readHeldPages]). [role] is the caller's `UserRole.name`. Mobile falls
+/// back to its cache offline; a failure reads as none held.
 Future<Set<String>> heldOrderIds(
   BaseEscrowRepository repository, {
   required String userId,
   required String role,
 }) async {
   try {
-    final payments = await repository.refreshHistory(
+    final payments = await repository.refreshHeldEscrows(
       userId: userId,
-      statusFilter: PaymentStatus.held.name,
-      roleFilter: role,
-      limit: 50,
+      role: role,
     );
     return {
       for (final payment in payments)

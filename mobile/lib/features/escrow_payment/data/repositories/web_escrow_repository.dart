@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/escrow_payment/data/models/escrow_models.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 
 /// Web-only escrow repository.
@@ -238,9 +239,42 @@ class WebEscrowRepository extends BaseEscrowRepository {
     int limit = 20,
     String? nextToken,
   }) async {
+    return (await _historyPage(
+      statusFilter: statusFilter,
+      roleFilter: roleFilter,
+      limit: limit,
+      nextToken: nextToken,
+    ))
+        .rows;
+  }
+
+  /// This party's held escrows: every page the server has, up to
+  /// [heldHistoryMaxPages] (FUP-79). Web keeps no cache, so a failed page
+  /// fails the read.
+  @override
+  Future<List<Payment>> refreshHeldEscrows({
+    required String userId,
+    required String role,
+  }) =>
+      readHeldPages(
+        (nextToken) => _historyPage(
+          statusFilter: PaymentStatus.held.name,
+          roleFilter: role,
+          limit: heldHistoryPageLimit,
+          nextToken: nextToken,
+        ),
+      );
+
+  /// One page of GET /escrow/history.
+  Future<EscrowHistoryPage> _historyPage({
+    required int limit,
+    String? statusFilter,
+    String? roleFilter,
+    String? nextToken,
+  }) async {
     // GET /escrow/history scopes by the caller's JWT + the `role` query param
-    // (see EscrowFunction.HandleHistoryAsync). It does NOT read farmerId/buyerId
-    // — sending those left role null, so the server defaulted to the buyer GSI
+    // (see EscrowFunction.HandleHistoryAsync). It does NOT read farmerId/buyerId:
+    // sending those left role null, so the server defaulted to the buyer GSI
     // and a farmer saw zero payouts. Send `role` to match the server + mobile.
     final params = <String, dynamic>{'limit': '$limit'};
     if (roleFilter != null) params['role'] = roleFilter;
@@ -254,14 +288,20 @@ class WebEscrowRepository extends BaseEscrowRepository {
     final items = data['escrows'] as List<dynamic>? ??
         data['items'] as List<dynamic>? ??
         [];
-    return items
-        .map((item) => _parsePaymentMap(item as Map<String, dynamic>))
-        .toList();
+    return (
+      rows: items
+          .map((item) => _parsePaymentMap(item as Map<String, dynamic>))
+          .toList(),
+      nextToken: data['hasMore'] == true ? data['nextToken'] as String? : null,
+    );
   }
 
   @override
-  Future<List<PaymentIntent>> getPendingIntents() async {
-    // No local payment intents on web
+  Future<List<PaymentIntent>> getPendingIntents({
+    required String userId,
+  }) async {
+    // No local payment intents on web: a payment is never queued here, so
+    // there is no failed one to list either (FUP-182).
     return [];
   }
 

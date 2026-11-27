@@ -1468,6 +1468,16 @@
       }
     }
   },
+  "escrowFailedSection": "Failed ({count})",
+  "@escrowFailedSection": {
+    "description": "Section header for the buyer's queued payments that failed, listed for 24 hours (FUP-182), with count",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
   "escrowHistorySection": "History",
   "@escrowHistorySection": {
     "description": "Section header for confirmed payment history"
@@ -2277,6 +2287,10 @@
   "escrowQueuedStatus": "Queued",
   "@escrowQueuedStatus": {
     "description": "Status label for queued payment intent"
+  },
+  "escrowIntentFailedStatus": "Failed",
+  "@escrowIntentFailedStatus": {
+    "description": "Status label for a queued payment intent that failed and will not be sent again (FUP-182)"
   },
 
   "@@p1ErrorLocalizationFixes": "=== P1 Error Localization Fixes (FIX-019 to FIX-023) ===",
@@ -4142,6 +4156,22 @@
       }
     }
   },
+  "finishDeletingTitle": "Finish deleting your account?",
+  "@finishDeletingTitle": {
+    "description": "FUP-104 prompt title: a request was refused with 410 ACCOUNT_004 while the account deletion is still in_progress"
+  },
+  "finishDeletingBody": "You started deleting this account, but the deletion is not finished. Until it is, the app cannot save your changes.",
+  "@finishDeletingBody": {
+    "description": "FUP-104 prompt body: why the prompt shows and what happens until the deletion finishes"
+  },
+  "finishDeletingButton": "Finish deleting",
+  "@finishDeletingButton": {
+    "description": "FUP-104 prompt: opens Delete account, which sends the deletion again so the server resumes it"
+  },
+  "finishDeletingLater": "Not now",
+  "@finishDeletingLater": {
+    "description": "FUP-104 prompt: closes it; it does not ask again for 10 minutes"
+  },
   "deletedUser": "Deleted user",
   "@deletedUser": {
     "description": "Shown instead of the name of a party whose account was deleted (server sentinel 'Deleted user')"
@@ -5606,6 +5636,18 @@
   "@notifTierGoodBody": {"description": "ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to good"},
   "notifTierWarningBody": "You have penalty points. Buyers see nothing yet. Open My reputation for the details.",
   "@notifTierWarningBody": {"description": "ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to warning: the private warning"},
+  "notifAppealExcusedTitle": "Penalty points removed",
+  "@notifAppealExcusedTitle": {"description": "Inbox title of appeal_decided when an admin excused the record (FUP-195, notifications-api.md 1.8.0). am and om machine drafted, native review owed"},
+  "notifAppealExcusedBody": "{event}. Our team removed the points.",
+  "@notifAppealExcusedBody": {"description": "Inbox body of appeal_decided, excused: the record (the event line of My reputation, without a full stop) and that its points no longer count. The admin's note follows it in reputationAppealNote", "placeholders": {"event": {"type": "String"}}},
+  "notifAppealUpheldTitle": "The penalty points stay",
+  "@notifAppealUpheldTitle": {"description": "Inbox title of appeal_decided when an admin upheld the record (an appeal, or a late delivery review)"},
+  "notifAppealUpheldBody": "{event}. Our team reviewed it and kept the points.",
+  "@notifAppealUpheldBody": {"description": "Inbox body of appeal_decided, upheld: the record (the event line of My reputation, without a full stop) and that its points stay. The admin's note follows it in reputationAppealNote", "placeholders": {"event": {"type": "String"}}},
+  "notifAppealDecidedTitle": "Your record was reviewed",
+  "@notifAppealDecidedTitle": {"description": "Inbox title of appeal_decided with a decision this app version does not know"},
+  "notifAppealDecidedBody": "{event}. Open My reputation to see our team's decision.",
+  "@notifAppealDecidedBody": {"description": "Inbox body of appeal_decided with a decision this app version does not know: the record and where to read the decision", "placeholders": {"event": {"type": "String"}}},
   "notifPickupReminderTitle": "Check in for the pickup",
   "@notifPickupReminderTitle": {"description": "FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of pickup_reminder: the pickup check-in closes soon and the reader has not checked in"},
   "notifPickupReminderBody": "The pickup check-in closes soon. Please open the order and check in.",

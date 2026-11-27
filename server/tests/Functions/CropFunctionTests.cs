@@ -156,6 +156,31 @@ public class CropFunctionTests
         Assert.Contains("\"farmerName\":\"Test Farmer\"", response.Body);
     }
 
+    [Theory]
+    [InlineData("buyer-default", "buyer")]
+    [InlineData("user-001", "farmer")]
+    public async Task HandleGetCrops_RowFromBeforeEsc30_ReturnsNoFarmerReliability(string userId, string role)
+    {
+        // FUP-186: an old crop row keeps its stored farmerReliability; neither the buyer's browse nor
+        // the farmer's own list returns it.
+        var legacy = CreateCropItem("crop-legacy");
+        legacy["farmerReliability"] = "1";
+        _mockCropRepo.QueryCropsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { legacy }, null));
+
+        var response = await _function.FunctionHandler(MakeAuthenticatedGetRequest(userId, role), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("crop-legacy", response.Body);
+        Assert.DoesNotContain("farmerReliability", response.Body);
+    }
+
     [Fact]
     public async Task HandleGetCrops_WithWoredaFilter_PassesToRepository()
     {

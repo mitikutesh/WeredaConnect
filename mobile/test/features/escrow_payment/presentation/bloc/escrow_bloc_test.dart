@@ -367,7 +367,7 @@ void main() {
         final subscription = bloc.stream.listen(states.add);
         addTearDown(subscription.cancel);
 
-        bloc.add(const LoadPaymentHistory(userId: 'farmer-001'));
+        bloc.add(const LoadPaymentHistory(userId: 'buyer-001'));
         await waitForStates(states, 2);
 
         expect(states.length, 2);
@@ -376,6 +376,25 @@ void main() {
         final loaded = states[1] as PaymentHistoryLoaded;
         expect(loaded.payments.length, 1);
         expect(loaded.pendingIntents.length, 1);
+      });
+
+      test("the farmer of the same payment is not shown the buyer's intent",
+          () async {
+        await _insertTestPayment(isar);
+        await _insertTestIntent(isar);
+
+        final bloc = EscrowBloc(repository: repository);
+        addTearDown(bloc.close);
+        final states = <EscrowState>[];
+        final subscription = bloc.stream.listen(states.add);
+        addTearDown(subscription.cancel);
+
+        bloc.add(const LoadPaymentHistory(userId: 'farmer-001'));
+        await waitForStates(states, 2);
+
+        final loaded = states[1] as PaymentHistoryLoaded;
+        expect(loaded.payments.length, 1);
+        expect(loaded.pendingIntents, isEmpty);
       });
 
       test('emits history with status filter', () async {
@@ -558,14 +577,14 @@ void main() {
         addTearDown(subscription.cancel);
 
         // First load history
-        bloc.add(const LoadPaymentHistory(userId: 'farmer-001'));
+        bloc.add(const LoadPaymentHistory(userId: 'buyer-001'));
         await waitForStates(states, 2);
 
         // Now add a pending intent
         await _insertTestIntent(isar);
 
         // Load pending intents
-        bloc.add(const LoadPendingIntents());
+        bloc.add(const LoadPendingIntents(userId: 'buyer-001'));
         await waitForStates(states, 3);
 
         // Should have: Loading, HistoryLoaded, HistoryLoaded(with pending)

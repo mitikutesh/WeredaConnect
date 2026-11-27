@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text;
+using System.Text.RegularExpressions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using static WeredaConnect.Server.Services.OrderCommitment;
@@ -19,13 +21,16 @@ namespace WeredaConnect.Server.Services;
 /// - params are plain text and never a phone number: names, crop code, quantity, amounts, ISO
 ///   deadlines and server reason codes (a client's free text never becomes a <c>reason</c>).
 /// </summary>
-public static class NotificationRules
+public static partial class NotificationRules
 {
     public const string OrdersTable = "orders";
     public const string DeliveriesTable = "deliveries";
     public const string EscrowsTable = "escrows";
 
-    /// <summary>ESC-28: the reputation-events table (penalty and tier rows, reputation-architecture.md section 9).</summary>
+    /// <summary>
+    /// ESC-28: the reputation-events table (penalty and tier rows, reputation-architecture.md section 9; FUP-195: an
+    /// admin's decision on an event row).
+    /// </summary>
     public const string ReputationTable = "reputation";
 
     public const string InsertEvent = "INSERT";
@@ -71,7 +76,8 @@ public static class NotificationRules
     /// <c>deliveries</c> or <c>escrows</c>; <paramref name="eventName"/> the record's
     /// <c>INSERT</c>, <c>MODIFY</c> or <c>REMOVE</c>. Orders and escrows speak on <c>MODIFY</c>
     /// (both images needed), deliveries on <c>INSERT</c> and, for the <c>nearbyNotifiedAt</c> stamp
-    /// (LT-07), on <c>MODIFY</c>; everything else is empty.
+    /// (LT-07), on <c>MODIFY</c>; reputation rows on <c>INSERT</c> and, for an admin's decision
+    /// (FUP-195), on <c>MODIFY</c> (new image only); everything else is empty.
     /// </summary>
     public static IReadOnlyList<NotificationEvent> Derive(
         string table, string eventName, StreamImage oldImage, StreamImage newImage, DateTime recordTimeUtc)
@@ -99,6 +105,8 @@ public static class NotificationRules
                 => DeriveEscrow(oldImage, newImage),
             ReputationTable when eventName == InsertEvent && newImage.Exists
                 => DeriveReputation(newImage),
+            ReputationTable when eventName == ModifyEvent && newImage.Exists
+                => DeriveAppealDecided(newImage),
             _ => NoEvents
         };
     }
@@ -157,6 +165,85 @@ public static class NotificationRules
 
         return NoEvents;
     }
+
+    /// <summary>
+    /// FUP-195 (reputation-api.md 9.3): an admin excused or upheld an event, and its party hears it as
+    /// <c>appeal_decided</c> with the decision and the admin's note (the tier, when it moved, still comes as
+    /// <c>tier_changed</c> from its own row). The stream carries the new image only, so the decision's own write is
+    /// recognized by what it alone leaves on the row: <c>decidedVersion</c> equal to <c>version</c> (the decision
+    /// stamps the version it writes) and no open appeal. A later write to the row (an earn-back, the daily job's
+    /// expiry) moves <c>version</c> on and is silent; a new appeal of an upheld event opens <c>appealStatus</c> and is
+    /// silent; its next decision stamps a new <c>decidedVersion</c> and speaks again. A row decided before
+    /// <c>decidedVersion</c> existed never speaks. Only the row's party (a farmer or a trucker) is told, never the
+    /// buyer the row names, and there is no order to open: the tap opens My reputation.
+    /// </summary>
+    private static IReadOnlyList<NotificationEvent> DeriveAppealDecided(StreamImage row)
+    {
+        var userId = row.String("userId");
+        var eventId = row.String("eventId");
+        var decision = row.String("appealDecision");
+        var party = row.String("party");
+        if (userId.Length == 0 || eventId.Length == 0
+            || !Models.ReputationCodes.OrderEvents.Contains(row.String("code"))
+            || decision is not (ReputationService.DecisionExcused or ReputationService.DecisionUpheld)
+            || row.String("decidedAt").Length == 0
+            || row.String("appealStatus").Length > 0
+            || (party.Length > 0 && party is not (Party.Farmer or Party.Trucker)))
+        {
+            return NoEvents;
+        }
+
+        if (row.Number("decidedVersion") is not { } decidedVersion || row.Number("version") is not { } version
+            || decidedVersion != version)
+        {
+            return NoEvents;
+        }
+
+        var p = new Dictionary<string, string>();
+        Put(p, NotificationParams.EventId, eventId);
+        Put(p, NotificationParams.Code, row.String("code"));
+        Put(p, NotificationParams.Decision, decision);
+        Put(p, NotificationParams.Note, DecisionNote(row.String("decisionNote")));
+        return new[] { new NotificationEvent(userId, NotificationTypes.AppealDecided, ReputationEntity, eventId, null, p) };
+    }
+
+    /// <summary>
+    /// FUP-195: the admin's note as the inbox stores it. The note is the admin's own words to the party it is about
+    /// (3 to 500 characters, the text the party's event list shows), but an inbox row never holds a phone number
+    /// (notifications-api.md invariant 2): a run of 9 or more digits, up to two spaces, hyphens, dots or brackets between
+    /// any two of them (an Ethiopian number, with or without +251), becomes an ellipsis. A date (8 digits) stays.
+    /// Control, format and template characters go always, as in a display name.
+    /// </summary>
+    internal static string DecisionNote(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        var text = new StringBuilder(raw.Length);
+        foreach (var c in raw)
+        {
+            if (char.IsWhiteSpace(c))
+            {
+                text.Append(' ');
+            }
+            else if (c is not ('{' or '}' or '[' or ']') && !char.IsControl(c)
+                     && CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.Format)
+            {
+                text.Append(c);
+            }
+        }
+
+        var scrubbed = PhoneLikeRun().Replace(text.ToString(), "\u2026");
+        return MultipleSpaces().Replace(scrubbed, " ").Trim();
+    }
+
+    [GeneratedRegex(@"\+?[0-9](?:[ .()\-]{0,2}[0-9]){8,}")]
+    private static partial Regex PhoneLikeRun();
+
+    [GeneratedRegex(" {2,}")]
+    private static partial Regex MultipleSpaces();
 
     // ===== orders =====
 

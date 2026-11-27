@@ -1,7 +1,7 @@
 # Buyer Match API Contract
 
 ## Version
-1.5.1
+1.6.0
 
 ## Parties
 - **Mobile** (client) — buyers matching their purchase intents against crop listings
@@ -134,7 +134,6 @@ GET /match?cropType=wheat&maxPricePerKg=120&quantityNeeded=10&deliveryWoreda=Ada
 | `longitude` | number | No | Crop GPS longitude |
 | `score` | number | Yes | Relevance score in `[0, 1]` (higher = better match) |
 | `isSubstitute` | boolean | Yes | `true` when matched via a substitute crop type, not the exact ask |
-| `farmerReliability` | number | No | Deprecated (1.4.0, ESC-30): the old listing-conversion value in `[0, 1]`. No longer written and not part of the score; returned only for a listing that still stores one |
 | `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct`, `ownerReputationAt` | string, number, number, number, string | No | 1.3.0 (ESC-29): the farmer's public reputation as copied onto the listing (`crop-listing-api.md` 1.11.0, `reputation-api.md` section 7); returned only while `reputationPublicTags` is on. Since 1.4.0 `ownerReliabilityPct` is the score's reliability input (see the scoring model) |
 
 ---
@@ -171,7 +170,8 @@ field as they stored it (the Isar row on the phone, the `GET /crops` row on web)
   at create time; `expired` never happens, so it was absent or 1.0. The server no longer computes
   or stores it (a client value is dropped), and neither scorer reads it. The one ranking change
   with the flags off: a listing that still stores `farmerReliability` 1.0 loses the 0.03 it had
-  over a listing without the field.
+  over a listing without the field. Since 1.6.0 (FUP-186) it is not on the wire either: `MatchDto`
+  and `CropDto` no longer return it, also for an old row that still stores it.
 - **Push alerts** (`CropMatchStreamFunction`, 1.5.1, FUP-185) score a new listing with the same
   reliability rule as `GET /match`: with `reputationPublicTags` on, the `ownerReliabilityPct` the
   sync create stamped on the row (it is in the stream's `NEW_IMAGE`, so no extra read); off, or on
@@ -354,9 +354,10 @@ distances, scores and order. The two matching services run the same scenario
 | 1.4.0 | 2026-11-12 | Reliability from reputation (ESC-30, `reputation-api.md` 1.3.0 section 7): the score's reliability input is the listing's `ownerReliabilityPct / 100` as the caller is given it, the neutral 0.7 when absent (flag off, under 3 orders, no copy), identical in `MatchScoring` and `MatchScorer`; `farmerReliability` is no longer written or scored (deprecated in `MatchDto`); the app-side trip suggestions order equal prices by the trucker's `ownerReliabilityPct`. No new field on the wire. |
 | 1.5.0 | 2026-11-12 | Trip pairing by distance (MATCH-01): a trip is suggested when each end is the same woreda, within 40 km of it by centroid distance (rounded to 0.1 km), or a whole-word name match (the best of the three counts), and it does not run the other way (the route with crop and delivery swapped must not score higher); room left must cover the quantity less 0.01 quintal (now also on web), 1 quintal when no quantity; order is price, route score (exact above a neighbouring woreda), trucker reliability, earlier departure, `tripId`, so ties no longer depend on input order. One pure rule, `MatchScorer.suggestTrips`, on phone and web, mirrored in `MatchScoring.SuggestTrips` with shared golden vectors. `/match` unchanged. No wire change. |
 | 1.5.1 | 2026-11-17 | Push alert reliability (FUP-185): `CropMatchStreamFunction` gets `REPUTATION_PUBLIC_TAGS_ENABLED` from the same config as the match Lambda and scores a new listing's reliability through the rule `GET /match` uses (`OwnerReputationView`): the stamped `ownerReliabilityPct` with the flag on, the neutral 0.7 off or without the value. Flag off (every environment today) the alert score is unchanged. `/match` unchanged. No wire change. |
+| 1.6.0 | 2026-11-27 | `farmerReliability` leaves `MatchDto` (FUP-186, `crop-listing-api.md` 1.19.0): deprecated since 1.4.0 and returned only for a listing that still stored it, it is no longer returned at all. The stored attribute stays on old rows. Every app reads it as an optional number, so none fails on its absence. The score is unchanged. |
 
 ---
 
-**Last Updated**: 2026-11-17
-**Version**: 1.5.1
+**Last Updated**: 2026-11-27
+**Version**: 1.6.0
 **Status**: Draft

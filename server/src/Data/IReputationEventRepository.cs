@@ -151,7 +151,11 @@ public sealed record ReputationRowUpdate
     /// <summary>The new <c>status</c>, or null to keep it.</summary>
     public string? ToStatus { get; init; }
 
-    /// <summary>A decision: <c>excused</c> or <c>upheld</c>, with when, who and the note to the party.</summary>
+    /// <summary>
+    /// A decision: <c>excused</c> or <c>upheld</c>, with when, who and the note to the party. With
+    /// <see cref="DecidedAt"/> and <see cref="SeenVersion"/> set, the write also stamps <c>decidedVersion</c>, the
+    /// version it leaves on the row (FUP-195: how the notifier tells the decision's own stream record).
+    /// </summary>
     public string? AppealDecision { get; init; }
 
     public string? DecidedAt { get; init; }

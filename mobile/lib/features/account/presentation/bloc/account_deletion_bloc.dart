@@ -36,6 +36,12 @@ class AccountDeletionBloc
   /// Upper bound for one wait between resumes.
   static const maxResumeDelay = Duration(seconds: 30);
 
+  /// How many of these blocs are open: one per Delete account screen,
+  /// closed with it. The "Finish deleting" prompt (FUP-104) stays away
+  /// while one is.
+  static int get openCount => _openCount;
+  static int _openCount = 0;
+
   AccountDeletionBloc({
     required AccountDeletionRepository repository,
     required String userId,
@@ -56,6 +62,18 @@ class AccountDeletionBloc
     on<AccountDeletionStepUpCancelled>(
       (event, emit) => emit(const AccountDeletionIdle()),
     );
+    _openCount++;
+  }
+
+  bool _counted = true;
+
+  @override
+  Future<void> close() {
+    if (_counted) {
+      _counted = false;
+      _openCount--;
+    }
+    return super.close();
   }
 
   /// The wait before resume [attempt] (1-based): the server's hint, doubled

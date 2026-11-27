@@ -30,6 +30,11 @@ void main() {
         'expiresAt': '2026-02-26T10:00:00Z',
       };
 
+  test('keeps no queued payments, so none is listed (FUP-182)', () async {
+    expect(await repo.getPendingIntents(userId: 'buyer-001'), isEmpty);
+    verifyZeroInteractions(api);
+  });
+
   group('WebEscrowRepository payout legs (SIM-15)', () {
     test('parses the trucker leg and keeps the server farmer leg', () async {
       when(

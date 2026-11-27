@@ -24,11 +24,12 @@ AppNotification _entry(String type, [Map<String, String> params = const {}]) =>
 void main() {
   const locales = [Locale('en'), Locale('am'), Locale('om')];
 
-  test('the type list matches the server (42 types, no repeats)', () {
+  test('the type list matches the server (43 types, no repeats)', () {
     // 33 order types, since ESC-31 the two reputation types, since FUP-286
-    // and FUP-338 the six check-in types, and the agreed commission.
-    expect(notificationTypes, hasLength(42));
-    expect(notificationTypes.toSet(), hasLength(42));
+    // and FUP-338 the six check-in types, the agreed commission, and since
+    // FUP-195 the admin's decision on a record.
+    expect(notificationTypes, hasLength(43));
+    expect(notificationTypes.toSet(), hasLength(43));
     expect(
       notificationTypes.toSet().containsAll(reputationNotificationTypes),
       isTrue,
@@ -143,12 +144,114 @@ void main() {
     test('they are not order types and ask for no order action', () {
       expect(
         reputationNotificationTypes,
-        {'penalty_recorded', 'tier_changed'},
+        {'penalty_recorded', 'tier_changed', 'appeal_decided'},
       );
       expect(
         actionRequiredNotificationTypes
             .intersection(reputationNotificationTypes),
         isEmpty,
+      );
+    });
+  });
+
+  // FUP-195 (notifications-api.md 1.8.0): an admin's decision on a record.
+  group('appeal_decided', () {
+    final en = lookupAppLocalizations(const Locale('en'));
+    const note = 'Flood closed the road; confirmed with the buyer.';
+
+    test('excused: the points went, then the note', () {
+      final text = notificationText(
+        en,
+        _entry('appeal_decided', {
+          'eventId': 'CANCEL#ord-7f3a',
+          'code': 'LATE_CANCEL',
+          'decision': 'excused',
+          'note': note,
+        }),
+      );
+      expect(text.title, 'Penalty points removed');
+      expect(
+        text.body,
+        'Cancelled less than a day before pickup. Our team removed the '
+        'points. Note from our team: $note',
+      );
+    });
+
+    test('upheld: the points stay, then the note', () {
+      final text = notificationText(
+        en,
+        _entry('appeal_decided', {
+          'code': 'DELIVERY_OVERDUE',
+          'decision': 'upheld',
+          'note': note,
+        }),
+      );
+      expect(text.title, 'The penalty points stay');
+      expect(text.body, startsWith(en.reputationEventOverdue));
+      expect(text.body, contains('Our team reviewed it and kept the points.'));
+      expect(text.body, endsWith(en.reputationAppealNote(note)));
+    });
+
+    test('no note: the decision alone', () {
+      final text = notificationText(
+        en,
+        _entry('appeal_decided', {'code': 'NO_SHOW', 'decision': 'excused'}),
+      );
+      expect(text.body, en.notifAppealExcusedBody(en.reputationEventNoShow));
+    });
+
+    test('a decision this build does not know stays neutral', () {
+      final text = notificationText(
+        en,
+        _entry('appeal_decided', {'code': 'NO_SHOW', 'decision': 'withdrawn'}),
+      );
+      expect(text.title, en.notifAppealDecidedTitle);
+      expect(text.body, en.notifAppealDecidedBody(en.reputationEventNoShow));
+    });
+
+    for (final locale in locales) {
+      final l10n = lookupAppLocalizations(locale);
+      final code = locale.languageCode;
+
+      test('$code: each decision has its own words and keeps the note', () {
+        final texts = [
+          for (final decision in ['excused', 'upheld', 'unknown'])
+            notificationText(
+              l10n,
+              _entry('appeal_decided', {
+                'code': 'LATE_CANCEL',
+                'decision': decision,
+                'note': note,
+              }),
+            ),
+        ];
+        expect(texts.map((t) => t.title).toSet(), hasLength(3));
+        for (final text in texts) {
+          expect(text.title, isNot(l10n.notifGenericTitle));
+          expect(text.body, contains(l10n.reputationEventLateCancel));
+          expect(text.body, endsWith(l10n.reputationAppealNote(note)));
+          expect(text.body, isNot(contains('{')));
+        }
+      });
+    }
+
+    test('the reputation icon, no detail line, no order action', () {
+      expect(
+        notificationStyle('appeal_decided').icon,
+        notificationStyle('tier_changed').icon,
+      );
+      final clock = ClockFormat.resolve(en, ClockPreference.auto);
+      expect(
+        notificationDetailLine(
+          en,
+          clock,
+          _entry('appeal_decided', {'decision': 'excused', 'note': note}),
+        ),
+        isNull,
+      );
+      expect(
+        actionRequiredNotificationTypes,
+        isNot(contains('appeal_decided')),
       );
     });
   });

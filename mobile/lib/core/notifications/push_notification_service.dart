@@ -11,7 +11,8 @@ import 'package:wereda_connect/features/messaging/domain/notified_conversation.d
 /// Registers the device's FCM token with the backend (`POST /device-tokens`) so
 /// the server can deliver push notifications (new-message alerts, buyer match
 /// alerts and ESC-21 order events) to this device, listens for foreground
-/// pushes, and opens the order or the conversation of a tapped push.
+/// pushes, and opens the order, My reputation or the conversation of a
+/// tapped push.
 ///
 /// Best-effort and fully optional: if Firebase isn't configured (no
 /// `google-services.json`, or the SNS platform app isn't set up) it silently
@@ -53,6 +54,13 @@ class PushNotificationService {
     return orderId is String && isPlainEntityId(orderId) ? orderId : null;
   }
 
+  /// Whether a push is about the user's own reputation (notifications-api.md
+  /// 1.5.0): `penalty_recorded` or `tier_changed`, an order event with
+  /// `data.entity == "reputation"` and no `orderId`. A tap opens My
+  /// reputation (FUP-205).
+  static bool isReputationPush(Map<String, dynamic> data) =>
+      isOrderPush(data) && data['entity'] == 'reputation';
+
   /// The marketplace contexts a thread belongs to (messaging.md).
   static const _threadContexts = {'crop', 'order', 'trip', 'delivery'};
 
@@ -90,15 +98,18 @@ class PushNotificationService {
   /// immediately, which drives the in-app banner and unread badges.
   ///
   /// [onOrderPush] fires for a foreground order push with its `orderId` (or
-  /// null): the caller pulls the notification inbox and the order.
+  /// null, as for a reputation push): the caller pulls the notification
+  /// inbox and the order.
   /// [onOpenOrder] fires when the user taps an order push, from the
   /// background or after a cold start, with the order to open.
-  /// [onOpenConversation] fires the same way for a tapped chat push (FUP-90),
-  /// with the conversation it names.
+  /// [onOpenReputation] fires the same way for a tapped reputation push
+  /// (FUP-205), [onOpenConversation] for a tapped chat push (FUP-90), with
+  /// the conversation it names.
   Future<void> init({
     void Function()? onMessagePush,
     void Function(String? orderId)? onOrderPush,
     void Function(String orderId)? onOpenOrder,
+    void Function()? onOpenReputation,
     void Function(NotifiedConversation conversation)? onOpenConversation,
   }) async {
     try {
@@ -112,18 +123,21 @@ class PushNotificationService {
       // registration on 3G, or a token that cannot be read, must not delay
       // or drop opening what the user tapped.
       await _onMessageSubscription?.cancel();
-      _onMessageSubscription = FirebaseMessaging.onMessage.listen((message) {
-        if (isMessagePush(message.data)) onMessagePush?.call();
-        if (isOrderPush(message.data)) {
-          onOrderPush?.call(orderIdToOpen(message.data));
-        }
-      });
+      _onMessageSubscription = FirebaseMessaging.onMessage.listen(
+        (message) => handleForeground(
+          message,
+          onMessagePush: onMessagePush,
+          onOrderPush: onOrderPush,
+        ),
+      );
 
-      // ESC-21 and FUP-90: a tapped push opens its order or its thread.
+      // ESC-21, FUP-205 and FUP-90: a tapped push opens its order, My
+      // reputation or its thread.
       await listenForTaps(
         opened: FirebaseMessaging.onMessageOpenedApp,
         initialMessage: messaging.getInitialMessage,
         onOpenOrder: onOpenOrder,
+        onOpenReputation: onOpenReputation,
         onOpenConversation: onOpenConversation,
       );
 
@@ -137,22 +151,43 @@ class PushNotificationService {
     }
   }
 
+  /// A push that arrives while the app is in the foreground: a chat push
+  /// goes to [onMessagePush], an order event to [onOrderPush] with its
+  /// order, a reputation event with none, so the caller pulls the inbox
+  /// (FUP-205). Split from [init] so a test can drive it without Firebase.
+  @visibleForTesting
+  static void handleForeground(
+    RemoteMessage message, {
+    void Function()? onMessagePush,
+    void Function(String? orderId)? onOrderPush,
+  }) {
+    if (isMessagePush(message.data)) onMessagePush?.call();
+    if (isOrderPush(message.data)) {
+      onOrderPush?.call(orderIdToOpen(message.data));
+    }
+  }
+
   /// Opens what taps name: [opened] carries taps that bring the app back
   /// from the background, [initialMessage] reads the tap that cold-started
-  /// it, once per launch. Each tap opens its order, or else its
-  /// conversation. Split from [init] so a test can drive both without
-  /// Firebase.
+  /// it, once per launch. Each tap opens its order, or else My reputation
+  /// for a reputation push, or else its conversation. Split from [init] so
+  /// a test can drive both without Firebase.
   @visibleForTesting
   static Future<void> listenForTaps({
     required Stream<RemoteMessage> opened,
     required Future<RemoteMessage?> Function() initialMessage,
     void Function(String orderId)? onOpenOrder,
+    void Function()? onOpenReputation,
     void Function(NotifiedConversation conversation)? onOpenConversation,
   }) async {
     void open(RemoteMessage message) {
       final orderId = orderIdToOpen(message.data);
       if (orderId != null) {
         onOpenOrder?.call(orderId);
+        return;
+      }
+      if (isReputationPush(message.data)) {
+        onOpenReputation?.call();
         return;
       }
       final conversation = conversationToOpen(message.data);

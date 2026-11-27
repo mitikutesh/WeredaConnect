@@ -173,7 +173,8 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
         statusFilter: event.statusFilter,
         roleFilter: event.roleFilter,
       );
-      final pendingIntents = await _repository.getPendingIntents();
+      final pendingIntents =
+          await _repository.getPendingIntents(userId: event.userId);
       emit(
         PaymentHistoryLoaded(
           payments: payments,
@@ -213,7 +214,8 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
         statusFilter: event.statusFilter,
         roleFilter: event.roleFilter,
       );
-      final pendingIntents = await _repository.getPendingIntents();
+      final pendingIntents =
+          await _repository.getPendingIntents(userId: event.userId);
       emit(
         PaymentHistoryLoaded(
           payments: payments,
@@ -273,7 +275,8 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
         statusFilter: event.statusFilter,
         roleFilter: event.roleFilter,
       );
-      final pendingIntents = await _repository.getPendingIntents();
+      final pendingIntents =
+          await _repository.getPendingIntents(userId: event.userId);
       emit(
         PaymentHistoryLoaded(
           payments: payments,
@@ -292,7 +295,8 @@ class EscrowBloc extends Bloc<EscrowEvent, EscrowState> {
     Emitter<EscrowState> emit,
   ) async {
     try {
-      final pendingIntents = await _repository.getPendingIntents();
+      final pendingIntents =
+          await _repository.getPendingIntents(userId: event.userId);
       // If currently showing history, update the pending intents section
       final currentState = state;
       if (currentState is PaymentHistoryLoaded) {
