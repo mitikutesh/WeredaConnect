@@ -1,7 +1,7 @@
 # Notifications API Contract
 
 ## Version
-1.7.0
+1.8.0
 
 ## Parties
 - **Mobile** (client): pulls the inbox, renders the entries and the Action-needed cards, receives the Android push, opens the order on tap
@@ -163,10 +163,12 @@ Rules:
   never gets "accept by tonight" the next morning; the inbox entry is still there.
 - A tap opens the order (`orderId`), from the background and after a cold start; the app reads an
   order the device has not pulled yet from `GET /orders/{orderId}` first. A push without `orderId`
-  opens the app. The reputation types (1.5.0) carry no `orderId` and `data.entity: reputation`:
-  since ESC-31 (1.5.1) the inbox entry of either type opens My reputation on the phone and the
-  web; a tapped push still opens the app (TASK FUP-205). The foreground handler pulls the inbox with `since` (and the order) instead of
-  showing a tray entry, with one follow-up pull 3 seconds later.
+  opens the app. The reputation types (1.5.0, and `appeal_decided` since 1.8.0) carry no `orderId`
+  and `data.entity: reputation`: since ESC-31 (1.5.1) their inbox entry opens My reputation on the
+  phone and the web, and since FUP-205 (1.7.1) a tapped push of any of them opens My reputation on
+  the phone, from the background and after a cold start (a buyer, who never gets one, is not sent
+  there). The foreground handler pulls the inbox with `since` (and the order, when there is one)
+  instead of showing a tray entry, with one follow-up pull 3 seconds later.
 - Inbox-only events send no push: `dispute_received` (the disputer's own receipt) and
   `under_review` (an escrow frozen for fraud review).
 - Never a phone number in `title`, `body` or `data`. Names are the display names the order row
@@ -296,7 +298,7 @@ delivered order and the order row never says it; the parties hear the verdict (`
 escrow write follows, the order row stays at judgement `pending`, and the farmer and the trucker hear of the
 dispute only at its verdict (FUP-400).
 
-### Reputation-events table (`INSERT`, 1.5.0, ESC-28)
+### Reputation-events table (`INSERT`, 1.5.0, ESC-28; the `MODIFY` of a decision, 1.8.0, FUP-195)
 
 `reputation-api.md` section 10 and `reputation-architecture.md` section 9. The source filter
 passes only rows whose `code` is a penalty code or `TIER_CHANGED`; the rules then skip a penalty
@@ -307,6 +309,14 @@ never is. The rows exist only while `reputationPenalties` is on.
 |---|---|---|
 | a penalty (`DECLINED_REQUEST`, `RESPONSE_EXPIRED`, `CANCELLED_AFTER_ACCEPT`, `LATE_CANCEL`, `TRIP_CANCELLED_WITH_BOOKINGS`, `NO_SHOW`, `DELIVERY_OVERDUE`) with `points` above 0 | `penalty_recorded` (`eventId`, `code`, `points`, `activePoints`) | none |
 | `TIER_CHANGED` | `tier_changed` (`fromTier`, `toTier`, `restrictedUntil` when `toTier` is `restricted` and the restriction has an end) | none |
+| (1.8.0, `MODIFY`) an event row an admin excused or upheld (`reputation-api.md` 9.3): `decidedVersion` equal to `version`, no `appealStatus`, the code an order event, `party` a farmer or a trucker | `appeal_decided` (`eventId`, `code`, `decision`, `note`) | none |
+
+`appeal_decided` (1.8.0): the stream carries the new image only, so the decision's own write is the
+record whose `decidedVersion` (stamped by the decision) equals `version`. A second filter on the
+source passes a `MODIFY` with `decidedVersion` and no `appealStatus`; a later write of the row (an
+earn-back, the daily expiry) moves `version` on and tells nobody, and a row decided before 1.8.0
+has no `decidedVersion` and never speaks. A party whose tier moved with the decision also gets
+`tier_changed`, from the tier row.
 
 Entity `reputation`, `entityId` the row's `eventId`, no `orderId`. The inbox key is
 `{record time}#{type}#{eventId}` like every other row, so a retried record writes nothing twice.
@@ -343,6 +353,9 @@ a type carries only the keys its text needs, and a missing key renders as nothin
 | `activePoints` | `penalty_recorded` (1.5.0): the party's active points right after it |
 | `fromTier`, `toTier` | `tier_changed` (1.5.0): `good`, `warning`, `low` or `restricted` (the party's own internal tier) |
 | `restrictedUntil` | `tier_changed` to `restricted` (1.5.0): ISO 8601 UTC end of the restriction; absent while an admin review is open |
+| `eventId`, `code` | also on `appeal_decided` (1.8.0): the decided event's slot id and code |
+| `decision` | `appeal_decided` (1.8.0): `excused` (its points no longer count) or `upheld` (the points stay); clients localize it |
+| `note` | `appeal_decided` (1.8.0): the admin's note to the party (`reputation-api.md` 9.3, 3 to 500 characters), the one free text a param carries: an admin's words to the party it is about, the text their event list shows. Stored with control, format and template characters removed and every run of 9 or more digits (single or double spaces, hyphens, dots or brackets between them allowed: a phone number) cut to an ellipsis; absent when nothing is left. Never in the push |
 | `commissionRate` | `order_commission_changed` (1.7.0): the new rate as a fraction, digits and a point only (`0.025` is 2.5 %, `0` is no commission); clients show it as a percent |
 | `orderTotal`, `orderTotalBefore` | `order_commission_changed` (1.7.0): the order total at the new rate and before it, in ETB with two decimals (`orderTotal` equals the buyer's `amountEtb`) |
 
@@ -406,6 +419,13 @@ is the server's rendering of the same `type` + `params` at send time and is not 
   `deadlineAt` (T9 for the drop-off). A judged outcome's `reason` (section 4) picks that outcome's
   own title and body, as the push does; an older build reads the type's own words. am and om are
   machine drafted (native review owed).
+- Since 1.8.0 (FUP-195) `appeal_decided` names the record as My reputation does and the decision
+  ("Penalty points removed": "Our team removed the points."; "The penalty points stay": "Our team
+  reviewed it and kept the points."), then the admin's note ("Note from our team: ..."). A decision
+  the build does not know reads "Your record was reviewed". Its entry opens My reputation. The push
+  says the decision without the note (a lock screen is not private). A build before it reads
+  "Order update" and its tap opens nothing (no `orderId`). am and om are machine drafted (native
+  review owed).
 - Since 1.7.0 `order_commission_changed` reads "Order total changed" and names the new rate and
   total ("The platform commission on this order is now 2.5%. New total: 3,809.01 ETB. Nothing has
   been paid yet."); without a readable `commissionRate` or `orderTotal` it asks the buyer to open
@@ -432,7 +452,8 @@ is the server's rendering of the same `type` + `params` at send time and is not 
    a token, without Play services or offline at send time sees the same entries on the next pull.
    Push never carries information the inbox lacks.
 2. **No PII.** No phone number, email, Fayda number or address in an inbox row, a push title,
-   body or data. Names are display names only.
+   body or data. Names are display names only. The admin's note on `appeal_decided` (1.8.0) is
+   stored with digit runs of phone length cut (section 4).
 3. **Role visibility unchanged.** An entry only ever describes an order the recipient is a party
    to (its buyer, farmer or trucker). A farmer never learns of another farmer's orders, a
    trucker of another trucker's trips. `GET /notifications` reads the caller's partition and
@@ -451,6 +472,8 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.8.0 | 2026-11-27 | `appeal_decided` (FUP-195, `reputation-api.md` 1.11.0): to the party (a farmer or a trucker, never a buyer) when an admin excuses or upholds one of their events. Derived from the reputation-events `MODIFY` of the event row: the decision write stamps `decidedVersion` and the rules keep the record whose `decidedVersion` equals `version`, with no open appeal (the new image is all the stream carries). Infra: a second filter on the reputation-events source (`MODIFY`, `decidedVersion` present, `appealStatus` absent); no new grant. Params `eventId`, `code`, `decision` (`excused` or `upheld`), `note` (the admin's note, phone-length digit runs cut). Entity `reputation`, no `orderId`; the inbox entry opens My reputation. Push text in en, am and om says the decision, never the note; inbox text on both clients shows the note (am and om machine drafted, native review owed). Not action-required. |
+| 1.7.1 | 2026-11-27 | Client (FUP-205): a tapped `penalty_recorded` or `tier_changed` push opens My reputation on the phone, from the background and after a cold start, for a signed-in farmer or trucker; the foreground push pulls the inbox (no order to pull). No server or wire change |
 | 1.7.0 | 2026-11-26 | `order_commission_changed`: to the buyer only, when an admin agreed another commission on their unpaid order (`POST /admin/orders/{orderId}/commission`, `order-lifecycle.md` 2.26.0). Derived from the orders `MODIFY` whose `commissionRate` moved while the status stays `created` or `pending_payment` (the existing filter already passes it; no infra change). Params `commissionRate`, `orderTotal`, `orderTotalBefore` (and `amountEtb`, the new total). Push text in en, am and om, inbox text on both clients (am and om machine drafted, native review owed). Not action-required. |
 | 1.6.0 | 2026-11-13 | Check-in pushes (FUP-286 and FUP-338, spec 4.12), behind `pickupClassification` and `dropoffClassification` (nothing is sent with a flag off). Six types: `pickup_reminder` (each party who has not checked in, until `pickupDeadlineAt`, from the new `pickupReminderAt` marker), `trucker_arrived` and `buyer_arrived` (the farmer, when the arrival check-in lands), `crops_ready` (the trucker or the buyer collecting), `delivery_arrived` (the buyer, when the trucker's drop-off check-in counts, `deadlineAt` = T9) and `delivery_confirm_reminder` (the buyer before T9, from the new `dropoffReminderAt` marker); the three with a deadline are action-required. T9 is the order cron's own rule with `silent-buyer-hours` (the notifier reads the order timings). The judged outcomes speak in their own words through `reason` on existing types: `trucker_no_show` (`transport_failed`, `transport_failed_keep_crops`, and `pickup_missed` to the trucker judged absent), `farmer_no_show` and `buyer_no_show` (`order_cancelled`), `both_present_no_scan` and `unchecked_check_in` (`pickup_overdue`, `pickup_missed`), `auto_confirmed` (`delivered` to the buyer, `delivered_payout_pending` to the farmer), `delivery_overdue`, `silent_buyer` and `dropoff_out_of_range` (`dispute_opened` to all three, from the order row; the escrow row's system dispute stays silent). A pickup judged `scanned` no longer tells the parties the pickup was late. Push text in en, am and om, inbox text on both clients (am and om machine drafted, native review owed). `order-lifecycle.md` 2.23.0 |
 | 1.5.1 | 2026-11-12 | Clients (ESC-31, `reputation-api.md` 1.6.0): `penalty_recorded` and `tier_changed` have their own inbox title and body in en, am and om, and the inbox entry opens My reputation on the phone and the web. A tapped push still opens the app (TASK FUP-205). No server or wire change. |
@@ -464,6 +487,6 @@ is the server's rendering of the same `type` + `params` at send time and is not 
 
 ---
 
-**Last Updated**: 2026-11-26
-**Version**: 1.7.0
+**Last Updated**: 2026-11-27
+**Version**: 1.8.0
 **Status**: Draft

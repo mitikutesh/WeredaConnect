@@ -678,7 +678,8 @@ public partial class SyncFunctionTests
         await NoTruckerRowAsync();
         // The drop-off check-in decides: the road check-ins are not read.
         await _truckerCheckIns.DidNotReceiveWithAnyArgs().ListBetweenAsync(default!, default!, default!, default);
-        await _mockOrderRepo.Received(1).GetByIdAsync(DropoffOrderId, consistentRead: true);
+        // One read for this guard, one for the order's own advance to delivered (FUP-76).
+        await _mockOrderRepo.Received(2).GetByIdAsync(DropoffOrderId, consistentRead: true);
     }
 
     [Fact]
@@ -724,8 +725,9 @@ public partial class SyncFunctionTests
             "trucker-001", "buyer-001", "GPS_ANOMALY", "del-001", "delivery",
             Arg.Is<string?>(d => d!.StartsWith("Trucker check-in 10 min before the confirmation: 0.06 km from the pickup point")));
         await _truckerCheckIns.ReceivedWithAnyArgs(1).ListBetweenAsync(default!, default!, default!, default);
-        // The read for the drop-off check-in also serves the order's own point.
-        await _mockOrderRepo.Received(1).GetByIdAsync(DropoffOrderId, consistentRead: true);
+        // The read for the drop-off check-in also serves the order's own point; the other read is the
+        // order's own advance to delivered (FUP-76).
+        await _mockOrderRepo.Received(2).GetByIdAsync(DropoffOrderId, consistentRead: true);
     }
 
     [Fact]
@@ -754,11 +756,12 @@ public partial class SyncFunctionTests
 
         Assert.Contains("\"status\":\"success\"", await ConfirmWithDropoffAsync(function, gpsDropoff: GpsAddis));
 
-        // FUP-203 exactly: the road check-ins write the row; the order is read only for its own point.
+        // FUP-203 exactly: the road check-ins write the row; the guard reads the order only for its own point
+        // (the other read is the order's own advance to delivered, FUP-76).
         await _patternFraud.Received(1).RecordAttributedSignalAsync(
             "trucker-001", "buyer-001", "GPS_ANOMALY", "del-001", "delivery", Arg.Any<string?>());
         await _truckerCheckIns.ReceivedWithAnyArgs(1).ListBetweenAsync(default!, default!, default!, default);
-        await _mockOrderRepo.Received(1).GetByIdAsync(DropoffOrderId, consistentRead: true);
+        await _mockOrderRepo.Received(2).GetByIdAsync(DropoffOrderId, consistentRead: true);
     }
 
     [Fact]

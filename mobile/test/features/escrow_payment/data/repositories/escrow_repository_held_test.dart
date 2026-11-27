@@ -7,6 +7,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/payment_intent.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_repository.dart';
@@ -127,32 +128,35 @@ void main() {
     expect(await isOrderEscrowHeld(repo, 'ord-1'), isTrue);
   });
 
+  Future<void> cache(List<(String, String, PaymentStatus)> rows) =>
+      isar.writeTxn(() async {
+        final now = DateTime.now().toUtc();
+        for (final (id, orderId, status) in rows) {
+          await isar.payments.put(
+            Payment()
+              ..paymentId = id
+              ..deliveryId = ''
+              ..orderId = orderId
+              ..farmerId = 'farmer-001'
+              ..buyerId = 'buyer-001'
+              ..amount = 1500
+              ..commission = 37.5
+              ..commissionRate = 0.025
+              ..farmerPayout = 1462.5
+              ..status = status
+              ..createdAt = now
+              ..updatedAt = now
+              ..version = 1,
+          );
+        }
+      });
+
   test('offline, the order list uses the cached held escrows', () async {
     online(false);
-    await isar.writeTxn(() async {
-      final now = DateTime.now().toUtc();
-      for (final (id, orderId, status) in [
-        ('escrow-order-ord-1', 'ord-1', PaymentStatus.held),
-        ('escrow-order-ord-2', 'ord-2', PaymentStatus.escrowed),
-      ]) {
-        await isar.payments.put(
-          Payment()
-            ..paymentId = id
-            ..deliveryId = ''
-            ..orderId = orderId
-            ..farmerId = 'farmer-001'
-            ..buyerId = 'buyer-001'
-            ..amount = 1500
-            ..commission = 37.5
-            ..commissionRate = 0.025
-            ..farmerPayout = 1462.5
-            ..status = status
-            ..createdAt = now
-            ..updatedAt = now
-            ..version = 1,
-        );
-      }
-    });
+    await cache([
+      ('escrow-order-ord-1', 'ord-1', PaymentStatus.held),
+      ('escrow-order-ord-2', 'ord-2', PaymentStatus.escrowed),
+    ]);
 
     expect(
       await heldOrderIds(repo, userId: 'farmer-001', role: 'farmer'),
@@ -160,6 +164,210 @@ void main() {
     );
     expect(await isOrderEscrowHeld(repo, 'ord-1'), isTrue);
     expect(await isOrderEscrowHeld(repo, 'ord-2'), isFalse);
+  });
+
+  // FUP-79: the held read pages on (the server applies the limit before
+  // the status filter), and re-reads a cached held escrow it no longer lists.
+  group('held read', () {
+    List<Map<String, dynamic>> answerPages(List<Map<String, dynamic>> pages) {
+      final asked = <Map<String, dynamic>>[];
+      when(
+        () => api.get<Map<String, dynamic>>(
+          ApiConfig.escrowHistory,
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((call) async {
+        asked.add(
+          call.namedArguments[#queryParameters] as Map<String, dynamic>,
+        );
+        return pages[asked.length - 1];
+      });
+      return asked;
+    }
+
+    void answerDetail(String escrowId, String status) => when(
+          () => api.get<Map<String, dynamic>>('/escrow/$escrowId'),
+        ).thenAnswer(
+          (_) async => {
+            ..._row(escrowId: escrowId, status: status),
+            'updatedAt': '2026-10-02T10:00:00Z',
+            'expiresAt': '2026-10-08T10:00:00Z',
+          },
+        );
+
+    test('a held escrow on a later page is flagged and cached', () async {
+      online(true);
+      final asked = answerPages([
+        {'escrows': <Object>[], 'hasMore': true, 'nextToken': 't-1'},
+        {
+          'escrows': [_row(escrowId: 'escrow-order-ord-9', orderId: 'ord-9')],
+          'hasMore': false,
+        },
+      ]);
+
+      expect(
+        await heldOrderIds(repo, userId: 'farmer-001', role: 'farmer'),
+        {'ord-9'},
+      );
+      expect(asked, hasLength(2));
+      expect(asked.last['nextToken'], 't-1');
+      expect(asked.last['status'], 'held');
+      expect(asked.last['role'], 'farmer');
+
+      online(false);
+      expect(
+        await heldOrderIds(repo, userId: 'farmer-001', role: 'farmer'),
+        {'ord-9'},
+      );
+    });
+
+    test(
+        'a cached held escrow an admin refunded is read again, '
+        'so offline it no longer reads Under Review', () async {
+      await cache([('escrow-order-ord-1', 'ord-1', PaymentStatus.held)]);
+      online(true);
+      answerPages([
+        {'escrows': <Object>[], 'hasMore': false},
+      ]);
+      answerDetail('escrow-order-ord-1', 'refunded');
+
+      expect(
+        await heldOrderIds(repo, userId: 'farmer-001', role: 'farmer'),
+        isEmpty,
+      );
+      verify(
+        () => api.get<Map<String, dynamic>>('/escrow/escrow-order-ord-1'),
+      ).called(1);
+
+      online(false);
+      expect(
+        await heldOrderIds(repo, userId: 'farmer-001', role: 'farmer'),
+        isEmpty,
+      );
+      expect(await isOrderEscrowHeld(repo, 'ord-1'), isFalse);
+    });
+
+    test('a cached escrow still held past the pages read counts', () async {
+      await cache([('escrow-order-ord-1', 'ord-1', PaymentStatus.held)]);
+      online(true);
+      answerPages([
+        for (var i = 0; i < heldHistoryMaxPages; i++)
+          {'escrows': <Object>[], 'hasMore': true, 'nextToken': 't-$i'},
+      ]);
+      answerDetail('escrow-order-ord-1', 'held');
+
+      expect(
+        await heldOrderIds(repo, userId: 'farmer-001', role: 'farmer'),
+        {'ord-1'},
+      );
+    });
+
+    test('a listed held escrow is not read again', () async {
+      await cache([('escrow-order-ord-1', 'ord-1', PaymentStatus.held)]);
+      online(true);
+      answerPages([
+        {
+          'escrows': [_row()],
+          'hasMore': false,
+        },
+      ]);
+
+      expect(
+        await heldOrderIds(repo, userId: 'farmer-001', role: 'farmer'),
+        {'ord-1'},
+      );
+      verifyNever(
+        () => api.get<Map<String, dynamic>>('/escrow/escrow-order-ord-1'),
+      );
+    });
+
+    test('a failed re-read leaves the cached row and does not flag it online',
+        () async {
+      await cache([('escrow-order-ord-1', 'ord-1', PaymentStatus.held)]);
+      online(true);
+      answerPages([
+        {'escrows': <Object>[], 'hasMore': false},
+      ]);
+      when(
+        () => api.get<Map<String, dynamic>>('/escrow/escrow-order-ord-1'),
+      ).thenThrow(const ServerException('boom', 500));
+
+      expect(
+        await heldOrderIds(repo, userId: 'farmer-001', role: 'farmer'),
+        isEmpty,
+      );
+      online(false);
+      expect(
+        await heldOrderIds(repo, userId: 'farmer-001', role: 'farmer'),
+        {'ord-1'},
+      );
+    });
+
+    test('at most heldRereadMax cached rows are read again per load', () async {
+      await cache([
+        for (var i = 1; i <= heldRereadMax + 2; i++)
+          ('escrow-order-ord-$i', 'ord-$i', PaymentStatus.held),
+      ]);
+      online(true);
+      answerPages([
+        {'escrows': <Object>[], 'hasMore': false},
+      ]);
+      for (var i = 1; i <= heldRereadMax + 2; i++) {
+        answerDetail('escrow-order-ord-$i', 'released');
+      }
+
+      await heldOrderIds(repo, userId: 'farmer-001', role: 'farmer');
+
+      final reads = verify(
+        () => api.get<Map<String, dynamic>>(
+          any(that: startsWith('/escrow/escrow-order-ord-')),
+        ),
+      ).callCount;
+      expect(reads, heldRereadMax);
+    });
+
+    test('the first failed re-read ends the re-reads of that load', () async {
+      await cache([
+        ('escrow-order-ord-1', 'ord-1', PaymentStatus.held),
+        ('escrow-order-ord-2', 'ord-2', PaymentStatus.held),
+        ('escrow-order-ord-3', 'ord-3', PaymentStatus.held),
+      ]);
+      online(true);
+      answerPages([
+        {'escrows': <Object>[], 'hasMore': false},
+      ]);
+      when(
+        () => api.get<Map<String, dynamic>>(
+          any(that: startsWith('/escrow/escrow-order-ord-')),
+        ),
+      ).thenThrow(const NetworkException('offline'));
+
+      expect(
+        await heldOrderIds(repo, userId: 'farmer-001', role: 'farmer'),
+        isEmpty,
+      );
+      verify(
+        () => api.get<Map<String, dynamic>>(
+          any(that: startsWith('/escrow/escrow-order-ord-')),
+        ),
+      ).called(1);
+    });
+
+    test('a failed page falls back to the cached held escrows', () async {
+      await cache([('escrow-order-ord-1', 'ord-1', PaymentStatus.held)]);
+      online(true);
+      when(
+        () => api.get<Map<String, dynamic>>(
+          ApiConfig.escrowHistory,
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenThrow(const NetworkException());
+
+      expect(
+        await heldOrderIds(repo, userId: 'farmer-001', role: 'farmer'),
+        {'ord-1'},
+      );
+    });
   });
 
   test('a 403 FRAUD_ACCOUNT_HELD on initiate keeps its code', () async {

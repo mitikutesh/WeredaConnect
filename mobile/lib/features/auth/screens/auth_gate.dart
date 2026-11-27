@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'package:wereda_connect/features/account/presentation/widgets/finish_deletion_listener.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
@@ -61,10 +62,13 @@ class _AuthGateState extends State<AuthGate> {
           // A Telebirr return link that no checkout screen takes (the app
           // was killed while the buyer paid) checks the payment (ESC-44).
           // LT-09: a trucker's first pickup scan of a trip asks whether to
-          // share where the truck is.
+          // share where the truck is. FUP-104: a write refused while the
+          // account's deletion is unfinished offers "Finish deleting".
           return const SecurityPromptListener(
-            child: ShareConsentListener(
-              child: PaymentReturnListener(child: MainNavigation()),
+            child: FinishDeletionListener(
+              child: ShareConsentListener(
+                child: PaymentReturnListener(child: MainNavigation()),
+              ),
             ),
           );
         }

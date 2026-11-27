@@ -338,6 +338,16 @@ public sealed partial class ReputationEventRepository : IReputationEventReposito
 
         Set("decision", "appealDecision", update.AppealDecision);
         Set("decidedAt", "decidedAt", update.DecidedAt);
+        if (!string.IsNullOrEmpty(update.DecidedAt) && update.SeenVersion is { } decidedFrom)
+        {
+            // FUP-195: the version this decision leaves on the row (the condition holds it at the version read, the
+            // SET above adds one). The notifier sees only the new image, and a decision's own record is the one whose
+            // decidedVersion equals its version: any later write to the row moves the version on.
+            names["#dv"] = "decidedVersion";
+            values[":dv"] = N(decidedFrom + 1);
+            sets.Add("#dv = :dv");
+        }
+
         Set("decidedBy", "decidedBy", update.DecidedBy);
         Set("note", "decisionNote", update.DecisionNote);
         Set("liftedAt", "liftedAt", update.LiftedAt);

@@ -970,7 +970,8 @@ export class ApiStack extends cdk.Stack {
     // ─── Order Notify Stream Function (ESC-21 order notifications) ─────
     // The orders, deliveries and escrows NEW_AND_OLD_IMAGES streams feed one
     // consumer, and since ESC-28 the reputation-events NEW_IMAGE stream too
-    // (penalty_recorded, tier_changed; reputation-architecture.md section 9).
+    // (penalty_recorded, tier_changed, and since FUP-195 appeal_decided;
+    // reputation-architecture.md section 9).
     // NotificationRules turns each old/new image pair into events;
     // every event becomes an inbox row (notifications table) and, when the
     // event asks for one, an FCM push in the recipient's preferred language.
@@ -1042,8 +1043,21 @@ export class ApiStack extends cdk.Stack {
     });
     // ESC-28: on the reputation-events stream, only the INSERT of a penalty row or a TIER# row
     // reaches the notifier (the rules skip a penalty with 0 points). Heal markers, completions,
-    // restrictions, overrides and every later row update cost no invocation. The notifier reads
+    // restrictions, overrides and every other row update cost no invocation. The notifier reads
     // only the record: no grant on the reputation-events table.
+    // FUP-195: plus the MODIFY of an event row an admin decided (appeal_decided). The stream has
+    // the new image only, so this passes a decided row (decidedVersion, stamped by the decision)
+    // with no open appeal, and the rules keep the decision's own write (decidedVersion equal to
+    // version); a later earn-back or expiry of that row is an invocation that tells nobody.
+    const appealDecided = lambda.FilterCriteria.filter({
+      eventName: lambda.FilterRule.isEqual("MODIFY"),
+      dynamodb: {
+        NewImage: {
+          decidedVersion: { N: lambda.FilterRule.exists() },
+          appealStatus: { S: lambda.FilterRule.notExists() },
+        },
+      },
+    });
     const reputationNotified = lambda.FilterCriteria.filter({
       eventName: lambda.FilterRule.isEqual("INSERT"),
       dynamodb: {
@@ -1067,7 +1081,7 @@ export class ApiStack extends cdk.Stack {
       [props.ordersTable, [onEvent("MODIFY")]],
       [props.deliveriesTable, [onEvent("INSERT"), nearbyStamped]],
       [props.escrowsTable, [onEvent("MODIFY")]],
-      [props.reputationEventsTable, [reputationNotified]],
+      [props.reputationEventsTable, [reputationNotified, appealDecided]],
     ] as const) {
       orderNotifyStreamFn.function.addEventSource(
         new lambdaEventSources.DynamoEventSource(table, {

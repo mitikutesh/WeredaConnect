@@ -60,6 +60,7 @@ Payment _makePayment({
 PaymentIntent _makeIntent({
   String key = 'buyer-001:del-001:initiate:1708300000000',
   IntentStatus status = IntentStatus.pendingSync,
+  String? lastError,
 }) {
   return PaymentIntent()
     ..idempotencyKey = key
@@ -68,7 +69,8 @@ PaymentIntent _makeIntent({
     ..farmerId = 'farmer-001'
     ..amount = 5000.0
     ..status = status
-    ..createdAt = DateTime.now().toUtc();
+    ..createdAt = DateTime.now().toUtc()
+    ..lastError = lastError;
 }
 
 void main() {
@@ -415,6 +417,51 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(PendingIntentCard), findsOneWidget);
+    });
+
+    testWidgets(
+        'lists a failed intent under its own label with its reason, without '
+        'Cancel (FUP-182)', (WidgetTester tester) async {
+      final state = PaymentHistoryLoaded(
+        payments: [],
+        pendingIntents: [
+          _makeIntent(),
+          _makeIntent(
+            key: 'buyer-001:del-002:initiate:1708300000001',
+            status: IntentStatus.failed,
+            lastError: 'ESCROW_039',
+          ),
+        ],
+      );
+      when(() => escrowBloc.state).thenReturn(state);
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+      // Section labels render in capitals.
+      expect(
+        find.text(l10n.escrowPendingSection(1).toUpperCase()),
+        findsOneWidget,
+      );
+      expect(
+        find.text(l10n.escrowFailedSection(1).toUpperCase()),
+        findsOneWidget,
+      );
+      expect(find.byType(PendingIntentCard), findsNWidgets(2));
+      expect(find.textContaining(l10n.escrowQueuedStatus), findsOneWidget);
+      expect(
+        find.textContaining(l10n.escrowIntentFailedStatus),
+        findsOneWidget,
+      );
+      expect(
+        find.text(l10n.escrowErrorDeliveryPaymentUnavailable),
+        findsOneWidget,
+      );
+      // Cancel only on the waiting one.
+      expect(find.text(l10n.escrowCancelIntent), findsOneWidget);
     });
 
     testWidgets('shows role filter chips', (WidgetTester tester) async {

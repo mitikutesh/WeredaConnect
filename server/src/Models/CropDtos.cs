@@ -164,13 +164,6 @@ public sealed record CropDto
     public string? DeletedAt { get; init; }
 
     /// <summary>
-    /// Farmer's reliability in [0, 1] (listing-conversion track record),
-    /// server-injected at create time. Absent for farmers with no history; the
-    /// on-device matcher defaults it to a neutral value.
-    /// </summary>
-    public double? FarmerReliability { get; init; }
-
-    /// <summary>
     /// ESC-29 (reputation-api.md section 7): the owner's public reputation copied onto the row:
     /// the public tier (<c>good</c> or <c>low</c>), the effective rating, the rating count, the
     /// reliability and when the copy was written. All absent while <c>reputationPublicTags</c> is off.

@@ -8042,6 +8042,12 @@ public partial class SyncFunction
                 "The payment for this order belongs to another delivery, so this one cannot be disputed.",
             DeliveryDisputeFreeze.RefusedRefundScheduled =>
                 "The payment for this delivery is being refunded to the buyer, so it can no longer be disputed.",
+            // FUP-108: apps before build 2 are shown held as escrowed and dispute_resolved as disputed
+            // (FUP-61), so for those two the text gives the reason in words instead of the stored status.
+            DeliveryDisputeFreeze.RefusedNotHeld when freeze.EscrowStatus == EscrowHoldFields.Status =>
+                "The payment for this delivery is under review, so it cannot be disputed now.",
+            DeliveryDisputeFreeze.RefusedNotHeld when freeze.EscrowStatus == "dispute_resolved" =>
+                "The dispute on the payment for this delivery is already decided, so it cannot be disputed again.",
             _ => $"The payment for this delivery is not held in escrow (status: {freeze.EscrowStatus}), so it can no longer be disputed."
         };
         if (refusal == null)
@@ -8220,7 +8226,9 @@ public partial class SyncFunction
 
         try
         {
-            var order = await _orderRepo.GetByIdAsync(orderId);
+            // FUP-76: strongly consistent, because the write below uses this read's version: a pickedUp then
+            // inTransit (or a check-in) in one batch must see the first advance, not conflict on the old version.
+            var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
             if (order == null)
             {
                 return;

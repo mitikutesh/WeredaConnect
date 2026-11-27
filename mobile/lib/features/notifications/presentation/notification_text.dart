@@ -54,6 +54,8 @@ const List<String> notificationTypes = [
   // ESC-31 (notifications-api.md 1.5.0): the party's own reputation.
   'penalty_recorded',
   'tier_changed',
+  // FUP-195 (notifications-api.md 1.8.0): an admin's decision on a record.
+  'appeal_decided',
   // FUP-286 and FUP-338 (notifications-api.md 1.6.0): the check-ins.
   'pickup_reminder',
   'trucker_arrived',
@@ -68,6 +70,7 @@ const List<String> notificationTypes = [
 const Set<String> reputationNotificationTypes = {
   'penalty_recorded',
   'tier_changed',
+  'appeal_decided',
 };
 
 /// Types that ask the recipient to act (`NotificationTypes.ActionRequired`).
@@ -253,6 +256,7 @@ const Set<String> actionRequiredNotificationTypes = {
         title: l10n.notifTierChangedTitle,
         body: _tierChangedBody(l10n, p),
       ),
+    'appeal_decided' => _appealDecidedText(l10n, p),
     'pickup_reminder' => (
         title: l10n.notifPickupReminderTitle,
         body: l10n.notifPickupReminderBody,
@@ -355,6 +359,32 @@ String _tierChangedBody(AppLocalizations l10n, Map<String, String> p) {
   }
 }
 
+/// FUP-195: an admin excused or upheld one of the party's records. Names
+/// the record as My reputation does, then the admin's note when the entry
+/// carries one. A decision this build does not know stays neutral.
+({String title, String body}) _appealDecidedText(
+  AppLocalizations l10n,
+  Map<String, String> p,
+) {
+  final event = reputationEventTitle(l10n, p['code']);
+  final (title, line) = switch (p['decision']) {
+    'excused' => (
+        l10n.notifAppealExcusedTitle,
+        l10n.notifAppealExcusedBody(event),
+      ),
+    'upheld' => (
+        l10n.notifAppealUpheldTitle,
+        l10n.notifAppealUpheldBody(event),
+      ),
+    _ => (l10n.notifAppealDecidedTitle, l10n.notifAppealDecidedBody(event)),
+  };
+  final note = (p['note'] ?? '').trim();
+  return (
+    title: title,
+    body: note.isEmpty ? line : '$line ${l10n.reputationAppealNote(note)}',
+  );
+}
+
 String _payoutHint(AppLocalizations l10n, String? reason) {
   final code = reason ?? '';
   if (code.contains('fayda')) return l10n.notifPayoutHintFayda;
@@ -439,7 +469,7 @@ ClockLabel? notificationDetailLine(
     'payout_blocked' ||
     'order_rejected' =>
       (icon: Icons.error_outline, color: AppTheme.statusError),
-    'penalty_recorded' || 'tier_changed' => (
+    'penalty_recorded' || 'tier_changed' || 'appeal_decided' => (
         icon: Icons.workspace_premium_outlined,
         color: AppTheme.statusWarning
       ),

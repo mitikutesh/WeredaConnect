@@ -2,6 +2,7 @@ using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using NSubstitute;
 using WeredaConnect.Server.Data;
+using WeredaConnect.Server.Services;
 using Xunit;
 
 namespace WeredaConnect.Server.Tests.Data;
@@ -131,6 +132,87 @@ public class OrderRepositoryTests
         await _mockDynamoDb.Received(1).PutItemAsync(
             Arg.Is<PutItemRequest>(r => r.Item["orderId"].S == "order-2"),
             Arg.Any<CancellationToken>());
+    }
+
+    // --- FUP-76: an update right behind its create (order and pay offline: one batch) ---
+
+    /// <summary>
+    /// The table as the batch finds it right after the create: an eventually consistent read can still miss
+    /// the new row, a strongly consistent Query of the table's own key sees it. An update answers the stored
+    /// row at the version it wrote.
+    /// </summary>
+    private void TableRightAfterItsCreate()
+    {
+        Dictionary<string, AttributeValue>? stored = null;
+        _mockDynamoDb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                stored = new Dictionary<string, AttributeValue>(ci.ArgAt<PutItemRequest>(0).Item);
+                return new PutItemResponse();
+            });
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var query = ci.ArgAt<QueryRequest>(0);
+                return new QueryResponse
+                {
+                    Items = stored != null && query.IndexName == null && query.ConsistentRead
+                        ? new List<Dictionary<string, AttributeValue>> { new(stored) }
+                        : new List<Dictionary<string, AttributeValue>>()
+                };
+            });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new UpdateItemResponse
+            {
+                Attributes = new Dictionary<string, AttributeValue>(stored!)
+                {
+                    ["version"] = ci.ArgAt<UpdateItemRequest>(0).ExpressionAttributeValues[":newVersion"]
+                }
+            });
+        _mockDynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new TransactWriteItemsResponse());
+    }
+
+    private Task<AuthResult<Dictionary<string, object>>> CreateTheOrderAsync() => _repository.CreateAsync(
+        "order-1", new Dictionary<string, object> { { "buyerId", "buyer-1" }, { "status", "created" } });
+
+    [Fact]
+    public async Task UpdateAsync_RightBehindItsCreate_FindsTheRow_WithAStronglyConsistentRead()
+    {
+        TableRightAfterItsCreate();
+
+        var created = await CreateTheOrderAsync();
+        var updated = await _repository.UpdateAsync(
+            "order-1", new Dictionary<string, object> { { "cbeTransactionId", "CBE-1" } }, 1);
+
+        Assert.True(created.IsSuccess);
+        Assert.True(updated.IsSuccess, updated.Error?.Message);
+        Assert.Equal("2", updated.Value!["version"].ToString());
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r => r.Key["createdAt"].S == created.Value!["createdAt"].ToString()
+                && r.ExpressionAttributeValues[":expectedVersion"].N == "1"),
+            Arg.Any<CancellationToken>());
+        await _mockDynamoDb.DidNotReceive().QueryAsync(
+            Arg.Is<QueryRequest>(r => !r.ConsistentRead), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UpdateUnlessEscrowHeld_RightBehindItsCreate_FindsTheRow_WithAStronglyConsistentRead()
+    {
+        TableRightAfterItsCreate();
+
+        var created = await CreateTheOrderAsync();
+        var updated = await _repository.UpdateUnlessEscrowHeldAsync(
+            "order-1", new Dictionary<string, object> { { "status", "accepted" } }, 1, OrderEscrow);
+
+        Assert.True(created.IsSuccess);
+        Assert.True(updated.IsSuccess, updated.Error?.Message);
+        await _mockDynamoDb.Received(1).TransactWriteItemsAsync(
+            Arg.Is<TransactWriteItemsRequest>(r => r.TransactItems[0].Update.Key["createdAt"].S
+                == created.Value!["createdAt"].ToString()),
+            Arg.Any<CancellationToken>());
+        await _mockDynamoDb.DidNotReceive().QueryAsync(
+            Arg.Is<QueryRequest>(r => !r.ConsistentRead), Arg.Any<CancellationToken>());
     }
 
     [Fact]
