@@ -1416,6 +1416,16 @@
       }
     }
   },
+  "escrowFailedSection": "ያልተሳኩ ({count})",
+  "@escrowFailedSection": {
+    "description": "Section header for the buyer's queued payments that failed, listed for 24 hours (FUP-182), with count",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
   "escrowHistorySection": "ታሪክ",
   "@escrowHistorySection": {
     "description": "Section header for confirmed payment history"
@@ -2078,6 +2088,10 @@
   "escrowQueuedStatus": "ተራ ላይ",
   "@escrowQueuedStatus": {
     "description": "Status label for queued payment intent"
+  },
+  "escrowIntentFailedStatus": "አልተሳካም",
+  "@escrowIntentFailedStatus": {
+    "description": "Status label for a queued payment intent that failed and will not be sent again (FUP-182)"
   },
   "@@p1ErrorLocalizationFixes": "=== P1 Error Localization Fixes (FIX-019 to FIX-023) ===",
   "genericError": "ችግር ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።",
@@ -2747,6 +2761,10 @@
   "deleteAccountBlockerPaymentReview": "ተመላሽ የሚጠብቁ ክፍያዎች፦ {count}። ተመላሹን ለማጠናቀቅ ድጋፍ ሰጪን ያግኙ።",
   "deleteAccountBlockerOther": "ሌሎች በሂደት ላይ ያሉ ነገሮች፦ {count}",
   "deleteAccountBlockersMore": "እና {count} ተጨማሪ።",
+  "finishDeletingTitle": "የመለያዎ ስረዛ ይጠናቀቅ?",
+  "finishDeletingBody": "ይህን መለያ መሰረዝ ጀምረዋል፣ ግን ስረዛው ገና አልተጠናቀቀም። እስኪጠናቀቅ ድረስ መተግበሪያው ለውጦችዎን ማስቀመጥ አይችልም።",
+  "finishDeletingButton": "ስረዛውን ጨርስ",
+  "finishDeletingLater": "አሁን አይደለም",
   "deletedUser": "የተሰረዘ ተጠቃሚ",
   "unnamedUser": "ተጠቃሚ",
   "statusAwaitingTransport": "ማጓጓዣ አልተገኘም",
@@ -3477,6 +3495,12 @@
   "notifTierChangedTitle": "ተዓማኒነትዎ ተቀይሯል",
   "notifTierGoodBody": "ወደ ጥሩ አቋም ተመልሰዋል።",
   "notifTierWarningBody": "የቅጣት ነጥቦች አሉዎት። ገዢዎች እስካሁን ምንም አያዩም። ለዝርዝሩ \"የእኔ ተዓማኒነት\"ን ይክፈቱ።",
+  "notifAppealExcusedTitle": "የቅጣት ነጥቦች ተወግደዋል",
+  "notifAppealExcusedBody": "{event}። ቡድናችን ነጥቦቹን አስወግዷል።",
+  "notifAppealUpheldTitle": "የቅጣት ነጥቦቹ ይቆያሉ",
+  "notifAppealUpheldBody": "{event}። ቡድናችን መርምሮ ነጥቦቹን አቆይቷል።",
+  "notifAppealDecidedTitle": "መዝገብዎ ተመርምሯል",
+  "notifAppealDecidedBody": "{event}። የቡድናችንን ውሳኔ ለማየት \"የእኔ ተዓማኒነት\"ን ይክፈቱ።",
   "notifPickupReminderTitle": "ለመጫኛው ያረጋግጡ",
   "notifPickupReminderBody": "የመጫኛ ማረጋገጫው በቅርቡ ይዘጋል። እባክዎ ትዕዛዙን ከፍተው ያረጋግጡ።",
   "notifTruckerArrivedTitle": "የጭነት መኪና ሹፌሩ ደርሰዋል",

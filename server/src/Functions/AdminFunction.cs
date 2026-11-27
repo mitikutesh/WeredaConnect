@@ -260,6 +260,7 @@ public partial class AdminFunction
         // Roles are stored lowercase (validated case-insensitively, persisted
         // verbatim from the lowercase wire value); the DynamoDB filter is
         // case-sensitive, so capitalized values matched nothing and counted 0.
+        // FUP-555: no index has role as its whole partition key, so these stay filtered Scans.
         var farmersCount = await ScanCountWithFilterAsync(_usersTable, "role", "farmer");
         var truckersCount = await ScanCountWithFilterAsync(_usersTable, "role", "trucker");
         var buyersCount = await ScanCountWithFilterAsync(_usersTable, "role", "buyer");
@@ -267,12 +268,13 @@ public partial class AdminFunction
         // Funded-but-not-released escrows are persisted as "escrowed" (EscrowService
         // sets this after a successful Telebirr hold). "held" means frozen for fraud review
         // (FRD-03) and has its own count below (FRD-07).
-        var activeEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "escrowed");
-        var disputedEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "disputed");
+        var activeEscrows = await EscrowStatusCountAsync("escrowed");
+        var disputedEscrows = await EscrowStatusCountAsync("disputed");
         var ordersCount = await ScanCountAsync(_ordersTable);
         // Crops are created with status "available" (never "active"); the old
         // filter counted 0. Valid crop statuses: available/reserved/sold/deleted.
-        var activeListings = await ScanCountWithFilterAsync(_cropsTable, "status", "available");
+        // FUP-555: one partition of the crops' status index, not a Scan (see CropStatusIndex).
+        var activeListings = await QueryCountAsync(_cropsTable, CropStatusIndex, "available");
         // FRD-07: the review backlog, counted on the sparse status index. Credit and whitelist rows carry
         // no status, so the index never holds them (FRD-05 filtered them out of a Scan).
         var fraudSignalsCount = await QueryCountAsync(
@@ -2674,10 +2676,11 @@ public partial class AdminFunction
     private async Task<APIGatewayProxyResponse> HandleComplianceSummaryAsync(ILambdaContext context)
     {
         var totalTransactions = await ScanCountAsync(_escrowsTable);
+        // FUP-555: no index on faydaVerified, so the users counts stay filtered Scans.
         var faydaVerified = await ScanCountWithBoolFilterAsync(_usersTable, "faydaVerified", true);
         var unverified = await ScanCountWithBoolFilterAsync(_usersTable, "faydaVerified", false);
-        var disputesOpen = await ScanCountWithFilterAsync(_escrowsTable, "status", "disputed");
-        var disputesResolved = await ScanCountWithFilterAsync(_escrowsTable, "status", "dispute_resolved");
+        var disputesOpen = await EscrowStatusCountAsync("disputed");
+        var disputesResolved = await EscrowStatusCountAsync("dispute_resolved");
         var (totalVolume, _) = await ScanEscrowTotalsAsync();
 
         var response = new AdminComplianceSummaryResponse
@@ -2711,7 +2714,7 @@ public partial class AdminFunction
         // "completed" is the terminal settled state (contract §Status Definitions): every leg is
         // paid. "released" means the farmer is paid; it stays released while the trucker leg is
         // still owed (ESC-04), so such an escrow counts here only once that leg is paid.
-        var completedCount = await ScanCountWithFilterAsync(_escrowsTable, "status", "completed");
+        var completedCount = await EscrowStatusCountAsync("completed");
 
         var avgCommission = completedCount > 0 ? totalCommissions / completedCount : 0m;
 
@@ -2740,12 +2743,12 @@ public partial class AdminFunction
         var total = await ScanCountAsync(_escrowsTable);
         // Terminal settled state is "completed", not "released" (the farmer is paid but a
         // trucker leg may still be owed, ESC-04).
-        var completed = await ScanCountWithFilterAsync(_escrowsTable, "status", "completed");
+        var completed = await EscrowStatusCountAsync("completed");
         // In-flight (funded, not yet released) escrows are stored as "escrowed",
         // not "held" — the old filter always returned 0.
-        var pending = await ScanCountWithFilterAsync(_escrowsTable, "status", "escrowed");
-        var disputed = await ScanCountWithFilterAsync(_escrowsTable, "status", "disputed");
-        var refunded = await ScanCountWithFilterAsync(_escrowsTable, "status", "refunded");
+        var pending = await EscrowStatusCountAsync("escrowed");
+        var disputed = await EscrowStatusCountAsync("disputed");
+        var refunded = await EscrowStatusCountAsync("refunded");
         var (totalVolume, _) = await ScanEscrowTotalsAsync();
 
         var response = new AdminTransactionAnalyticsResponse
@@ -3558,6 +3561,14 @@ public partial class AdminFunction
             ? (new List<Dictionary<string, object>>(), null)
             : await QueryIndexPageAsync(_escrowsTable, EscrowStatusIndex, status, limit, startKey, newestFirst: false);
 
+    /// <summary>
+    /// FUP-555: the escrows in <paramref name="status"/>, counted on that partition of
+    /// <see cref="EscrowStatusIndex"/> over every page, never a Scan. Every escrow write path sets
+    /// <c>status</c> and <c>expiresAt</c> and none removes either, so the count is the filtered Scan's.
+    /// </summary>
+    private Task<int> EscrowStatusCountAsync(string status) =>
+        QueryCountAsync(_escrowsTable, EscrowStatusIndex, status);
+
     // ──────────────────────────────────────────────
     // Status index queues (FRD-07)
     // ──────────────────────────────────────────────
@@ -3567,6 +3578,12 @@ public partial class AdminFunction
 
     /// <summary>FUP-80: the orders index by status (<c>status</c>, <c>createdAt</c>), which every order is on.</summary>
     internal const string OrderStatusIndex = "StatusCreatedAtIndex";
+
+    /// <summary>
+    /// FUP-555: the crops index by status (<c>status</c>, <c>createdAt</c>). <c>createdAt</c> is the table's sort
+    /// key and the /sync create sets <c>status</c>, so every listing with a status is on it.
+    /// </summary>
+    internal const string CropStatusIndex = "StatusCreatedAtIndex";
 
     /// <summary>The key attributes of a <see cref="FraudStatusIndex"/> page's last evaluated key.</summary>
     private static readonly string[] FraudStatusIndexKeys = { "userId", "signalKey", "status", "createdAt" };

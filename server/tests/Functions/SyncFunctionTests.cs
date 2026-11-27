@@ -4353,8 +4353,8 @@ public partial class SyncFunctionTests
             { "commissionAmount", 113.75 }, { "orderTotal", 2448.75 },
             { "status", status }, { "version", version.ToString() }
         };
-        // Both read modes: order updates read it strongly consistent (FUP-21), the delivery
-        // paths that advance or size the order still read it eventually consistent.
+        // Both read modes: order updates (FUP-21) and the delivery's order advance (FUP-76) read it
+        // strongly consistent, other delivery paths that size the order still read it eventually consistent.
         _mockOrderRepo.GetByIdAsync("order-001").Returns(order);
         _mockOrderRepo.GetByIdAsync("order-001", true).Returns(order);
         return order;
@@ -5848,6 +5848,74 @@ public partial class SyncFunctionTests
             Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "in_transit"), 1);
     }
 
+    // FUP-76: the trucker's pickedUp then inTransit in one batch. An eventually consistent read of the order
+    // still shows it accepted at version 1 after the pickup advanced it, so an advance on that read conflicts
+    // and leaves the order one step behind. The advance reads the order strongly consistent.
+    [Fact]
+    public async Task DeliveryUpdates_PickedUpThenInTransitInOneBatch_TheOrderFollowsBothSteps()
+    {
+        var stale = SetupExistingOrder(status: "accepted");
+        var stored = new Dictionary<string, object>(stale);
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(_ => new Dictionary<string, object>(stale));
+        _mockOrderRepo.GetByIdAsync("order-001", true).Returns(_ => new Dictionary<string, object>(stored));
+        _mockOrderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(ci =>
+            {
+                var expected = ci.ArgAt<int>(2);
+                if (stored["version"].ToString() != expected.ToString())
+                {
+                    return AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict.");
+                }
+
+                stored["status"] = ci.ArgAt<Dictionary<string, object>>(1)["status"];
+                stored["version"] = (expected + 1).ToString();
+                return AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>(stored));
+            });
+
+        // The delivery moves with each write: pending, then pickedUp at 2, then inTransit at 3.
+        var delivery = DeliveryItemWithFarmerNonce();
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table"))
+            .Returns(_ => new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { new(delivery) } });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns(ci =>
+            {
+                var update = ci.ArgAt<UpdateItemRequest>(0);
+                var next = new[] { "pickedUp", "inTransit" }
+                    .FirstOrDefault(s => update.ExpressionAttributeValues.Values.Any(v => v.S == s));
+                if (update.TableName == "test-deliveries-table" && next != null)
+                {
+                    delivery = new Dictionary<string, AttributeValue>(delivery)
+                    {
+                        ["status"] = new AttributeValue { S = next },
+                        ["version"] = new AttributeValue { N = next == "pickedUp" ? "2" : "3" }
+                    };
+                }
+
+                return new UpdateItemResponse { Attributes = delivery };
+            });
+
+        var pickedUp = MakeDeliveryUpdateOp(new Dictionary<string, object>
+        {
+            { "status", "pickedUp" }, { "scannedQrNonce", LegacyFarmerNonce }, { "version", 1 }
+        });
+        var inTransit = MakeDeliveryUpdateOp(new Dictionary<string, object> { { "status", "inTransit" }, { "version", 2 } })
+            with
+        {
+            OperationId = "op-del-update-2",
+            IdempotencyKey = "user:delivery:del-001:update:12346"
+        };
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(pickedUp, inTransit), "trucker-001"), _context);
+
+        Assert.DoesNotContain("\"error\"", response.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "pickup_confirmed"), 1);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "in_transit"), 2);
+        Assert.Equal("in_transit", stored["status"]);
+    }
+
     [Theory]
     [InlineData("disputed")]
     [InlineData("delivered")]
@@ -6318,6 +6386,28 @@ public partial class SyncFunctionTests
         await DidNotWriteTheEscrow(rig.EscrowRepo);
         await DidNotWriteTheDelivery();
         await DidNotWriteTheOrder();
+    }
+
+    [Theory]
+    [InlineData("held", "The payment for this delivery is under review, so it cannot be disputed now.")]
+    [InlineData("dispute_resolved", "The dispute on the payment for this delivery is already decided, so it cannot be disputed again.")]
+    public async Task DeliveryUpdate_Disputed_StatusOldAppsAreShownAsAnother_IsRefusedWithoutTheStatus(
+        string status, string sentence)
+    {
+        // FUP-108: apps before build 2 are shown held as escrowed and dispute_resolved as disputed (FUP-61),
+        // so the refusal gives the reason in words; the audit keeps the stored status.
+        var rig = DisputeFunction(OrderEscrowRow(status: status));
+
+        var response = await SendDeliveryDisputeAsync(rig.Function);
+
+        Assert.Contains($"DELIVERY_DISPUTE_REFUSED: {sentence} Contact support.", response.Body);
+        Assert.DoesNotContain("status: ", response.Body);
+        Assert.DoesNotContain(status, response.Body);
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+        await DidNotWriteTheDelivery();
+        await DidNotWriteTheOrder();
+        await rig.AuditRepo.Received(1).AppendAsync(Arg.Is<Dictionary<string, object>>(d =>
+            (string)d["action"] == "dispute_refused_not_held" && (string)d["escrowId"] == OrderEscrowId));
     }
 
     [Fact]

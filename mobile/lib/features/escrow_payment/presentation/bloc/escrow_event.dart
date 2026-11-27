@@ -136,7 +136,12 @@ class FilterPaymentHistory extends EscrowEvent {
   List<Object?> get props => [userId, statusFilter, roleFilter];
 }
 
-/// Load pending (queued) payment intents.
+/// Load the queued payment intents of the buyer [userId] (FUP-182).
 class LoadPendingIntents extends EscrowEvent {
-  const LoadPendingIntents();
+  final String userId;
+
+  const LoadPendingIntents({required this.userId});
+
+  @override
+  List<Object?> get props => [userId];
 }

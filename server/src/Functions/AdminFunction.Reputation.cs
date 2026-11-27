@@ -320,11 +320,17 @@ public partial class AdminFunction
             }
 
             var applied = result.Outcome == ReputationAdminOutcome.Applied;
+            var action = body.Decision == ReputationService.DecisionExcuse ? "reputation_excused" : "reputation_upheld";
             if (applied)
             {
-                var action = body.Decision == ReputationService.DecisionExcuse ? "reputation_excused" : "reputation_upheld";
                 // The body's until is not written here: only an end that was applied is, in the detail.
                 await AuditReputationAsync(request, context, userId, adminId, action, result, $"event={eventId};note={note}");
+            }
+            else
+            {
+                // FUP-199: the stored note, not the body's (a replay ignores it).
+                await AuditReputationReplayAsync(request, context, userId, adminId, action, result,
+                    $"event={eventId};note={result.Event?.DecisionNote ?? note}");
             }
 
             return LambdaResponse.Ok(new AdminReputationDecisionResponse
@@ -401,17 +407,22 @@ public partial class AdminFunction
             }
 
             var applied = result.Outcome == ReputationAdminOutcome.Applied;
+            var action = body.Action switch
+            {
+                ReputationService.ActionTag => "reputation_tagged",
+                ReputationService.ActionUntag => "reputation_untagged",
+                ReputationService.ActionRestrict => "reputation_restricted",
+                _ => "reputation_lifted"
+            };
+            // A replay matched the stored reason and end, so the body's are the stored ones.
+            var metadata = $"reason={reason}" + (until is { } end ? $";until={ReputationPolicy.Iso(end)}" : string.Empty);
             if (applied)
             {
-                var action = body.Action switch
-                {
-                    ReputationService.ActionTag => "reputation_tagged",
-                    ReputationService.ActionUntag => "reputation_untagged",
-                    ReputationService.ActionRestrict => "reputation_restricted",
-                    _ => "reputation_lifted"
-                };
-                await AuditReputationAsync(request, context, userId, adminId, action, result,
-                    $"reason={reason}" + (until is { } end ? $";until={ReputationPolicy.Iso(end)}" : string.Empty));
+                await AuditReputationAsync(request, context, userId, adminId, action, result, metadata);
+            }
+            else
+            {
+                await AuditReputationReplayAsync(request, context, userId, adminId, action, result, metadata);
             }
 
             return LambdaResponse.Ok(new AdminReputationActionResponse
@@ -493,28 +504,68 @@ public partial class AdminFunction
     }
 
     /// <summary>
-    /// One transaction-audit row per applied action (never for a replay): the acting admin, the
-    /// action, the tier and points before and after, the reason or note, and what else changed
+    /// One transaction-audit row per applied action: the acting admin, the action, the tier and
+    /// points before and after, the reason or note, and what else changed
     /// (<see cref="ReputationAdminResult.Detail"/>: a tag, an untag and a lift can leave the tier and
     /// the points as they were). Best effort like every admin audit (a failed write is logged by the
-    /// writer), plus the audit log line.
+    /// writer), plus the audit log line. FUP-199: written once, at the change's own time
+    /// (<see cref="ReputationAdminResult.ChangedAt"/>) under the user, so a replay that finds no row
+    /// there writes it (<see cref="AuditReputationReplayAsync"/>) and one that finds it writes nothing.
     /// </summary>
     private async Task AuditReputationAsync(
         APIGatewayProxyRequest request, ILambdaContext context, string userId, string adminId, string action,
         ReputationAdminResult result, string metadata)
     {
-        static string State(ReputationRead? read)
-            => read == null ? string.Empty : $"tier={read.Aggregate.Tier};points={read.Aggregate.ActivePoints}";
-
-        await TransactionAuditWriter.EmitAsync(
-            TxAuditRepo(), context, userId, "user", userId, action, State(result.Before), State(result.After),
-            AuditContext.From(request, adminId, "admin"),
-            metadata: string.IsNullOrEmpty(result.Detail) ? metadata : $"{metadata};{result.Detail}");
+        var auditContext = AuditContext.From(request, adminId, "admin");
+        var fullMetadata = string.IsNullOrEmpty(result.Detail) ? metadata : $"{metadata};{result.Detail}";
+        if (string.IsNullOrEmpty(result.ChangedAt))
+        {
+            await TransactionAuditWriter.EmitAsync(
+                TxAuditRepo(), context, userId, "user", userId, action, ReputationAuditState(result.Before),
+                ReputationAuditState(result.After), auditContext, fullMetadata);
+        }
+        else
+        {
+            await TransactionAuditWriter.EmitOnceAsync(
+                TxAuditRepo(), context, userId, "user", userId, action, ReputationAuditState(result.Before),
+                ReputationAuditState(result.After), auditContext, result.ChangedAt, fullMetadata);
+        }
 
         AuditLogger.LogAudit("ADMIN", "REPUTATION_ACTION",
             userId: adminId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "user", entityId: userId, detail: action, outcome: "success");
     }
+
+    /// <summary>
+    /// FUP-199: a replay (<c>alreadyDecided</c>, <c>alreadyApplied</c>) writes the change's audit row
+    /// when the request that made the change failed to (the write is best effort, after the commit),
+    /// at the same key, so there is still exactly one; when the row is there it writes nothing. The
+    /// row says what the replay knows: the admin who made the change (the stored <c>decidedBy</c> or
+    /// <c>by</c>), the stored note or reason, the state as the replay read it (no before state), and
+    /// <c>replayedBy</c>, the admin whose request wrote it. Best effort, like the first write.
+    /// </summary>
+    private async Task AuditReputationReplayAsync(
+        APIGatewayProxyRequest request, ILambdaContext context, string userId, string adminId, string action,
+        ReputationAdminResult result, string metadata)
+    {
+        if (string.IsNullOrEmpty(result.ChangedAt))
+        {
+            return;
+        }
+
+        var auditContext = new AuditContext
+        {
+            Actor = string.IsNullOrEmpty(result.ChangedBy) ? adminId : result.ChangedBy,
+            ActorRole = "admin",
+            CorrelationId = AuditLogger.GetCorrelationId(request)
+        };
+        await TransactionAuditWriter.EmitOnceAsync(
+            TxAuditRepo(), context, userId, "user", userId, action, null, ReputationAuditState(result.After),
+            auditContext, result.ChangedAt, $"{metadata};replayedBy={adminId}");
+    }
+
+    private static string ReputationAuditState(ReputationRead? read)
+        => read == null ? string.Empty : $"tier={read.Aggregate.Tier};points={read.Aggregate.ActivePoints}";
 
     /// <summary>Section 2's shape with <c>override.by</c> (9.1).</summary>
     private ReputationDto AdminReputationDto(ReputationRead read, ReputationService service)

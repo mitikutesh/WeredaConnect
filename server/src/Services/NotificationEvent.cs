@@ -109,6 +109,12 @@ public static class NotificationTypes
     /// <summary>The recipient's tier changed (a <c>TIER_CHANGED</c> row); to <c>warning</c> it is the private warning.</summary>
     public const string TierChanged = "tier_changed";
 
+    /// <summary>
+    /// FUP-195: an admin excused or upheld one of the recipient's events (the event row's decision write, reputation-api.md
+    /// 9.3); carries the decision and the admin's note to the party.
+    /// </summary>
+    public const string AppealDecided = "appeal_decided";
+
     /// <summary>Every type, for the parity tests (push text in three languages, client ARB keys).</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -118,7 +124,7 @@ public static class NotificationTypes
         DeliveryScheduled, BuyerCollecting, PickedUp, HandoffRecorded, InTransit, TruckNearby, Delivered, DeliveredPayoutPending,
         OrderSettled, RefundSent, PayoutSent, PayoutBlocked, PayoutProcessing,
         DisputeOpened, DisputeReceived, DisputeResolved, UnderReview,
-        PenaltyRecorded, TierChanged,
+        PenaltyRecorded, TierChanged, AppealDecided,
         PickupReminder, TruckerArrived, BuyerArrived, CropsReady, DeliveryArrived, DeliveryConfirmReminder
     };
 
@@ -170,6 +176,14 @@ public static class NotificationParams
     public const string FromTier = "fromTier";
     public const string ToTier = "toTier";
     public const string RestrictedUntil = "restrictedUntil";
+
+    /// <summary>
+    /// FUP-195, <c>appeal_decided</c>: the admin's decision (<c>excused</c> or <c>upheld</c>) and their note to the party,
+    /// the one free-text param (written by an admin to the party it is about, as the party's event list shows it;
+    /// control characters and anything that reads as a phone number are taken out).
+    /// </summary>
+    public const string Decision = "decision";
+    public const string Note = "note";
 
     /// <summary>
     /// Order-lifecycle 2.26.0, <c>order_commission_changed</c>: the new rate as a fraction (<c>0.025</c>), the new

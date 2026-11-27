@@ -516,7 +516,6 @@ public class CropFunction
             Location = GetStringOrNull(item, "location"),
             LocationName = GetStringOrNull(item, "locationName"),
             DeletedAt = GetStringOrNull(item, "deletedAt"),
-            FarmerReliability = GetDoubleOrNull(item, "farmerReliability"),
             OwnerTier = owner.Tier,
             OwnerEffectiveRating = owner.EffectiveRating,
             OwnerRatingCount = owner.RatingCount,

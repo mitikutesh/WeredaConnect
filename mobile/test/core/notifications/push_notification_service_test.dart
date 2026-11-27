@@ -23,6 +23,24 @@ const _orderPush = <String, dynamic>{
   'orderId': 'ord-7f3a',
 };
 
+/// A reputation push as OrderNotifyStreamFunction sends it
+/// (notifications-api.md 1.5.0): no `orderId`, `entity: reputation`.
+const _penaltyPush = <String, dynamic>{
+  'type': 'order',
+  'event': 'penalty_recorded',
+  'entityId': 'CANCEL#ord-7f3a',
+  'entity': 'reputation',
+  'notificationId': '2026-11-07T08:15:02Z#penalty_recorded#CANCEL#ord-7f3a',
+};
+
+const _tierPush = <String, dynamic>{
+  'type': 'order',
+  'event': 'tier_changed',
+  'entityId': 'TIER#2026-11-07T08:15:02Z',
+  'entity': 'reputation',
+  'notificationId': '2026-11-07T08:15:02Z#tier_changed#TIER',
+};
+
 void main() {
   group('PushNotificationService.isMessagePush', () {
     test('accepts a chat-message payload (MessageStreamFunction contract)', () {
@@ -331,6 +349,124 @@ void main() {
 
       expect(orders, ['ord-7f3a', 'ord-7f3a']);
       expect(conversations, isEmpty);
+    });
+  });
+
+  group('FUP-205 reputation pushes', () {
+    late StreamController<RemoteMessage> taps;
+
+    setUp(() async {
+      await PushNotificationService.resetTapsForTest();
+      taps = StreamController<RemoteMessage>.broadcast();
+    });
+
+    tearDown(() async {
+      await PushNotificationService.resetTapsForTest();
+      await taps.close();
+    });
+
+    test('penalty_recorded and tier_changed are reputation pushes', () {
+      expect(PushNotificationService.isReputationPush(_penaltyPush), isTrue);
+      expect(PushNotificationService.isReputationPush(_tierPush), isTrue);
+      expect(PushNotificationService.orderIdToOpen(_penaltyPush), isNull);
+      // An order event, a chat push, a match push.
+      expect(PushNotificationService.isReputationPush(_orderPush), isFalse);
+      expect(PushNotificationService.isReputationPush(_chatPush), isFalse);
+      expect(
+        PushNotificationService.isReputationPush(
+          {..._chatPush, 'entity': 'reputation'},
+        ),
+        isFalse,
+      );
+      expect(
+        PushNotificationService.isReputationPush({'intentId': 'i1'}),
+        isFalse,
+      );
+    });
+
+    test('a tap from the background opens My reputation once', () async {
+      var reputations = 0;
+      final orders = <String>[];
+      final conversations = <NotifiedConversation>[];
+      await PushNotificationService.listenForTaps(
+        opened: taps.stream,
+        initialMessage: () async => null,
+        onOpenOrder: orders.add,
+        onOpenReputation: () => reputations++,
+        onOpenConversation: conversations.add,
+      );
+
+      taps.add(const RemoteMessage(data: _penaltyPush));
+      await pumpEventQueue();
+      expect(reputations, 1);
+
+      taps.add(const RemoteMessage(data: _tierPush));
+      await pumpEventQueue();
+      expect(reputations, 2);
+      expect(orders, isEmpty);
+      expect(conversations, isEmpty);
+    });
+
+    test('the tap that cold-started the app opens My reputation once',
+        () async {
+      var reads = 0;
+      Future<RemoteMessage?> initialMessage() async {
+        reads++;
+        return const RemoteMessage(data: _tierPush);
+      }
+
+      var reputations = 0;
+      final orders = <String>[];
+      await PushNotificationService.listenForTaps(
+        opened: taps.stream,
+        initialMessage: initialMessage,
+        onOpenOrder: orders.add,
+        onOpenReputation: () => reputations++,
+      );
+      expect(reputations, 1);
+
+      // A later sign-in in the same launch does not open it again.
+      await PushNotificationService.listenForTaps(
+        opened: taps.stream,
+        initialMessage: initialMessage,
+        onOpenOrder: orders.add,
+        onOpenReputation: () => reputations++,
+      );
+      expect(reputations, 1);
+      expect(reads, 1);
+      expect(orders, isEmpty);
+    });
+
+    test('an order tap still opens its order, not My reputation', () async {
+      var reputations = 0;
+      final orders = <String>[];
+      await PushNotificationService.listenForTaps(
+        opened: taps.stream,
+        initialMessage: () async => null,
+        onOpenOrder: orders.add,
+        onOpenReputation: () => reputations++,
+      );
+
+      taps.add(const RemoteMessage(data: _orderPush));
+      await pumpEventQueue();
+
+      expect(orders, ['ord-7f3a']);
+      expect(reputations, 0);
+    });
+
+    test('in the foreground it pulls the inbox, with no order', () {
+      final pulls = <String?>[];
+      var chats = 0;
+      for (final data in [_penaltyPush, _tierPush, _orderPush]) {
+        PushNotificationService.handleForeground(
+          RemoteMessage(data: data),
+          onMessagePush: () => chats++,
+          onOrderPush: pulls.add,
+        );
+      }
+
+      expect(pulls, [null, null, 'ord-7f3a']);
+      expect(chats, 0);
     });
   });
 }

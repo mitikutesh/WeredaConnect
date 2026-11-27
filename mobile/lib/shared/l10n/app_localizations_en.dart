@@ -1169,6 +1169,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String escrowFailedSection(int count) {
+    return 'Failed ($count)';
+  }
+
+  @override
   String get escrowHistorySection => 'History';
 
   @override
@@ -1759,6 +1764,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get escrowQueuedStatus => 'Queued';
+
+  @override
+  String get escrowIntentFailedStatus => 'Failed';
 
   @override
   String get genericError => 'Something went wrong. Please try again.';
@@ -3456,6 +3464,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String deleteAccountBlockersMore(int count) {
     return 'And $count more.';
   }
+
+  @override
+  String get finishDeletingTitle => 'Finish deleting your account?';
+
+  @override
+  String get finishDeletingBody =>
+      'You started deleting this account, but the deletion is not finished. Until it is, the app cannot save your changes.';
+
+  @override
+  String get finishDeletingButton => 'Finish deleting';
+
+  @override
+  String get finishDeletingLater => 'Not now';
 
   @override
   String get deletedUser => 'Deleted user';
@@ -6227,6 +6248,30 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get notifTierWarningBody =>
       'You have penalty points. Buyers see nothing yet. Open My reputation for the details.';
+
+  @override
+  String get notifAppealExcusedTitle => 'Penalty points removed';
+
+  @override
+  String notifAppealExcusedBody(String event) {
+    return '$event. Our team removed the points.';
+  }
+
+  @override
+  String get notifAppealUpheldTitle => 'The penalty points stay';
+
+  @override
+  String notifAppealUpheldBody(String event) {
+    return '$event. Our team reviewed it and kept the points.';
+  }
+
+  @override
+  String get notifAppealDecidedTitle => 'Your record was reviewed';
+
+  @override
+  String notifAppealDecidedBody(String event) {
+    return '$event. Open My reputation to see our team\'s decision.';
+  }
 
   @override
   String get notifPickupReminderTitle => 'Check in for the pickup';
