@@ -220,8 +220,9 @@ public sealed class SyncFunctionQrGateTests
             Arg.Is<UpdateItemRequest>(r => r.TableName == DeliveriesTable), Arg.Any<CancellationToken>());
         // Once by the gate, once by the delivered stamp looking for an unlinked order escrow (FUP-66).
         await _escrow.Received(2).GetByIdAsync(OrderEscrowId, true);
-        // FUP-66: with no escrow row the order's funding decides; this order was never funded.
-        await _orders.Received(1).GetByIdAsync(OrderId, true);
+        // FUP-66: with no escrow row the order's funding decides; this order was never funded. The other
+        // read is the order's own advance to delivered (FUP-76).
+        await _orders.Received(2).GetByIdAsync(OrderId, true);
         Logs.Should().NotContain("QR_GATE_UNDECIDED");
     }
 

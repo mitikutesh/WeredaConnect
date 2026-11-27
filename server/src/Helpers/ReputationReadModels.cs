@@ -10,8 +10,12 @@ namespace WeredaConnect.Server.Helpers;
 /// </summary>
 public static class ReputationReadModels
 {
-    /// <summary>Section 2: the party's own reputation.</summary>
-    public static ReputationDto Own(ReputationRead read, ReputationPolicySettings settings, bool penaltiesEnabled)
+    /// <summary>
+    /// Section 2: the party's own reputation. GCR-04: <paramref name="conduct"/> (only while <c>conductRewards</c> is on)
+    /// adds <c>verifiedPct</c> and <c>verifiedOrders90d</c>; null leaves both out, so the answer is as before.
+    /// </summary>
+    public static ReputationDto Own(
+        ReputationRead read, ReputationPolicySettings settings, bool penaltiesEnabled, ConductVerified? conduct = null)
     {
         var a = read.Aggregate;
         var average = Average(read.Ratings);
@@ -48,15 +52,18 @@ public static class ReputationReadModels
                 : null,
             NextPointExpiryAt = read.NextPointExpiryAt is { } next ? ReputationPolicy.Iso(next) : null,
             PenaltiesEnabled = penaltiesEnabled,
+            VerifiedPct = conduct?.Pct,
+            VerifiedOrders90d = conduct?.Orders90d,
             AsOf = ReputationPolicy.Iso(read.AsOf)
         };
     }
 
     /// <summary>
     /// Section 3: the public summary. With <c>reputationPublicTags</c> off only the raw rating
-    /// average and count stay (they exist today through <c>GET /ratings</c>).
+    /// average and count stay (they exist today through <c>GET /ratings</c>). GCR-04: <paramref name="conduct"/> adds
+    /// the verified figure whatever <paramref name="publicTags"/> says (the flags are independent, spec 8 item 7).
     /// </summary>
-    public static ReputationDto Public(ReputationRead read, bool publicTags)
+    public static ReputationDto Public(ReputationRead read, bool publicTags, ConductVerified? conduct = null)
     {
         var a = read.Aggregate;
         return new ReputationDto
@@ -70,6 +77,8 @@ public static class ReputationReadModels
             ReliabilityPct = publicTags ? a.ReliabilityPct : null,
             CompletedOrders90d = publicTags ? a.CompletedOrders90d : null,
             TotalOrders90d = publicTags ? a.CompletedOrders90d + a.FaultCancels90d + a.NoShows90d : null,
+            VerifiedPct = conduct?.Pct,
+            VerifiedOrders90d = conduct?.Orders90d,
             AsOf = ReputationPolicy.Iso(read.AsOf)
         };
     }

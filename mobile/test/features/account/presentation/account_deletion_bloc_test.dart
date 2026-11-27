@@ -80,6 +80,21 @@ void main() {
     expect(build().state, const AccountDeletionIdle());
   });
 
+  // FUP-104: the "Finish deleting" prompt waits while a screen is open.
+  test('counts the open blocs, each closed once', () async {
+    final before = AccountDeletionBloc.openCount;
+    final first = build();
+    final second = build();
+    expect(AccountDeletionBloc.openCount, before + 2);
+
+    await first.close();
+    await first.close();
+    expect(AccountDeletionBloc.openCount, before + 1);
+
+    await second.close();
+    expect(AccountDeletionBloc.openCount, before);
+  });
+
   test('offline: says so, sends nothing and wipes nothing', () async {
     online = false;
     final bloc = build();

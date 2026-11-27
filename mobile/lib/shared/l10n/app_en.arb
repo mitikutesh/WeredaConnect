@@ -4156,6 +4156,22 @@
       }
     }
   },
+  "finishDeletingTitle": "Finish deleting your account?",
+  "@finishDeletingTitle": {
+    "description": "FUP-104 prompt title: a request was refused with 410 ACCOUNT_004 while the account deletion is still in_progress"
+  },
+  "finishDeletingBody": "You started deleting this account, but the deletion is not finished. Until it is, the app cannot save your changes.",
+  "@finishDeletingBody": {
+    "description": "FUP-104 prompt body: why the prompt shows and what happens until the deletion finishes"
+  },
+  "finishDeletingButton": "Finish deleting",
+  "@finishDeletingButton": {
+    "description": "FUP-104 prompt: opens Delete account, which sends the deletion again so the server resumes it"
+  },
+  "finishDeletingLater": "Not now",
+  "@finishDeletingLater": {
+    "description": "FUP-104 prompt: closes it; it does not ask again for 10 minutes"
+  },
   "deletedUser": "Deleted user",
   "@deletedUser": {
     "description": "Shown instead of the name of a party whose account was deleted (server sentinel 'Deleted user')"

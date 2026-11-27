@@ -141,4 +141,62 @@ public class ConductStampRepositoryTests
         var act = () => _repo.PutNewAsync(Stamp());
         await act.Should().ThrowAsync<TransactionCanceledException>();
     }
+
+    // ===== GCR-04: the figure's read =====
+
+    [Fact]
+    public void TheCountedStampsQuery_ReadsTheHandoffSlots_CountedAndInTheWindow_EventuallyConsistent()
+    {
+        var request = _repo.BuildCountedStampsQuery("farmer-1", T0.AddDays(-90));
+        request.TableName.Should().Be(Events);
+        request.KeyConditionExpression.Should().Be("userId = :u AND begins_with(eventId, :slot)");
+        request.FilterExpression.Should().Be("#code = :stamp AND #counted = :yes AND #at > :since");
+        request.ExpressionAttributeNames.Should().BeEquivalentTo(new Dictionary<string, string>
+        {
+            ["#code"] = "code",
+            ["#counted"] = "counted",
+            ["#at"] = "occurredAt"
+        });
+        request.ExpressionAttributeValues[":u"].S.Should().Be("farmer-1");
+        request.ExpressionAttributeValues[":slot"].S.Should().Be("HANDOFF#");
+        request.ExpressionAttributeValues[":stamp"].S.Should().Be("HANDOFF_QUALITY");
+        request.ExpressionAttributeValues[":yes"].BOOL.Should().BeTrue();
+        // The stored occurredAt is the same ISO text, so the string comparison is the time order.
+        request.ExpressionAttributeValues[":since"].S.Should().Be("2026-08-22T09:00:00.000Z");
+        request.ConsistentRead.Should().BeFalse("a read path; the reputation Lambda's Query grant covers either");
+        request.IndexName.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task TheCountedStampsQuery_PagesToTheEnd_AndSaysWhenTheCapCutIt()
+    {
+        var first = new Dictionary<string, AttributeValue> { ["userId"] = new() { S = "farmer-1" }, ["eventId"] = new() { S = "HANDOFF#o-2" } };
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.ExclusiveStartKey == null), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    ReputationEventRepository.StampToItem(Stamp("farmer-1", "farmer") with { OrderId = "o-1", Counted = true }),
+                    ReputationEventRepository.StampToItem(Stamp("farmer-1", "farmer") with { OrderId = "o-2", Counted = true })
+                },
+                LastEvaluatedKey = first
+            });
+        _dynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.ExclusiveStartKey == first), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    ReputationEventRepository.StampToItem(Stamp("farmer-1", "farmer") with { OrderId = "o-3", Counted = true })
+                }
+            });
+
+        var (all, truncated) = await _repo.QueryCountedStampsAsync("farmer-1", T0.AddDays(-90), 10);
+        all.Select(s => s.OrderId).Should().Equal("o-1", "o-2", "o-3");
+        all.Should().OnlyContain(s => s.Counted && s.Offered == 6 && s.Earned == 4);
+        truncated.Should().BeFalse();
+
+        var (capped, cut) = await _repo.QueryCountedStampsAsync("farmer-1", T0.AddDays(-90), 2);
+        capped.Select(s => s.OrderId).Should().Equal("o-1", "o-2");
+        cut.Should().BeTrue();
+    }
 }

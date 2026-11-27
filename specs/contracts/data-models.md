@@ -1,7 +1,7 @@
 # Data Models Contract
 
-**Version**: 1.24.0
-**Last Updated**: 2026-11-26
+**Version**: 1.25.0
+**Last Updated**: 2026-11-27
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
 
@@ -55,7 +55,6 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `ownerEffectiveRating` | double? | No | The buyers' star average minus the penalty deduction, one decimal | Server-written; null with no ratings (1.12.0) |
 | `ownerRatingCount` | int? | No | Ratings behind `ownerEffectiveRating` | Server-written (1.12.0) |
 | `ownerReputationAt` | DateTime? | No | When the server wrote the copy | "As of {date}" on the crop detail (1.12.0) |
-| `farmerReliability` | double? | No | Deprecated: the old listing-conversion value | No longer written by the server or read by the matcher (1.11.0) |
 | `status` | ListingStatus | Yes | Enum: draft/active/sold/expired | Lifecycle state |
 | `createdAt` | DateTime | Yes | UTC timestamp | Listing creation time |
 | `updatedAt` | DateTime | Yes | UTC timestamp | Last edit time |
@@ -524,6 +523,7 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.22.0 | 2026-11-13 | Delivery gains the server-only `dropoffPhotoLateAt` (FUP-140, `delivery-verification-api.md` 2.14.0): written with the buyer's drop-off photo attached as late evidence on a dispute the order cron opened (T8 or T9) that no admin decided, returned on the delivery reads for the admin's evidence. The apps neither store nor send it. The server-only kept-copy fields of 2.14.0 (`{type}PhotoKeptRef`, `{type}PhotoKeptVersionId`) never leave the server. |
 | 1.23.0 | 2026-11-26 | Order: `commissionRate` can be set per order by an admin before payment, and the row gains the server-only `commissionChange` stamp, never returned (order-lifecycle 2.26.0) | @Server |
 | 1.24.0 | 2026-11-26 | Delivery gains the server-only handoff evidence (FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0, `sync-protocol.md` 1.71.0): per leg `{leg}GpsStatus`, `{leg}GpsCapturedAt`, `{leg}GpsAccuracyM`, `{leg}Method` and `{leg}Platform`, and `dropoffCapturedAt`, stamped in the transition's write and never returned to the apps (no Isar or web model change). The sync operation's wire `platform` is named by the queue at send time, not stored. 1.23.0 belongs to a change in flight | @Server @Admin |
+| 1.25.0 | 2026-11-27 | CropListing loses `farmerReliability` (FUP-186, `crop-listing-api.md` 1.19.0, `match-api.md` 1.6.0): deprecated since 1.11.0, it leaves the Isar schema, the web mirror and both crop parsers, and `CropDto` and `MatchDto` no longer return it. Isar drops a removed property without a migration; old crop rows keep the stored attribute | @Server @Mobile |
 
 ---
 

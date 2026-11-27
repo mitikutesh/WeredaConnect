@@ -714,7 +714,7 @@ Get the authenticated user's payment history.
 
 | Parameter | Type | Required | Description | Example |
 |-----------|------|----------|-------------|---------|
-| `status` | string | No | Filter by escrow status | `status=escrowed` |
+| `status` | string | No | Filter by escrow status, the stored value; from an app before build 2, `escrowed` also matches `held` and `disputed` also matches `dispute_resolved` (2.32.0) | `status=escrowed` |
 | `role` | string | No | The caller's role in the transaction: `buyer`, `farmer` or `trucker`. Selects the GSI (`BuyerStatusIndex` / `FarmerStatusIndex` / `TruckerStatusIndex`) keyed by the caller's user id. Defaults to the token's role claim (1.2.4); a token without one reads as `buyer` | `role=trucker` |
 | `fromDate` | string | No | Start date (ISO 8601) | `fromDate=2026-01-01T00:00:00Z` |
 | `toDate` | string | No | End date (ISO 8601) | `toDate=2026-02-28T23:59:59Z` |
@@ -4127,7 +4127,8 @@ Build 2 and later get the stored value.
   the row as it is now. The same for the buyer, the farmer and the trucker; party scoping is
   unchanged.
 - Only the answer changes. The stored row, the `status=` filter of `GET /escrow/history` (it matches
-  the stored value, so `status=held` lists held rows, answered `escrowed` to an old app), the audit
+  the stored value, so `status=held` lists held rows, answered `escrowed` to an old app; since 2.32.0
+  an old app's `escrowed` and `disputed` filters also match `held` and `dispute_resolved`), the audit
   rows, the crons, the settlement lock and every server decision keep the stored value.
 - Not mapped: the admin routes (`/admin/*`, and `POST /escrow/release` and `POST /escrow/refund` on
   the admin authorizer). The `GET /escrow/*` routes sit on the marketplace authorizer, so no admin
@@ -4154,7 +4155,7 @@ Build 2 and later get the stored value.
   (`Cannot dispute escrow in 'held' state. Must be 'escrowed'.`), the delivery dispute refusal text
   on `/sync` (`... (status: held) ...`), and the `409` blockers of the account deletion
   (`account-deletion.md`), which list each blocking escrow with its stored `status`. The texts are
-  free text, not parsed values.
+  free text, not parsed values. All three are built in 2.32.0 (FUP-108), with the history filter.
 
 ---
 
@@ -6256,6 +6257,54 @@ an edge line and no edge filter counts a level line.
 
 ---
 
+## Additions in 2.32.0 (the rest of the party answers an old app reads, FUP-108)
+
+Finishes 1.31.0 (FUP-61): the three answers its "Not in 1.31.0" left with the stored status, and the
+history filter. An old app is, as there, one with no `X-App-Build` or a build below 2.
+
+### The dispute refusal texts
+- `POST /escrow/dispute` on an escrow that is not `escrowed` stays `422 ESCROW_INVALID_TRANSITION`
+  with `Cannot dispute escrow in '<status>' state. Must be 'escrowed'.`, except for two stored
+  statuses, which get a sentence without the status:
+
+| Stored `status` | Message |
+|-----------------|---------|
+| `held` | `This payment is under review, so it cannot be disputed now.` |
+| `dispute_resolved` | `The dispute on this payment is already decided, so it cannot be disputed again.` |
+
+- The `/sync` delivery dispute (1.12.0): the refusal of an escrow that holds no money stays
+  `DELIVERY_DISPUTE_REFUSED: The payment for this delivery is not held in escrow (status: <status>), so it can no longer be disputed. Contact support.`,
+  except: `held` gives `The payment for this delivery is under review, so it cannot be disputed now.`
+  and `dispute_resolved` gives `The dispute on the payment for this delivery is already decided, so it cannot be disputed again.`,
+  each after `DELIVERY_DISPUTE_REFUSED: ` and before ` Contact support.` as before.
+- The same text for every app, so no build check. The 1.31.0 value does not fit here: an old app
+  reads `held` as `escrowed`, and "Cannot dispute escrow in 'escrowed' state. Must be 'escrowed'."
+  contradicts itself. Build 2 and later already show `held` as "Under review".
+- Codes, HTTP statuses, the audit rows (`dispute_refused_not_held` keeps the stored status) and the
+  log lines are unchanged. The apps show their own text for both codes (`escrowErrorInvalidTransition`,
+  `deliveryErrorDisputeRefused`); the sentences they read (the refund scheduled one of 2.8.0, the
+  goods on the way one of 2.28.0) are other texts.
+
+### The account deletion blockers
+- `409 ACCOUNT_002` of `DELETE /user/account` (`account-deletion.md` 1.8.0): to an old app, each
+  `escrow` blocker's `status` is the 1.31.0 value (`held` reads `escrowed`, `dispute_resolved` reads
+  `disputed`). The `order`, `delivery`, `dispute` and `payment_review` blockers, the type, id and role
+  of each, and `blockerCount` are unchanged. The apps group the blockers by type and do not show the
+  status.
+
+### The history filter
+- `GET /escrow/history?status=` from an old app also matches each stored status it is shown as the
+  filtered one: `status=escrowed` lists `escrowed` and `held` rows, `status=disputed` lists `disputed`
+  and `dispute_resolved` rows, every row answered as the filter (1.31.0). So an old app's filter chip
+  lists what its unfiltered list shows under that status. Any other filter, and every filter from
+  build 2 on, matches the stored value as before; `status=held` still lists held rows only.
+- For such a filter the party index is read with no status filter, at the same `limit` and cursor,
+  and the page is filtered in the Lambda. DynamoDB applies a filter after the `limit` as well, so the
+  rows, `hasMore` and `nextToken` are those a filter on the stored statuses would give, at the same
+  read cost.
+
+---
+
 ## Planned in 2.0.0: one hold, three legs, one ledger (ESC-19, ESC-20)
 
 > **P.1 to P.9 and P.11 to P.13 are built in 2.2.0** (ESC-20, "Additions in 2.2.0", which says where the
@@ -6655,6 +6704,7 @@ it nowhere):
 | Version | Date | Change |
 |---------|------|--------|
 | 2.33.0 | 2026-11-27 | Held escrows in the party views (FUP-79, client only, "Additions in 2.33.0"): the order list follows `nextToken` on `GET /escrow/history?status=held` up to 4 pages of 50 (the server applies `limit` before the filter, so a held escrow older than the party's 50 newest was missed); mobile then re-reads by id each cached `held` row the pages did not list, so a hold an admin ended no longer reads "Under Review" offline; the delivery detail dispute needs no change (a hold happens only after the dispute window). Failed queued payments (FUP-182, mobile): the payment history lists the signed-in buyer's failed intents for 24 hours from the failure with their localized reason and a "Failed" label; the intent read is filtered by `buyerId`, so another user's waiting or failed intents are never listed on a shared phone; a failed intent is cleaned up 24 hours after its failure. No server, endpoint or field change |
+| 2.32.0 | 2026-11-27 | The rest of the party answers an old app reads (FUP-108, finishing 1.31.0): the dispute refusals of `POST /escrow/dispute` and the `/sync` delivery dispute name no status for `held` ("under review") and `dispute_resolved` ("already decided"), for every app; the `409 ACCOUNT_002` escrow blockers carry the 1.31.0 value to an old app (`account-deletion.md` 1.8.0); an old app's `GET /escrow/history?status=escrowed` also lists held rows and `status=disputed` also lists `dispute_resolved` rows, read unfiltered at the same limit and filtered in the Lambda (same pages). Codes, audit and stored rows unchanged. |
 | 2.31.0 | 2026-11-27 | Status-filtered admin lists on existing indexes (FUP-80, the 1.21.0 Admin section): `GET /admin/disputes` and `GET /admin/escrows?status=..` are a Query of that status partition of `StatusExpiresIndex`, oldest `expiresAt` first, one page of `limit` rows whose `nextToken` is the last row's index key; a token of another status or of the table (one handed out before this version) is `400 ADMIN_005`. `GET /admin/transactions?status=..` reads that partition of the orders' `StatusCreatedAtIndex` instead of a Scan. No new index, no infra change, no party read changes. The admin app shows the escrow detail status and the from and to states of the timeline, the escrow audit trail and the audit log by their labels, and the audit log search matches the labels too. |
 | 2.30.0 | 2026-11-26 | Handoff evidence on the dispute evidence read (FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0). Each handoff of `GET /admin/disputes/{escrowId}/evidence` adds `gpsStatus`, `gpsCapturedAt`, `gpsAccuracyM` and `platform` from the delivery's server-only stamps; `capturedAt` is also the drop-off's and the self-pickup's phone time (`dropoffCapturedAt`); `method` comes from the delivery's `pickupMethod` or `dropoffMethod`, else the audit metadata as before. The dispute stamp's `pickupMethod` and `confirmMethod` take the delivery's method first too. The admin dispute page names the cause of a missing fix (en, am, om), an approximate fix, the fix's time and accuracy, the app, and a handoff made offline and sent later. Admin only; no party read changes. 2.29.0 belongs to a change in flight. |
 | 2.29.0 | 2026-11-26 | Doc only: the order's `commissionRate` is the SSM rate at create unless an admin agreed another rate before payment (`order-lifecycle.md` 2.26.0, `POST /admin/orders/{orderId}/commission`); the order escrow's split is unchanged (the commission is the remainder of the new `orderTotal`). No escrow wire change |
