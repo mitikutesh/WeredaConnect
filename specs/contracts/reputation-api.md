@@ -1,15 +1,15 @@
 # Reputation API Contract
 
 ## Version
-1.9.0
+1.10.0
 
 ## Status
-PARTLY BUILT (1.9.0). BUILT in GCR-03 (1.9.0, server, not flagged): the conduct stamp of section 1.8 (no read returns it yet). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
+PARTLY BUILT (1.10.0). BUILT in GCR-04 (1.10.0, server, behind `conductRewards`, off everywhere): the verified handoffs figure of section 1.9, `verifiedPct` and `verifiedOrders90d` on the reads of sections 2 and 3. BUILT in GCR-03 (1.9.0, server, not flagged): the conduct stamp of section 1.8 (no read returns a stamp; GCR-04 reads them into the figure). BUILT in FUP-162 (1.8.0): the rating aggregate stamp of the rows without `ratingsAggregatedAt` (section 2 "As built"). BUILT in FUP-160 (1.7.0): the one-off owner stamp of section 7. BUILT in ESC-28: the events, the policy and the aggregate (section 1),
 the server side of the two notifications (section 10) and the flags and policy parameter
 (section 11). BUILT in ESC-29 (server): the reads (sections 2 to 4), the appeal photo and the appeal
 (5, 6), the copied owner fields (7) and the gates (8). BUILT in ESC-32: the admin endpoints
-(section 9) and the admin app's panel and appeals queue. Everything ships dark (all three flags off
-everywhere), except the suspension gate of 8.4, which is not flagged. BUILT in ESC-30: the matching
+(section 9) and the admin app's panel and appeals queue. Everything ships dark (all four flags off
+everywhere), except the suspension gate of 8.4 and the conduct stamp of 1.8, which are not flagged. BUILT in ESC-30: the matching
 signal (section 7, `match-api.md` 1.4.0). BUILT in ESC-33 (server): the fraud hooks of section 1.7. BUILT in ESC-31 (1.6.0): the app on the phone and the web (the cards of section 7, the
 `until=` of 8.1, the inbox side of section 10, section 13). Each section names its ticket. Design: `specs/architecture/reputation-architecture.md`. Rules and decisions D1 to D9:
 `specs/features/three-party-escrow-commitments-reputation.md` 4.11, 5.I and 14.
@@ -56,13 +56,14 @@ The public summary never shows points, events, reasons, appeals or restriction d
 |---|---|---|
 | 1 | Concepts: events, tiers, effective rating, reliability, restriction | ESC-28 (BUILT) |
 | 1.8 | The conduct stamp of a settled order (`HANDOFF_QUALITY`, all three parties) | GCR-03 (BUILT, server) |
+| 1.9 | The verified handoffs figure (`verifiedPct`, `verifiedOrders90d`) on the reads of sections 2 and 3 | GCR-04 (BUILT, server, behind `conductRewards`) |
 | 2 to 4 | Party and buyer reads | ESC-29 (BUILT) |
 | 5, 6 | Appeal photo and appeal | ESC-29 (BUILT) |
 | 7 | Owner fields copied onto crop and trip rows | ESC-29 (copy, BUILT), ESC-30 (matching, BUILT) |
 | 8 | Gates: `REPUTATION_RESTRICTED`, hidden restricted parties, suspension | ESC-29 (BUILT) |
 | 9 | Admin endpoints | ESC-32 (BUILT) |
 | 10 | Notifications `penalty_recorded`, `tier_changed` | ESC-28 (server, BUILT), ESC-31 (app, BUILT) |
-| 11 | Feature flags | ESC-28 (BUILT) |
+| 11 | Feature flags | ESC-28 (BUILT), GCR-04 (`conductRewards`, BUILT) |
 | 12 | Error codes | all |
 | 13 | Offline and sync | ESC-31 (BUILT) |
 
@@ -206,8 +207,8 @@ With `reputationPenalties` off none of the four runs, and nothing in ESC-33 is l
 
 ### 1.8 Conduct stamp (GCR-03, BUILT server, 1.9.0)
 
-Server-internal: nothing here is on the wire yet. GCR-04 reads it into `verifiedPct` behind
-`conductRewards`; GCR-07 shows it to admins. Design: `specs/features/good-conduct-rewards.md` sections
+Server-internal: no stamp row is on the wire. Since 1.10.0 GCR-04 reads the rows into `verifiedPct` and
+`verifiedOrders90d` behind `conductRewards` (section 1.9); GCR-07 shows them to admins. Design: `specs/features/good-conduct-rewards.md` sections
 4, 5 and 8. Built in `Helpers/ConductScoring.cs` (pure), `Services/ConductStampService.cs`,
 `Data/ReputationEventRepository.Conduct.cs`. **Not flagged** (stamping runs before anything shows).
 
@@ -284,9 +285,9 @@ row that is not an order event).
 - **No delivery row** (none on the order, or it names another order): every step that reads it is
   left out (`not_recorded`).
 - **Not scored yet**: the farm point (FUP-442), the check-ins `crops_ready` and `arrived_dropoff`
-  (GCR-13, flags off), identity verified (counted once per window, not per order: GCR-04's
-  aggregate), and two live steps not measurable as written, the listing kept current and the
-  drop-off code made ready (TASK FUP-560).
+  (GCR-13, flags off), identity verified (counted once per window, not per order: left out of
+  GCR-04's figure too, TASK FUP-575), and two live steps not measurable as written, the listing kept
+  current and the drop-off code made ready (TASK FUP-560).
 
 **Which orders count** (spec 5; the earn-back rules of 1.6). Every party of a settled order gets its
 row; an order that does not count is still stamped, with `counted: false` and the first reason that
@@ -319,7 +320,54 @@ read-lag check, the daily job, the recompute and the backfills, the admin read o
 `HANDOFF_QUALITY` out before its `eventsReadCap` counts, so a stamp never pushes an event past the
 cap. The appeal (section 6) reads one row by key and refuses anything that is not an order event;
 the admin decision (9.3) looks among the filtered rows. The indexes never see a stamp. Account deletion removes the user's whole partition, stamps
-included. No read returns a stamp yet; a buyer still has no `reputation` map.
+included. No read returns a stamp; a buyer still has no `reputation` map. The figure of 1.9 reads the
+stamps through their own query, never through `QueryEventsAsync`.
+
+### 1.9 Verified handoffs figure (GCR-04, BUILT server behind `conductRewards`, 1.10.0)
+
+The one number of `good-conduct-rewards.md` section 5 ("The number") and section 8 item 5, computed at
+read time from the stamps of 1.8 as `reliabilityPct` is from the events (1.4). Nothing is stored: no
+users row field, no aggregate, no daily job. Built in `Helpers/ConductScoring.cs` (`Verified`, pure),
+`Data/ReputationEventRepository.Conduct.cs` (`QueryCountedStampsAsync`) and
+`Functions/ReputationFunction.cs`.
+
+- `verifiedPct` = `round(100 x sum(earned) / sum(offered))` over the party's stamps with `counted: true`
+  that settled in the window, a whole percent rounded half up (as `reliabilityPct`). Spec 5 defines it
+  over steps, not orders: an order with 5 of 6 steps adds 5 and 6; it is not the share of orders with
+  every step taken. A stamp's `earned` is read at most at its `offered`, so the figure stays within 0 to
+  100.
+- **Window**: the reliability window of 1.4, 90 days: `occurredAt` (the settle) after `asOf` minus 90
+  days and not after `asOf`. A stamp settled exactly 90 days before the read is out; one a millisecond
+  later is in. The figure moves with the read time alone.
+- **Minimum**: absent while fewer than 3 counted stamps are in the window, and absent when those stamps
+  offered no step at all. The 3 is a constant, not the policy's `reliabilityMinOrders`: that parameter
+  is read only while `reputationPenalties` is on, and `conductRewards` is independent of it.
+- `verifiedOrders90d` = the counted stamps in the window, the base of `verifiedPct` and of the
+  minimum. Present (0 included) whenever the figure was read. So `verifiedOrders90d` without
+  `verifiedPct` means below the minimum; neither field means the flag is off or the stamps could not
+  be read.
+- A stamp with `counted: false` (any `notCountedReason`) counts toward neither value. Its `offered` and
+  `earned` stay on the row for GCR-07.
+- **Not in the figure**: identity verified (spec 4.1, "counted once per window, not per order"). The
+  figure reads the stamps only; adding the step needs the users row's `faydaVerified` and a decision on
+  which roles get it (TASK FUP-575).
+- **Read**: one Query of the party's `HANDOFF#` slots, filtered `code = HANDOFF_QUALITY AND counted =
+  true AND occurredAt > :since` (the stored `occurredAt` is the ISO text of this contract, so the string
+  order is the time order), eventually consistent, up to 1,000 rows. More rows than that log
+  `CONDUCT_READ_TRUNCATED` and the figure is from the rows read (above 11 counted orders a day for 90
+  days). A Query that fails logs `CONDUCT_READ_FAILED` with the exception's type, and the answer goes
+  out `200` without both fields, the rest unchanged. The reputation Lambda's existing `dynamodb:Query`
+  on the table covers it: no new grant.
+- **Where**: the own view (section 2) and the public summary (section 3, whatever
+  `reputationPublicTags` says: the flags are independent, spec 8 item 7). Not on the event list
+  (section 4), the admin read (9.1, GCR-07), the owner fields of section 7 (GCR-05), `GET /ratings` or
+  match.
+- **Who** (unchanged): a farmer or trucker gets their own figure on section 2, and on section 3 for
+  themselves; a buyer gets a farmer's or trucker's on section 3; nobody gets a buyer's (a buyer target
+  is `404`, a buyer on section 2 `403`, both decided before any stamp is read). The buyer standing is
+  GCR-11.
+- **Flag off** (every environment): no stamp is read and the answers of sections 2 and 3 are byte for
+  byte those of 1.9.0 (pinned in `ReputationFunctionTests`).
 
 ---
 
@@ -363,6 +411,8 @@ The caller's own reputation. Farmers and truckers only.
 | `override` | present while an admin tag is in force: `{ "tag": "low" \| "clear", "until", "reason" }` (the admin's id is not shown) |
 | `nextPointExpiryAt` | when the oldest active penalty expires; absent with no active points |
 | `penaltiesEnabled` | the `reputationPenalties` flag; the app hides the points UI while it is off |
+| `verifiedPct` | GCR-04, only while `conductRewards` is on: the verified handoffs figure of 1.9, a whole percent; absent below 3 counted orders (e.g. `"verifiedPct": 81`) |
+| `verifiedOrders90d` | GCR-04, only while `conductRewards` is on: the counted orders of the last 90 days the figure is computed from, 0 included (e.g. `"verifiedOrders90d": 4`) |
 | `asOf` | server time of this answer; the app shows it with the cached copy (spec I6) |
 
 The values are computed at read time from the stored aggregate. When `now` has passed the
@@ -374,7 +424,8 @@ or an ended restriction (architecture doc 6.6).
 (no users row, or a deleting or deleted account); `500 REPUTATION_SERVER_ERROR`.
 
 **Flags**: not gated. With `reputationPenalties` off the answer shows the stored state (normally
-0 points, `good`) and `penaltiesEnabled: false`.
+0 points, `good`) and `penaltiesEnabled: false`. With `conductRewards` off (1.10.0) `verifiedPct` and
+`verifiedOrders90d` are left out and no stamp is read; on, they follow section 1.9 (one more Query).
 
 **As built (1.2.0, `Functions/ReputationFunction.cs`, `ReputationService.ReadAsync`)**: the map does
 not store the next expiry, so this read also Queries the events while `activePoints` is above 0 (one
@@ -433,6 +484,9 @@ they read section 9.1. `userId` `me` is section 2 (the static route wins).
 - With `reputationPublicTags` off: `tier`, `effectiveRating`, `reliabilityPct`,
   `completedOrders90d` and `totalOrders90d` are left out; `ratingAverage` and `ratingCount` stay
   (they exist today through `GET /ratings`).
+- GCR-04 (1.10.0): with `conductRewards` on, `verifiedPct` and `verifiedOrders90d` of section 1.9 are
+  added (`"verifiedPct": 81, "verifiedOrders90d": 4`), whatever `reputationPublicTags` says; off, they
+  are left out and no stamp is read.
 
 **Errors**: as section 2, plus `403` for the cases in the table.
 
@@ -1097,13 +1151,18 @@ reputation (TASK FUP-205).
 
 Flags follow the environment config pattern of `commitmentsEnabled`
 (`infra/lib/config/environments.ts`, an env var on each Lambda that needs it; spec K3 named SSM,
-proposed change). All three default to off.
+proposed change). All four default to off.
 
 | Flag (config / env var) | On | Off |
 |---|---|---|
 | `reputationPenalties` / `REPUTATION_PENALTIES_ENABLED` | the stream records events; the daily job runs; gates 8.1 to 8.3; appeal and admin writes | the stream acks without writing (no retroactive points, spec 4.11); gates pass; reads show the stored state |
 | `timeoutPenalties` / `REPUTATION_TIMEOUT_PENALTIES_ENABLED` | `RESPONSE_EXPIRED` carries its point (when reachable) | `RESPONSE_EXPIRED` recorded with 0 points, `zeroReason: timeout_penalties_off` |
 | `reputationPublicTags` / `REPUTATION_PUBLIC_TAGS_ENABLED` | buyers get tier, effective rating and reliability (sections 3, 7; `rating-api.md` 1.2.0) | those fields are left out of buyer-facing answers |
+| `conductRewards` / `CONDUCT_REWARDS_ENABLED` (1.10.0, GCR-04) | sections 2 and 3 carry `verifiedPct` and `verifiedOrders90d` (section 1.9) | no stamp is read; the two fields are left out (the stamp of 1.8 is written either way) |
+
+`conductRewards` is independent of the other three (`good-conduct-rewards.md` section 8 item 7): it needs
+no penalty, tag or commitment flag. Turning it on anywhere is the owner's decision D1 of that spec, after
+TASK FUP-550 and two weeks of stamps per platform and region (TASK.md EPIC GCR).
 
 `reputationPenalties` is turned on only where `commitmentsEnabled` is on: the events read the
 commitment fields. The P3 codes also need their producer's flag: `NO_SHOW` needs `pickupClassification`
@@ -1119,7 +1178,10 @@ reaches the crops, trips, match, ratings, reputation and admin Lambdas (8.3, sec
 heal marker of 8.4, and since 1.4.0 the admin writes of section 9, with the policy parameter); `reputationPublicTags` the crops, trips, match, ratings, reputation and sync
 Lambdas. With
 `reputationPenalties` off nothing reads the policy parameter, the rating create still keeps the
-stored rating sum and count (`rating-api.md` 1.3.0) and the backfill still runs.
+stored rating sum and count (`rating-api.md` 1.3.0) and the backfill still runs. `conductRewards`
+(1.10.0) is in the same file, `false` in dev, staging and prod, and reaches the reputation Lambda only
+(`infra/test/unit/reputation.test.ts` pins both); it adds no grant (the reads already hold
+`dynamodb:Query` on the events table).
 
 ---
 
@@ -1226,6 +1288,7 @@ platform pair).
 
 | Version | Date | Change |
 |---|---|---|
+| 1.10.0 | 2026-11-27 | GCR-04 BUILT (server, behind the new flag `conductRewards`, off in dev, staging and prod): new section 1.9, the verified handoffs figure. `GET /reputation/me` and `GET /reputation/{userId}` add `verifiedPct` (`round(100 x sum(earned) / sum(offered))` over the party's counted `HANDOFF_QUALITY` stamps settled in the last 90 days, the window of `reliabilityPct`, half up; absent below 3 counted orders or with no step offered; spec 5) and `verifiedOrders90d` (those counted orders, 0 included), read through their own filtered Query; the event reads still never see a stamp. Public summary: independent of `reputationPublicTags`. A failed stamp read leaves both fields out (`CONDUCT_READ_FAILED`), the rest answers. With the flag off no stamp is read and no answer changes (a byte-for-byte test). Identity verified stays out of the figure (TASK FUP-575). Section 11: the fourth flag, on the reputation Lambda only, no new grant |
 | 1.9.0 | 2026-11-27 | GCR-03 BUILT (server, not flagged, no wire change): new section 1.8, the conduct stamp. When an order reaches `settled`, the reputation stream writes one `HANDOFF_QUALITY` row per party (farmer, trucker, buyer: the first buyer rows in the table) at `HANDOFF#{orderId}`, idempotent on `{orderId}:{partyId}`, under a check that the party is not being deleted: `offered`, `earned`, the step list with the left-out reasons of spec 5, and `counted` with `notCountedReason` (every party gets its row; a non-counted order is stamped as not counted). A late rating that completes the buyer's ratings, or a pickup or drop-off photo, re-evaluates the order once within 14 days. Every event read leaves the stamps out (`QueryEventsAsync` filters them before its cap), so no existing read changes. Not scored yet: the listing kept current and the drop-off code made ready (TASK FUP-560). As built, reputation-stream has none of the tables the stamp reads, so nothing is stamped on a deployed stack until TASK FUP-550 |
 | 1.8.1 | 2026-11-13 | Doc fix (ESC-36): `DELIVERY_OVERDUE` comes from T8 behind `dropoffClassification`, not `pickupClassification` (section 11). No wire change |
 | 1.8.0 | 2026-11-12 | FUP-162 (server, no wire change): the rows without `ratingsAggregatedAt` that section 2 "As built" describes get stamped: the order-cron `reputation_backfill_ratings` also Scans the users table once for the farmers and truckers without a `woreda` (resumable with `scanFrom`), and a rating for an unstamped ratee stamps their aggregate after the create (`rating-api.md` 1.5.0). The reads of sections 2 and 3 stay read-only. |
@@ -1241,4 +1304,4 @@ platform pair).
 ---
 
 **Last Updated**: 2026-11-27
-**Version**: 1.9.0
+**Version**: 1.10.0

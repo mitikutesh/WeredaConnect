@@ -57,6 +57,64 @@ public sealed partial class ReputationEventRepository : IConductStampRepository
     };
 
     /// <inheritdoc />
+    public async Task<(IReadOnlyList<ConductStamp> Rows, bool Truncated)> QueryCountedStampsAsync(string userId, DateTime sinceUtc, int cap)
+    {
+        var rows = new List<ConductStamp>();
+        var request = BuildCountedStampsQuery(userId, sinceUtc);
+        Dictionary<string, AttributeValue>? startKey = null;
+        do
+        {
+            request.ExclusiveStartKey = startKey;
+            var page = await _dynamoDb.QueryAsync(request);
+            foreach (var item in page.Items)
+            {
+                if (rows.Count >= cap)
+                {
+                    return (rows, true);
+                }
+
+                rows.Add(StampFromItem(item));
+            }
+
+            startKey = page.LastEvaluatedKey is { Count: > 0 } next ? next : null;
+            if (startKey != null && rows.Count >= cap)
+            {
+                return (rows, true);
+            }
+        }
+        while (startKey != null);
+
+        return (rows, false);
+    }
+
+    /// <summary>
+    /// GCR-04: the user's <c>HANDOFF#</c> slots that count and settled after <paramref name="sinceUtc"/> (the stored
+    /// <c>occurredAt</c> is <see cref="ReputationPolicy.Iso"/> text, so the comparison is the time order), filtered
+    /// before the cap counts. Eventually consistent. Exposed for the request-shape tests.
+    /// </summary>
+    internal QueryRequest BuildCountedStampsQuery(string userId, DateTime sinceUtc) => new()
+    {
+        TableName = _eventsTable,
+        KeyConditionExpression = "userId = :u AND begins_with(eventId, :slot)",
+        FilterExpression = "#code = :stamp AND #counted = :yes AND #at > :since",
+        ExpressionAttributeNames = new Dictionary<string, string>
+        {
+            ["#code"] = "code",
+            ["#counted"] = "counted",
+            ["#at"] = "occurredAt"
+        },
+        ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+        {
+            [":u"] = S(userId),
+            [":slot"] = S(ReputationSlots.Handoff),
+            [":stamp"] = S(ReputationCodes.HandoffQuality),
+            [":yes"] = new() { BOOL = true },
+            [":since"] = S(ReputationPolicy.Iso(sinceUtc))
+        },
+        ConsistentRead = false
+    };
+
+    /// <inheritdoc />
     /// <remarks>
     /// A Query on the full key rather than a GetItem: the two Lambdas that write stamps (reputation-stream and sync)
     /// hold Query, PutItem and UpdateItem on the table, no GetItem.

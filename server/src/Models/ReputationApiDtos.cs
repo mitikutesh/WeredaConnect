@@ -33,6 +33,16 @@ public sealed record ReputationDto
     /// <summary>Public summary: completed plus fault cancels plus no-shows in 90 days.</summary>
     public int? TotalOrders90d { get; init; }
 
+    /// <summary>
+    /// GCR-04 (reputation-api.md 1.10.0 section 1.9), both views, only while <c>conductRewards</c> is on: the share of
+    /// careful handoff steps taken over the counted orders of the last 90 days, a whole percent. Absent below 3
+    /// counted orders.
+    /// </summary>
+    public int? VerifiedPct { get; init; }
+
+    /// <summary>GCR-04: the counted orders of the last 90 days that <see cref="VerifiedPct"/> is computed from.</summary>
+    public int? VerifiedOrders90d { get; init; }
+
     public ReputationRestrictionDto? Restriction { get; init; }
     public ReputationOverrideDto? Override { get; init; }
     public string? NextPointExpiryAt { get; init; }
