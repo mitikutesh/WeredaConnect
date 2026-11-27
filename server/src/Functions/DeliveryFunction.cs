@@ -9,20 +9,21 @@ using WeredaConnect.Server.Models;
 namespace WeredaConnect.Server.Functions;
 
 /// <summary>
-/// GET /deliveries, GET /deliveries/{id}, and POST /deliveries/{id}/photos Lambda handler.
-/// Provides read-only access to delivery records and photo upload URL generation.
-/// Create/update/delete operations are handled through /sync endpoint.
+/// GET /deliveries, GET /deliveries/{id}, GET /deliveries/{id}/track and POST /deliveries/{id}/photos
+/// Lambda handler. Provides read-only access to delivery records, the live trip track and photo upload
+/// URL generation. Create/update/delete operations are handled through /sync endpoint.
 ///
 /// Endpoints:
 /// - GET /deliveries - Query deliveries with optional filters (status, tripId, listingId, etc.)
 /// - GET /deliveries/{id} - Get a single delivery by ID (participants only)
-/// - POST /deliveries/{id}/photos - Generate pre-signed S3 upload URL for photo evidence
+/// - GET /deliveries/{id}/track - Where the truck is, from pickup to delivery (participants only, LT-06)
+/// - POST /deliveries/{id}/photos - Pre-signed S3 PUT for a handoff photo (its taker only, 200 KiB cap, FRD-12)
 ///
 /// Error codes:
 /// - 400: DELIVERY_VALIDATION - Invalid query parameters or request body
 /// - 401: DELIVERY_UNAUTHORIZED - Authentication required or not a participant
-/// - 404: DELIVERY_NOT_FOUND - Delivery does not exist
-/// - 500: DELIVERY_SERVER_ERROR - Unexpected server failure
+/// - 404: DELIVERY_NOT_FOUND - Delivery does not exist (the track also answers it to non-participants)
+/// - 500: DELIVERY_SERVER_ERROR - Unexpected server failure; TRACK_UNAVAILABLE - the track read failed
 /// </summary>
 public class DeliveryFunction
 {
@@ -30,11 +31,34 @@ public class DeliveryFunction
     private readonly IAmazonS3? _s3Client;
     private readonly string? _uploadsBucket;
 
+    // LT-06: the track reads. Null when their tables are not configured; the track then answers
+    // TRACK_UNAVAILABLE and the other routes are unaffected.
+    private readonly ITripLocationRepository? _tripLocationRepo;
+    private readonly ITripRepository? _tripRepo;
+    private readonly ICropRepository? _cropRepo;
+
+    // LT-12: the order's drop-off note on the track; LT-14: the orders' own drop-off points. Null when
+    // ORDERS_TABLE is not configured; the track then answers without a note, at the trip's point.
+    private readonly IOrderRepository? _orderRepo;
+
+    /// <summary>Pages of the trip's deliveries the track reads for the other stops (a trip carries a handful).</summary>
+    private const int MaxTripDeliveryPages = 10;
+
+    /// <summary>The server clock of the track (its window and arrival maths); tests set it.</summary>
+    internal Func<DateTime> Clock { get; init; } = () => DateTime.UtcNow;
+
     /// Pre-signed URL expiry: 15 minutes (sufficient for 3G upload of 200KB WebP)
     internal const int PresignedUrlExpirySeconds = 900;
 
-    /// Allowed photo types
-    private static readonly HashSet<string> AllowedPhotoTypes = new(StringComparer.OrdinalIgnoreCase) { "pickup", "dropoff" };
+    /// <summary>
+    /// ESC-36: <c>dropoffClassification</c> (env <c>DROPOFF_CLASSIFICATION_ENABLED</c>). On, the trucker may
+    /// ask for the <c>arrival</c> photo of a delivery on the road; off, the type does not exist. Only with
+    /// <c>COMMITMENTS_ENABLED</c>, as on sync, which attaches the photo.
+    /// </summary>
+    internal bool DropoffClassificationEnabled { get; init; } = DropoffJudgement.IsEnabled && Services.OrderCommitment.IsEnabled;
+
+    /// <summary>The photo types this Lambda takes, for its validation text.</summary>
+    private string PhotoTypesText => DropoffClassificationEnabled ? "'pickup', 'dropoff' or 'arrival'" : "'pickup' or 'dropoff'";
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -49,16 +73,36 @@ public class DeliveryFunction
         _deliveryRepo = new DeliveryRepository(dynamoDb, deliveriesTable);
         _s3Client = new AmazonS3Client();
         _uploadsBucket = Environment.GetEnvironmentVariable("UPLOADS_BUCKET");
+
+        var tripLocationsTable = Environment.GetEnvironmentVariable("TRIP_LOCATIONS_TABLE");
+        var tripsTable = Environment.GetEnvironmentVariable("TRIPS_TABLE");
+        var cropsTable = Environment.GetEnvironmentVariable("CROPS_TABLE");
+        _tripLocationRepo = string.IsNullOrEmpty(tripLocationsTable) ? null : new TripLocationRepository(dynamoDb, tripLocationsTable);
+        _tripRepo = string.IsNullOrEmpty(tripsTable) ? null : new TripRepository(dynamoDb, tripsTable);
+        _cropRepo = string.IsNullOrEmpty(cropsTable) ? null : new CropRepository(dynamoDb, cropsTable);
+        var ordersTable = Environment.GetEnvironmentVariable("ORDERS_TABLE");
+        _orderRepo = string.IsNullOrEmpty(ordersTable) ? null : new OrderRepository(dynamoDb, ordersTable);
     }
 
     /// <summary>
     /// Constructor for testing with mocked dependencies.
     /// </summary>
-    public DeliveryFunction(IDeliveryRepository deliveryRepo, IAmazonS3? s3Client = null, string? uploadsBucket = null)
+    public DeliveryFunction(
+        IDeliveryRepository deliveryRepo,
+        IAmazonS3? s3Client = null,
+        string? uploadsBucket = null,
+        ITripLocationRepository? tripLocationRepo = null,
+        ITripRepository? tripRepo = null,
+        ICropRepository? cropRepo = null,
+        IOrderRepository? orderRepo = null)
     {
         _deliveryRepo = deliveryRepo ?? throw new ArgumentNullException(nameof(deliveryRepo));
         _s3Client = s3Client;
         _uploadsBucket = uploadsBucket;
+        _tripLocationRepo = tripLocationRepo;
+        _tripRepo = tripRepo;
+        _cropRepo = cropRepo;
+        _orderRepo = orderRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -70,6 +114,9 @@ public class DeliveryFunction
         // Route based on HTTP method and path
         return request.HttpMethod switch
         {
+            "GET" when request.PathParameters?.ContainsKey("id") == true
+                   && request.Path?.EndsWith("/track", StringComparison.Ordinal) == true
+                => await HandleTrackAsync(request, context),
             "GET" when request.PathParameters?.ContainsKey("id") == true
                 => await HandleGetDeliveryByIdAsync(request, context),
             "GET" => await HandleGetDeliveriesAsync(request, context),
@@ -274,6 +321,18 @@ public class DeliveryFunction
             // ESC-48: no phone numbers for clients. The parties reach each other from the order,
             // only while its contact is open (ContactReveal); admins see them in the transaction view.
             var deliveryDto = MapToDeliveryDto(delivery, includePhone: false, includeQrToken: true);
+
+            // FRD-12: the handoff photos, for the parties only (checked above). A signing failure
+            // leaves them off; the delivery itself is still answered.
+            try
+            {
+                deliveryDto = DeliveryPhotoUrls.Sign(deliveryDto, delivery, _s3Client, _uploadsBucket, Clock());
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning($"Delivery photo URLs not signed for {deliveryId}: [{ex.GetType().Name}]");
+            }
+
             var response = new GetDeliveryResponse { Delivery = deliveryDto };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetDeliveryResponse);
@@ -286,9 +345,215 @@ public class DeliveryFunction
     }
 
     /// <summary>
-    /// POST /deliveries/{id}/photos - Generate a pre-signed S3 URL for photo upload.
-    /// Only delivery participants can upload photos.
-    /// Returns a pre-signed PUT URL (15-min expiry) and the S3 key (photoRef).
+    /// LT-06: GET /deliveries/{id}/track (live-trip-api.md section 2). The delivery's buyer, farmer and
+    /// trucker only; anyone else and an unknown delivery get the same 404, so the answer says nothing
+    /// about which deliveries exist. Reads only: the trip's check-ins, the trip (its destination point),
+    /// the listings (pickup points), the trip's other deliveries (unnamed stops) and, LT-12, the
+    /// delivery's order (its drop-off note, and since LT-14 its own drop-off point, for a caller who
+    /// may read them) and, LT-14, the other deliveries' orders (their drop-off points).
+    /// <see cref="TripTrack"/> cuts the delivery's window and rounds every coordinate.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleTrackAsync(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        if (!IsAuthenticated(request))
+        {
+            return LambdaResponse.Error(401, "DELIVERY_UNAUTHORIZED", "Authentication required.");
+        }
+
+        if (!request.PathParameters.TryGetValue("id", out var deliveryId) || string.IsNullOrEmpty(deliveryId))
+        {
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Missing delivery ID in path.");
+        }
+
+        if (_tripLocationRepo == null || _tripRepo == null || _cropRepo == null)
+        {
+            context.Logger.LogError("Track read is not configured (TRIP_LOCATIONS_TABLE, TRIPS_TABLE or CROPS_TABLE missing).");
+            return TrackUnavailable();
+        }
+
+        try
+        {
+            var callerId = GetAuthenticatedUserId(request);
+            var delivery = await _deliveryRepo.GetByIdAsync(deliveryId);
+            if (delivery == null
+                || (delivery.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
+                || !IsParticipant(delivery, callerId))
+            {
+                return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery not found.");
+            }
+
+            var now = Clock();
+            var phase = TripTrack.PhaseOf(delivery);
+            var tripId = GetStringOrNull(delivery, "tripId");
+            var hasTrip = !string.IsNullOrEmpty(tripId);
+
+            // Before pickup nothing of the truck is shown, so the check-ins are not read at all.
+            var rows = phase != TrackPhase.NotStarted && hasTrip
+                ? await _tripLocationRepo.ListByTripAsync(tripId!)
+                : new List<TripLocationRow>();
+
+            // LT-12, LT-14: the delivery's order, for its note (the trucker once committed) and its
+            // own drop-off point (the trucker still on a held order), each only to a caller who may
+            // read it; best effort.
+            var orders = new Dictionary<string, Dictionary<string, object>?>(StringComparer.Ordinal);
+            var order = await OrderOfAsync(delivery, orders, context);
+            var noteOrder = order != null && OrderDropoffNote.VisibleTo(order, callerId) ? order : null;
+            var pointOrder = order != null && OrderDeliveryLocation.VisibleTo(order, callerId) ? order : null;
+
+            TrackPoint? pickup = null;
+            TrackPoint? dropoff = null;
+            var otherStops = new List<TrackStop>();
+            if (phase != TrackPhase.Ended)
+            {
+                var listings = new Dictionary<string, TrackPoint?>(StringComparer.Ordinal);
+                pickup = await PickupPointAsync(delivery, listings);
+                var trip = hasTrip ? await _tripRepo.GetByIdAsync(tripId!) : null;
+                dropoff = TripTrack.PlannedDropoff(trip, pointOrder);
+
+                if (phase == TrackPhase.OnRoad && hasTrip)
+                {
+                    var windowStart = TripTrack.PickedUpAt(delivery)!.Value;
+                    foreach (var other in await ReadTripDeliveriesAsync(tripId!, context))
+                    {
+                        // A cancelled delivery has no stops left, so its listing is not read.
+                        if (GetStringOrNull(other, "deliveryId") == deliveryId
+                            || GetStringOrNull(other, "status") == "cancelled")
+                        {
+                            continue;
+                        }
+
+                        // Planned points only: another order's real gpsPickup or gpsDropoff would tell
+                        // where the truck stood, and a stop done before this pickup is left out. Its
+                        // drop-off is its own order's point (LT-14), unnamed and at 2 decimals.
+                        otherStops.AddRange(TripTrack.StopsOf(
+                            other,
+                            await ListingPointAsync(other, listings),
+                            TripTrack.PlannedDropoff(trip, await OrderOfAsync(other, orders, context)),
+                            windowStart));
+                    }
+                }
+            }
+
+            var dropoffNote = noteOrder == null ? null : OrderDropoffNote.Of(noteOrder);
+            var response = TripTrack.Build(delivery, rows, pickup, dropoff, otherStops, now, dropoffNote);
+            return LambdaResponse.Ok(response, AppJsonContext.Default.DeliveryTrackResponse);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError($"Error reading the track of delivery {MoneyAlarmLog.LogId(deliveryId)}: [{ex.GetType().Name}]");
+            return TrackUnavailable();
+        }
+    }
+
+    private static APIGatewayProxyResponse TrackUnavailable()
+        => LambdaResponse.Error(500, "TRACK_UNAVAILABLE", "The live trip is unavailable right now. Try again later.");
+
+    /// <summary>
+    /// LT-12, LT-14: a delivery's order (its drop-off note and its own drop-off point), read once per
+    /// track and kept in <paramref name="orders"/>. Best effort: a delivery without an order, a missing
+    /// orders table or a failed read give null, so the track has no note and falls back to the trip's
+    /// destination point, and never fails.
+    /// </summary>
+    private async Task<Dictionary<string, object>?> OrderOfAsync(
+        Dictionary<string, object> delivery, Dictionary<string, Dictionary<string, object>?> orders, ILambdaContext context)
+    {
+        var orderId = GetStringOrNull(delivery, "orderId");
+        if (_orderRepo == null || string.IsNullOrEmpty(orderId))
+        {
+            return null;
+        }
+
+        if (orders.TryGetValue(orderId, out var known))
+        {
+            return known;
+        }
+
+        Dictionary<string, object>? order = null;
+        try
+        {
+            order = await _orderRepo.GetByIdAsync(orderId);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Track: order {MoneyAlarmLog.LogId(orderId)} could not be read: [{ex.GetType().Name}]");
+        }
+
+        orders[orderId] = order;
+        return order;
+    }
+
+    /// <summary>
+    /// This delivery's pickup point: its gpsPickup, else its listing's location. Null when neither has
+    /// coordinates.
+    /// </summary>
+    private async Task<TrackPoint?> PickupPointAsync(Dictionary<string, object> delivery, Dictionary<string, TrackPoint?> listings)
+        => TripTrack.MapPointOf(delivery, "gpsPickup") ?? await ListingPointAsync(delivery, listings);
+
+    /// <summary>
+    /// A delivery's planned pickup point: its listing's location (read once per listing and kept in
+    /// <paramref name="listings"/>). Null without a listing or coordinates.
+    /// </summary>
+    private async Task<TrackPoint?> ListingPointAsync(Dictionary<string, object> delivery, Dictionary<string, TrackPoint?> listings)
+    {
+        var listingId = GetStringOrNull(delivery, "listingId");
+        if (string.IsNullOrEmpty(listingId))
+        {
+            return null;
+        }
+
+        if (!listings.TryGetValue(listingId, out var point))
+        {
+            point = TripTrack.PointOf(await _cropRepo!.GetByIdAsync(listingId), "latitude", "longitude");
+            listings[listingId] = point;
+        }
+
+        return point;
+    }
+
+    /// <summary>
+    /// Every delivery on the trip (the deliveries' <c>TripIdIndex</c>, all pages up to
+    /// <see cref="MaxTripDeliveryPages"/>). Soft-deleted rows are left out by the repository.
+    /// </summary>
+    private async Task<List<Dictionary<string, object>>> ReadTripDeliveriesAsync(string tripId, ILambdaContext context)
+    {
+        var deliveries = new List<Dictionary<string, object>>();
+        Dictionary<string, AttributeValue>? startKey = null;
+        var pages = 0;
+
+        do
+        {
+            var (items, next) = await _deliveryRepo.QueryDeliveriesAsync(tripId: tripId, limit: 50, exclusiveStartKey: startKey);
+            deliveries.AddRange(items);
+            startKey = next;
+        }
+        while (startKey != null && ++pages < MaxTripDeliveryPages);
+
+        if (startKey != null)
+        {
+            context.Logger.LogWarning(
+                $"track: trip {MoneyAlarmLog.LogId(tripId)} has more than {MaxTripDeliveryPages} pages of deliveries; showing the first ones.");
+        }
+
+        return deliveries;
+    }
+
+    /// <summary>
+    /// POST /deliveries/{id}/photos - a pre-signed S3 PUT for one handoff photo
+    /// (delivery-verification-api.md section 4, 1.25.0, FRD-12).
+    ///
+    /// Only the party who takes that photo may ask: the trucker for the pickup, the buyer for the
+    /// drop-off (<see cref="DeliveryPhotoKeys.AuthorId"/>); the farmer and anyone else are refused.
+    /// The size (at most 200 KiB) and the type are both signed, so S3 refuses any other upload.
+    /// The delivery may still be pending (a phone uploads before its pickup syncs) but not
+    /// cancelled, and a type whose photo is attached already gets no new URL. The photo is attached
+    /// afterwards by a <c>delivery_photo</c> sync operation, which checks the object again.
+    /// ESC-36: with <c>dropoffClassification</c> on, also the trucker's <c>arrival</c> photo, only while the
+    /// delivery is on the road (<c>pickedUp</c> or <c>inTransit</c>), or (FUP-373) held in the order cron's T8
+    /// dispute no admin has decided yet (<see cref="DropoffJudgement.TakesArrivalPhoto"/>); with the flag off the
+    /// type does not exist.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleUploadPhotoAsync(
         APIGatewayProxyRequest request,
@@ -317,13 +582,26 @@ public class DeliveryFunction
 
         if (photoRequest == null || string.IsNullOrEmpty(photoRequest.Type))
         {
-            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Missing or invalid 'type' field. Must be 'pickup' or 'dropoff'.", "type");
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", $"Missing or invalid 'type' field. Must be {PhotoTypesText}.", "type");
         }
 
         var photoType = photoRequest.Type.ToLowerInvariant();
-        if (!AllowedPhotoTypes.Contains(photoType))
+        if (!DeliveryPhotoKeys.IsType(photoType, allowArrival: DropoffClassificationEnabled))
         {
-            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", "Invalid photo type. Must be 'pickup' or 'dropoff'.", "type");
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION", $"Invalid photo type. Must be {PhotoTypesText}.", "type");
+        }
+
+        if (photoRequest.SizeBytes is not long sizeBytes || sizeBytes < 1 || sizeBytes > DeliveryPhotoKeys.MaxBytes)
+        {
+            return LambdaResponse.Error(400, "DELIVERY_PHOTO_TOO_LARGE",
+                $"sizeBytes must be between 1 and {DeliveryPhotoKeys.MaxBytes}.", "sizeBytes");
+        }
+
+        var contentType = photoRequest.ContentType ?? "image/webp";
+        if (!DeliveryPhotoKeys.ExtensionByContentType.ContainsKey(contentType))
+        {
+            return LambdaResponse.Error(400, "DELIVERY_VALIDATION",
+                "contentType must be image/webp or image/jpeg.", "contentType");
         }
 
         try
@@ -335,18 +613,46 @@ public class DeliveryFunction
                 return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery not found.");
             }
 
-            // ESC-08: a party's cancel writes no deletedAt, so the status decides as well.
-            if ((delivery.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
-                || (delivery.TryGetValue("status", out var status) && status?.ToString() == "cancelled"))
-            {
-                return LambdaResponse.Error(404, "DELIVERY_NOT_FOUND", "Delivery has been cancelled.");
-            }
-
             // Verify requester is a participant
             var userId = GetAuthenticatedUserId(request);
             if (!IsParticipant(delivery, userId))
             {
                 return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED", "You are not a participant in this delivery.");
+            }
+
+            // ESC-08: a party's cancel writes no deletedAt, so the status decides as well. FRD-12: a
+            // 409, not a 404, so a phone stops waiting for a delivery that will never take a photo
+            // (it waits on a 404: the delivery's own create may still be on its way).
+            if ((delivery.TryGetValue("deletedAt", out var deletedAt) && deletedAt != null)
+                || (delivery.TryGetValue("status", out var status) && status?.ToString() == "cancelled"))
+            {
+                return LambdaResponse.Error(409, "DELIVERY_PHOTO_REFUSED", "The delivery was cancelled.");
+            }
+
+            // FRD-12: only the party who confirms this handoff takes its photo.
+            var authorId = DeliveryPhotoKeys.AuthorId(
+                photoType, GetStringOrNull(delivery, "truckerId"), GetStringOrNull(delivery, "buyerId"));
+            if (authorId == null || authorId != userId)
+            {
+                return LambdaResponse.Error(403, "DELIVERY_UNAUTHORIZED", photoType switch
+                {
+                    DeliveryPhotoKeys.Pickup => "Only the trucker takes the pickup photo.",
+                    DeliveryPhotoKeys.Arrival => "Only the trucker takes the arrival photo.",
+                    _ => "Only the buyer takes the drop-off photo."
+                });
+            }
+
+            // ESC-36: the arrival photo is taken at the drop-off, so only while the goods are on the road;
+            // FUP-373: or as late evidence on the T8 dispute no admin has decided (an offline check-in synced late).
+            if (photoType == DeliveryPhotoKeys.Arrival && !DropoffJudgement.TakesArrivalPhoto(delivery))
+            {
+                return LambdaResponse.Error(409, "DELIVERY_PHOTO_REFUSED", "The arrival photo is taken while the goods are on the road.");
+            }
+
+            // A handoff keeps its first photo: evidence is not replaced.
+            if (!string.IsNullOrEmpty(GetStringOrNull(delivery, DeliveryPhotoKeys.FieldOf(photoType))))
+            {
+                return LambdaResponse.Error(409, "DELIVERY_PHOTO_EXISTS", "This handoff already has its photo.");
             }
 
             // Check S3 configuration
@@ -356,25 +662,26 @@ public class DeliveryFunction
                 return LambdaResponse.Error(500, "DELIVERY_SERVER_ERROR", "Photo upload not configured.");
             }
 
-            // Generate S3 key: uploads/photos/{deliveryId}/{type}-{timestamp}.webp
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var s3Key = $"uploads/photos/{deliveryId}/{photoType}-{timestamp}.webp";
+            var now = Clock();
+            var s3Key = DeliveryPhotoKeys.Key(
+                deliveryId, photoType, (long)(now - DateTime.UnixEpoch).TotalMilliseconds, contentType);
 
-            // Generate pre-signed PUT URL
-            var presignedUrl = _s3Client.GetPreSignedURL(new GetPreSignedUrlRequest
+            var presign = new GetPreSignedUrlRequest
             {
                 BucketName = _uploadsBucket,
                 Key = s3Key,
                 Verb = HttpVerb.PUT,
-                Expires = DateTime.UtcNow.AddSeconds(PresignedUrlExpirySeconds),
-                ContentType = "image/webp",
-            });
+                Expires = now.AddSeconds(PresignedUrlExpirySeconds),
+                ContentType = contentType,
+            };
+            // Signed with the type, so S3 refuses a PUT of any other length (SignatureDoesNotMatch).
+            presign.Headers.ContentLength = sizeBytes;
 
             var response = new UploadPhotoResponse
             {
-                UploadUrl = presignedUrl,
+                UploadUrl = _s3Client.GetPreSignedURL(presign),
                 PhotoRef = s3Key,
-                IssuedAt = DateTime.UtcNow.ToString("o"),
+                IssuedAt = now.ToString("o"),
                 ExpiresInSeconds = PresignedUrlExpirySeconds,
             };
 
@@ -414,10 +721,18 @@ public class DeliveryFunction
             QrToken = includeQrToken ? GetString(item, "qrToken") : "",
             Status = GetString(item, "status"),
             DeliveryType = GetStringOrNull(item, "deliveryType"),
+            CropType = GetStringOrNull(item, "cropType"),
+            Quantity = GetDoubleOrNull(item, "quantity"),
+            PickupPlace = GetStringOrNull(item, "pickupPlace"),
+            PickupPlannedAt = GetStringOrNull(item, "pickupPlannedAt"),
             GpsPickup = GetLatLng(item, "gpsPickup"),
             GpsDropoff = GetLatLng(item, "gpsDropoff"),
             PickupPhotoRef = GetStringOrNull(item, "pickupPhotoRef"),
             DropoffPhotoRef = GetStringOrNull(item, "dropoffPhotoRef"),
+            ArrivalPhotoRef = GetStringOrNull(item, "arrivalPhotoRef"),
+            ArrivalPhotoLateAt = GetStringOrNull(item, DropoffJudgement.ArrivalPhotoLateAtField),
+            DropoffPhotoLateAt = GetStringOrNull(item, DropoffJudgement.DropoffPhotoLateAtField),
+            AutoConfirmedAt = GetStringOrNull(item, DropoffJudgement.AutoConfirmedAtField),
             PickedUpAt = GetStringOrNull(item, "pickedUpAt"),
             ConfirmedAt = GetStringOrNull(item, "confirmedAt"),
             DisputeReason = GetStringOrNull(item, "disputeReason"),
@@ -488,6 +803,30 @@ public class DeliveryFunction
             int i => i,
             string s => int.TryParse(s, out var result) ? result : 0,
             _ => 0
+        };
+    }
+
+    /// <summary>
+    /// Get an optional number from the item dictionary (DynamoDB numbers arrive as strings,
+    /// test data and FromItem may hand over a number). Null when absent or unreadable.
+    /// </summary>
+    private static double? GetDoubleOrNull(Dictionary<string, object> item, string key)
+    {
+        if (!item.TryGetValue(key, out var value) || value == null)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            double d => d,
+            float f => f,
+            decimal m => (double)m,
+            int i => i,
+            long l => l,
+            string s => double.TryParse(s, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var r) ? r : null,
+            _ => null
         };
     }
 

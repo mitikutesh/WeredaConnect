@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/widgets/kyc_required_dialog.dart';
 import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
@@ -20,8 +22,10 @@ typedef KycPaymentResubmitter = Future<void> Function(
 
 /// Shows the prompts that background work cannot resolve on its own:
 ///
-/// - [StepUpRequired]: a queued payment hit AUTH_040 (password) or AUTH_041
-///   (Fayda login, payments above 10,000 ETB). After the user confirms,
+/// - [StepUpRequired]: a queued payment, dispute or drop-out hit AUTH_040
+///   (password) or AUTH_041 (Fayda login, for higher-risk payments; a
+///   password step may follow). The prompt names which ([StepUpKind]).
+///   After the user confirms,
 ///   [SecurityEvents.stepUpCompleted] fires and the sync workers retry the
 ///   still-pending operations.
 /// - [KycRequired]: a queued payment hit ORDER_KYC_REQUIRED (the local order
@@ -107,16 +111,22 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
     _showing = true;
     try {
       switch (event) {
-        case StepUpRequired(:final withFayda):
-          final outcome = await _confirmStepUp(withFayda: withFayda);
+        case StepUpRequired(:final withFayda, :final kind):
+          final outcome =
+              await _confirmStepUp(withFayda: withFayda, kind: kind);
           // Cancelled: stay quiet for a while instead of reopening on every
           // background sync. A Fayda attempt that did not finish is not a
           // "no": the next sync asks again.
           if (outcome == StepUpOutcome.declined) _events.stepUpDeclined();
           if (outcome == StepUpOutcome.verified && mounted) {
+            final l10n = AppLocalizations.of(context)!;
             ScaffoldMessenger.maybeOf(context)?.showSnackBar(
               SnackBar(
-                content: Text(AppLocalizations.of(context)!.stepUpDone),
+                content: Text(
+                  kind == StepUpKind.payment
+                      ? l10n.stepUpDone
+                      : l10n.stepUpDoneRetrying,
+                ),
               ),
             );
           }
@@ -150,20 +160,32 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
   /// else goes through [syncRejectionErrorCode].
   String _rejectionText(SyncOperationRejected event, AppLocalizations l10n) {
     final message = event.message;
-    if (message.startsWith('FRAUD_DUPLICATE_LISTING')) {
+    // A refused trip create has the same code and its own sentence (below).
+    if (message.startsWith('FRAUD_DUPLICATE_LISTING') &&
+        event.entityType != 'trip') {
       return l10n.fraudDuplicateListing;
     }
     if (message.startsWith('FRAUD_VELOCITY_EXCEEDED')) {
       // The server's listing limit resets at the next UTC hour.
       return l10n.fraudVelocityExceeded(60 - DateTime.now().toUtc().minute);
     }
+    if (event.entityType == paymentIntentEntityType &&
+        !isFraudAccountHeldMessage(message)) {
+      // A queued delivery payment that failed for good (FUP-70): the
+      // message is an escrow error code, shown with the escrow texts.
+      return localizeEscrowError(l10n, message.split(':').first.trim(), '');
+    }
     return localizeErrorCode(
       syncRejectionErrorCode(
         entityType: event.entityType,
         action: event.action,
         message: message,
+        // FUP-336: a check-in's kind picks its texts.
+        entityId: event.entityId,
       ),
       l10n,
+      // ESC-31: a reputation refusal names the day the restriction ends.
+      message: message,
     );
   }
 
@@ -178,17 +200,35 @@ class _SecurityPromptListenerState extends State<SecurityPromptListener> {
     }
   }
 
-  /// The password prompt, or above 10,000 ETB (AUTH_041) the Fayda login.
-  /// The password prompt only closes unconfirmed when cancelled.
-  Future<StepUpOutcome> _confirmStepUp({required bool withFayda}) async {
+  /// The password prompt, or for a higher-risk payment (AUTH_041) the Fayda login.
+  /// The password prompt only closes unconfirmed when cancelled. Both name
+  /// what waits for them ([kind], FUP-181).
+  Future<StepUpOutcome> _confirmStepUp({
+    required bool withFayda,
+    required StepUpKind kind,
+  }) async {
+    final l10n = AppLocalizations.of(context)!;
     if (withFayda) {
       return showFaydaStepUpDialog(
         context,
         securityEvents: _events,
         verificationScreen: widget.verificationScreen,
+        message: switch (kind) {
+          StepUpKind.payment => l10n.faydaStepUpMessage,
+          StepUpKind.dispute => l10n.faydaStepUpDisputeMessage,
+          StepUpKind.other => l10n.faydaStepUpOtherMessage,
+        },
       );
     }
-    final ok = await showStepUpDialog(context, securityEvents: _events);
+    final ok = await showStepUpDialog(
+      context,
+      securityEvents: _events,
+      message: switch (kind) {
+        StepUpKind.payment => l10n.stepUpRequiredMessage,
+        StepUpKind.dispute => l10n.stepUpDisputeMessage,
+        StepUpKind.other => l10n.stepUpOtherMessage,
+      },
+    );
     return ok ? StepUpOutcome.verified : StepUpOutcome.declined;
   }
 

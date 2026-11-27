@@ -1,5 +1,10 @@
+import { useEffect, useRef } from "react";
 import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { countOpenDisputes } from "@/lib/disputes";
+import type { DisputeEvidence } from "@/lib/evidence";
+import type { LedgerPage, StuckOrderPage, StuckSource } from "@/lib/legs";
+import type { DeliveryTrail } from "@/lib/trail";
 
 // Dashboard
 export function useDashboardStats() {
@@ -33,8 +38,46 @@ export function useEscrowAudit(id: string) {
   });
 }
 
-// Disputes. FUP-16: the server scans and then filters by status, so a page can come back short
-// with a nextToken; the disputes page loads the next one on demand.
+/**
+ * ESC-24: the ledger rows of an escrow (ESC-20), 50 a page in ref order. Read only. Asked only for
+ * an escrow on the ledger: one of the legacy model has no rows.
+ */
+export function useEscrowLedger(escrowId: string, enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: ["admin", "escrows", escrowId, "ledger"],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<LedgerPage>(
+        `/admin/escrows/${encodeURIComponent(escrowId)}/ledger?limit=50${
+          pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""
+        }`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+    enabled: enabled && !!escrowId,
+  });
+}
+
+/**
+ * ESC-24: the stuck orders, oldest first. "queue" is the admin stuck-order queue (ESC-06), "deadline"
+ * the orders whose commitment deadline passed and nothing acted on it (ESC-16). A deadline page can
+ * come back short or empty with a nextToken; the page loads the next one on demand.
+ */
+export function useStuckOrders(source: StuckSource) {
+  return useInfiniteQuery({
+    queryKey: ["admin", "orders", "queue", source],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<StuckOrderPage>(
+        `/admin/orders/queue?source=${source}&limit=50${
+          pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""
+        }`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+// Disputes. FUP-80: one page of the disputed partition of the escrows' status index; a full page
+// comes with a nextToken (the next may be empty), and the disputes page loads it on demand.
 export function useDisputes() {
   return useInfiniteQuery({
     queryKey: ["admin", "disputes"],
@@ -45,6 +88,48 @@ export function useDisputes() {
       ),
     getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
   });
+}
+
+/** The most pages of the Disputes list the nav's count reads; with more behind them it shows no count. */
+export const OPEN_DISPUTE_COUNT_MAX_PAGES = 10;
+
+/**
+ * The open dispute count beside "Disputes" in the nav, from the Disputes list's own call. A page can
+ * come back short with a nextToken, so every page is read (up to OPEN_DISPUTE_COUNT_MAX_PAGES). Read
+ * once when the shell mounts and again when the admin enters or leaves a dispute page; a verdict
+ * refreshes it too, through the ["admin", "disputes"] key it shares with the list. Null while it
+ * loads, when the read failed, and when the list is longer than the pages read: no count is shown
+ * rather than a wrong one.
+ */
+export function useOpenDisputeCount(onDisputePage: boolean): number | null {
+  const query = useQuery({
+    queryKey: ["admin", "disputes", "open-count"],
+    queryFn: async () => {
+      let count = 0;
+      let nextToken: string | null = null;
+      for (let page = 0; page < OPEN_DISPUTE_COUNT_MAX_PAGES; page++) {
+        const result: { disputes?: unknown[]; nextToken?: string | null } = await api.get(
+          `/admin/disputes${nextToken ? `?nextToken=${encodeURIComponent(nextToken)}` : ""}`,
+        );
+        count += countOpenDisputes(result.disputes ?? []);
+        nextToken = result.nextToken ?? null;
+        if (!nextToken) return count;
+      }
+      return null;
+    },
+    staleTime: Infinity,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+  const { refetch } = query;
+  const last = useRef(onDisputePage);
+  useEffect(() => {
+    if (last.current === onDisputePage) return;
+    last.current = onDisputePage;
+    void refetch();
+  }, [onDisputePage, refetch]);
+  return query.isSuccess ? query.data : null;
 }
 
 /** FUP-16: escrows in one status, page by page (the disputes page's awaiting-settlement tab). */
@@ -62,6 +147,46 @@ export function useEscrowPages(status: string) {
   });
 }
 
+/** LT-13: the trip trail of a dispute's delivery (admin group only), for the Trip trail tab. */
+export function useDeliveryTrail(deliveryId: string) {
+  return useQuery({
+    queryKey: ["admin", "deliveries", deliveryId, "trail"],
+    queryFn: () => api.get<DeliveryTrail>(`/admin/deliveries/${encodeURIComponent(deliveryId)}/trail`),
+    enabled: !!deliveryId,
+  });
+}
+
+/**
+ * FRD-14: the evidence of one dispute (admin group only): the timeline, the handoffs and the photos.
+ * Never the messages; the verdict refreshes it (the "disputes" key).
+ */
+export function useDisputeEvidence(escrowId: string) {
+  return useQuery({
+    queryKey: ["admin", "disputes", escrowId, "evidence"],
+    queryFn: () => api.get<DisputeEvidence>(`/admin/disputes/${encodeURIComponent(escrowId)}/evidence`),
+    enabled: !!escrowId,
+  });
+}
+
+/**
+ * FRD-14: the dispute's message threads, read only once the admin asks. The server audits every
+ * read, so the query never runs by itself (no refetch on focus, no retry, kept out of the "disputes"
+ * key the verdict refreshes) and nothing stays cached once the Messages tab closes.
+ */
+export function useDisputeMessages(escrowId: string, open: boolean) {
+  return useQuery({
+    queryKey: ["admin", "dispute-messages", escrowId],
+    queryFn: () =>
+      api.get<DisputeEvidence>(`/admin/disputes/${encodeURIComponent(escrowId)}/evidence?include=messages`),
+    enabled: open && !!escrowId,
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+}
+
 export function useResolveDispute() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -74,11 +199,108 @@ export function useResolveDispute() {
   });
 }
 
-// Fraud Signals
-export function useFraudSignals(params?: string) {
-  return useQuery({
-    queryKey: ["admin", "fraud-signals", params],
-    queryFn: () => api.get(`/admin/fraud-signals${params ? `?${params}` : ""}`),
+// Fraud Signals. FRD-07: one status partition of the server's status index, newest first, 50 a
+// page with the risk score of each user on it; the page loads the next one on demand.
+export function useFraudSignals(status: "pending" | "reviewed") {
+  return useInfiniteQuery({
+    queryKey: ["admin", "fraud-signals", status],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ signals?: unknown[]; users?: unknown[]; nextToken?: string | null }>(
+        `/admin/fraud-signals?status=${status}&limit=50${
+          pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""
+        }`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+/** FRD-07: the held queue, escrows frozen for fraud review, oldest first. */
+export function useHeldEscrows() {
+  return useInfiniteQuery({
+    queryKey: ["admin", "escrows", "held"],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ escrows?: unknown[]; nextToken?: string | null }>(
+        `/admin/escrows/held?limit=50${pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""}`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+/** What the escrow routes answer: the settled escrow, or the 202 envelope of a queued payout (ESCROW_034). */
+export interface HeldExitResult {
+  status?: string;
+  error?: { code?: string; message?: string };
+}
+
+/**
+ * FRD-07: release or refund a held escrow through the escrow routes (fraud-detection-architecture.md
+ * section 18.3): admin group only, with a reason of 10 to 500 characters that the server audits.
+ * The release route asks for a delivery reference. Since FUP-147 (ESC-20) it must be the escrow's own
+ * linked delivery when the escrow has one (else 422 ESCROW_VALIDATION); an escrow without a delivery
+ * (a self-pickup order) sends its order or escrow id there, which the server does not check.
+ */
+export function useSettleHeldEscrow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      escrow,
+      op,
+      reason,
+    }: {
+      escrow: { escrowId: string; deliveryId?: string; orderId?: string };
+      op: "release" | "refund";
+      reason: string;
+    }) => {
+      const idempotencyKey = `admin:${escrow.escrowId}:${op}:${Date.now()}`;
+      return op === "release"
+        ? api.post<HeldExitResult>("/escrow/release", {
+            escrowId: escrow.escrowId,
+            trigger: "admin_override",
+            deliveryId: escrow.deliveryId || escrow.orderId || escrow.escrowId,
+            idempotencyKey,
+            reason,
+          })
+        : api.post<HeldExitResult>("/escrow/refund", {
+            escrowId: escrow.escrowId,
+            trigger: "admin_override",
+            idempotencyKey,
+            reason,
+          });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+    },
+  });
+}
+
+/**
+ * FUP-41 (escrow-protocol.md 2.19.0): refund an /escrow/initiate escrow that is a second payment for its order
+ * (`doubleEscrow: true`), admin group only, with a reason of 10 to 500 characters. The caller passes one
+ * idempotency key per opened form, so a double click is answered with the refund already made.
+ */
+export function useRefundDoubleEscrow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ escrowId, reason, idempotencyKey }: { escrowId: string; reason: string; idempotencyKey: string }) =>
+      // The refunded escrow, or the 202 envelope of a refund queued for an admin (ESCROW_034).
+      api.post<HeldExitResult>("/escrow/refund", {
+        escrowId,
+        trigger: "admin_override",
+        idempotencyKey,
+        reason,
+        doubleEscrow: true,
+      }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
   });
 }
 
@@ -125,6 +347,10 @@ export function useUserAction() {
 
 // Manual payout queue (ESC-02): settlements the live gateway could not make.
 // Oldest first, 50 per page; the page loads the next page on demand.
+// FUP-05: reloaded every 30 seconds while the page is open and when the window gets focus, so a
+// leg another admin claims shows up before this admin pays it.
+export const MANUAL_PAYOUTS_REFRESH_MS = 30_000;
+
 export function useManualPayouts() {
   return useInfiniteQuery({
     queryKey: ["admin", "payouts"],
@@ -134,6 +360,8 @@ export function useManualPayouts() {
         `/admin/payouts/manual?limit=50${pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""}`,
       ),
     getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+    refetchInterval: MANUAL_PAYOUTS_REFRESH_MS,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -157,6 +385,163 @@ export function useCompleteManualPayout() {
       queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+    },
+    // FUP-05: a refusal (another admin's claim, a reference used elsewhere) reloads the queue so the
+    // page shows who holds the leg now.
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+    },
+  });
+}
+
+// FUP-05: claim a manual payout leg before paying it in the portal (claim), or give it back (unclaim).
+// A claim lasts 30 minutes; another admin's live claim is refused (ESCROW_046) and never taken over.
+export function useManualPayoutClaim() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      escrowId,
+      ref,
+      action,
+    }: {
+      escrowId: string;
+      ref: string;
+      action: "claim" | "unclaim";
+    }) =>
+      api.post(`/admin/payouts/${encodeURIComponent(escrowId)}/${encodeURIComponent(ref)}/${action}`),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+    },
+  });
+}
+
+// FUP-218: replace the portal reference of a leg an admin recorded by mistake (a 1.x leg name or a ledger
+// ref). Nothing is paid or refunded; the escrow page, its audit trail and its ledger reload either way, so a
+// refusal (the leg changed, the ID is recorded elsewhere) shows the leg as it is now.
+export function useCorrectPayoutReference() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      escrowId,
+      ref,
+      oldExternalRef,
+      externalRef,
+      reason,
+    }: {
+      escrowId: string;
+      ref: string;
+      oldExternalRef: string;
+      externalRef: string;
+      reason: string;
+    }) =>
+      api.post<{ alreadyCorrected?: boolean }>(
+        `/admin/payouts/${encodeURIComponent(escrowId)}/${encodeURIComponent(ref)}/correct`,
+        { oldExternalRef, externalRef, reason },
+      ),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "escrows"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "payouts"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+  });
+}
+
+// FUP-19: cancel a delivery that was picked up and never delivered, once the money behind it is decided. Only the
+// delivery changes (no money, no order status); the transaction page and the audit log reload either way, so a
+// refusal (the delivery, the order or the payment changed) shows them as they are now.
+export function useCancelDelivery() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      deliveryId,
+      reason,
+      expectedVersion,
+    }: {
+      deliveryId: string;
+      reason: string;
+      expectedVersion: number;
+    }) =>
+      api.post<{ alreadyCancelled?: boolean }>(`/admin/deliveries/${encodeURIComponent(deliveryId)}/cancel`, {
+        reason,
+        expectedVersion,
+      }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
+    },
+  });
+}
+
+// FUP-287: re-open a judged pickup after reconciling a real handoff (delivery-verification-api 2.8.0 P.2). The
+// transaction page, the stuck orders and the audit log reload either way, so a refusal (the order, its delivery or
+// its money changed) shows the order as it is now. FUP-330: the same form re-opens a judged trucker no-show through
+// `reopen-no-show`, whose answer also says what happened to the trucker's NO_SHOW (`noShowEvent`).
+export function useReopenPickup() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      orderId,
+      action = "reopen-pickup",
+      ...body
+    }: {
+      orderId: string;
+      action?: "reopen-pickup" | "reopen-no-show";
+      exit: "pending" | "handoff_confirmed";
+      reason: string;
+      expectedVersion: number;
+      deadlineHours?: number;
+    }) =>
+      api.post<{ alreadyApplied?: boolean; pickupDeadlineAt?: string; status?: string; noShowEvent?: string }>(
+        `/admin/orders/${encodeURIComponent(orderId)}/${action}`,
+        body,
+      ),
+    onSettled: (_data, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "orders"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
+      if (variables.action === "reopen-no-show") {
+        // The trucker's NO_SHOW may have been excused.
+        queryClient.invalidateQueries({ queryKey: ["admin", "reputation"] });
+      }
+    },
+  });
+}
+
+/** The answer of a commission change (order-lifecycle.md 2.26.0). */
+export interface CommissionChangeResult {
+  orderId?: string;
+  status?: string;
+  commissionRate?: number;
+  commissionAmount?: number;
+  orderTotal?: number;
+  commissionRateBefore?: number;
+  orderTotalBefore?: number;
+  version?: number;
+  alreadyApplied?: boolean;
+  message?: string;
+}
+
+// An admin agrees another commission rate for one unpaid order (created or pending_payment). The transaction page,
+// the orders and the audit log reload either way, so a refusal (the order moved or took a payment) shows the order as
+// it is now.
+export function useChangeCommission() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      orderId,
+      ...body
+    }: {
+      orderId: string;
+      /** A fraction, 0 to 0.20, at most 4 decimals. */
+      commissionRate: number;
+      reason: string;
+      expectedVersion: number;
+    }) => api.post<CommissionChangeResult>(`/admin/orders/${encodeURIComponent(orderId)}/commission`, body),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "orders"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
     },
   });
 }
@@ -198,6 +583,43 @@ export function useRecordManualRefund() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "unapplied-payments"] });
       queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+    },
+  });
+}
+
+// Listing reports (FUP-67, listing-report-api.md): buyers' reports, one status at a time.
+export type ListingReportStatus = "open" | "dismissed" | "actioned";
+
+export function useListingReports(status: ListingReportStatus) {
+  return useInfiniteQuery({
+    queryKey: ["admin", "listing-reports", status],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.get<{ reports?: unknown[]; listings?: unknown[]; nextToken?: string | null }>(
+        `/admin/listing-reports?status=${status}&limit=50${pageParam ? `&nextToken=${encodeURIComponent(pageParam)}` : ""}`,
+      ),
+    getNextPageParam: (lastPage) => lastPage.nextToken ?? null,
+  });
+}
+
+export function useReviewListingReports() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      listingId,
+      decision,
+      note,
+    }: {
+      listingId: string;
+      decision: "dismissed" | "actioned";
+      note?: string;
+    }) =>
+      api.post<{ listingId: string; decision: string; reviewed: number; reviewedAt: string }>(
+        `/admin/listing-reports/${encodeURIComponent(listingId)}/review`,
+        note ? { decision, note } : { decision },
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "listing-reports"] });
     },
   });
 }

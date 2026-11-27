@@ -174,6 +174,56 @@ void main() {
             .findFirst();
         expect(cached, isNotNull);
         expect(cached!.amount, 15000.0);
+        // No rate from the server: the legacy rule, on the amount (FUP-129).
+        expect(cached.commissionRate, 0.025);
+      });
+
+      test(
+          'caches the server commissionRate, else the crop-based rate '
+          '(FUP-129)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        Map<String, dynamic> orderEscrow(String id) => {
+              'escrowId': id,
+              'deliveryId': 'del-001',
+              'buyerId': 'buyer-001',
+              'farmerId': 'farmer-001',
+              // 10,000 crop + 4,500 transport + 500 commission.
+              'amount': 15000.0,
+              'commission': 500.0,
+              'farmerPayout': 10000.0,
+              'currency': 'ETB',
+              'status': 'escrowed',
+              'createdAt': '2026-02-19T10:00:00Z',
+              'expiresAt': '2026-02-26T10:00:00Z',
+            };
+        final bodies = [
+          {...orderEscrow('esc-rated'), 'commissionRate': 0.04},
+          orderEscrow('esc-unrated'),
+        ];
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenAnswer((_) async => bodies.removeAt(0));
+
+        final rated = await repository.initiatePayment(
+          deliveryId: 'del-001',
+          buyerId: 'buyer-001',
+          farmerId: 'farmer-001',
+          amount: 15000.0,
+        );
+        final unrated = await repository.initiatePayment(
+          deliveryId: 'del-001',
+          buyerId: 'buyer-001',
+          farmerId: 'farmer-001',
+          amount: 15000.0,
+        );
+
+        // The server's rate as sent, never commission / amount (0.0333).
+        expect((rated as EscrowSuccess).payment.commissionRate, 0.04);
+        expect((unrated as EscrowSuccess).payment.commissionRate, 0.05);
       });
 
       test('queues intent when offline', () async {
@@ -519,6 +569,37 @@ void main() {
         );
       });
 
+      test(
+          'a confirmed hold past its expiry is cached as confirmed and does '
+          'not read as a refund (FUP-97)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(() => apiClient.get<Map<String, dynamic>>(any())).thenAnswer(
+          (_) async => {
+            'escrowId': 'esc-001',
+            'status': 'escrowed',
+            'createdAt': '2026-02-17T10:00:00Z',
+            'updatedAt': '2026-02-23T10:00:00Z',
+            'expiresAt': '2026-02-24T10:00:00Z',
+            'deliveryConfirmedAt': '2026-02-23T10:00:00Z',
+            'disputeWindowEndsAt': '2026-02-25T10:00:00Z',
+            'refundPending': false,
+          },
+        );
+
+        final payment = await repository.refreshEscrow('esc-001');
+
+        expect(
+          payment!.deliveryConfirmedAt!.toUtc(),
+          DateTime.utc(2026, 2, 23, 10),
+        );
+        expect(payment.isRefundPending, isFalse);
+        // Offline, the cached row keeps it: its past expiry is no refund.
+        final cached = await repository.getEscrow('esc-001');
+        expect(cached!.deliveryConfirmedAt, isNotNull);
+        expect(cached.isRefundPending, isFalse);
+      });
+
       test('falls back to cache when offline', () async {
         await _insertTestPayment(isar);
 
@@ -586,6 +667,7 @@ void main() {
         bool? refundPending,
         String? refundReason,
         String? releaseNotBefore,
+        String? deliveryConfirmedAt,
       }) =>
           {
             'escrows': [
@@ -606,6 +688,8 @@ void main() {
                 if (refundReason != null) 'refundReason': refundReason,
                 if (releaseNotBefore != null)
                   'releaseNotBefore': releaseNotBefore,
+                if (deliveryConfirmedAt != null)
+                  'deliveryConfirmedAt': deliveryConfirmedAt,
                 'currency': 'ETB',
                 'status': 'escrowed',
                 'createdAt': '2026-03-01T10:00:00.0000000Z',
@@ -640,6 +724,42 @@ void main() {
         expect(cached.first.buyerId, 'buyer-001');
         expect(cached.first.farmerId, 'farmer-001');
         expect(cached.first.deliveryId, isEmpty);
+      });
+
+      test(
+          'history rate: the server rate wins, an order row without one is '
+          'derived on the crop leg (FUP-129)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        // 1,000 crop + 450 transport + 50 commission = 1,500.
+        final unrated = summaryJson(farmerPayout: 1000, truckerPayout: 450);
+        (unrated['escrows'] as List)
+            .cast<Map<String, dynamic>>()
+            .first['commission'] = 50.0;
+        final rated = summaryJson(farmerPayout: 1000, truckerPayout: 450);
+        (rated['escrows'] as List).cast<Map<String, dynamic>>().first
+          ..['commission'] = 50.0
+          ..['commissionRate'] = 0.04;
+        final bodies = [unrated, rated, unrated];
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer((_) async => bodies.removeAt(0));
+
+        final rows = await repository.refreshHistory(userId: 'farmer-001');
+        expect(rows.single.commissionRate, 0.05);
+
+        // The server's own rate replaces the cached derived one.
+        await repository.refreshHistory(userId: 'farmer-001');
+        var cached = await repository.getHistory(userId: 'farmer-001');
+        expect(cached.single.commissionRate, 0.04);
+
+        // A later summary without a rate keeps the cached server rate.
+        await repository.refreshHistory(userId: 'farmer-001');
+        cached = await repository.getHistory(userId: 'farmer-001');
+        expect(cached.single.commissionRate, 0.04);
       });
 
       test('preserves cached party ids when an older server sends none',
@@ -730,6 +850,97 @@ void main() {
         );
         expect(row.refundPending, isTrue);
         expect(row.refundReason, 'order_cancelled');
+        expect(row.isRefundPending, isTrue);
+      });
+
+      // FUP-97: each party's cached row of a confirmed hold past its expiry
+      // waits for the payout; it never reads "Refund pending" offline.
+      for (final role in const ['buyer', 'farmer', 'trucker']) {
+        test(
+            '$role: a confirmed hold past its expiry is not a refund on the '
+            'cached row (FUP-97)', () async {
+          when(() => connectivityMonitor.isConnected())
+              .thenAnswer((_) async => true);
+          when(
+            () => apiClient.get<Map<String, dynamic>>(
+              any(),
+              queryParameters: any(named: 'queryParameters'),
+            ),
+          ).thenAnswer(
+            (_) async => summaryJson(
+              farmerPayout: 1362.5,
+              truckerPayout: 100.0,
+              truckerId: 'trucker-001',
+              expiresAt: '2026-03-01T10:05:00.000Z',
+              deliveryConfirmedAt: '2026-03-01T09:00:00.000Z',
+              refundPending: false,
+              releaseNotBefore:
+                  role == 'buyer' ? null : '2099-03-04T10:00:00.000Z',
+            ),
+          );
+
+          await repository.refreshHistory(
+            userId: '$role-001',
+            roleFilter: role,
+          );
+
+          final row = (await repository.getHistory(userId: '$role-001')).single;
+          expect(
+            row.deliveryConfirmedAt!.toUtc(),
+            DateTime.parse('2026-03-01T09:00:00.000Z'),
+          );
+          expect(row.isRefundPending, isFalse);
+        });
+      }
+
+      test(
+          'keeps a cached confirmation when the summary carries none, so the '
+          'row does not turn into a refund (FUP-97)', () async {
+        final cached =
+            await _insertTestPayment(isar, paymentId: 'escrow-order-ord-1');
+        cached.deliveryConfirmedAt = DateTime.utc(2026, 3, 1, 9);
+        await isar.writeTxn(() => isar.payments.put(cached));
+
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer(
+          (_) async => summaryJson(expiresAt: '2026-03-01T10:05:00.000Z'),
+        );
+
+        await repository.refreshHistory(userId: 'buyer-001');
+
+        final row = (await repository.getHistory(userId: 'buyer-001')).single;
+        expect(row.deliveryConfirmedAt!.toUtc(), DateTime.utc(2026, 3, 1, 9));
+        expect(row.isRefundPending, isFalse);
+      });
+
+      test(
+          'a refund the server scheduled on a confirmed hold still reads as '
+          'one (FUP-97)', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.get<Map<String, dynamic>>(
+            any(),
+            queryParameters: any(named: 'queryParameters'),
+          ),
+        ).thenAnswer(
+          (_) async => summaryJson(
+            expiresAt: '2026-03-01T10:05:00.000Z',
+            deliveryConfirmedAt: '2026-03-01T09:00:00.000Z',
+            refundPending: true,
+            refundReason: 'admin_refund',
+          ),
+        );
+
+        await repository.refreshHistory(userId: 'buyer-001');
+
+        final row = (await repository.getHistory(userId: 'buyer-001')).single;
         expect(row.isRefundPending, isTrue);
       });
 
@@ -1024,6 +1235,83 @@ void main() {
 
         expect(result, isA<EscrowError>());
         expect((result as EscrowError).code, 'ESCROW_014');
+      });
+
+      // FUP-70: the server's own code wins on 502 and 503 too.
+      test('502 and 503 with a server ESCROW code keep that code', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        for (final (status, code) in [
+          (502, 'ESCROW_012'),
+          (503, 'ESCROW_012'),
+          (503, 'ESCROW_014'),
+        ]) {
+          when(
+            () => apiClient.post<Map<String, dynamic>>(
+              any(),
+              data: any<dynamic>(named: 'data'),
+            ),
+          ).thenThrow(ServerException('x', status, code));
+
+          final result = await repository.initiatePayment(
+            deliveryId: 'del-001',
+            buyerId: 'buyer-001',
+            farmerId: 'farmer-001',
+            amount: 15000.0,
+          );
+
+          expect((result as EscrowError).code, code, reason: '$status $code');
+        }
+      });
+
+      test('503 ESCROW_012 on a dispute is not shown as Telebirr', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(const ServerException('read failed', 503, 'ESCROW_012'));
+
+        final result = await repository.raiseDispute(
+          escrowId: 'esc-001',
+          disputedBy: 'buyer-001',
+          reason: 'damaged_goods',
+        );
+
+        expect((result as EscrowError).code, 'ESCROW_012');
+      });
+
+      // FUP-77: the refund-scheduled refusal is told apart from the shared
+      // ESCROW_INVALID_TRANSITION.
+      test('a dispute on a scheduled refund gets the refund code', () async {
+        when(() => connectivityMonitor.isConnected())
+            .thenAnswer((_) async => true);
+        when(
+          () => apiClient.post<Map<String, dynamic>>(
+            any(),
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenThrow(
+          const ConflictException(
+            'A refund to the buyer is scheduled for this escrow; it can no '
+                'longer be disputed.',
+            409,
+            'ESCROW_INVALID_TRANSITION',
+          ),
+        );
+
+        final result = await repository.raiseDispute(
+          escrowId: 'esc-001',
+          disputedBy: 'farmer-001',
+          reason: 'damaged_goods',
+        );
+
+        expect(
+          (result as EscrowError).code,
+          escrowDisputeRefundScheduledCode,
+        );
       });
 
       test(

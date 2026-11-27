@@ -33,10 +33,10 @@
 
   <ItemGroup>
     <!-- AWS Lambda -->
-    <PackageReference Include="Amazon.Lambda.Core" Version="2.8.1" />
+    <PackageReference Include="Amazon.Lambda.Core" Version="3.4.0" />
     <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="3.0.1" />
-    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.14.3" />
-    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.5" />
+    <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="2.3.1" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="3.0.1" />
     <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="4.0.0" />
 
     <!-- AWS SDK (AOT-Compatible) -->
@@ -45,20 +45,29 @@
     <PackageReference Include="AWSSDK.SecretsManager" Version="3.7.504.43" />
     <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.505.15" />
     <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.502.61" />
+    <!-- ESC-28: the reputation stream parks failed records in SQS; the order-cron replays them -->
+    <PackageReference Include="AWSSDK.SQS" Version="3.7.502.57" />
+    <!-- FRD-19: the advisory cron invokes the non-AOT AI reviewer Lambda (AOT_COMPLIANCE.md lists it) -->
+    <PackageReference Include="AWSSDK.Lambda" Version="3.7.511.24" />
 
     <!-- Database Access (AOT-Compatible) -->
     <!-- ❌ BANNED: Entity Framework Core -->
     <!-- ✅ USE: Dapper -->
-    <PackageReference Include="Dapper" Version="2.1.1" />
+    <PackageReference Include="Dapper" Version="2.1.89" />
 
     <!-- JWT Validation (AOT-Compatible) -->
     <!-- ❌ BANNED: Microsoft.AspNetCore.Authentication.JwtBearer -->
     <!-- ✅ USE: System.IdentityModel.Tokens.Jwt -->
-    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.3.0" />
-    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.3.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Tokens" Version="8.23.0" />
 
     <!-- AWS Cognito -->
     <PackageReference Include="AWSSDK.CognitoIdentityProvider" Version="3.7.505.13" />
+
+    <!-- Crop photo renditions (crop-listing-api 1.6.0). Pure managed, no native libs, so it
+         compiles into the single AOT bootstrap. Six Labors Split License: Apache 2.0 terms for
+         organisations under 1M USD annual gross revenue. -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
   </ItemGroup>
 
   <ItemGroup>

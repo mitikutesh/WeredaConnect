@@ -1,19 +1,31 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
+import 'package:wereda_connect/core/models/order_dropoff_note.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/sync/sync_executor.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/device_signing_key_service.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
@@ -22,31 +34,63 @@ import 'package:wereda_connect/features/delivery_verification/presentation/deliv
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/qr_generate_screen.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/escrow_hold.dart';
+import 'package:wereda_connect/features/escrow_payment/domain/payout_expectation.dart';
+import 'package:wereda_connect/features/live_trip/domain/live_trip_rules.dart';
+import 'package:wereda_connect/features/live_trip/presentation/open_live_trip.dart';
 import 'package:wereda_connect/features/escrow_payment/domain/repositories/base_escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/widgets/payout_expected_text.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/conversation_screen.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
+import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_checkout_screen.dart';
 import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
-import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
-import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparty_dialog.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/delivery_place.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/dropoff_check_in_card.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/dropoff_note.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/pickup_check_in_card.dart';
+import 'package:wereda_connect/features/rating/presentation/widgets/rate_counterparties_section.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 import 'package:wereda_connect/shared/widgets/contact_actions_sheet.dart';
 import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/features/order/presentation/commission_label.dart';
 
-/// Full order detail screen with status timeline and role-based actions.
+/// Full order detail screen (the Buyer · Order detail and Farmer · Answer a
+/// new order boards): the order named in the header with its status, who
+/// has agreed, the timeline, the contact card, the role's actions, and the
+/// answer the viewer owes pinned at the foot.
 ///
-/// Loads order by ID via [LoadOrderById] event. Shows price breakdown,
-/// a Stepper-based status timeline, and contextual action buttons
-/// based on the user's role and the order's current status.
+/// Loads order by ID via [LoadOrderById] event.
 class OrderDetailScreen extends StatefulWidget {
   final String orderId;
 
-  const OrderDetailScreen({required this.orderId, super.key});
+  /// FUP-285: where an arrival check-in's GPS fix comes from; the device's
+  /// GPS when null.
+  final GpsCaptureService? gpsService;
+
+  /// FUP-336: takes the trucker's arrival photo at the drop-off; the camera
+  /// when null.
+  final ArrivalPhotoTaker? takeArrivalPhoto;
+
+  const OrderDetailScreen({
+    required this.orderId,
+    this.gpsService,
+    this.takeArrivalPhoto,
+    super.key,
+  });
 
   @override
   State<OrderDetailScreen> createState() => _OrderDetailScreenState();
@@ -55,10 +99,20 @@ class OrderDetailScreen extends StatefulWidget {
 class _OrderDetailScreenState extends State<OrderDetailScreen> {
   /// ESC-48: the order is read from the server at most once per screen to
   /// fetch the parties' phones of an open order the device has none for.
+  /// The read on open (ESC-23) counts as that one read when it was sent.
   bool _contactPullTried = false;
+
+  /// ESC-23: a read of the server's copy is running; a second one waits for
+  /// the user to ask again (no request per rebuild or per reload).
+  bool _serverReadRunning = false;
 
   /// FRD-06: the order's escrow is held for review.
   bool _underReview = false;
+
+  /// FUP-113: the order's escrow as the hold check read it, for the payee's
+  /// payout date. Null until it answers, when the read fails, or when the
+  /// order is at a status whose escrow is not read.
+  Payment? _orderEscrow;
 
   /// Whether a hold check has answered (held, not held, or failed). Until
   /// then the farmer's Accept stays disabled, so it never shows enabled on
@@ -69,10 +123,28 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   /// contact pull, a payment) starts another one.
   int _holdCheck = 0;
 
+  /// The order last loaded. E-6: an action that runs or fails (Accept on a
+  /// lost connection) keeps it on screen, the failure a snackbar; only the
+  /// first load shows the spinner or the error in its place.
+  Order? _shown;
+
+  /// FUP-285: the phone's sync results ([_onSyncResult]). Null where there
+  /// is no sync executor (web).
+  StreamSubscription<SyncBatchResult>? _syncResults;
+
   @override
   void initState() {
     super.initState();
     context.read<OrderBloc>().add(LoadOrderById(orderId: widget.orderId));
+    // ESC-23: what the device holds shows at once; the server's copy is read
+    // once behind it. Not awaited: it never blocks the screen.
+    _readFromServer().ignore();
+    try {
+      _syncResults =
+          context.read<SyncExecutor>().onSyncResult.listen(_onSyncResult);
+    } on Object {
+      // No sync executor here (web, tests): nothing is queued to follow.
+    }
     // A bloc that already holds this order may emit nothing new for the
     // listener: check that order once the first frame is up.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -83,6 +155,27 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         _checkHold(current.order);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _syncResults?.cancel();
+    super.dispose();
+  }
+
+  /// FUP-285: a sync ran while a check-in made on this phone waits for the
+  /// server's copy. The queue sends it after a short wait, and a refusal
+  /// rejects it, so the order is read again: a sent one says so, a refused
+  /// one (too far, too early) gives the button back at once instead of
+  /// keeping a stale mark, and after a sync that sent something the
+  /// server's copy, with its receipt time, is read too.
+  void _onSyncResult(SyncBatchResult result) {
+    final order = _shown;
+    if (!mounted || order == null || !hasCheckInAwaitingServer(order)) return;
+    final bloc = context.read<OrderBloc>();
+    if (bloc.isClosed) return;
+    bloc.add(LoadOrderById(orderId: widget.orderId, quiet: true));
+    if (result.succeeded > 0) _readFromServer().ignore();
   }
 
   /// ESC-48: an open order without the parties' phones on this device (the
@@ -96,31 +189,66 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         (order.buyerPhone != null || order.farmerPhone != null)) {
       return;
     }
-    _contactPullTried = true;
+    // Offline: Call and Copy wait for the next pull.
+    await _readFromServer();
+  }
+
+  /// ESC-23: read this order from the server into the device
+  /// (`GET /orders/{id}`), then show the stored row. Mobile only: web has no
+  /// [MarketplaceSync] and its order load is that request already. Best
+  /// effort and silent: offline, a server error, a 404 or a 403 leave the
+  /// order on the device and on screen as they were. The pull itself sends
+  /// nothing while a change of this order waits to upload, and never moves
+  /// the device to an older version.
+  ///
+  /// Returns whether a server read was possible here (false on web).
+  Future<bool> _readFromServer() async {
     final MarketplaceSync? sync;
     try {
       sync = context.read<MarketplaceSync?>();
     } on Object {
-      return;
+      return false;
     }
-    if (sync == null) return;
+    if (sync == null) return false;
+    if (_serverReadRunning) return true;
+    _serverReadRunning = true;
+    // The request is out (or held back by an unsent change, see below): the
+    // contact pull does not send a second one.
+    _contactPullTried = true;
     final bloc = context.read<OrderBloc>();
     try {
-      final server = await sync.pullOrder(order.orderId);
-      if (server != null && mounted && !bloc.isClosed) {
-        bloc.add(LoadOrderById(orderId: widget.orderId));
+      final server = await sync.pullOrder(widget.orderId);
+      if (server == null) {
+        // An unsent change of the order held the request back: the contact
+        // pull may still try once after it has uploaded.
+        _contactPullTried = false;
+      } else if (mounted && !bloc.isClosed) {
+        bloc.add(LoadOrderById(orderId: widget.orderId, quiet: true));
       }
     } on Object {
-      // Offline: Call and Copy wait for the next pull.
+      // Offline, or the server refused the read: the device's copy stays.
+    } finally {
+      _serverReadRunning = false;
     }
+    return true;
+  }
+
+  /// Pull to refresh. Mobile: the server's copy, then the stored row. Web:
+  /// the order load, which reads the server.
+  Future<void> _onPullToRefresh() async {
+    final bloc = context.read<OrderBloc>();
+    if (await _readFromServer()) return;
+    if (!mounted || bloc.isClosed) return;
+    bloc.add(LoadOrderById(orderId: widget.orderId, quiet: true));
   }
 
   /// FRD-06: read whether the order's escrow is held; the parties then see
   /// "Under Review" and lose the actions the server refuses while it is. A
   /// failed read, or no escrow side above this screen, counts as not held.
+  /// The same read gives the payee's payout date (FUP-113): no second call.
   Future<void> _checkHold(Order order) async {
     final check = ++_holdCheck;
-    var held = false;
+    Payment? escrow;
     if (orderHoldableStatuses.contains(order.status)) {
       BaseEscrowRepository? repository;
       try {
@@ -129,12 +257,13 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         repository = null;
       }
       if (repository != null) {
-        held = await isOrderEscrowHeld(repository, order.orderId);
+        escrow = await readOrderEscrow(repository, order.orderId);
       }
     }
     if (!mounted || check != _holdCheck) return;
     setState(() {
-      _underReview = held;
+      _underReview = escrow?.status == PaymentStatus.held;
+      _orderEscrow = escrow;
       _holdChecked = true;
     });
   }
@@ -144,7 +273,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.orderDetails)),
+      // The order's own header names it (the boards' light header) with
+      // Back beside it; the body is a Scaffold of its own so the answer the
+      // viewer owes can sit pinned at the foot.
       body: BlocConsumer<OrderBloc, OrderState>(
         listener: (context, state) {
           if (state is PaymentSubmitted) {
@@ -156,15 +287,57 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 .read<OrderBloc>()
                 .add(LoadOrderById(orderId: widget.orderId));
           } else if (state is OrderAccepted || state is OrderRejected) {
-            Navigator.of(context).pop();
+            // E-5: sent, or saved on the phone to send later.
+            showSavedOrSent(
+              context,
+              sent: state is OrderAccepted
+                  ? l10n.orderAcceptedSent
+                  : l10n.orderRejectedSent,
+            ).ignore();
+            leaveOrderDetail(context);
+          } else if (state is TruckerResponded) {
+            // ESC-15: stay on the order, which now shows the next step
+            // (Create Delivery after an accept); said only when it waits.
+            showSavedOrSent(context).ignore();
+            context
+                .read<OrderBloc>()
+                .add(LoadOrderById(orderId: widget.orderId));
+          } else if (state is DropoffNoteSaved) {
+            // LT-12: sent, or saved on the phone to send later.
+            showSavedOrSent(context, sent: l10n.dropoffNoteSaved).ignore();
+            context
+                .read<OrderBloc>()
+                .add(LoadOrderById(orderId: widget.orderId));
+          } else if (state is DeliveryLocationSaved) {
+            // LT-14: sent, or saved on the phone to send later.
+            showSavedOrSent(context, sent: l10n.deliveryPlaceSaved).ignore();
+            context
+                .read<OrderBloc>()
+                .add(LoadOrderById(orderId: widget.orderId));
+          } else if (state is CheckInSaved) {
+            // FUP-285: sent, or saved on the phone to send later; the order
+            // then shows the check-in (the server's, or the phone's mark).
+            // A repeat sent nothing: say it was already given.
+            showCheckInSaved(context, state);
+            context
+                .read<OrderBloc>()
+                .add(LoadOrderById(orderId: widget.orderId));
           } else if (state is OrderCancelled) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text(l10n.orderCancelledSuccess)),
             );
-            Navigator.of(context).pop();
+            leaveOrderDetail(context);
           } else if (state is OrderError) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(localizeErrorCode(state.code, l10n))),
+              SnackBar(
+                content: Text(
+                  localizeErrorCode(
+                    state.code,
+                    l10n,
+                    message: state.message,
+                  ),
+                ),
+              ),
             );
           } else if (state is SingleOrderLoaded) {
             _pullForContact(state.order);
@@ -172,21 +345,72 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           }
         },
         builder: (context, state) {
-          if (state is OrderLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (state is SingleOrderLoaded) {
+          if (state is SingleOrderLoaded) _shown = state.order;
+          final order = _shown;
+          if (order != null && order.orderId == widget.orderId) {
+            // An action or a reload runs: the order stays, its actions
+            // wait, Back still works.
             return _OrderDetailBody(
-              order: state.order,
+              order: order,
               underReview: _underReview,
+              orderEscrow: _orderEscrow,
               holdChecked: _holdChecked,
+              busy: state is OrderLoading,
+              onRefresh: _onPullToRefresh,
+              gpsService: widget.gpsService,
+              takeArrivalPhoto: widget.takeArrivalPhoto,
             );
           }
-          if (state is OrderError) {
-            return Center(child: Text(localizeErrorCode(state.code, l10n)));
-          }
-          return const SizedBox.shrink();
+          return SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FwDetailHeader(onBack: () => leaveOrderDetail(context)),
+                Expanded(
+                  child: Center(
+                    child: state is OrderError
+                        ? Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              // BUG-30: someone else's order (the server
+                              // answers 403) says so, not "an error".
+                              state.code == AppErrorCode.forbidden
+                                  ? l10n.unauthorizedAccess
+                                  : localizeErrorCode(state.code, l10n),
+                              key: const Key('order_detail_load_error'),
+                              textAlign: TextAlign.center,
+                            ),
+                          )
+                        : state is OrderLoading
+                            ? const CircularProgressIndicator()
+                            : const SizedBox.shrink(),
+                  ),
+                ),
+              ],
+            ),
+          );
         },
+      ),
+    );
+  }
+}
+
+/// The order's scroll area with pull to refresh (ESC-23), clear of the
+/// status bar.
+class _OrderRefreshArea extends StatelessWidget {
+  final Future<void> Function() onRefresh;
+  final Widget child;
+
+  const _OrderRefreshArea({required this.onRefresh, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      bottom: false,
+      child: RefreshIndicator(
+        key: const Key('order_detail_refresh'),
+        onRefresh: onRefresh,
+        child: child,
       ),
     );
   }
@@ -198,20 +422,42 @@ class _OrderDetailBody extends StatelessWidget {
   /// The order's escrow is held for review (FRD-06).
   final bool underReview;
 
+  /// The order's escrow as the hold check read it (FUP-113), or null.
+  final Payment? orderEscrow;
+
   /// Whether the hold check has answered; the farmer's Accept waits for it.
   final bool holdChecked;
 
+  /// An action or a reload runs (E-6): a progress line under the header,
+  /// and the actions take no taps until it is done. The header, with
+  /// Back, is never blocked.
+  final bool busy;
+
+  /// Pull to refresh (ESC-23): the server's copy of the order.
+  final Future<void> Function() onRefresh;
+
+  /// FUP-285: the arrival check-in's GPS ([OrderDetailScreen.gpsService]).
+  final GpsCaptureService? gpsService;
+
+  /// FUP-336: the arrival photo ([OrderDetailScreen.takeArrivalPhoto]).
+  final ArrivalPhotoTaker? takeArrivalPhoto;
+
   const _OrderDetailBody({
     required this.order,
+    required this.onRefresh,
     this.underReview = false,
+    this.orderEscrow,
     this.holdChecked = true,
+    this.busy = false,
+    this.gpsService,
+    this.takeArrivalPhoto,
   });
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final dateFormat = DateFormat.yMMMd().add_jm();
+    final clock = clockFormatOf(context);
     final authState = context.read<AuthBloc>().state;
     final userId = authState is AuthAuthenticated ? authState.userId : '';
     final userRole =
@@ -234,150 +480,251 @@ class _OrderDetailBody extends StatelessWidget {
       );
     }
 
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // FRD-06: the money is frozen until an admin decides.
-            if (underReview) ...[
-              const EscrowStatusBadge(status: PaymentStatus.held, large: true),
-              const SizedBox(height: 24),
-            ],
+    final isFarmer = userId == order.farmerId;
+    final isBuyer = userId == order.buyerId;
+    final isTrucker = !isFarmer && !isBuyer && userId == order.truckerId;
+    // FUP-113 (FRD-13): when the payee's own leg is expected to be paid.
+    // The buyer never sees it; a failed or offline read without a cached
+    // copy shows none.
+    final escrow = orderEscrow;
+    final payoutAt = escrow == null || !(isFarmer || isTrucker)
+        ? null
+        : expectedPayoutFor(escrow, role: userRole.name, userId: userId);
+    final farmerAnswering =
+        userRole == UserRole.farmer && canFarmerRespond(order, userId);
+    final answerDeadline = commitmentDeadlineFor(order, userId);
+    // LT-11: before pickup the buyer and the farmer of a trucked order learn
+    // where the map will be.
+    final mapNote = !isTrucker &&
+        orderHasTrip(order) &&
+        (order.status == OrderStatus.funded ||
+            order.status == OrderStatus.accepted);
 
-            // ── Order info card ─────────────────────────────────
-            Card(
-              margin: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    _InfoRow(
-                      label: l10n.farmer,
-                      value: partyDisplayName(order.farmerName, l10n),
-                    ),
-                    const Divider(height: 16),
-                    _InfoRow(
-                      label: l10n.buyer,
-                      value: partyDisplayName(order.buyerName, l10n),
-                    ),
-                    const Divider(height: 16),
-                    _InfoRow(
-                      label: CropType.labelFor(order.cropType, l10n),
-                      value: l10n.quantityKg(
-                        order.quantity.toStringAsFixed(0),
-                      ),
-                    ),
-                    const Divider(height: 16),
-                    _InfoRow(
-                      label: l10n.statusCreated,
-                      value: dateFormat.format(order.createdAt),
-                    ),
-                    // ESC-06: when the crops must be collected by, for all
-                    // three parties of an accepted order.
-                    if (order.status == OrderStatus.accepted &&
-                        order.pickupDeadlineAt != null) ...[
-                      const Divider(height: 16),
-                      _InfoRow(
-                        label: l10n.orderPickupDeadline,
-                        value: dateFormat.format(
-                          order.pickupDeadlineAt!.toLocal(),
-                        ),
-                      ),
-                    ],
-                  ],
+    return Scaffold(
+      body: _OrderRefreshArea(
+        onRefresh: onRefresh,
+        child: SingleChildScrollView(
+          // Always scrollable, so a short order can be pulled too.
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: FwContentWidth(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // What, with whom and the status (Buyer · Order detail and
+                // Farmer · Answer a new order boards).
+                _OrderHeader(
+                  order: order,
+                  userId: userId,
+                  farmerAnswering: farmerAnswering,
                 ),
-              ),
-            ),
-            const SizedBox(height: 24),
+                if (busy)
+                  const LinearProgressIndicator(
+                    key: Key('order_detail_busy'),
+                    minHeight: 2,
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // FRD-06: the money is frozen until an admin decides.
+                      if (underReview) ...[
+                        const EscrowStatusBadge(
+                          status: PaymentStatus.held,
+                          large: true,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
 
-            // ── Price breakdown ──────────────────────────────────
-            Text(
-              l10n.priceBreakdown,
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              margin: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    _PriceRow(
-                      label: l10n.cropCost,
-                      amount: order.cropCost ?? order.totalPrice,
-                      l10n: l10n,
-                    ),
-                    if (order.transportCost != null &&
-                        order.transportCost! > 0) ...[
-                      const Divider(height: 16),
-                      _PriceRow(
-                        label: l10n.transportCost,
-                        amount: order.transportCost!,
+                      // The answer the viewer owes (the farmer's on a new
+                      // order, the trucker's on a transport request), by when.
+                      if (answerDeadline != null &&
+                          order.status == OrderStatus.funded) ...[
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: _DeadlinePill(
+                            label: clock.deadline(
+                              answerDeadline,
+                              date: formatMonthDay,
+                              sentence: l10n.commitmentAnswerBy,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                      ],
+
+                      // The farmer's money and the order's facts; the
+                      // trucker's pay. The buyer's total closes the page.
+                      if (isFarmer) ...[
+                        _FarmerReceiveCard(order: order, payoutAt: payoutAt),
+                        const SizedBox(height: 12),
+                      ] else if (isTrucker) ...[
+                        _TruckerPayCard(order: order, payoutAt: payoutAt),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ESC-06: when the crops must be collected by, for all
+                      // three parties of an accepted order.
+                      if (order.status == OrderStatus.accepted &&
+                          order.pickupDeadlineAt != null) ...[
+                        FwNoteBox.cream(
+                          icon: Icons.schedule,
+                          child: Row(
+                            children: [
+                              Text(l10n.orderPickupDeadline),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ClockText(
+                                  clock.deadline(
+                                    order.pickupDeadlineAt!,
+                                    date: formatDate,
+                                  ),
+                                  textAlign: TextAlign.end,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ── Who has agreed (ESC-15) ──────────────────────
+                      OrderCommitmentSection(
+                        order: order,
+                        userId: userId,
+                        hideViewerDeadline: answerDeadline != null,
+                      ),
+
+                      // ── Arrival check-ins (ESC-34, FUP-285) ──────────
+                      if (PickupCheckInCard.showsFor(order))
+                        PickupCheckInCard(
+                          order: order,
+                          userId: userId,
+                          busy: busy,
+                          gpsService: gpsService,
+                        ),
+
+                      // ── Drop-off check-in (ESC-36, FUP-336) ──────────
+                      if (DropoffCheckInCard.showsFor(order))
+                        DropoffCheckInCard(
+                          order: order,
+                          userId: userId,
+                          busy: busy,
+                          gpsService: gpsService,
+                          takeArrivalPhoto: takeArrivalPhoto,
+                        ),
+
+                      // Farmer · Answer a new order: what accepting and
+                      // rejecting do, above the pinned buttons.
+                      if (farmerAnswering) ...[
+                        Text(
+                          l10n.farmerAnswerNote,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            height: 1.5,
+                            color: AppTheme.slate,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ── Status timeline ──────────────────────────────
+                      _StatusTimeline(
+                        status: order.status,
+                        tripOrder: orderHasTrip(order),
                         l10n: l10n,
                       ),
+                      const SizedBox(height: 12),
+
+                      // ── Contact (ESC-48) ─────────────────────────────
+                      _OrderContactSection(order: order, userId: userId),
+
+                      // ── Drop-off place (LT-14) ───────────────────────
+                      if (orderHasTrip(order) &&
+                          (orderDeliveryPoint(order) != null ||
+                              canEditDeliveryLocation(order, userId))) ...[
+                        AbsorbPointer(
+                          absorbing: busy,
+                          child: DeliveryPlaceCard(
+                            order: order,
+                            userId: userId,
+                            onEdit: () =>
+                                _editDeliveryPlace(context, order, userId),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ── Drop-off landmark (LT-12) ────────────────────
+                      if (normalizeDropoffNote(order.dropoffNote) != null ||
+                          canEditDropoffNote(order, userId)) ...[
+                        AbsorbPointer(
+                          absorbing: busy,
+                          child: DropoffNoteCard(
+                            order: order,
+                            userId: userId,
+                            onEdit: () =>
+                                _editDropoffNote(context, order, userId),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      if (mapNote) ...[
+                        FwNoteBox.cream(
+                          key: const Key('order_live_trip_hint'),
+                          icon: Icons.place_outlined,
+                          child: Text(l10n.liveTripAfterPickupHint),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+
+                      // ── Role-based actions ───────────────────────────
+                      for (final action in _buildActions(
+                        context,
+                        order: order,
+                        userId: userId,
+                        userRole: userRole,
+                        l10n: l10n,
+                      ))
+                        AbsorbPointer(absorbing: busy, child: action),
+
+                      // The buyer's money: held in escrow, or the total.
+                      if (isBuyer) _BuyerTotalRow(order: order),
                     ],
-                    const Divider(height: 16),
-                    _PriceRow(
-                      label: l10n.platformCommission,
-                      amount: order.commissionAmount ?? 0,
-                      l10n: l10n,
-                    ),
-                    const Divider(height: 16),
-                    _PriceRow(
-                      label: l10n.orderTotal,
-                      amount: order.orderTotal ?? order.totalPrice,
-                      l10n: l10n,
-                      isBold: true,
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
-            const SizedBox(height: 24),
-
-            // ── Status timeline ──────────────────────────────────
-            Text(
-              l10n.orderTimeline,
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            _StatusTimeline(status: order.status, l10n: l10n),
-            const SizedBox(height: 24),
-
-            // ── Contact (ESC-48) ─────────────────────────────────
-            _OrderContactSection(order: order, userId: userId),
-
-            // ── Role-based actions ───────────────────────────────
-            ..._buildActions(
-              context,
-              order: order,
-              userId: userId,
-              userRole: userRole,
-              l10n: l10n,
-            ),
-          ],
+          ),
         ),
       ),
+      bottomNavigationBar: switch (_answerActions(
+        context,
+        order: order,
+        userId: userId,
+        userRole: userRole,
+        l10n: l10n,
+      )) {
+        final actions? => AbsorbPointer(absorbing: busy, child: actions),
+        null => null,
+      },
     );
   }
 
-  List<Widget> _buildActions(
+  /// The answer the viewer owes, pinned at the foot: the buyer pays (Pay
+  /// Now on created and pending_payment, Pay again on payment_failed,
+  /// Continue payment on payment_submitted: the live Telebirr checkout,
+  /// ESC-44), the farmer accepts or rejects a new order, the trucker
+  /// accepts or declines the transport request once the farmer accepted
+  /// (ESC-15). Farmers and truckers never see the payment actions.
+  Widget? _answerActions(
     BuildContext context, {
     required Order order,
     required String userId,
     required UserRole userRole,
     required AppLocalizations l10n,
   }) {
-    final widgets = <Widget>[];
-
-    // The order's buyer pays: Pay Now (created, pending_payment), Pay again
-    // (payment_failed), Continue payment (payment_submitted: the live
-    // Telebirr checkout, ESC-44; with mock payments it finds the order
-    // funded). Farmers and truckers never see these.
     final isOrderBuyer = userRole == UserRole.buyer && order.buyerId == userId;
     final payLabel = switch (order.status) {
       OrderStatus.created || OrderStatus.pendingPayment => l10n.payNow,
@@ -386,10 +733,9 @@ class _OrderDetailBody extends StatelessWidget {
       _ => null,
     };
     if (isOrderBuyer && payLabel != null) {
-      widgets.add(
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton(
+      return FwBottomActions(
+        children: [
+          FilledButton(
             onPressed: () async {
               final orderBloc = context.read<OrderBloc>();
               await Navigator.push(
@@ -397,7 +743,12 @@ class _OrderDetailBody extends StatelessWidget {
                 MaterialPageRoute<void>(
                   builder: (_) => order.status == OrderStatus.paymentSubmitted
                       ? OrderCheckoutScreen(order: order)
-                      : PaymentInstructionsScreen(order: order),
+                      // This page stays under the payment: a paid order
+                      // comes back here (BUG-17).
+                      : PaymentInstructionsScreen(
+                          order: order,
+                          fromOrderDetail: true,
+                        ),
                 ),
               );
               // The payment may have moved the order on.
@@ -405,67 +756,146 @@ class _OrderDetailBody extends StatelessWidget {
                 orderBloc.add(LoadOrderById(orderId: order.orderId));
               }
             },
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
             child: Text(payLabel),
           ),
-        ),
+        ],
       );
-      widgets.add(const SizedBox(height: 12));
     }
 
-    // Farmer + funded → Accept / Reject. Under review the server refuses the
-    // accept (FRD-03), so only Reject is offered; Accept stays disabled until
-    // the hold check has answered.
-    if (userRole == UserRole.farmer && order.status == OrderStatus.funded) {
-      widgets.add(
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: () {
-                  context.read<OrderBloc>().add(
-                        RejectOrder(
-                          orderId: order.orderId,
-                          farmerId: userId,
-                        ),
-                      );
-                },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.statusError,
-                  side: const BorderSide(color: AppTheme.statusError),
-                  minimumSize: const Size.fromHeight(48),
-                ),
-                child: Text(l10n.rejectOrder),
-              ),
+    // Farmer + funded and not answered yet → Reject / Accept (ESC-15: a
+    // farmer who accepted a trip order waits for the trucker). Under review
+    // the server refuses the accept (FRD-03), so only Reject is offered;
+    // Accept stays disabled until the hold check has answered.
+    if (userRole == UserRole.farmer && canFarmerRespond(order, userId)) {
+      return FwBottomActions(
+        children: [
+          _AnswerRow(
+            decline: OutlinedButton(
+              key: const Key('order_reject_button'),
+              onPressed: () => _rejectAsFarmer(context, order, userId),
+              style: _secondaryStyle,
+              child: Text(l10n.rejectOrder),
             ),
-            if (!underReview) ...[
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  onPressed: holdChecked
-                      ? () {
-                          context.read<OrderBloc>().add(
-                                AcceptOrder(
-                                  orderId: order.orderId,
-                                  farmerId: userId,
-                                ),
-                              );
-                        }
-                      : null,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
+            accept: underReview
+                ? null
+                : FilledButton(
+                    onPressed: holdChecked
+                        ? () {
+                            context.read<OrderBloc>().add(
+                                  AcceptOrder(
+                                    orderId: order.orderId,
+                                    farmerId: userId,
+                                  ),
+                                );
+                          }
+                        : null,
+                    child: Text(l10n.acceptOrder),
                   ),
-                  child: Text(l10n.acceptOrder),
-                ),
-              ),
-            ],
-          ],
-        ),
+          ),
+        ],
       );
-      widgets.add(const SizedBox(height: 12));
     }
+
+    // ESC-15: the trucker answers the transport request once the farmer
+    // accepted. Like the farmer's, the accept waits for the hold check and is
+    // not offered while the money is under review.
+    if (canTruckerRespond(order, userId)) {
+      return FwBottomActions(
+        children: [
+          _AnswerRow(
+            decline: OutlinedButton(
+              onPressed: () => _declineTransport(context, order, userId),
+              style: _secondaryStyle,
+              child: Text(l10n.truckerDeclineRequest),
+            ),
+            accept: underReview
+                ? null
+                : FilledButton(
+                    onPressed: holdChecked
+                        ? () => context.read<OrderBloc>().add(
+                              TruckerAcceptOrder(
+                                orderId: order.orderId,
+                                truckerId: userId,
+                              ),
+                            )
+                        : null,
+                    child: Text(l10n.truckerAcceptRequest),
+                  ),
+          ),
+        ],
+      );
+    }
+    return null;
+  }
+
+  /// Reject and Decline: the smaller outlined pill under the orange
+  /// answer (FarmerOrderRequestM board).
+  static final ButtonStyle _secondaryStyle = OutlinedButton.styleFrom(
+    minimumSize: const Size(0, 48),
+    padding: const EdgeInsets.symmetric(horizontal: 22),
+    textStyle: const TextStyle(
+      fontFamily: AppTheme.fontFamily,
+      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      fontSize: 14,
+      fontWeight: FontWeight.w800,
+    ),
+  );
+
+  /// LT-12: the buyer adds or changes the drop-off landmark in a sheet; the
+  /// screen says when it was saved and reloads the order.
+  Future<void> _editDropoffNote(
+    BuildContext context,
+    Order order,
+    String userId,
+  ) async {
+    final bloc = context.read<OrderBloc>();
+    final text = await showDropoffNoteSheet(
+      context,
+      initial: order.dropoffNote,
+    );
+    if (text == null || bloc.isClosed) return;
+    bloc.add(
+      UpdateDropoffNote(
+        orderId: order.orderId,
+        buyerId: userId,
+        dropoffNote: text,
+      ),
+    );
+  }
+
+  /// LT-14: the buyer picks another drop-off place in a sheet, starting from
+  /// the order's; the screen says when it was saved and reloads the order.
+  Future<void> _editDeliveryPlace(
+    BuildContext context,
+    Order order,
+    String userId,
+  ) async {
+    final bloc = context.read<OrderBloc>();
+    final place = await showDeliveryPlaceSheet(
+      context,
+      initial: deliveryPlaceOf(order, PlaceRepository.instance),
+    );
+    final point = deliveryPointOfPlace(place);
+    if (point == null || bloc.isClosed) return;
+    bloc.add(
+      UpdateDeliveryLocation(
+        orderId: order.orderId,
+        buyerId: userId,
+        point: point,
+      ),
+    );
+  }
+
+  /// The actions that sit in the page below the cards: the delivery
+  /// (create, open, QR, live trip), rating, and the cancels.
+  List<Widget> _buildActions(
+    BuildContext context, {
+    required Order order,
+    required String userId,
+    required UserRole userRole,
+    required AppLocalizations l10n,
+  }) {
+    final widgets = <Widget>[];
 
     // The order's delivery, for every party: the create action while none
     // exists, then "Open delivery" (and the farmer's pickup QR) once it does.
@@ -495,7 +925,14 @@ class _OrderDetailBody extends StatelessWidget {
     if (userRole == UserRole.buyer &&
         deliveredOrderStatuses.contains(order.status)) {
       widgets.add(
-        _RateCounterpartiesSection(order: order, buyerId: userId),
+        RateCounterpartiesSection(
+          orderId: order.orderId,
+          buyerId: userId,
+          farmerId: order.farmerId,
+          farmerName: order.farmerName,
+          truckerId: order.truckerId,
+          truckerName: order.truckerName,
+        ),
       );
       widgets.add(const SizedBox(height: 12));
     }
@@ -520,16 +957,22 @@ class _OrderDetailBody extends StatelessWidget {
       widgets.add(const SizedBox(height: 12));
     }
 
-    // Cancellable statuses — only the BUYER may cancel (the server rejects a
-    // cancel from anyone else), so don't show a dead button to farmers/truckers.
-    // An accepted order only after a transport failure (ESC-06).
-    const cancellable = {
-      OrderStatus.created,
-      OrderStatus.pendingPayment,
-      OrderStatus.funded,
-    };
-    if ((cancellable.contains(order.status) || transportFailed) &&
-        order.buyerId == userId) {
+    // Who may cancel (ESC-15, order-lifecycle.md 2.0.0): the buyer before
+    // paying and after the transport fell through, not while the farmer and
+    // the trucker decide; an accepted order only after a transport failure
+    // (ESC-06). The farmer after the transport fell through (no penalty) or
+    // before pickup (counts against them). Not while the money is under
+    // review, which the server refuses.
+    final buyerMayCancel = order.buyerId == userId &&
+        (transportFailed ||
+            (order.status != OrderStatus.accepted &&
+                (order.status != OrderStatus.awaitingTransport ||
+                    !underReview) &&
+                canCancelOrder(order, userId, DateTime.now().toUtc())));
+    final farmerMayCancel = order.farmerId == userId &&
+        !underReview &&
+        canCancelOrder(order, userId, DateTime.now().toUtc());
+    if (buyerMayCancel || farmerMayCancel) {
       widgets.add(
         SizedBox(
           width: double.infinity,
@@ -540,13 +983,110 @@ class _OrderDetailBody extends StatelessWidget {
               side: const BorderSide(color: AppTheme.statusError),
               minimumSize: const Size.fromHeight(48),
             ),
-            child: Text(l10n.cancelOrder),
+            child: Text(
+              farmerMayCancel && order.status == OrderStatus.awaitingTransport
+                  ? l10n.farmerCancelWithoutPenalty
+                  : l10n.cancelOrder,
+            ),
+          ),
+        ),
+      );
+      widgets.add(const SizedBox(height: 12));
+    }
+
+    // ESC-15: the committed trucker of an order not picked up yet may drop
+    // out; the order then waits for the buyer.
+    if (!underReview && canTruckerDropOut(order, userId)) {
+      widgets.add(
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton(
+            onPressed: () => _dropOut(context, order, userId),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.statusError,
+              side: const BorderSide(color: AppTheme.statusError),
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: Text(l10n.truckerDropOut),
           ),
         ),
       );
     }
 
     return widgets;
+  }
+
+  /// The farmer declines a new order, saying why (FarmerOrderRequestM
+  /// board) and then confirming (FarmerRejectConfirmM); the buyer is
+  /// refunded.
+  Future<void> _rejectAsFarmer(
+    BuildContext context,
+    Order order,
+    String userId,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final bloc = context.read<OrderBloc>();
+    final reason = await showDeclineReasonSheet(
+      context,
+      warning: l10n.farmerRejectRefundNote,
+      reasons: farmerDeclineReasons,
+    );
+    if (reason == null || !context.mounted) return;
+    // FarmerRejectConfirmM: nothing is rejected until the farmer says yes
+    // on the confirm step; "Keep order" and a dismiss leave the order as
+    // it is.
+    final confirmed = await showRejectOrderConfirmSheet(
+      context,
+      reason: declineReasonLabel(l10n, reason),
+    );
+    if (!confirmed || bloc.isClosed) return;
+    bloc.add(
+      RejectOrder(
+        orderId: order.orderId,
+        farmerId: userId,
+        declineReason: reason,
+      ),
+    );
+  }
+
+  /// ESC-15: the trucker declines the transport request, with a reason.
+  Future<void> _declineTransport(
+    BuildContext context,
+    Order order,
+    String userId,
+  ) async {
+    final bloc = context.read<OrderBloc>();
+    final reason = await showDeclineReasonSheet(context);
+    if (reason == null || bloc.isClosed) return;
+    bloc.add(
+      TruckerDeclineOrder(
+        orderId: order.orderId,
+        truckerId: userId,
+        declineReason: reason,
+      ),
+    );
+  }
+
+  /// ESC-15: the committed trucker drops out before pickup (fresh sign-in).
+  Future<void> _dropOut(
+    BuildContext context,
+    Order order,
+    String userId,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final bloc = context.read<OrderBloc>();
+    final reason = await showDeclineReasonSheet(
+      context,
+      warning: l10n.truckerDropOutWarning,
+    );
+    if (reason == null || bloc.isClosed) return;
+    bloc.add(
+      TruckerDeclineOrder(
+        orderId: order.orderId,
+        truckerId: userId,
+        declineReason: reason,
+      ),
+    );
   }
 
   /// Order statuses at which the order can have a delivery to open.
@@ -602,7 +1142,7 @@ class _OrderDetailBody extends StatelessWidget {
                 orderId: order.orderId,
                 listingId: order.listingId,
                 farmerId: order.farmerId,
-                farmerName: order.farmerName,
+                farmerName: partyNameToStore(order.farmerName),
                 buyerId: userId,
                 buyerName: order.buyerName,
               ),
@@ -640,8 +1180,9 @@ class _OrderDetailBody extends StatelessWidget {
             orderId: order.orderId,
             listingId: order.listingId,
             farmerId: order.farmerId,
-            farmerName:
-                order.farmerName.isNotEmpty ? order.farmerName : order.farmerId,
+            // Never the id for a missing name (FUP-130); the server stamps
+            // the farmer's name from their profile.
+            farmerName: partyNameToStore(order.farmerName),
             truckerId: order.truckerId ?? userId,
             truckerName: truckerName,
             buyerId: order.buyerId,
@@ -671,18 +1212,20 @@ class _OrderDetailBody extends StatelessWidget {
         );
         return AlertDialog(
           title: Text(l10n.cancelOrder),
-          // ESC-06: cancelling after a transport failure refunds everything.
-          content: order.status == OrderStatus.accepted
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(l10n.cancelOrderTransportFailedBody),
-                    const SizedBox(height: 12),
-                    reasonField,
-                  ],
-                )
-              : reasonField,
+          // ESC-06 / ESC-15: what the cancel means for the money and for the
+          // farmer's record.
+          content: switch (_cancelDialogBody(order, userId, l10n)) {
+            final String body => Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(body),
+                  const SizedBox(height: 12),
+                  reasonField,
+                ],
+              ),
+            null => reasonField,
+          },
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
@@ -701,8 +1244,12 @@ class _OrderDetailBody extends StatelessWidget {
                     );
                 Navigator.pop(dialogContext);
               },
+              // Beside the other action, not stacked under it: the theme's
+              // button is full width.
               style: FilledButton.styleFrom(
                 backgroundColor: AppTheme.statusError,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(0, 48),
               ),
               child: Text(l10n.cancelOrder),
             ),
@@ -711,6 +1258,20 @@ class _OrderDetailBody extends StatelessWidget {
       },
     );
   }
+}
+
+/// The cancel dialog's explanation for [userId] on [order], or null.
+String? _cancelDialogBody(Order order, String userId, AppLocalizations l10n) {
+  final isFarmer = userId == order.farmerId;
+  return switch (order.status) {
+    OrderStatus.accepted => isFarmer
+        ? l10n.farmerCancelCommittedWarning
+        : l10n.cancelOrderTransportFailedBody,
+    OrderStatus.awaitingTransport => isFarmer
+        ? l10n.farmerCancelAwaitingTransportBody
+        : l10n.cancelOrderAwaitingTransportBody,
+    _ => null,
+  };
 }
 
 /// The order's delivery on the order detail screen, for every party.
@@ -727,6 +1288,600 @@ class _OrderDetailBody extends StatelessWidget {
 /// finds; any other failure shows the error. The shared [DeliveryBloc] is
 /// only listened to while this widget's own create is in flight, so other
 /// screens' delivery states never show here.
+/// The orange Accept (or Accept transport) full width with the smaller
+/// outlined Reject (or Decline) under it, as on the FarmerOrderRequestM
+/// board; Reject alone while the money is under review.
+class _AnswerRow extends StatelessWidget {
+  final Widget decline;
+  final Widget? accept;
+
+  const _AnswerRow({required this.decline, required this.accept});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (accept != null) ...[
+          accept!,
+          const SizedBox(height: 12),
+        ],
+        Center(child: decline),
+      ],
+    );
+  }
+}
+
+/// "Please answer by today 18:00.": the viewer's own deadline as the
+/// boards' orange tint pill with a clock.
+class _DeadlinePill extends StatelessWidget {
+  final ClockLabel label;
+
+  const _DeadlinePill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 34),
+        padding: const EdgeInsetsDirectional.fromSTEB(10, 6, 14, 6),
+        decoration: BoxDecoration(
+          color: AppTheme.orangeTint,
+          borderRadius: BorderRadius.circular(17),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.schedule, size: 17, color: AppTheme.orangeInk),
+            const SizedBox(width: 8),
+            Flexible(
+              child: ClockText(
+                label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.orangeInk,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// FarmerRejectConfirmM: the confirm step before a farmer rejects an order.
+/// A sheet that says what rejecting means for the buyer and their money,
+/// names the [reason] the farmer just picked, and offers the red "Yes,
+/// reject order" over "Keep order". True only when the farmer said yes; a
+/// dismiss keeps the order.
+Future<bool> showRejectOrderConfirmSheet(
+  BuildContext context, {
+  required String reason,
+}) async {
+  final l10n = AppLocalizations.of(context)!;
+  final confirmed = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppTheme.ground,
+    barrierColor: AppTheme.ink.withAlpha(153),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+    ),
+    builder: (sheetContext) => SafeArea(
+      child: SingleChildScrollView(
+        key: const Key('reject_confirm_sheet'),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 44,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppTheme.line,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: const BoxDecoration(
+                  color: AppTheme.statusErrorContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.close_rounded,
+                  size: 22,
+                  color: AppTheme.statusError,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Semantics(
+              header: true,
+              child: Text(
+                l10n.rejectConfirmTitle,
+                style: const TextStyle(
+                  fontSize: 26,
+                  height: 1.1,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.8,
+                  color: AppTheme.ink,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              l10n.rejectConfirmBody,
+              style: const TextStyle(
+                fontSize: 15,
+                height: 1.45,
+                color: AppTheme.inkSoft,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              l10n.rejectConfirmReason(reason),
+              key: const Key('reject_confirm_reason'),
+              style: const TextStyle(
+                fontSize: 15,
+                height: 1.45,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.ink,
+              ),
+            ),
+            const SizedBox(height: 22),
+            FilledButton(
+              key: const Key('reject_confirm_yes'),
+              onPressed: () => Navigator.of(sheetContext).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.statusError,
+                foregroundColor: Colors.white,
+              ),
+              child: Text(l10n.rejectConfirmYes),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              key: const Key('reject_confirm_keep'),
+              onPressed: () => Navigator.of(sheetContext).pop(false),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(54),
+              ),
+              child: Text(l10n.rejectConfirmKeep),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  return confirmed ?? false;
+}
+
+/// The page header: Back, what the order is (crop and weight) with whom it
+/// is with, and the status pill. A farmer answering a new order reads "New
+/// order" with the crop under it and no pill, as on the board.
+/// "Thu, Oct 30": the trip's day on the Ethiopian calendar day, as the trip
+/// cards write it, with no-break spaces so a wrap never splits it.
+String _tripDay(DateTime at) =>
+    boardDayInEthiopia(at).replaceAll(' ', '\u00A0');
+
+class _OrderHeader extends StatelessWidget {
+  final Order order;
+  final String userId;
+  final bool farmerAnswering;
+
+  const _OrderHeader({
+    required this.order,
+    required this.userId,
+    required this.farmerAnswering,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final isFarmer = userId == order.farmerId;
+    final isTrucker = !isFarmer && userId == order.truckerId;
+    final farmer = partyDisplayName(order.farmerName, l10n);
+    final buyer = partyDisplayName(order.buyerName, l10n);
+    final what = '${CropType.labelFor(order.cropType, l10n)} · '
+        '${kgQuantityText(order.quantity, l10n)}';
+
+    final String title;
+    final String subtitle;
+    if (farmerAnswering) {
+      title = l10n.detailNewOrderTitle;
+      subtitle = l10n.detailFromYourListing(what);
+    } else if (isFarmer) {
+      title = what;
+      subtitle = '${l10n.buyer}: $buyer';
+    } else if (isTrucker) {
+      title = what;
+      subtitle = '$farmer → $buyer';
+    } else {
+      title = what;
+      final pickup = order.pickupDate;
+      subtitle = pickup == null
+          ? l10n.liveTripFrom(farmer)
+          : '${l10n.liveTripFrom(farmer)} · '
+              '${l10n.orderTripOn(_tripDay(pickup))}';
+    }
+
+    const muted = TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w500,
+      color: AppTheme.slate,
+    );
+    final Widget text;
+    if (farmerAnswering) {
+      // FarmerOrderRequestM: "New order" over the crop, with its glyph.
+      text = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Semantics(
+            header: true,
+            child:
+                Text(title, style: FwText.detailTitle.copyWith(fontSize: 30)),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              CropGlyph(cropKey: order.cropType, color: AppTheme.slate),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(subtitle, style: muted.copyWith(fontSize: 14)),
+              ),
+            ],
+          ),
+        ],
+      );
+    } else {
+      // BuyerOrderDetailM: who and when with the status pill, over the crop
+      // and the weight.
+      text = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(subtitle, style: muted),
+              StatusChip(
+                label: orderStatusLabel(order.status, l10n),
+                kind: orderStatusKind(order.status),
+                icon: orderStatusIcon(order.status),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Semantics(
+            header: true,
+            child:
+                Text(title, style: FwText.detailTitle.copyWith(fontSize: 28)),
+          ),
+        ],
+      );
+    }
+    return Padding(
+      key: const Key('order_summary_hero'),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Back also works on an order opened by its own address (BUG-17).
+          FwBackButton(onPressed: () => leaveOrderDetail(context)),
+          const SizedBox(width: 12),
+          Expanded(child: text),
+        ],
+      ),
+    );
+  }
+}
+
+/// Farmer · Answer a new order: what the farmer receives, the weight times
+/// the price with the money's state, then the buyer and the pickup.
+class _FarmerReceiveCard extends StatelessWidget {
+  final Order order;
+
+  /// When the farmer's payout is expected (FUP-113), or null.
+  final DateTime? payoutAt;
+
+  const _FarmerReceiveCard({required this.order, this.payoutAt});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final held = escrowHeldOrderStatuses.contains(order.status);
+    final trucker = order.truckerName?.trim() ?? '';
+    final truck = trucker.isNotEmpty
+        ? l10n.detailTruckOf(partyDisplayName(trucker, l10n))
+        : l10n.trucker;
+    final day = order.pickupDate;
+    final pickup = orderHasTrip(order)
+        ? (day == null ? truck : '${_tripDay(day)} · $truck')
+        : l10n.detailBuyerCollects;
+    return FwCard(
+      raised: true,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.orderYouReceive,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: AppTheme.slate,
+                  ),
+                ),
+              ),
+              Text(
+                // A legacy order without cropCost: weight times price, never
+                // the buyer's total (F-1).
+                l10n.etbCurrency(
+                  formatEtbAmount(
+                    farmerEscrowShare(
+                      subtotal: order.quantity * order.pricePerUnit,
+                      cropCost: order.cropCost,
+                    ),
+                  ),
+                ),
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.8,
+                  color: context.roleColors.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${kgQuantityText(order.quantity, l10n)} × '
+                  '${l10n.etbCurrency(formatEtbAmount(order.pricePerUnit))}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.inkSoft,
+                  ),
+                ),
+              ),
+              if (held) ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: FwPill(
+                    label: l10n.detailPaidIntoEscrow,
+                    icon: Icons.lock_outline,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (payoutAt case final at?) ...[
+            const SizedBox(height: 8),
+            PayoutExpectedText(
+              key: const Key('order_payout_expected'),
+              payoutAt: at,
+            ),
+          ],
+          const SizedBox(height: 12),
+          const Divider(height: 1, thickness: 1, color: AppTheme.sketch),
+          const SizedBox(height: 12),
+          _FactRow(
+            label: l10n.buyer,
+            value: partyDisplayName(order.buyerName, l10n),
+          ),
+          const SizedBox(height: 8),
+          _FactRow(label: l10n.detailPickupLabel, value: pickup),
+        ],
+      ),
+    );
+  }
+}
+
+/// A label left, its value bold right.
+class _FactRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _FactRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 13, color: AppTheme.slate),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.ink,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The trucker's transport pay for this order, held with the rest.
+class _TruckerPayCard extends StatelessWidget {
+  final Order order;
+
+  /// When the trucker's payout is expected (FUP-113), or null.
+  final DateTime? payoutAt;
+
+  const _TruckerPayCard({required this.order, this.payoutAt});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final held = escrowHeldOrderStatuses.contains(order.status);
+    return FwCard(
+      raised: true,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.orderYourTransportPay,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: AppTheme.slate,
+                  ),
+                ),
+                if (held) ...[
+                  const SizedBox(height: 6),
+                  FwPill(
+                    label: l10n.detailPaidIntoEscrow,
+                    icon: Icons.lock_outline,
+                  ),
+                ],
+                if (payoutAt case final at?) ...[
+                  const SizedBox(height: 4),
+                  PayoutExpectedText(
+                    key: const Key('order_payout_expected'),
+                    payoutAt: at,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          // No transport cost on the order: no amount, not 0.
+          if (order.transportCost case final transport?)
+            Text(
+              l10n.etbCurrency(formatEtbAmount(transport)),
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.8,
+                color: context.roleColors.primary,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Buyer · Order detail: the money at the foot of the page, "Held in
+/// escrow" while it is, else the order's total.
+class _BuyerTotalRow extends StatelessWidget {
+  final Order order;
+
+  const _BuyerTotalRow({required this.order});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final held = escrowHeldOrderStatuses.contains(order.status);
+    // BUG-22: what the total is made of, from the order's own server
+    // fields. An order without them (a legacy row, or one not yet answered
+    // by the server) shows the total alone. Only the buyer sees this card:
+    // the farmer and the trucker see their own leg, never the commission.
+    final cropCost = order.cropCost;
+    final commission = order.commissionAmount;
+    final transport = order.transportCost ?? 0;
+    final split = cropCost != null && commission != null;
+    // BuyerOrderDetailM: an outlined row, the amount in the role colour.
+    return FwCard(
+      key: const Key('order_buyer_total'),
+      color: Colors.transparent,
+      borderColor: AppTheme.fieldBorder,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (split) ...[
+            FwMoneyRow(
+              key: const Key('order_buyer_crop_cost'),
+              label: l10n.cropCost,
+              amount: l10n.etbCurrency(formatEtbAmount(cropCost)),
+            ),
+            if (transport > 0) ...[
+              const SizedBox(height: 9),
+              FwMoneyRow(
+                key: const Key('order_buyer_transport_cost'),
+                label: l10n.transportCost,
+                amount: l10n.etbCurrency(formatEtbAmount(transport)),
+              ),
+            ],
+            const SizedBox(height: 9),
+            FwMoneyRow(
+              key: const Key('order_buyer_commission'),
+              // The order's own rate: set at creation, and an admin may
+              // agree another one before the buyer pays.
+              label: commissionLabelFor(l10n, order.commissionRate),
+              amount: l10n.etbCurrency(formatEtbAmount(commission)),
+            ),
+            const Divider(height: 22),
+          ],
+          _totalLine(context, l10n, held),
+        ],
+      ),
+    );
+  }
+
+  Widget _totalLine(BuildContext context, AppLocalizations l10n, bool held) =>
+      Row(
+        children: [
+          Icon(
+            held ? Icons.lock_outline : Icons.receipt_long_outlined,
+            size: 16,
+            color: context.roleColors.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              held ? l10n.detailHeldInEscrow : l10n.orderTotal,
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppTheme.inkSoft,
+              ),
+            ),
+          ),
+          Text(
+            l10n.etbCurrency(
+              formatEtbAmount(order.orderTotal ?? order.totalPrice),
+            ),
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.17,
+              color: context.roleColors.primary,
+            ),
+          ),
+        ],
+      );
+}
+
 class _OrderDeliveryActions extends StatefulWidget {
   final Order order;
   final String userId;
@@ -853,6 +2008,26 @@ class _OrderDeliveryActionsState extends State<_OrderDeliveryActions> {
 
     final buttons = <Widget>[];
     if (delivery != null) {
+      // LT-11: the buyer and the farmer follow the truck from pickup on
+      // (the trucker has their own trip mode, never this map).
+      if (liveTripViewerOf(delivery, widget.userId) != null &&
+          hasLiveTrip(delivery) &&
+          !isWaitingForPickup(delivery)) {
+        buttons.add(
+          FilledButton.icon(
+            key: const Key('order_delivery_live_trip'),
+            onPressed: () async {
+              await openLiveTrip(context, delivery, widget.userId);
+              if (mounted) await _lookUp();
+            },
+            icon: const Icon(Icons.map_outlined),
+            label: Text(l10n.liveTripTitle),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+          ),
+        );
+      }
       if (widget.userId == delivery.farmerId &&
           delivery.status == DeliveryStatus.pending) {
         buttons.add(
@@ -920,195 +2095,128 @@ class _OrderDeliveryActionsState extends State<_OrderDeliveryActions> {
   }
 }
 
-/// Buyer-only section (delivered, disbursing or settled orders) to rate the farmer and, when
-/// the order was transported, the trucker. Tracks which counterparties have
-/// already been rated (local check) and hides them once done.
-class _RateCounterpartiesSection extends StatefulWidget {
-  final Order order;
-  final String buyerId;
-
-  const _RateCounterpartiesSection({
-    required this.order,
-    required this.buyerId,
-  });
-
-  @override
-  State<_RateCounterpartiesSection> createState() =>
-      _RateCounterpartiesSectionState();
-}
-
-class _RateCounterpartiesSectionState
-    extends State<_RateCounterpartiesSection> {
-  bool _farmerRated = false;
-  bool _truckerRated = false;
-  bool _loading = true;
-
-  bool get _hasTrucker =>
-      widget.order.truckerId != null && widget.order.truckerId!.isNotEmpty;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final repo = context.read<RatingBloc>().repository;
-    final order = widget.order;
-    final farmerRated = order.farmerId.isEmpty ||
-        await repo.hasRated(orderId: order.orderId, rateeId: order.farmerId);
-    var truckerRated = true;
-    if (_hasTrucker) {
-      truckerRated = await repo.hasRated(
-        orderId: order.orderId,
-        rateeId: order.truckerId!,
-      );
-    }
-    if (!mounted) return;
-    setState(() {
-      _farmerRated = farmerRated;
-      _truckerRated = truckerRated;
-      _loading = false;
-    });
-  }
-
-  Future<void> _rate(String rateeId, String role, String name) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => BlocProvider.value(
-        value: context.read<RatingBloc>(),
-        child: RateCounterpartyDialog(
-          orderId: widget.order.orderId,
-          raterId: widget.buyerId,
-          rateeId: rateeId,
-          rateeRole: role,
-          rateeName: name,
-        ),
-      ),
-    );
-    if (result == true) await _load();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) return const SizedBox.shrink();
-    final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final order = widget.order;
-
-    // Everything already rated → confirmation line.
-    if (_farmerRated && (!_hasTrucker || _truckerRated)) {
-      return Row(
-        children: [
-          const Icon(
-            Icons.check_circle,
-            color: AppTheme.statusSuccess,
-            size: 18,
-          ),
-          const SizedBox(width: 8),
-          Text(l10n.alreadyRated, style: theme.textTheme.bodyMedium),
-        ],
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (!_farmerRated && order.farmerId.isNotEmpty) ...[
-          OutlinedButton.icon(
-            onPressed: () => _rate(
-              order.farmerId,
-              'farmer',
-              partyDisplayName(order.farmerName, l10n),
-            ),
-            icon: const Icon(Icons.star_outline),
-            label: Text(l10n.rateFarmer),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-        if (_hasTrucker && !_truckerRated) ...[
-          OutlinedButton.icon(
-            onPressed: () => _rate(
-              order.truckerId!,
-              'trucker',
-              partyDisplayName(order.truckerName, l10n),
-            ),
-            icon: const Icon(Icons.star_outline),
-            label: Text(l10n.rateTrucker),
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-      ],
-    );
-  }
-}
-
-/// Status timeline using Stepper widget.
+/// Order Timeline as the board draws it: a card with four steps as short
+/// bars (done in green, the current one in gold, the rest grey) and the
+/// steps still to come named under them. Tapping a step says what it means.
 class _StatusTimeline extends StatelessWidget {
   final OrderStatus status;
   final AppLocalizations l10n;
 
-  const _StatusTimeline({required this.status, required this.l10n});
+  /// A trucker carries the crop: the board's Live trip step follows
+  /// Accepted (a self-pickup order has no truck to follow).
+  final bool tripOrder;
+
+  const _StatusTimeline({
+    required this.status,
+    required this.l10n,
+    this.tripOrder = false,
+  });
+
+  /// How many steps the card shows at once.
+  static const int _window = 4;
 
   @override
   Widget build(BuildContext context) {
     final steps = _timelineSteps;
     final currentIndex = steps.indexWhere((s) => s.status == status);
+    // Keep the current step in view with one step ahead of it.
+    var start = 0;
+    if (steps.length > _window && currentIndex >= _window - 1) {
+      start = (currentIndex - (_window - 2)).clamp(0, steps.length - _window);
+    }
+    final shown = steps.skip(start).take(_window).toList();
+    final later = steps.skip(start + shown.length).map((s) => s.label).toList();
 
-    return Stepper(
-      currentStep: currentIndex >= 0 ? currentIndex : 0,
-      physics: const NeverScrollableScrollPhysics(),
-      controlsBuilder: (_, __) => const SizedBox.shrink(),
-      steps: steps.map((step) {
-        final stepIndex = steps.indexOf(step);
-        final isActive = currentIndex >= 0 && stepIndex <= currentIndex;
-        final isCurrent = stepIndex == currentIndex;
-
-        return Step(
-          title: Row(
-            mainAxisSize: MainAxisSize.min,
+    const note = TextStyle(fontSize: 13, height: 1.4, color: AppTheme.inkSoft);
+    // BuyerOrderDetailM: a flat sand tile under its uppercase label.
+    return FwCard.sand(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
             children: [
-              Flexible(
-                child: Text(
-                  step.label,
-                  style: TextStyle(
-                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+              const Icon(Icons.timeline, size: 16, color: AppTheme.inkSoft),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Semantics(
+                  header: true,
+                  child: Text(
+                    l10n.orderTimeline.toUpperCase(),
+                    style: FwText.sectionLabel.copyWith(
+                      color: AppTheme.inkSoft,
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              // What this step means: hover on web/desktop, tap on touch.
-              Tooltip(
-                message: step.info,
-                triggerMode: TooltipTriggerMode.tap,
-                showDuration: const Duration(seconds: 8),
-                margin: const EdgeInsets.symmetric(horizontal: 24),
-                child: Icon(
-                  Icons.info_outline,
-                  size: 16,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.45),
                 ),
               ),
             ],
           ),
-          content: const SizedBox.shrink(),
-          isActive: isActive,
-          state: isActive ? StepState.complete : StepState.indexed,
-        );
-      }).toList(),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              for (final step in shown) ...[
+                Expanded(
+                  child: _TimelineStepTile(
+                    step: step,
+                    done:
+                        currentIndex >= 0 && steps.indexOf(step) < currentIndex,
+                    current: steps.indexOf(step) == currentIndex,
+                  ),
+                ),
+                if (step != shown.last) const SizedBox(width: 6),
+              ],
+            ],
+          ),
+          if (later.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(l10n.detailTimelineThen(_joinNames(later)), style: note),
+          ] else ...[
+            const SizedBox(height: 10),
+            Text(l10n.detailTimelineTapStep, style: note),
+          ],
+        ],
+      ),
     );
   }
 
+  /// "A, B and C" in the page's language's own joiner.
+  String _joinNames(List<String> names) {
+    if (names.length == 1) return names.single;
+    final head = names.sublist(0, names.length - 1).join(', ');
+    return l10n.detailListAnd(head, names.last);
+  }
+
   List<_TimelineStep> get _timelineSteps {
+    // A status this build does not know: one "Updating" step, no guesses.
+    if (status == OrderStatus.unknown) {
+      return [
+        _TimelineStep(
+          OrderStatus.unknown,
+          l10n.orderStatusUpdating,
+          l10n.orderStatusUpdatingInfo,
+        ),
+      ];
+    }
+    // ESC-15: the money is held and the transport fell through.
+    if (status == OrderStatus.awaitingTransport) {
+      return [
+        _TimelineStep(
+          OrderStatus.created,
+          l10n.statusCreated,
+          l10n.statusCreatedInfo,
+        ),
+        _TimelineStep(
+          OrderStatus.funded,
+          l10n.statusFunded,
+          l10n.statusFundedInfo,
+        ),
+        _TimelineStep(
+          OrderStatus.awaitingTransport,
+          l10n.statusAwaitingTransport,
+          l10n.statusAwaitingTransportInfo,
+        ),
+      ];
+    }
     // Show different flows based on terminal status
     if (status == OrderStatus.cancelled) {
       return [
@@ -1188,25 +2296,29 @@ class _StatusTimeline extends StatelessWidget {
       ];
     }
 
-    // Happy path. Includes pendingPayment and disbursing so an order in either
-    // state highlights the right step instead of collapsing to step 0 (the
-    // Stepper falls back to index 0 when the status isn't in this list).
+    // Happy path. The payment steps between Created and Funded only show
+    // while the order is in one of them, so a paid order reads Created,
+    // Funded, Accepted... as on the board; disbursing likewise.
+    final paying = status == OrderStatus.pendingPayment ||
+        status == OrderStatus.paymentSubmitted;
     return [
       _TimelineStep(
         OrderStatus.created,
         l10n.statusCreated,
         l10n.statusCreatedInfo,
       ),
-      _TimelineStep(
-        OrderStatus.pendingPayment,
-        l10n.statusPendingPayment,
-        l10n.statusPendingPaymentInfo,
-      ),
-      _TimelineStep(
-        OrderStatus.paymentSubmitted,
-        l10n.statusPaymentSubmitted,
-        l10n.statusPaymentSubmittedInfo,
-      ),
+      if (paying) ...[
+        _TimelineStep(
+          OrderStatus.pendingPayment,
+          l10n.statusPendingPayment,
+          l10n.statusPendingPaymentInfo,
+        ),
+        _TimelineStep(
+          OrderStatus.paymentSubmitted,
+          l10n.statusPaymentSubmitted,
+          l10n.statusPaymentSubmittedInfo,
+        ),
+      ],
       _TimelineStep(
         OrderStatus.funded,
         l10n.statusFunded,
@@ -1217,6 +2329,13 @@ class _StatusTimeline extends StatelessWidget {
         l10n.orderAccepted,
         l10n.orderAcceptedInfo,
       ),
+      // No status of its own: done once the pickup is confirmed.
+      if (tripOrder)
+        _TimelineStep(
+          null,
+          l10n.liveTripTitle,
+          l10n.liveTripAfterPickupHint,
+        ),
       _TimelineStep(
         OrderStatus.pickupConfirmed,
         l10n.statusPickupConfirmed,
@@ -1232,11 +2351,12 @@ class _StatusTimeline extends StatelessWidget {
         l10n.statusDelivered,
         l10n.statusDeliveredInfo,
       ),
-      _TimelineStep(
-        OrderStatus.disbursing,
-        l10n.statusDisbursing,
-        l10n.statusDisbursingInfo,
-      ),
+      if (status == OrderStatus.disbursing)
+        _TimelineStep(
+          OrderStatus.disbursing,
+          l10n.statusDisbursing,
+          l10n.statusDisbursingInfo,
+        ),
       _TimelineStep(
         OrderStatus.settled,
         l10n.statusSettled,
@@ -1246,11 +2366,108 @@ class _StatusTimeline extends StatelessWidget {
   }
 }
 
+/// One step of the timeline: its state icon and a 4 px bar over its name.
+/// The icon says the state without colour or reading (BUG-L5): a check for a
+/// finished step, a filled dot for the step the order is at, an empty circle
+/// for one still ahead; a screen reader hears the state as the value. What
+/// the step means shows on hover (web, desktop) or tap (touch).
+class _TimelineStepTile extends StatelessWidget {
+  final _TimelineStep step;
+  final bool done;
+  final bool current;
+
+  const _TimelineStepTile({
+    required this.step,
+    required this.done,
+    required this.current,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Done in black, the current step orange with the ink edge, the rest
+    // on the empty track.
+    final bar = done
+        ? AppTheme.ink
+        : current
+            ? AppTheme.orange
+            : AppTheme.track;
+    final ink = current
+        ? AppTheme.orangeInk
+        : done
+            ? AppTheme.ink
+            : AppTheme.inkSoft;
+    final l10n = AppLocalizations.of(context)!;
+    // The status chips' glyphs: done is their success check, a step ahead
+    // their neutral empty circle, and the current step that circle filled.
+    final (icon, state) = done
+        ? (StatusKind.success.defaultIcon, l10n.orderTimelineStepDone)
+        : current
+            ? (Icons.radio_button_checked, l10n.orderTimelineStepNow)
+            : (StatusKind.neutral.defaultIcon, l10n.orderTimelineStepLater);
+    return Tooltip(
+      message: step.info,
+      triggerMode: TooltipTriggerMode.tap,
+      showDuration: const Duration(seconds: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      child: Semantics(
+        button: true,
+        selected: current,
+        value: state,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 18,
+                  color: ink,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Container(
+                    height: current ? 7 : 4,
+                    decoration: BoxDecoration(
+                      color: bar,
+                      borderRadius: BorderRadius.circular(999),
+                      border: current
+                          ? Border.all(color: AppTheme.ink, width: 1.5)
+                          : null,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              step.label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: current
+                    ? FontWeight.w800
+                    : done
+                        ? FontWeight.w700
+                        : FontWeight.w500,
+                color: ink,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// ESC-48: the parties of an order reach each other here, and only here, once
 /// the farmer accepted the paid order and until the money goes back
-/// (order-lifecycle.md 1.18.0). Each counterparty gets Call and Copy (when the
-/// server sent the number) and Message (an order thread). Before that, a note
-/// says when contact opens; after a cancel, reject or refund nothing shows.
+/// (order-lifecycle.md 1.18.0). The board's contact card: one row per
+/// counterparty with their initials, name and role, Message and Call (the
+/// sheet offers Call and Copy when the server sent the number, and Message,
+/// an order thread). A trucker not yet committed is a locked row saying when
+/// contact opens. Before any contact opens, a note says when it will; after
+/// a cancel, reject or refund nothing shows.
 class _OrderContactSection extends StatelessWidget {
   final Order order;
   final String userId;
@@ -1260,14 +2477,23 @@ class _OrderContactSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
+
+    // ESC-15: the trucker joins the contact only once committed to the
+    // transport, and leaves it after declining or dropping out.
+    final truckerCommitted =
+        truckerResponseOf(order) == CommitmentResponse.accepted;
+    final viewerIsTrucker = userId.isNotEmpty &&
+        userId == order.truckerId &&
+        userId != order.buyerId &&
+        userId != order.farmerId;
+    if (viewerIsTrucker && !truckerCommitted) return const SizedBox.shrink();
 
     if (!isOrderContactOpen(order)) {
       if (!contactNotYetOpenOrderStatuses.contains(order.status)) {
         return const SizedBox.shrink();
       }
       return Padding(
-        padding: const EdgeInsets.only(bottom: 24),
+        padding: const EdgeInsets.only(bottom: 12),
         child: ContactLockedNote(
           text: order.status == OrderStatus.funded
               ? l10n.contactAfterAcceptNote
@@ -1277,71 +2503,220 @@ class _OrderContactSection extends StatelessWidget {
     }
 
     final truckerId = order.truckerId ?? '';
-    final parties = <({String id, String name, String role, String label})>[
+    final parties =
+        <({String id, String name, String role, UserRole as, Key key})>[
       if (order.buyerId != userId)
         (
           id: order.buyerId,
           name: order.buyerName,
           role: l10n.buyer,
-          label: l10n.contactBuyer,
+          as: UserRole.buyer,
+          key: const Key('order_contact_buyer'),
         ),
       if (order.farmerId != userId)
         (
           id: order.farmerId,
           name: order.farmerName,
           role: l10n.farmer,
-          label: l10n.contactFarmer,
+          as: UserRole.farmer,
+          key: const Key('order_contact_farmer'),
         ),
-      if (truckerId.isNotEmpty && truckerId != userId)
+      if (truckerId.isNotEmpty && truckerId != userId && truckerCommitted)
         (
           id: truckerId,
           name: order.truckerName ?? '',
           role: l10n.trucker,
-          label: l10n.contactTrucker,
+          as: UserRole.trucker,
+          key: const Key('order_contact_trucker'),
         ),
     ];
-    if (parties.isEmpty) return const SizedBox.shrink();
+    // The trucker asked but not yet answered: contact opens when they do.
+    final truckerPending = truckerId.isNotEmpty &&
+        truckerId != userId &&
+        !truckerCommitted &&
+        truckerResponseOf(order) == CommitmentResponse.pending;
+    if (parties.isEmpty && !truckerPending) return const SizedBox.shrink();
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      padding: const EdgeInsets.only(bottom: 12),
+      child: FwCard(
+        raised: true,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Column(
+          children: [
+            for (final party in parties)
+              _ContactRow(
+                key: party.key,
+                partyRole: party.as,
+                // Call shows only once the server sent this party's
+                // number (ESC-48); until then the row offers Message.
+                canCall: orderPartyPhone(order, party.id) != null,
+                name: switch (partyDisplayName(party.name, l10n)) {
+                  '' => party.role,
+                  final shown => shown,
+                },
+                role: party.role,
+                divider: party != parties.last || truckerPending,
+                onOpen: () =>
+                    _openSheet(context, party.id, party.name, party.role),
+                onMessage: () => _message(context, party.id, party.name),
+              ),
+            if (truckerPending)
+              _LockedContactRow(
+                title: l10n.trucker,
+                note: l10n.detailContactOpensWhenTruckerAccepts,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openSheet(BuildContext context, String id, String name, String role) {
+    final l10n = AppLocalizations.of(context)!;
+    showContactActionsSheet(
+      context,
+      name: switch (partyDisplayName(name, l10n)) {
+        '' => role,
+        final shown => shown,
+      },
+      roleLabel: role,
+      phone: orderPartyPhone(order, id),
+      onMessage: () => _message(context, id, name),
+    );
+  }
+
+  void _message(BuildContext context, String id, String name) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConversationScreen(
+          contextType: 'order',
+          contextId: order.orderId,
+          counterpartId: id,
+          counterpartName: partyNameToStore(name),
+        ),
+      ),
+    );
+  }
+}
+
+/// A counterparty on the contact card (BuyerOrderDetailM board): initials
+/// in that party's role colours, name and role, then Message and Call, each
+/// a 44 px round button with its word under it. Tapping the row opens the
+/// contact sheet (Call, Copy, Message), as does Call; Message opens the
+/// thread. The row never shows a number: the sheet does, and only the
+/// number the server sent once contact is open (ESC-48). Until that number
+/// is on the device the row has no Call, only Message.
+class _ContactRow extends StatelessWidget {
+  final String name;
+  final String role;
+
+  /// The party's role, for the avatar's colours.
+  final UserRole partyRole;
+
+  /// Whether the party's number is on the device: Call shows only then.
+  final bool canCall;
+  final bool divider;
+  final VoidCallback onOpen;
+  final VoidCallback onMessage;
+
+  const _ContactRow({
+    required this.name,
+    required this.role,
+    required this.partyRole,
+    required this.canCall,
+    required this.divider,
+    required this.onOpen,
+    required this.onMessage,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final colors = RoleColors.forRole(partyRole);
+    final initials = name
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .take(2)
+        .map((part) => part.characters.first.toUpperCase())
+        .join();
+    return Container(
+      constraints: const BoxConstraints(minHeight: 62),
+      decoration: divider
+          ? const BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppTheme.sketch)),
+            )
+          : null,
+      child: Row(
         children: [
-          Text(
-            l10n.contact,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          for (final party in parties) ...[
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () {
-                final navigator = Navigator.of(context);
-                final name = party.name.isNotEmpty
-                    ? partyDisplayName(party.name, l10n)
-                    : party.role;
-                showContactActionsSheet(
-                  context,
-                  name: name,
-                  roleLabel: party.role,
-                  phone: orderPartyPhone(order, party.id),
-                  onMessage: () => navigator.push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => ConversationScreen(
-                        contextType: 'order',
-                        contextId: order.orderId,
-                        counterpartId: party.id,
-                        counterpartName: party.name,
+          Expanded(
+            child: InkWell(
+              onTap: onOpen,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 19,
+                      backgroundColor: colors.tint,
+                      child: Text(
+                        initials,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: colors.primary,
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.chat_outlined),
-              label: Text(party.label),
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.15,
+                              color: AppTheme.ink,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            role,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: AppTheme.slate,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _ContactButton(
+            key: const Key('order_contact_message'),
+            label: l10n.contactMessageLabel,
+            semanticLabel: l10n.detailMessageParty(name),
+            icon: Icons.chat_bubble_outline,
+            filled: false,
+            onTap: onMessage,
+          ),
+          if (canCall) ...[
+            const SizedBox(width: 6),
+            _ContactButton(
+              key: const Key('order_contact_call'),
+              label: l10n.call,
+              semanticLabel: l10n.detailCallParty(name),
+              icon: Icons.call_outlined,
+              filled: true,
+              onTap: onOpen,
             ),
           ],
         ],
@@ -1350,8 +2725,131 @@ class _OrderContactSection extends StatelessWidget {
   }
 }
 
+/// Message or Call on a contact row: a 44 px circle (outlined, or black
+/// with white ink for Call) with its word under it, in a 48 px wide target.
+class _ContactButton extends StatelessWidget {
+  final String label;
+  final String semanticLabel;
+  final IconData icon;
+  final bool filled;
+  final VoidCallback onTap;
+
+  const _ContactButton({
+    required this.label,
+    required this.semanticLabel,
+    required this.icon,
+    required this.filled,
+    required this.onTap,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 56, minHeight: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: filled ? AppTheme.ink : Colors.transparent,
+                    shape: BoxShape.circle,
+                    border:
+                        filled ? null : Border.all(color: AppTheme.fieldBorder),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 18,
+                    color: filled ? Colors.white : AppTheme.ink,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.ink,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The trucker's row while contact is not open yet.
+class _LockedContactRow extends StatelessWidget {
+  final String title;
+  final String note;
+
+  const _LockedContactRow({required this.title, required this.note});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 58),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          const CircleAvatar(
+            radius: 19,
+            backgroundColor: AppTheme.sand,
+            child: Icon(Icons.lock_outline, size: 16, color: AppTheme.inkSoft),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.15,
+                    color: AppTheme.ink,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  note,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: AppTheme.slate,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TimelineStep {
-  final OrderStatus status;
+  /// Null for a step with no order status of its own (Live trip): never the
+  /// current step.
+  final OrderStatus? status;
   final String label;
 
   /// Plain-language explanation of what the step means, shown in a tooltip.
@@ -1368,93 +2866,9 @@ class _TransportFailureNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppTheme.statusWarning),
-        borderRadius: BorderRadius.circular(8),
-        color: AppTheme.statusWarningContainer,
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.warning_amber,
-            color: AppTheme.onStatusWarningContainer,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(color: AppTheme.onStatusWarningContainer),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _InfoRow({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-          ),
-        ),
-        Flexible(
-          child: Text(
-            value,
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(fontWeight: FontWeight.w500),
-            textAlign: TextAlign.end,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PriceRow extends StatelessWidget {
-  final String label;
-  final double amount;
-  final AppLocalizations l10n;
-  final bool isBold;
-
-  const _PriceRow({
-    required this.label,
-    required this.amount,
-    required this.l10n,
-    this.isBold = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final style = isBold
-        ? theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)
-        : theme.textTheme.bodyMedium;
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: style),
-        Text(
-          l10n.etbCurrency(amount.toStringAsFixed(2)),
-          style: style,
-        ),
-      ],
+    return FwNoteBox.cream(
+      icon: Icons.warning_amber,
+      child: Text(text),
     );
   }
 }

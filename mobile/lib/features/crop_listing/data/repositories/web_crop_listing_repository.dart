@@ -1,18 +1,30 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/crop_status_wire.dart';
+import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_uploader.dart';
+import 'package:wereda_connect/features/crop_listing/domain/crop_photos.dart';
 import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 
 /// Web-only crop listing repository.
 ///
 /// All operations use HTTP calls via ApiClient. No Isar dependency.
 /// Write operations POST to /sync (same endpoint as mobile offline sync).
+/// A create uploads its photos first (crop-listing-api.md 1.6.0): the web has
+/// no queue to hold it, so a photo that does not go up fails the save.
 class WebCropListingRepository extends BaseCropListingRepository {
   static const _uuid = Uuid();
   final ApiClient _api;
+  final CropPhotoUploader _photoUploader;
 
-  WebCropListingRepository({required ApiClient api}) : _api = api;
+  WebCropListingRepository({
+    required ApiClient api,
+    CropPhotoUploader? photoUploader,
+  })  : _api = api,
+        _photoUploader = photoUploader ?? CropPhotoUploader(api: api);
 
   @override
   Future<CropListing> createListing({
@@ -24,13 +36,23 @@ class WebCropListingRepository extends BaseCropListingRepository {
     required double longitude,
     required String locationName,
     required String description,
+    required List<CropPhotoDraft> photos,
     String? audioNoteRef,
     String? woreda,
     String? farmerName,
     String? farmerPhone,
     String? placeId,
+    String? listingId,
   }) async {
-    final listingId = _uuid.v4();
+    BaseCropListingRepository.checkPhotoCount(photos);
+    final id = listingId ?? _uuid.v4();
+    final uploaded = await _photoUploader.upload(listingId: id, photos: photos);
+    if (uploaded.length != photos.length) {
+      throw CropPhotoUploadException(
+        '${photos.length - uploaded.length} of ${photos.length} photos did '
+        'not upload',
+      );
+    }
     final now = DateTime.now().toUtc().toIso8601String();
 
     final payload = <String, dynamic>{
@@ -45,8 +67,9 @@ class WebCropListingRepository extends BaseCropListingRepository {
       'locationName': locationName,
       'description': description,
       'status': 'available',
-      'listingId': listingId,
+      'listingId': id,
       'createdAt': now,
+      'photoIds': [for (final photo in photos) photo.photoId],
       if (audioNoteRef != null) 'audioNoteRef': audioNoteRef,
       if (woreda != null) 'woreda': woreda,
     };
@@ -61,10 +84,10 @@ class WebCropListingRepository extends BaseCropListingRepository {
             'operationId': _uuid.v4(),
             'entityType': 'crop_listing',
             'action': 'create',
-            'entityId': listingId,
+            'entityId': id,
             'timestamp': now,
             'idempotencyKey':
-                '$farmerId:crop_listing:$listingId:create:${DateTime.now().toUtc().millisecondsSinceEpoch}',
+                '$farmerId:crop_listing:$id:create:${DateTime.now().toUtc().millisecondsSinceEpoch}',
             'data': payload,
           },
         ],
@@ -75,7 +98,7 @@ class WebCropListingRepository extends BaseCropListingRepository {
     ensureSyncSucceeded(response);
 
     final listing = CropListing()
-      ..listingId = listingId
+      ..listingId = id
       ..farmerId = farmerId
       ..farmerName = farmerName ?? ''
       ..farmerPhone = farmerPhone ?? ''
@@ -89,6 +112,14 @@ class WebCropListingRepository extends BaseCropListingRepository {
       ..placeId = placeId
       ..description = description
       ..audioNoteRef = audioNoteRef
+      ..photos = [
+        for (final photo in photos)
+          CropPhoto()
+            ..photoId = photo.photoId
+            ..contentType = photo.contentType
+            ..sizeBytes = photo.sizeBytes
+            ..uploaded = true,
+      ]
       ..status = ListingStatus.active
       ..createdAt = DateTime.now().toUtc()
       ..updatedAt = DateTime.now().toUtc()
@@ -96,30 +127,24 @@ class WebCropListingRepository extends BaseCropListingRepository {
     return listing;
   }
 
+  /// The farmer's own listings, every page (FUP-126: this read the first
+  /// page only, so a farmer with more than 20 listings did not see the rest).
+  /// The server scopes a farmer to their own listings whatever is asked.
   @override
-  Future<List<CropListing>> getListingsByFarmer(String farmerId) async {
-    final data = await _api.get<Map<String, dynamic>>(
-      '/crops',
-      queryParameters: {'farmerId': farmerId},
-    );
-    return _parseListings(data);
-  }
+  Future<List<CropListing>> getListingsByFarmer(String farmerId) =>
+      _allPages({'farmerId': farmerId});
 
   @override
   Future<List<CropListing>> getListingsByFarmerFiltered({
     required String farmerId,
     String? statusFilter,
     String? cropTypeFilter,
-  }) async {
-    final params = <String, dynamic>{'farmerId': farmerId};
-    if (statusFilter != null) params['status'] = statusFilter;
-    if (cropTypeFilter != null) params['cropType'] = cropTypeFilter;
-    final data = await _api.get<Map<String, dynamic>>(
-      '/crops',
-      queryParameters: params,
-    );
-    return _parseListings(data);
-  }
+  }) =>
+      _allPages({
+        'farmerId': farmerId,
+        if (statusFilter != null) 'status': statusFilter,
+        if (cropTypeFilter != null) 'cropType': cropTypeFilter,
+      });
 
   @override
   Future<List<CropListing>> getActiveListings({
@@ -128,22 +153,13 @@ class WebCropListingRepository extends BaseCropListingRepository {
     double? priceMin,
     double? priceMax,
   }) async {
-    // Buyer browse MUST return ALL matching crops (role-visibility rule), so drain
-    // every page — a single request caps at the server default of 20 listings.
-    var listings = <CropListing>[];
-    String? nextToken;
-    do {
-      // Server stores listings with status=available (not "active").
-      final params = <String, dynamic>{'status': 'available', 'limit': '100'};
-      if (cropTypeFilter != null) params['cropType'] = cropTypeFilter;
-      if (nextToken != null) params['nextToken'] = nextToken;
-      final data = await _api.get<Map<String, dynamic>>(
-        '/crops',
-        queryParameters: params,
-      );
-      listings.addAll(_parseListings(data));
-      nextToken = data['nextToken'] as String?;
-    } while (nextToken != null && nextToken.isNotEmpty);
+    // Buyer browse MUST return ALL matching crops (role-visibility rule), so
+    // read every page. Server stores listings with status=available (not
+    // "active").
+    var listings = await _allPages({
+      'status': 'available',
+      if (cropTypeFilter != null) 'cropType': cropTypeFilter,
+    });
 
     // The search box is free text over crop, farmer and place. It runs here,
     // not on the server, with the same rules as the Isar repo (SIM-51).
@@ -158,6 +174,35 @@ class WebCropListingRepository extends BaseCropListingRepository {
     }
     return listings;
   }
+
+  /// Every page of `GET /crops` for [params], following `nextToken`, 50
+  /// listings a page (the server's largest, crop-listing-api.md 1.9.0).
+  /// Stops after [maxPages] pages as a guard against a token that never
+  /// ends.
+  Future<List<CropListing>> _allPages(Map<String, dynamic> params) async {
+    final listings = <CropListing>[];
+    String? nextToken;
+    var pages = 0;
+    do {
+      final data = await _api.get<Map<String, dynamic>>(
+        '/crops',
+        queryParameters: {
+          ...params,
+          'limit': '50',
+          if (nextToken != null) 'nextToken': nextToken,
+        },
+      );
+      listings.addAll(_parseListings(data));
+      nextToken = data['nextToken'] as String?;
+      pages++;
+    } while (nextToken != null && nextToken.isNotEmpty && pages < maxPages);
+    return listings;
+  }
+
+  /// Most pages one list read follows (2,500 listings), as the web trip
+  /// repository.
+  @visibleForTesting
+  static const int maxPages = 50;
 
   @override
   Future<void> deleteListing({
@@ -207,6 +252,65 @@ class WebCropListingRepository extends BaseCropListingRepository {
     return _parseListingMap(map).version;
   }
 
+  /// SIM-56: straight to the server, the changed fields only, at the version
+  /// of the listing the form showed (never one read at save time: an order
+  /// that took stock since makes the server answer conflict, thrown as
+  /// `SyncConflictException`, instead of the edit putting the stock back).
+  /// A refusal throws too ([ensureSyncSucceeded]) and nothing changed. On
+  /// success [listing] itself takes the changes and the next version.
+  @override
+  Future<CropListing> updateListing({
+    required CropListing listing,
+    required String farmerId,
+    double? quantity,
+    double? pricePerKg,
+    String? description,
+  }) async {
+    if (listing.farmerId != farmerId) {
+      throw StateError(
+        'Crop listing ${listing.listingId} is not this farmer\'s.',
+      );
+    }
+    final data = BaseCropListingRepository.editPayload(
+      listingId: listing.listingId,
+      version: listing.version,
+      quantity: quantity,
+      pricePerKg: pricePerKg,
+      description: description,
+    );
+    final now = DateTime.now().toUtc();
+    final response = await _api.post<Map<String, dynamic>>(
+      '/sync',
+      data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
+        'operations': [
+          {
+            'operationId': _uuid.v4(),
+            'entityType': 'crop_listing',
+            'action': 'update',
+            'entityId': listing.listingId,
+            'timestamp': now.toIso8601String(),
+            'idempotencyKey': '$farmerId:crop_listing:${listing.listingId}'
+                ':update:${now.millisecondsSinceEpoch}',
+            'data': data,
+          },
+        ],
+      },
+    );
+    ensureSyncSucceeded(response);
+    if (quantity != null) listing.quantity = quantity;
+    if (pricePerKg != null) listing.pricePerKg = pricePerKg;
+    if (description != null) listing.description = description;
+    return listing
+      ..updatedAt = now
+      ..version = listing.version + 1;
+  }
+
+  /// No queue on web: an edit goes out at once or fails (SIM-56).
+  @override
+  Future<bool> hasChangeWaiting(String listingId) async => false;
+
   @override
   Future<CropListing?> getListingById(String listingId) async {
     try {
@@ -215,9 +319,9 @@ class WebCropListingRepository extends BaseCropListingRepository {
       // Accept the `item` envelope and a bare object too, so a response-shape
       // change never silently degrades into a spurious "not found".
       final envelope = data['crop'] ?? data['item'];
-      if (envelope is Map<String, dynamic>) return _parseListingMap(envelope);
+      if (envelope is Map<String, dynamic>) return _liveListing(envelope);
       if (data.containsKey('cropId') || data.containsKey('listingId')) {
-        return _parseListingMap(data);
+        return _liveListing(data);
       }
       return null;
     } on Exception {
@@ -225,13 +329,21 @@ class WebCropListingRepository extends BaseCropListingRepository {
     }
   }
 
+  /// FUP-149: a deleted listing reads as not found, as the server's 404 for
+  /// one (crop-listing-api.md 1.10.0), never as an `active` listing.
+  CropListing? _liveListing(Map<String, dynamic> m) =>
+      isDeletedCropRow(m) ? null : _parseListingMap(m);
+
   List<CropListing> _parseListings(Map<String, dynamic> data) {
     // API returns listings under "crops" key (not "items")
     final items = data['crops'] as List<dynamic>? ??
         data['items'] as List<dynamic>? ??
         [];
+    // FUP-149: a deleted row is left out, as the server's lists leave it out.
     return items
-        .map((item) => _parseListingMap(item as Map<String, dynamic>))
+        .cast<Map<String, dynamic>>()
+        .where((m) => !isDeletedCropRow(m))
+        .map(_parseListingMap)
         .toList();
   }
 
@@ -254,7 +366,9 @@ class WebCropListingRepository extends BaseCropListingRepository {
       ..locationName =
           m['locationName'] as String? ?? m['woreda'] as String? ?? ''
       ..description = m['description'] as String? ?? ''
+      ..readOwnerReputation(m)
       ..audioNoteRef = m['audioNoteRef'] as String?
+      ..photos = parseCropPhotos(m['photos'])
       ..status = _parseListingStatus(m['status'] as String?)
       ..createdAt =
           DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()

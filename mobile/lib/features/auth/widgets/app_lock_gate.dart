@@ -175,7 +175,7 @@ class _LockScreen extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     return Material(
       key: const Key('app_lock_screen'),
-      color: AppTheme.primaryGreen,
+      color: context.roleColors.primary,
       child: SafeArea(
         child: Center(
           child: Column(
@@ -196,7 +196,9 @@ class _LockScreen extends StatelessWidget {
               FilledButton.icon(
                 key: const Key('app_lock_unlock_button'),
                 style: FilledButton.styleFrom(
-                  backgroundColor: AppTheme.accentGold,
+                  backgroundColor: AppTheme.orange,
+                  // Dark ink on gold: white was 2.6:1.
+                  foregroundColor: AppTheme.ink,
                   minimumSize: const Size(200, 48),
                 ),
                 onPressed: onUnlock,

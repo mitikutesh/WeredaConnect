@@ -1,0 +1,1135 @@
+import { act, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes } from "react-router";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { DisputeEvidence } from "@/lib/evidence";
+import { formatDateTime, formatETB } from "@/lib/i18n";
+import type { DeliveryTrail } from "@/lib/trail";
+import { DisputeDetailPage } from "./DisputeDetailPage";
+
+/* LT-13 and FRD-14: the dispute page, its Trip trail tab and its evidence tabs. The hooks are
+ * mocked; the English strings are real, so the tests also prove the keys exist. */
+
+type TrailQuery = {
+  data: unknown;
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  refetch: ReturnType<typeof vi.fn>;
+};
+
+const mocks = vi.hoisted(() => ({
+  escrow: { data: undefined as unknown, isLoading: false, isError: false, error: null as unknown },
+  trail: undefined as unknown as TrailQuery,
+  trailIds: [] as string[],
+  mutate: vi.fn<(vars: unknown, opts?: MutateOptions) => void>(),
+  evidence: undefined as unknown as TrailQuery,
+  evidenceIds: [] as string[],
+  messages: undefined as unknown as TrailQuery,
+  messageCalls: [] as { escrowId: string; open: boolean }[],
+}));
+
+type MutateOptions = { onSuccess?: () => void; onError?: (err: unknown) => void; onSettled?: () => void };
+
+vi.mock("@/hooks/useQuery", () => ({
+  useResolveDispute: () => ({ mutate: mocks.mutate, isPending: false }),
+  useEscrowDetail: () => mocks.escrow,
+  useDeliveryTrail: (deliveryId: string) => {
+    mocks.trailIds.push(deliveryId);
+    return mocks.trail;
+  },
+  useDisputeEvidence: (escrowId: string) => {
+    mocks.evidenceIds.push(escrowId);
+    return mocks.evidence;
+  },
+  useDisputeMessages: (escrowId: string, open: boolean) => {
+    mocks.messageCalls.push({ escrowId, open });
+    return open ? mocks.messages : { ...trailQuery(), data: undefined };
+  },
+}));
+
+vi.mock("@/hooks/useLocale", async () => {
+  const { t } = await import("@/lib/i18n");
+  return {
+    useLocale: () => ({
+      locale: "en" as const,
+      setLocale: vi.fn(),
+      t: (key: string) => t(key, "en"),
+    }),
+  };
+});
+
+function trailQuery(): TrailQuery {
+  return { data: undefined, isLoading: false, isError: false, error: null, refetch: vi.fn() };
+}
+
+function escrow(deliveryId: string | null = "del-101") {
+  return {
+    escrow: {
+      escrowId: "escrow-1",
+      deliveryId: deliveryId ?? "",
+      buyerName: "Sara",
+      farmerName: "Abebe",
+      amount: 30900,
+      status: "disputed",
+      dispute: { reason: "short_delivery", createdAt: "2026-10-27T09:50:00Z" },
+    },
+  };
+}
+
+function fix(capturedAt: string, latitude: number, extra: Partial<DeliveryTrail["points"][number]> = {}) {
+  return {
+    capturedAt,
+    receivedAt: capturedAt,
+    kind: "fix",
+    source: "hourly",
+    latitude,
+    longitude: 38.74,
+    accuracyM: 35,
+    mocked: false,
+    pausedUntil: null,
+    coarse: false,
+    late: false,
+    ...extra,
+  };
+}
+
+/** A trail with a coarse fix, a pause, a late fix and an impossible jump at the end. */
+function trailWithAJump(): DeliveryTrail {
+  return {
+    deliveryId: "del-101",
+    tripId: "trip-101",
+    status: "disputed",
+    open: false,
+    from: "2026-10-27T05:05:00.000Z",
+    until: "2026-10-27T08:00:00.000Z",
+    asOf: "2026-10-27T09:10:00.000Z",
+    pickup: { latitude: 8.1504, longitude: 38.8196, at: "2026-10-27T05:05:00.000Z" },
+    dropoff: { latitude: 9.03, longitude: 38.74, at: "2026-10-27T08:00:00.000Z" },
+    points: [
+      fix("2026-10-27T06:00:00.000Z", 8.1, { source: "scan" }),
+      fix("2026-10-27T06:30:00.000Z", 8.2, { accuracyM: 1500, coarse: true }),
+      {
+        ...fix("2026-10-27T06:40:00.000Z", 0),
+        kind: "paused",
+        source: null,
+        latitude: null,
+        longitude: null,
+        accuracyM: null,
+        mocked: null,
+        pausedUntil: "2026-10-27T07:10:00.000Z",
+      },
+      fix("2026-10-27T07:00:00.000Z", 8.35, { late: true, receivedAt: "2026-10-27T07:40:00.000Z" }),
+      fix("2026-10-27T07:20:00.000Z", 9.35, { mocked: true }),
+    ],
+    legs: [
+      {
+        fromCapturedAt: "2026-10-27T06:00:00.000Z",
+        toCapturedAt: "2026-10-27T07:00:00.000Z",
+        distanceKm: 27.8,
+        minutes: 60,
+        kmh: 27.8,
+        jump: false,
+      },
+      {
+        fromCapturedAt: "2026-10-27T07:00:00.000Z",
+        toCapturedAt: "2026-10-27T07:20:00.000Z",
+        distanceKm: 111.19,
+        minutes: 20,
+        kmh: 333.6,
+        jump: true,
+      },
+    ],
+    pauses: [{ from: "2026-10-27T06:40:00.000Z", until: "2026-10-27T07:10:00.000Z" }],
+    gaps: [],
+    summary: {
+      sharedWholeWay: true,
+      declined: false,
+      fixes: 4,
+      coarseFixes: 1,
+      mockedFixes: 1,
+      lateFixes: 1,
+      jumps: 1,
+      gaps: 0,
+      distanceKm: 139,
+      durationMin: 175,
+      maxKmh: 333.6,
+    },
+  };
+}
+
+function emptyTrail(): DeliveryTrail {
+  return {
+    ...trailWithAJump(),
+    points: [],
+    legs: [],
+    pauses: [],
+    gaps: [{ from: "2026-10-27T05:05:00.000Z", until: "2026-10-27T08:00:00.000Z", minutes: 175 }],
+    pickup: { latitude: null, longitude: null, at: "2026-10-27T05:05:00.000Z" },
+    dropoff: { latitude: null, longitude: null, at: "2026-10-27T08:00:00.000Z" },
+    summary: {
+      ...trailWithAJump().summary,
+      sharedWholeWay: false,
+      fixes: 0,
+      coarseFixes: 0,
+      mockedFixes: 0,
+      lateFixes: 0,
+      jumps: 0,
+      gaps: 1,
+      distanceKm: 0,
+      maxKmh: null,
+    },
+  };
+}
+
+function renderPage(path = "/disputes/escrow-1") {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/disputes/:id" element={<DisputeDetailPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe("DisputeDetailPage Trip trail tab (LT-13)", () => {
+  beforeEach(() => {
+    mocks.escrow.data = escrow();
+    mocks.escrow.isLoading = false;
+    mocks.escrow.isError = false;
+    mocks.trail = trailQuery();
+    mocks.trailIds.length = 0;
+    mocks.evidence = trailQuery();
+    mocks.messages = trailQuery();
+  });
+
+  it("shows the case, opens on the Trip trail tab, and asks for the dispute's delivery trail", () => {
+    mocks.trail.isLoading = true;
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "Dispute" })).toBeTruthy();
+    expect(screen.getByText("short_delivery")).toBeTruthy();
+    const tab = screen.getByRole("tab", { name: "Trip trail" });
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(tab.id);
+    expect(mocks.trailIds).toContain("del-101");
+  });
+
+  it("heads the page with the reason when it is a known code, under a Dispute eyebrow", () => {
+    mocks.escrow.data = { escrow: { ...escrow().escrow, dispute: { reason: "wrong_quantity", createdAt: "2026-10-27T09:50:00Z" } } };
+    renderPage();
+
+    const heading = screen.getByRole("heading", { name: "Wrong quantity" });
+    expect(heading.tagName).toBe("H2");
+    expect(screen.queryByRole("heading", { name: "Dispute" })).toBeNull();
+    expect(heading.parentElement?.previousElementSibling?.textContent).toBe("Dispute");
+    // The case card still shows the reason as the server sent it.
+    expect(screen.getByText("wrong_quantity")).toBeTruthy();
+  });
+
+  it("keeps Dispute as the heading, with no eyebrow, for other, free text or no reason", () => {
+    for (const reason of ["other", "The sacks were wet.", undefined]) {
+      mocks.escrow.data = { escrow: { ...escrow().escrow, dispute: { reason, createdAt: "2026-10-27T09:50:00Z" } } };
+      const { unmount } = renderPage();
+
+      const heading = screen.getByRole("heading", { name: "Dispute" });
+      expect(heading.parentElement?.previousElementSibling?.getAttribute("aria-label")).toBe("Breadcrumb");
+      expect(screen.getAllByText("Dispute")).toHaveLength(1);
+      unmount();
+    }
+  });
+
+  it("says the trail is loading", () => {
+    mocks.trail.isLoading = true;
+    renderPage();
+
+    expect(screen.getByRole("status").textContent).toBe("Loading the trail...");
+  });
+
+  it("shows the error with a retry, in the words of the error code", async () => {
+    const user = userEvent.setup();
+    mocks.trail.isError = true;
+    mocks.trail.error = { code: "ADMIN_018" };
+    renderPage();
+
+    expect(screen.getByRole("alert").textContent).toBe("Delivery not found.");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(mocks.trail.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to a plain message for an error without a known code", () => {
+    mocks.trail.isError = true;
+    mocks.trail.error = { code: "NETWORK_ERROR" };
+    renderPage();
+
+    expect(screen.getByRole("alert").textContent).toBe("The trail could not be loaded.");
+  });
+
+  it("an empty trail says there were no check-ins, and that sharing had gaps", () => {
+    mocks.trail.data = emptyTrail();
+    renderPage();
+
+    expect(screen.getByText("No check-ins between pickup and delivery.")).toBeTruthy();
+    expect(screen.getByText("No check-ins in this window")).toBeTruthy();
+    expect(screen.getByText(/No check-in from .* \(175 min\)/)).toBeTruthy();
+    // Nothing has a position, so there is no map and no table.
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getByText(/shows where the truck was, not what it carried/)).toBeTruthy();
+  });
+
+  it("a trail with an impossible jump flags the leg, the map and the summary", () => {
+    mocks.trail.data = trailWithAJump();
+    const { container } = renderPage();
+
+    const map = screen.getByRole("img", { name: "Map of the trail between pickup and drop-off (check-ins: 4)" });
+    expect(map).toBeTruthy();
+    expect(container.querySelectorAll('[data-testid="trail-jump"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-testid="trail-leg"]')).toHaveLength(1);
+
+    const rows = within(screen.getByRole("table")).getAllByRole("row");
+    // The header, four fixes and the pause.
+    expect(rows).toHaveLength(6);
+    expect(within(rows[1]).getByText("8.1000, 38.7400")).toBeTruthy();
+    expect(within(rows[1]).getByText("First precise check-in")).toBeTruthy();
+    expect(within(rows[1]).getByText("QR scan")).toBeTruthy();
+    expect(within(rows[2]).getByText("Coarse, about 1,500 m")).toBeTruthy();
+    expect(within(rows[2]).getByText("Not used for speed")).toBeTruthy();
+    expect(within(rows[3]).getByText(/Paused by the driver until/)).toBeTruthy();
+    expect(within(rows[4]).getByText("27.8 km in 60 min · 27.8 km/h")).toBeTruthy();
+    expect(within(rows[4]).getByText(/Sent late, received/)).toBeTruthy();
+    expect(within(rows[5]).getByText("111.19 km in 20 min · 333.6 km/h")).toBeTruthy();
+    expect(within(rows[5]).getByText("Impossible jump")).toBeTruthy();
+    expect(within(rows[5]).getByText("Mock location")).toBeTruthy();
+
+    expect(screen.getByText("Impossible jumps (over 130 km/h): 1")).toBeTruthy();
+    expect(screen.getByText("Shared the whole way (check-ins: 4)")).toBeTruthy();
+    expect(screen.getByText("Check-ins flagged as a mock location: 1")).toBeTruthy();
+    expect(screen.getByText(/Coarse check-ins .*: 1/)).toBeTruthy();
+    expect(screen.getByText("No gaps")).toBeTruthy();
+    expect(screen.getByText(/shows where the truck was, not what it carried/)).toBeTruthy();
+  });
+
+  // Admin dispute evidence board: a stop off the stop list (live-trip-api 1.0.6).
+  it("lists a stop off the stop list and says so", () => {
+    const withAway = trailWithAJump();
+    withAway.summary = { ...withAway.summary, awayStops: 1 };
+    withAway.awayStops = [
+      {
+        from: "2026-10-27T06:40:00.000Z",
+        until: "2026-10-27T07:10:00.000Z",
+        latitude: 8.2,
+        longitude: 38.74,
+        nearestScanKm: 11.1,
+        nearestPlannedStopKm: 7.4,
+      },
+    ];
+    mocks.trail.data = withAway;
+    renderPage();
+
+    expect(
+      screen.getByText("Stops off the stop list (more than 5 km from every planned stop and QR scan): 1"),
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Stops off the stop list" })).toBeTruthy();
+    // The nearest of the planned stop (7.4 km) and the QR scan (11.1 km).
+    expect(screen.getByText(/at 8\.2000, 38\.7400, 7\.4 km from the nearest planned stop or QR scan/)).toBeTruthy();
+  });
+
+  it("the map rings the stop off the list and gives each check-in its time", () => {
+    const withAway = trailWithAJump();
+    withAway.awayStops = [
+      {
+        from: "2026-10-27T06:40:00.000Z",
+        until: "2026-10-27T07:10:00.000Z",
+        latitude: 8.2,
+        longitude: 38.74,
+        nearestScanKm: 11.1,
+        nearestPlannedStopKm: 7.4,
+      },
+    ];
+    mocks.trail.data = withAway;
+    const { container } = renderPage();
+
+    expect(container.querySelectorAll('[data-testid="trail-away-stop"]')).toHaveLength(1);
+    const map = screen.getByRole("img");
+    // One time label per check-in with a place (the pause has none).
+    expect(map.querySelectorAll("text")).toHaveLength(withAway.points.filter((p) => p.latitude != null).length);
+  });
+
+  it("without a linked delivery there is no trail to ask for", () => {
+    mocks.escrow.data = escrow(null);
+    renderPage();
+
+    expect(screen.getByText("No delivery is linked to this dispute yet, so there is no trail.")).toBeTruthy();
+    expect(mocks.trailIds.every((id) => id === "")).toBe(true);
+  });
+
+  it("a self-pickup has no truck trail, and a delivery not picked up has none yet", () => {
+    mocks.trail.data = { ...emptyTrail(), tripId: null };
+    const { unmount } = renderPage();
+    expect(screen.getByText("The buyer collected the goods (self-pickup), so there is no truck trail.")).toBeTruthy();
+    unmount();
+
+    mocks.trail.data = { ...emptyTrail(), from: null, until: null };
+    renderPage();
+    expect(screen.getByText("The goods were not picked up yet. The trail starts at pickup.")).toBeTruthy();
+  });
+});
+
+/* Web · Admin dispute evidence board: the admin decides beside the evidence, with the same
+ * verdict flow as the Disputes list (ADMIN_015 asks what happens to the order). */
+describe("DisputeDetailPage Decide", () => {
+  beforeEach(() => {
+    mocks.escrow.data = escrow();
+    mocks.escrow.isLoading = false;
+    mocks.escrow.isError = false;
+    mocks.trail = trailQuery();
+    // The trail loads meanwhile, so the only alert could come from the verdict.
+    mocks.trail.isLoading = true;
+    mocks.evidence = trailQuery();
+    mocks.messages = trailQuery();
+    mocks.mutate.mockReset();
+  });
+
+  function lastMutate() {
+    const [vars, opts] = mocks.mutate.mock.calls[mocks.mutate.mock.calls.length - 1];
+    return { vars: vars as { id: string; body: Record<string, unknown> }, opts: opts ?? {} };
+  }
+
+  it("shows the frozen amount, both verdicts and the audit note", () => {
+    renderPage();
+    expect(screen.getByText(`${formatETB(30900, "en")} frozen`)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Decide" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Farmer Wins" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Buyer Wins" })).toBeTruthy();
+    expect(screen.getByText("Every verdict is written to the audit log under your admin account.")).toBeTruthy();
+  });
+
+  // Page M board: the admin wears black. Farmer wins is the black button, Buyer wins the outlined one.
+  it("draws Farmer Wins as the black button and Buyer Wins as the outlined one", () => {
+    renderPage();
+    expect(screen.getByRole("button", { name: "Farmer Wins" }).className).toContain("btn-ink");
+    expect(screen.getByRole("button", { name: "Buyer Wins" }).className).toContain("btn-outline");
+  });
+
+  it("links back to the Disputes list from the breadcrumb", () => {
+    renderPage();
+    const crumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(crumb).getByRole("link", { name: "Disputes" }).getAttribute("href")).toBe("/disputes");
+  });
+
+  it("sends the verdict, then says it was saved", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: "Farmer Wins" }));
+
+    const { vars, opts } = lastMutate();
+    expect(vars).toEqual({ id: "escrow-1", body: { resolution: "farmer_wins", action: "release" } });
+    act(() => {
+      opts.onSuccess?.();
+      opts.onSettled?.();
+    });
+    expect(screen.getByText("Verdict saved.").getAttribute("role")).toBe("status");
+  });
+
+  it("on ADMIN_015 asks what happens to the order instead of failing", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: "Buyer Wins" }));
+    act(() => {
+      lastMutate().opts.onError?.({ code: "ADMIN_015" });
+      lastMutate().opts.onSettled?.();
+    });
+
+    expect(screen.getByText("The order cannot follow this verdict as it is")).toBeTruthy();
+    expect(screen.getByLabelText(/Return the goods to the farmer/)).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  // Admin trip evidence board: parties as chips, the frozen money's split, Decide beside the trail.
+  it("shows the parties and how the frozen money splits", () => {
+    mocks.escrow.data = {
+      escrow: {
+        ...escrow().escrow,
+        truckerName: "Dawit",
+        farmerPayout: 28000,
+        truckerPayout: 1500,
+        commission: 1400,
+      },
+    };
+    renderPage();
+
+    // Each party in its role colour: buyer green, farmer plum, trucker blue.
+    expect(screen.getByText("Buyer · Sara").className).toContain("text-buyer");
+    expect(screen.getByText("Farmer · Abebe").className).toContain("text-farmer");
+    expect(screen.getByText("Trucker · Dawit").className).toContain("text-trucker");
+    expect(
+      screen.getByText(
+        `Crop ${formatETB(28000, "en")} · Trucker ${formatETB(1500, "en")} · Commission ${formatETB(1400, "en")}`,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("puts Decide in the trail's right column once the trail is in", () => {
+    mocks.trail.isLoading = false;
+    mocks.trail.data = trailWithAJump();
+    renderPage();
+
+    const aside = screen.getByRole("complementary");
+    expect(within(aside).getByRole("heading", { name: "Decide" })).toBeTruthy();
+    expect(within(aside).getByRole("heading", { name: "What the trail says" })).toBeTruthy();
+  });
+
+  it("a resolved dispute has nothing left to decide", () => {
+    mocks.escrow.data = { escrow: { ...escrow().escrow, status: "dispute_resolved" } };
+    renderPage();
+    expect(screen.queryByRole("heading", { name: "Decide" })).toBeNull();
+    expect(screen.queryByText(/frozen/)).toBeNull();
+  });
+});
+
+/* FRD-14: the evidence package on the dispute page: the Timeline tab with the handoffs, the
+ * Photos tab, the Messages tab (read only on request, audited by the server) and Decide beside
+ * each of them, so the admin resolves from this one screen. */
+describe("DisputeDetailPage evidence (FRD-14)", () => {
+  beforeEach(() => {
+    mocks.escrow.data = escrow();
+    mocks.escrow.isLoading = false;
+    mocks.escrow.isError = false;
+    mocks.trail = trailQuery();
+    mocks.trail.isLoading = true;
+    mocks.evidence = trailQuery();
+    mocks.evidence.data = evidence();
+    mocks.evidenceIds.length = 0;
+    mocks.messages = trailQuery();
+    mocks.messageCalls.length = 0;
+    mocks.mutate.mockReset();
+  });
+
+  function evidence(): DisputeEvidence {
+    return {
+      escrow: { escrowId: "escrow-1", buyerId: "buyer-1", buyerName: "Sara", farmerId: "farmer-1", farmerName: "Abebe" },
+      order: { orderId: "ord-1", buyerId: "buyer-1", farmerId: "farmer-1", truckerId: "trucker-1", truckerName: "Dawit" },
+      delivery: {
+        deliveryId: "del-101",
+        buyerId: "buyer-1",
+        farmerId: "farmer-1",
+        truckerId: "trucker-1",
+        truckerName: "Dawit",
+        pickupPhotoUrl: "https://signed.example/pickup.webp",
+      },
+      timeline: [
+        { timestamp: "2026-10-27T05:05:00Z", entity: "delivery", action: "picked_up", actor: "trucker-1" },
+        { timestamp: "2026-10-27T09:50:00Z", entity: "delivery", action: "dispute", actor: "buyer-1" },
+      ],
+      handoffs: [
+        {
+          leg: "pickup",
+          at: "2026-10-27T05:05:00Z",
+          capturedAt: "2026-10-27T05:04:40Z",
+          actorId: "trucker-1",
+          actorRole: "trucker",
+          method: "qr",
+          gps: { latitude: 8.1504, longitude: 38.8196 },
+          planned: { latitude: 8.154, longitude: 38.8196 },
+          distanceKm: 0.4,
+        },
+        {
+          leg: "dropoff",
+          at: "2026-10-27T08:00:00Z",
+          actorId: "buyer-1",
+          actorRole: "buyer",
+          method: "code",
+          gps: { latitude: 9.03, longitude: 38.74 },
+          planned: { latitude: 9.1, longitude: 38.74 },
+          distanceKm: 7.78,
+        },
+      ],
+    };
+  }
+
+  async function openTab(name: RegExp | string) {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("tab", { name }));
+    return user;
+  }
+
+  it("offers the four evidence tabs in the board's order, the photos counted, and asks for this dispute's evidence", () => {
+    renderPage();
+
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Timeline",
+      "Trip trail",
+      "Photos · 1",
+      "Messages",
+    ]);
+    expect(mocks.evidenceIds).toContain("escrow-1");
+    // Nothing asks for the messages until the admin does.
+    expect(mocks.messageCalls.every((call) => !call.open)).toBe(true);
+  });
+
+  /* Persona simulation BUG-6: the evidence the server stamped when the dispute was opened. */
+  function stampedEscrow(handoffEvidence: Record<string, unknown>) {
+    return {
+      escrow: {
+        ...escrow().escrow,
+        buyerId: "buyer-1",
+        farmerId: "farmer-1",
+        truckerId: "trucker-1",
+        dispute: { reason: "not_delivered", createdAt: "2026-10-27T09:50:00Z", handoffEvidence },
+      },
+    };
+  }
+
+  it("shows the handoffs stamped when the dispute was opened, and that the disputer confirmed receipt", () => {
+    mocks.escrow.data = stampedEscrow({
+      deliveryId: "del-101",
+      deliveryStatus: "delivered",
+      selfPickup: false,
+      pickedUpAt: "2026-10-27T05:05:00Z",
+      pickupMethod: "qr",
+      pickupBy: "trucker-1",
+      pickupFix: false,
+      confirmedAt: "2026-10-27T08:00:00Z",
+      confirmMethod: "qr",
+      confirmedBy: "buyer-1",
+      dropoffFix: true,
+      confirmedByDisputer: true,
+    });
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "Handoffs when the dispute was opened" })).toBeTruthy();
+    expect(screen.getByRole("note").textContent).toBe(
+      "The user who opened this dispute is the one who confirmed receipt.",
+    );
+    // The pickup: by QR, and without a fix (BUG-5).
+    expect(screen.getByText("QR scanned by Trucker · Dawit")).toBeTruthy();
+    expect(screen.getByText("No GPS fix at the handoff")).toBeTruthy();
+    // The confirmation: by the buyer, with a fix, and the distance the evidence read measured.
+    expect(screen.getByText("QR scanned by Buyer · Sara")).toBeTruthy();
+    expect(screen.getByText("GPS fix sent")).toBeTruthy();
+    expect(screen.getByText("7.78 km from the trip's destination")).toBeTruthy();
+    expect(screen.queryByText("Receipt was not confirmed when the dispute was opened.")).toBeNull();
+  });
+
+  it("a stamped dispute opened before the confirmation says so, without the disputer note", () => {
+    mocks.escrow.data = stampedEscrow({
+      deliveryId: "del-101",
+      deliveryStatus: "inTransit",
+      selfPickup: false,
+      pickedUpAt: "2026-10-27T05:05:00Z",
+      pickupMethod: "code",
+      pickupBy: "trucker-1",
+      pickupFix: true,
+    });
+    renderPage();
+
+    expect(screen.getByText("Code typed by Trucker · Dawit")).toBeTruthy();
+    expect(screen.getByText("0.4 km from the listing")).toBeTruthy();
+    expect(screen.getByText("Receipt was not confirmed when the dispute was opened.")).toBeTruthy();
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  it("a disputer who confirmed receipt is a plain fact, not a warning, for damage or quality", () => {
+    const stamped = stampedEscrow({
+      deliveryId: "del-101",
+      deliveryStatus: "delivered",
+      selfPickup: false,
+      confirmedAt: "2026-10-27T08:00:00Z",
+      confirmMethod: "qr",
+      confirmedBy: "buyer-1",
+      dropoffFix: true,
+      confirmedByDisputer: true,
+    });
+    for (const reason of ["damaged_goods", "quality_mismatch", "wrong_crop", "other"]) {
+      mocks.escrow.data = { escrow: { ...stamped.escrow, dispute: { ...stamped.escrow.dispute, reason } } };
+      const { unmount } = renderPage();
+
+      expect(screen.queryByRole("note")).toBeNull();
+      expect(
+        screen.getByText("The user who opened this dispute also confirmed receipt, which is usual for this reason."),
+      ).toBeTruthy();
+      unmount();
+    }
+
+    mocks.escrow.data = { escrow: { ...stamped.escrow, dispute: { ...stamped.escrow.dispute, reason: "wrong_quantity" } } };
+    renderPage();
+    expect(screen.getByRole("note").textContent).toBe(
+      "The user who opened this dispute is the one who confirmed receipt.",
+    );
+  });
+
+  it("a self-pickup shows one stamped leg at the farm, and a farmer's dispute carries no disputer note", () => {
+    mocks.escrow.data = stampedEscrow({
+      deliveryId: "del-101",
+      deliveryStatus: "delivered",
+      selfPickup: true,
+      confirmedAt: "2026-10-27T08:00:00Z",
+      confirmMethod: "code",
+      confirmedBy: "buyer-1",
+      dropoffFix: true,
+      confirmedByDisputer: false,
+    });
+    renderPage();
+
+    expect(screen.getByText("Self-pickup at the farm")).toBeTruthy();
+    expect(screen.getByText("Code typed by Buyer · Sara")).toBeTruthy();
+    expect(screen.queryByText("Pickup")).toBeNull();
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  it("a dispute without a stamp (from before 2.28.0) shows no stamped handoffs", () => {
+    renderPage();
+
+    expect(screen.queryByRole("heading", { name: "Handoffs when the dispute was opened" })).toBeNull();
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  it("the Timeline tab shows each handoff: how, who, where and how far from the planned point", async () => {
+    await openTab("Timeline");
+
+    const panel = screen.getByRole("tabpanel");
+    expect(within(panel).getByRole("heading", { name: "Handoffs" })).toBeTruthy();
+    expect(within(panel).getByText("Pickup")).toBeTruthy();
+    expect(within(panel).getByText("QR scanned by Trucker · Dawit")).toBeTruthy();
+    expect(within(panel).getByText(`Done on the phone at ${formatDateTime("2026-10-27T05:04:40Z")}`)).toBeTruthy();
+    expect(within(panel).getByText("8.15040, 38.81960")).toBeTruthy();
+    expect(within(panel).getByText("0.4 km from the listing")).toBeTruthy();
+    expect(within(panel).getByText("Drop-off")).toBeTruthy();
+    expect(within(panel).getByText("Code typed by Buyer · Sara")).toBeTruthy();
+    expect(within(panel).getByText("7.78 km from the trip's destination")).toBeTruthy();
+    // The stitched timeline below the handoffs.
+    expect(within(panel).getByRole("heading", { name: "Timeline" })).toBeTruthy();
+    expect(within(panel).getByText("Disputed")).toBeTruthy();
+  });
+
+  it("a handoff without GPS or a known maker says so, and no handoff yet says the goods were not picked up", async () => {
+    mocks.evidence.data = {
+      ...evidence(),
+      handoffs: [{ leg: "self_pickup", at: "2026-10-27T08:00:00Z" }],
+    };
+    const user = await openTab("Timeline");
+    expect(screen.getByText("Self-pickup at the farm")).toBeTruthy();
+    expect(screen.getByText("Who made the handoff is not recorded.")).toBeTruthy();
+    expect(screen.getByText("No GPS fix at the handoff")).toBeTruthy();
+
+    mocks.evidence.data = { ...evidence(), handoffs: [] };
+    await user.click(screen.getByRole("tab", { name: "Trip trail" }));
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+    expect(screen.getByText("No handoff yet: the goods were not picked up.")).toBeTruthy();
+  });
+
+  /* FUP-440, GCR-02: the evidence the server stamped on each leg. */
+  it("the Timeline tab names why a handoff had no fix, an approximate fix, its time and accuracy, a late send and the app", async () => {
+    const [pickup, dropoff] = evidence().handoffs;
+    mocks.evidence.data = {
+      ...evidence(),
+      handoffs: [
+        {
+          ...pickup,
+          gpsStatus: "approximate",
+          gpsCapturedAt: "2026-10-27T05:04:30Z",
+          gpsAccuracyM: 1799.6,
+          platform: "android",
+        },
+        // The drop-off confirmed offline at 06:00 and received at 08:00, without a fix: location was off.
+        { ...dropoff, gps: undefined, distanceKm: undefined, gpsStatus: "services_off", capturedAt: "2026-10-27T06:00:00Z", platform: "web" },
+      ],
+    };
+    await openTab("Timeline");
+
+    const panel = screen.getByRole("tabpanel");
+    const [pickupItem, dropoffItem] = within(panel).getAllByRole("listitem");
+    expect(within(pickupItem).getByText("Approximate location only")).toBeTruthy();
+    expect(
+      within(pickupItem).getByText(
+        `Fix taken on the phone at ${formatDateTime("2026-10-27T05:04:30Z")} · Accurate to about 1800 m`,
+      ),
+    ).toBeTruthy();
+    expect(within(pickupItem).getByText("Android app")).toBeTruthy();
+    // Scanned 20 seconds before the server got it: not late.
+    expect(within(pickupItem).queryByText("Made offline, sent later")).toBeNull();
+
+    expect(within(dropoffItem).getByText("No GPS fix: location was off on the phone")).toBeTruthy();
+    expect(within(dropoffItem).queryByText("No GPS fix at the handoff")).toBeNull();
+    expect(within(dropoffItem).getByText(`Done on the phone at ${formatDateTime("2026-10-27T06:00:00Z")}`)).toBeTruthy();
+    expect(within(dropoffItem).getByText("Made offline, sent later")).toBeTruthy();
+    expect(within(dropoffItem).getByText("Web app")).toBeTruthy();
+  });
+
+  it("each cause of a missing fix has its own words, and an unknown status keeps the old line", async () => {
+    const causes: Record<string, string> = {
+      denied: "No GPS fix: location permission was refused",
+      denied_forever: "No GPS fix: location permission is blocked for good",
+      timeout: "No GPS fix: no signal in time",
+      gps_off: "No GPS fix at the handoff",
+    };
+    mocks.evidence.data = {
+      ...evidence(),
+      handoffs: Object.keys(causes).map((gpsStatus) => ({ leg: "self_pickup", at: "2026-10-27T08:00:00Z", gpsStatus })),
+    };
+    await openTab("Timeline");
+
+    const items = within(screen.getByRole("tabpanel")).getAllByRole("listitem");
+    Object.values(causes).forEach((text, i) => expect(within(items[i]).getByText(text)).toBeTruthy());
+    expect(screen.queryByText("Made offline, sent later")).toBeNull();
+  });
+
+  it("a stamped leg without a fix names the cause from the evidence read", () => {
+    const [pickup, dropoff] = evidence().handoffs;
+    mocks.evidence.data = {
+      ...evidence(),
+      handoffs: [{ ...pickup, gps: undefined, gpsStatus: "denied_forever" }, dropoff],
+    };
+    mocks.escrow.data = stampedEscrow({
+      deliveryId: "del-101",
+      deliveryStatus: "delivered",
+      selfPickup: false,
+      pickedUpAt: "2026-10-27T05:05:00Z",
+      pickupMethod: "qr",
+      pickupBy: "trucker-1",
+      pickupFix: false,
+      confirmedAt: "2026-10-27T08:00:00Z",
+      confirmMethod: "code",
+      confirmedBy: "buyer-1",
+      dropoffFix: true,
+    });
+    renderPage();
+
+    expect(screen.getByText("No GPS fix: location permission is blocked for good")).toBeTruthy();
+    expect(screen.queryByText("No GPS fix at the handoff")).toBeNull();
+    expect(screen.getByText("GPS fix sent")).toBeTruthy();
+  });
+
+  it("the Photos tab shows the pickup photo full size on click and says the drop-off photo is missing", async () => {
+    await openTab(/^Photos/);
+
+    const link = screen.getByRole("link", { name: "Open the Pickup photo full size" });
+    expect(link.getAttribute("href")).toBe("https://signed.example/pickup.webp");
+    expect(screen.getByRole("img", { name: "Pickup photo" })).toBeTruthy();
+    expect(screen.getByText("No drop-off photo.")).toBeTruthy();
+    expect(screen.getByText("Photo links expire after 15 minutes. Reload the page for new ones.")).toBeTruthy();
+  });
+
+  it("FUP-373: an arrival photo attached on the overdue dispute is marked late with its attach time; one from the road is not", async () => {
+    mocks.evidence.data = {
+      ...evidence(),
+      delivery: {
+        ...evidence().delivery,
+        arrivalPhotoUrl: "https://signed.example/arrival.webp",
+        arrivalPhotoLateAt: "2026-10-30T07:15:00Z",
+      },
+    };
+    const user = await openTab(/^Photos/);
+
+    const panel = screen.getByRole("tabpanel");
+    expect(within(panel).getByRole("img", { name: "Arrival photo (the trucker, at the drop-off)" })).toBeTruthy();
+    expect(within(panel).getByText(`· ${formatDateTime("2026-10-30T07:15:00Z")}`, { exact: false })).toBeTruthy();
+    expect(within(panel).getByText("Attached late, after the delivery deadline, once this dispute was open.")).toBeTruthy();
+
+    mocks.evidence.data = {
+      ...evidence(),
+      delivery: { ...evidence().delivery, arrivalPhotoUrl: "https://signed.example/arrival.webp" },
+    };
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+    await user.click(screen.getByRole("tab", { name: /^Photos/ }));
+    expect(screen.getByRole("img", { name: "Arrival photo (the trucker, at the drop-off)" })).toBeTruthy();
+    expect(screen.queryByText("Attached late, after the delivery deadline, once this dispute was open.")).toBeNull();
+  });
+
+  it("FUP-140: the buyer's drop-off photo attached on a system dispute without a confirm is marked late", async () => {
+    mocks.evidence.data = {
+      ...evidence(),
+      delivery: {
+        ...evidence().delivery,
+        dropoffPhotoUrl: "https://signed.example/dropoff.jpg",
+        dropoffPhotoLateAt: "2026-10-30T09:40:00Z",
+      },
+    };
+    await openTab(/^Photos/);
+
+    const panel = screen.getByRole("tabpanel");
+    expect(within(panel).getByRole("img", { name: "Drop-off photo" })).toBeTruthy();
+    expect(within(panel).getByText(`· ${formatDateTime("2026-10-30T09:40:00Z")}`, { exact: false })).toBeTruthy();
+    expect(
+      within(panel).getByText("Attached late, without the buyer's confirm, once the system had opened this dispute."),
+    ).toBeTruthy();
+    expect(within(panel).queryByText("Attached late, after the delivery deadline, once this dispute was open.")).toBeNull();
+  });
+
+  it("says the evidence is loading, and shows its error in the words of the code with a retry", async () => {
+    mocks.evidence.isLoading = true;
+    mocks.evidence.data = undefined;
+    const user = await openTab("Timeline");
+    expect(screen.getByRole("status").textContent).toBe("Loading the evidence...");
+
+    mocks.evidence.isLoading = false;
+    mocks.evidence.isError = true;
+    mocks.evidence.error = { code: "ADMIN_019" };
+    await user.click(screen.getByRole("tab", { name: "Trip trail" }));
+    await user.click(screen.getByRole("tab", { name: "Timeline" }));
+    expect(screen.getByRole("alert").textContent).toBe("This escrow has no dispute, so there is no evidence to show.");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(mocks.evidence.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("the Messages tab reads nothing until the admin asks, and says the read is audited", async () => {
+    const user = await openTab("Messages");
+
+    expect(screen.getByText(/The parties' messages are private/)).toBeTruthy();
+    expect(mocks.messageCalls.every((call) => !call.open)).toBe(true);
+
+    mocks.messages.data = {
+      ...evidence(),
+      messages: [
+        {
+          messageId: "m-1",
+          conversationId: "order:ord-1:buyer-1:farmer-1",
+          contextType: "order",
+          contextId: "ord-1",
+          senderId: "buyer-1",
+          recipientId: "farmer-1",
+          senderName: "Sara",
+          recipientName: "Abebe",
+          body: "Is the maize ready?",
+          createdAt: "2026-10-26T08:00:00Z",
+        },
+        {
+          messageId: "m-2",
+          conversationId: "delivery:del-101:buyer-1:trucker-1",
+          contextType: "delivery",
+          contextId: "del-101",
+          senderId: "buyer-1",
+          recipientId: "trucker-1",
+          body: "150 kg short.",
+          createdAt: "2026-10-27T08:10:00Z",
+        },
+      ],
+      messagesTruncated: true,
+    };
+    await user.click(screen.getByRole("button", { name: "Show the messages" }));
+
+    expect(mocks.messageCalls.some((call) => call.open && call.escrowId === "escrow-1")).toBe(true);
+    const list = screen.getByRole("list", { name: "Messages" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(within(items[0]).getByText("Buyer · Sara to Farmer · Abebe")).toBeTruthy();
+    expect(within(items[0]).getByText("Order")).toBeTruthy();
+    expect(within(items[0]).getByText("Is the maize ready?")).toBeTruthy();
+    expect(within(items[1]).getByText("Buyer · Sara to Trucker · Dawit")).toBeTruthy();
+    expect(within(items[1]).getByText("Delivery")).toBeTruthy();
+    expect(screen.getByText("Read-only. This read was written to the audit log.")).toBeTruthy();
+    expect(screen.getByText(/only its newest 100 are here/)).toBeTruthy();
+  });
+
+  it("a message read the server could not audit shows its refusal and no message", async () => {
+    const user = await openTab("Messages");
+    mocks.messages.isError = true;
+    mocks.messages.error = { code: "ADMIN_020" };
+    await user.click(screen.getByRole("button", { name: "Show the messages" }));
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "The read could not be written to the audit log, so no message is shown. Try again.",
+    );
+    expect(screen.queryByRole("list", { name: "Messages" })).toBeNull();
+  });
+
+  it("an empty read says there are no messages", async () => {
+    const user = await openTab("Messages");
+    mocks.messages.data = { ...evidence(), messages: [] };
+    await user.click(screen.getByRole("button", { name: "Show the messages" }));
+    expect(screen.getByText("No messages on this order or its delivery.")).toBeTruthy();
+  });
+
+  it("Decide sits beside every evidence tab, and resolves the dispute from there", async () => {
+    const user = await openTab("Timeline");
+    let aside = screen.getByRole("complementary");
+    expect(within(aside).getByRole("heading", { name: "Decide" })).toBeTruthy();
+
+    await user.click(screen.getByRole("tab", { name: "Messages" }));
+    aside = screen.getByRole("complementary");
+    await user.click(within(aside).getByRole("button", { name: "Buyer Wins" }));
+
+    const [vars] = mocks.mutate.mock.calls[0];
+    expect(vars).toEqual({ id: "escrow-1", body: { resolution: "buyer_wins", action: "refund" } });
+  });
+
+  it("a resolved dispute keeps its evidence, without Decide", async () => {
+    mocks.escrow.data = { escrow: { ...escrow().escrow, status: "dispute_resolved" } };
+    await openTab("Timeline");
+    expect(screen.getByRole("heading", { name: "Handoffs" })).toBeTruthy();
+    expect(screen.queryByRole("complementary")).toBeNull();
+  });
+});
+
+/* ESC-24: the per-leg verdict of ESC-20 (partial_refund, action split), only on a ledger escrow whose
+ * crop leg is held, with the amounts shown before the confirm and the reason required. */
+describe("DisputeDetailPage per-leg verdict (ESC-24)", () => {
+  const ledgerEscrow = {
+    ...escrow().escrow,
+    amount: 17250,
+    farmerPayout: 15000,
+    truckerPayout: 1500,
+    commission: 750,
+    truckerId: "trucker-1",
+    legStatus: { crop: "held", transport: "held", commission: "held" },
+  };
+
+  beforeEach(() => {
+    mocks.escrow.data = { escrow: ledgerEscrow };
+    mocks.escrow.isLoading = false;
+    mocks.escrow.isError = false;
+    mocks.trail = trailQuery();
+    mocks.trail.isLoading = true;
+    mocks.evidence = trailQuery();
+    mocks.messages = trailQuery();
+    mocks.mutate.mockReset();
+  });
+
+  function lastMutate() {
+    const [vars, opts] = mocks.mutate.mock.calls[mocks.mutate.mock.calls.length - 1];
+    return { vars: vars as { id: string; body: Record<string, unknown> }, opts: opts ?? {} };
+  }
+
+  async function openSplit() {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole("button", { name: "Decide per leg" }));
+    return user;
+  }
+
+  it("a legacy escrow, or one whose crop leg is decided, offers only the two single verdicts", () => {
+    mocks.escrow.data = escrow();
+    const first = renderPage();
+    expect(screen.getByRole("button", { name: "Farmer Wins" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Decide per leg" })).toBeNull();
+    first.unmount();
+
+    mocks.escrow.data = { escrow: { ...ledgerEscrow, legStatus: { crop: "released", transport: "held", commission: "kept" } } };
+    renderPage();
+    expect(screen.queryByRole("button", { name: "Decide per leg" })).toBeNull();
+  });
+
+  it("opens with the form shown from the Disputes list's per-leg link (FUP-173)", () => {
+    renderPage("/disputes/escrow-1?decide=split");
+
+    expect((screen.getByLabelText("Farmer receives (crop leg), in Birr") as HTMLInputElement).value).toBe("15000.00");
+    expect((screen.getByRole("button", { name: "Decide per leg" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("the per-leg link shows no form where the server takes no split (FUP-173)", () => {
+    mocks.escrow.data = { escrow: { ...ledgerEscrow, legStatus: { crop: "released", transport: "held", commission: "kept" } } };
+    renderPage("/disputes/escrow-1?decide=split");
+
+    expect(screen.queryByLabelText("Farmer receives (crop leg), in Birr")).toBeNull();
+    expect(screen.getByRole("button", { name: "Farmer Wins" })).toBeTruthy();
+  });
+
+  it("starts from the full legs, shows the resulting amounts, and needs a reason before the review", async () => {
+    const user = await openSplit();
+
+    expect((screen.getByLabelText("Farmer receives (crop leg), in Birr") as HTMLInputElement).value).toBe("15000.00");
+    expect((screen.getByLabelText("Trucker receives (transport leg), in Birr") as HTMLInputElement).value).toBe("1500.00");
+    const result = screen.getByRole("group", { name: "Resulting amounts" });
+    expect(within(result).getByText("Buyer is refunded").nextElementSibling?.textContent).toBe("0.00 Birr");
+    expect(within(result).getByText("Commission kept by the platform")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Review split" }) as HTMLButtonElement).disabled).toBe(true);
+
+    const farmer = screen.getByLabelText("Farmer receives (crop leg), in Birr");
+    await user.clear(farmer);
+    await user.type(farmer, "9000");
+    expect(within(result).getByText("Buyer is refunded").nextElementSibling?.textContent).toBe("6,000.00 Birr");
+
+    // Nothing for the farmer: the commission goes back to the buyer too.
+    await user.clear(farmer);
+    await user.type(farmer, "0");
+    expect(within(result).getByText("Buyer is refunded").nextElementSibling?.textContent).toBe("15,750.00 Birr");
+    expect(within(result).getByText("Commission returned to the buyer (in the refund)")).toBeTruthy();
+
+    // More than the leg holds is refused before anything is sent.
+    await user.clear(farmer);
+    await user.type(farmer, "15000.01");
+    expect(screen.getByRole("alert").textContent).toContain("The farmer can get at most the crop leg held.");
+    await user.type(screen.getByLabelText("Reason (kept in the audit trail)"), "Half the teff arrived wet.");
+    expect((screen.getByRole("button", { name: "Review split" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(mocks.mutate).not.toHaveBeenCalled();
+  });
+
+  it("sends the three amounts as partial_refund with action split only after the confirm", async () => {
+    const user = await openSplit();
+    const farmer = screen.getByLabelText("Farmer receives (crop leg), in Birr");
+    await user.clear(farmer);
+    await user.type(farmer, "9000.50");
+    await user.type(screen.getByLabelText("Reason (kept in the audit trail)"), "Half the teff arrived wet.");
+    await user.click(screen.getByRole("button", { name: "Review split" }));
+
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(screen.getByText("Record this verdict? It cannot be changed afterwards.")).toBeTruthy();
+    const result = screen.getByRole("group", { name: "Resulting amounts" });
+    expect(within(result).getByText("Farmer receives").nextElementSibling?.textContent).toBe("9,000.50 Birr");
+    expect(within(result).getByText("Trucker receives").nextElementSibling?.textContent).toBe("1,500.00 Birr");
+    expect(within(result).getByText("Buyer is refunded").nextElementSibling?.textContent).toBe("5,999.50 Birr");
+
+    await user.click(screen.getByRole("button", { name: "Confirm split verdict" }));
+
+    const { vars, opts } = lastMutate();
+    expect(vars).toEqual({
+      id: "escrow-1",
+      body: {
+        resolution: "partial_refund",
+        action: "split",
+        farmerAmount: 9000.5,
+        truckerAmount: 1500,
+        buyerRefund: 5999.5,
+        notes: "Half the teff arrived wet.",
+      },
+    });
+    act(() => {
+      opts.onSuccess?.();
+      opts.onSettled?.();
+    });
+    expect(screen.getByText("Verdict saved.").getAttribute("role")).toBe("status");
+  });
+
+  it("on ADMIN_015 the disposition is sent with the same split", async () => {
+    const user = await openSplit();
+    await user.type(screen.getByLabelText("Reason (kept in the audit trail)"), "The goods were delivered in full.");
+    await user.click(screen.getByRole("button", { name: "Review split" }));
+    await user.click(screen.getByRole("button", { name: "Confirm split verdict" }));
+    act(() => {
+      lastMutate().opts.onError?.({ code: "ADMIN_015" });
+      lastMutate().opts.onSettled?.();
+    });
+
+    expect(screen.getByRole("heading", { name: "The order cannot follow this verdict as it is" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Confirm split verdict" })).toBeNull();
+    await user.click(screen.getByRole("radio", { name: /Wait for the delivery/ }));
+    await user.type(screen.getByLabelText("Reason (kept in the audit trail)"), "The truck arrives tomorrow.");
+    await user.click(screen.getByRole("button", { name: "Record the verdict" }));
+
+    expect(lastMutate().vars.body).toEqual({
+      resolution: "partial_refund",
+      action: "split",
+      farmerAmount: 15000,
+      truckerAmount: 1500,
+      buyerRefund: 0,
+      notes: "The goods were delivered in full.",
+      disposition: "wait_for_delivery",
+      reason: "The truck arrives tomorrow.",
+    });
+  });
+
+  it("an escrow without a trucker to pay sends the transport leg back to the buyer", async () => {
+    mocks.escrow.data = { escrow: { ...ledgerEscrow, truckerId: undefined } };
+    await openSplit();
+
+    const trucker = screen.getByLabelText("Trucker receives (transport leg), in Birr") as HTMLInputElement;
+    expect(trucker.disabled).toBe(true);
+    expect(trucker.value).toBe("0");
+    const result = screen.getByRole("group", { name: "Resulting amounts" });
+    expect(within(result).getByText("Buyer is refunded").nextElementSibling?.textContent).toBe("1,500.00 Birr");
+  });
+});

@@ -1,0 +1,584 @@
+using System.Globalization;
+using System.Text.Json;
+using FluentAssertions;
+using WeredaConnect.Server.Helpers;
+using WeredaConnect.Server.Services;
+using Xunit;
+using P = WeredaConnect.Server.Services.NotificationParams;
+
+namespace WeredaConnect.Server.Tests.Helpers;
+
+/// <summary>
+/// ESC-21: push text parity. Every notification type has a title and a body in en, am and om
+/// that read cleanly with or without params: no template characters, no phone number, a body
+/// under 140 characters; amounts and Ethiopia-time deadlines formatted for reading. LT-04: the
+/// deadline clock in am and om is the Ethiopian clock, checked against the cases shared with the
+/// app (<c>specs/contracts/fixtures/ethiopian-clock-cases.json</c>).
+/// </summary>
+public class PushTextTests
+{
+    private static readonly IReadOnlyDictionary<string, string> Full = new Dictionary<string, string>
+    {
+        [P.BuyerName] = "Abebe Tesfaye",
+        [P.FarmerName] = "Chaltu Gemechu",
+        [P.TruckerName] = "Dawit Kebede",
+        [P.CropType] = "teff",
+        [P.QuantityKg] = "500",
+        [P.AmountEtb] = "42500.00",
+        [P.DeadlineAt] = "2026-10-27T15:00:00.0000000Z",
+        [P.PickupDate] = "2026-10-29T06:00:00.0000000Z",
+        [P.Reason] = "fayda_required",
+        [P.CancelledBy] = "buyer",
+        [P.Resolution] = "farmer_wins",
+        [P.Party] = "buyer",
+        [P.DistanceKm] = "3.2",
+        [P.Minutes] = "25",
+        [P.CommissionRate] = "0.025"
+    };
+
+    /// <summary>The longest values the rows allow: 100-character names and seven-digit amounts.</summary>
+    private static readonly IReadOnlyDictionary<string, string> Longest = new Dictionary<string, string>
+    {
+        [P.BuyerName] = new string('A', 100),
+        [P.FarmerName] = new string('B', 100),
+        [P.TruckerName] = new string('C', 100),
+        [P.CropType] = "chickpea",
+        [P.QuantityKg] = "1000000",
+        [P.AmountEtb] = "9999999.99",
+        [P.DeadlineAt] = "2026-12-31T20:59:00Z",
+        [P.PickupDate] = "2026-12-31T20:59:00Z",
+        [P.Reason] = "phone_unverified",
+        [P.Resolution] = "buyer_wins",
+        [P.DistanceKm] = "5.0",
+        [P.Minutes] = "1080",
+        [P.CommissionRate] = "0.1875"
+    };
+
+    private static readonly IReadOnlyDictionary<string, string> Empty = new Dictionary<string, string>();
+
+    public static IEnumerable<object[]> TypesAndLanguages()
+        => NotificationTypes.All.SelectMany(type => PushText.Languages.Select(language => new object[] { type, language }));
+
+    [Theory]
+    [MemberData(nameof(TypesAndLanguages))]
+    public void EveryType_InEveryLanguage_HasItsOwnCleanText(string type, string language)
+    {
+        foreach (var p in new[] { Full, Longest, Empty })
+        {
+            var (title, body) = PushText.Render(type, language, p);
+
+            title.Should().NotBeNullOrWhiteSpace();
+            body.Should().NotBeNullOrWhiteSpace();
+            foreach (var text in new[] { title, body })
+            {
+                text.Should().NotContainAny("{", "}", "[", "]");
+                text.Should().NotContain("+251");
+                text.Should().NotContain("  ");
+                text.Should().Be(text.Trim());
+            }
+
+            body.Length.Should().BeLessThan(140, $"{type}/{language} body: {body}");
+            title.Length.Should().BeLessThanOrEqualTo(PushText.MaxTitleLength);
+        }
+
+        // A real template, not the generic line an unknown type gets.
+        PushText.Render(type, language, Full).Title
+            .Should().NotBe(PushText.Render("no_such_type", language, Full).Title);
+    }
+
+    [Theory]
+    [MemberData(nameof(TypesAndLanguages))]
+    public void TypicalText_FitsWithoutBeingCut(string type, string language)
+    {
+        var (_, body) = PushText.Render(type, language, Full);
+
+        body.Should().NotEndWith("…", "a typical order fits the body limit");
+    }
+
+    [Theory]
+    [MemberData(nameof(TypesAndLanguages))]
+    public void TypicalText_WithTheLongestDeadline_FitsWithoutBeingCut(string type, string language)
+    {
+        // The longest deadlines on the Ethiopian clock: 02:59Z is 05:59 in Ethiopia ("ከሌሊቱ 11:59"),
+        // 14:59Z is 17:59 ("11:59 waaree booda").
+        foreach (var deadline in new[] { "2026-10-27T02:59:00Z", "2026-10-27T14:59:00Z" })
+        {
+            var p = new Dictionary<string, string>(Full) { [P.DeadlineAt] = deadline };
+
+            var (_, body) = PushText.Render(type, language, p);
+
+            body.Should().NotEndWith("…", $"a typical order fits the body limit whatever the part of the day ({deadline})");
+        }
+    }
+
+    [Fact]
+    public void LanguagesAndFallback_AreTheContractsThree()
+    {
+        PushText.Languages.Should().Equal("en", "am", "om");
+        PushText.FallbackLanguage.Should().Be("am");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("fr")]
+    [InlineData("ti")]
+    [InlineData("  ")]
+    public void UnknownLanguage_RendersAmharic(string? language)
+    {
+        PushText.Render(NotificationTypes.OrderRequest, language, Full)
+            .Should().Be(PushText.Render(NotificationTypes.OrderRequest, "am", Full));
+    }
+
+    [Theory]
+    [InlineData("EN", "en")]
+    [InlineData("en-US", "en")]
+    [InlineData("om_ET", "om")]
+    [InlineData(" am ", "am")]
+    public void StoredPreference_IsReadCaseAndRegionInsensitive(string stored, string expected)
+    {
+        PushText.LanguageOf(stored).Should().Be(expected);
+    }
+
+    [Fact]
+    public void UnknownType_RendersAGenericLine()
+    {
+        var (title, body) = PushText.Render("brand_new_type", "en", Full);
+
+        title.Should().Be("Order update");
+        body.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Theory]
+    [InlineData("9640.00", "9,640 ETB")]
+    [InlineData("9640", "9,640 ETB")]
+    [InlineData("9640.5", "9,640.50 ETB")]
+    [InlineData("1234567.89", "1,234,567.89 ETB")]
+    [InlineData("0.00", "0 ETB")]
+    [InlineData("", "")]
+    [InlineData("abc", "")]
+    [InlineData("-5", "")]
+    [InlineData(null, "")]
+    public void Amounts_UseThousandsSeparators_AndNoDecimalsWhenWhole(string? raw, string expected)
+    {
+        PushText.FormatAmount("en", raw).Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("en", "2026-10-27T15:00:00.0000000Z", "27 Oct 18:00")]
+    [InlineData("en", "2026-10-31T22:30:00Z", "1 Nov 01:30")]
+    [InlineData("en", "2026-10-27T15:00:00+00:00", "27 Oct 18:00")]
+    [InlineData("am", "2026-10-27T15:00:00Z", "27 ኦክቶ ከምሽቱ 12:00")]
+    [InlineData("om", "2026-10-27T15:00:00Z", "27 Onk 12:00 galgala")]
+    [InlineData("am", "2026-10-31T22:30:00Z", "1 ኖቬም ከሌሊቱ 7:30")]
+    [InlineData("om", "2026-10-31T22:30:00Z", "1 Sad 7:30 halkan")]
+    [InlineData("am", "not a date", "")]
+    [InlineData("om", null, "")]
+    [InlineData("en", "not a date", "")]
+    [InlineData("en", null, "")]
+    public void Deadlines_AreShownInEthiopiaTime(string language, string? iso, string expected)
+    {
+        PushText.FormatDeadline(language, iso).Should().Be(expected);
+    }
+
+    [Fact]
+    public void PickupDates_AreDayAndMonth_InEthiopiaTime()
+    {
+        PushText.FormatDate("en", "2026-10-29T22:00:00Z").Should().Be("30 Oct");
+    }
+
+    [Fact]
+    public void OrderRequest_InEnglish_ReadsAsAWholeSentence()
+    {
+        var (title, body) = PushText.Render(NotificationTypes.OrderRequest, "en", Full);
+
+        title.Should().Be("New order: 500 kg teff");
+        // F-1: the amount is the farmer's own leg (cropCost), said as theirs.
+        body.Should().Be("Buyer Abebe Tesfaye paid 42,500 ETB for you, held safely until delivery. Please accept or decline by 27 Oct 18:00.");
+    }
+
+    [Fact]
+    public void OrderCommissionChanged_InEnglish_NamesTheRateAndTheNewTotal()
+    {
+        var (title, body) = PushText.Render(NotificationTypes.OrderCommissionChanged, "en", Full);
+
+        title.Should().Be("Order total changed");
+        body.Should().Be(
+            "The platform commission on your order of 500 kg teff changed. It is now 2.5%. New total: 42,500 ETB. Nothing has been paid yet.");
+    }
+
+    [Theory]
+    [InlineData("0", "0%")]
+    [InlineData("0.05", "5%")]
+    [InlineData("0.0375", "3.75%")]
+    [InlineData("0.2", "20%")]
+    public void OrderCommissionChanged_SaysTheRateAsAPercent(string rate, string expected)
+    {
+        var p = new Dictionary<string, string>(Full) { [P.CommissionRate] = rate };
+
+        PushText.Render(NotificationTypes.OrderCommissionChanged, "en", p).Body.Should().Contain($"It is now {expected}.");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("-0.01")]
+    [InlineData("1.5")]
+    [InlineData("five")]
+    public void OrderCommissionChanged_WithoutAReadableRate_DropsTheRateSentence(string? rate)
+    {
+        var p = new Dictionary<string, string>(Full);
+        p.Remove(P.CommissionRate);
+        if (rate != null)
+        {
+            p[P.CommissionRate] = rate;
+        }
+
+        var (_, body) = PushText.Render(NotificationTypes.OrderCommissionChanged, "en", p);
+
+        body.Should().Be("The platform commission on your order of 500 kg teff changed. New total: 42,500 ETB. Nothing has been paid yet.");
+    }
+
+    [Fact]
+    public void OrderRequest_InAmharicAndOromo_GivesTheDeadlineOnTheEthiopianClock()
+    {
+        PushText.Render(NotificationTypes.OrderRequest, "am", Full).Body.Should().Contain("እስከ 27 ኦክቶ ከምሽቱ 12:00");
+        PushText.Render(NotificationTypes.OrderRequest, "om", Full).Body.Should().Contain("hanga 27 Onk 12:00 galgala tti");
+    }
+
+    // ===== LT-04: the Ethiopian clock, driven by the cases shared with the app =====
+
+    private static readonly Lazy<JsonElement> ClockFixture = new(LoadClockFixture);
+
+    /// <summary>The shared cases file, found by walking up from the test output to the repository root.</summary>
+    private static JsonElement LoadClockFixture()
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir != null; dir = dir.Parent)
+        {
+            var candidate = Path.Combine(dir.FullName, "specs", "contracts", "fixtures", "ethiopian-clock-cases.json");
+            if (File.Exists(candidate))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(candidate));
+                return document.RootElement.Clone();
+            }
+        }
+
+        throw new InvalidOperationException(
+            "specs/contracts/fixtures/ethiopian-clock-cases.json not found above the test output directory.");
+    }
+
+    private static string Text(JsonElement row, string name) => row.GetProperty(name).GetString()!;
+
+    private static (int Hour, int Minute) Clock(string hhmm)
+    {
+        var time = TimeOnly.ParseExact(hhmm, "HH:mm", CultureInfo.InvariantCulture);
+        return (time.Hour, time.Minute);
+    }
+
+    public static IEnumerable<object[]> ClockCases()
+        => ClockFixture.Value.GetProperty("cases").EnumerateArray()
+            .Select(c => new object[] { Text(c, "time"), Text(c, "am"), Text(c, "om"), Text(c, "en") });
+
+    public static IEnumerable<object[]> ClockRanges()
+        => ClockFixture.Value.GetProperty("ranges").EnumerateArray()
+            .Select(r => new object[] { Text(r, "from"), Text(r, "to"), Text(r, "am"), Text(r, "om"), Text(r, "en") });
+
+    [Theory]
+    [MemberData(nameof(ClockCases))]
+    public void Clock_ReadsTheSharedCases(string time, string am, string om, string en)
+    {
+        var (hour, minute) = Clock(time);
+
+        PushText.FormatClock("am", hour, minute).Should().Be(am);
+        PushText.FormatClock("om", hour, minute).Should().Be(om);
+        PushText.FormatClock("en", hour, minute).Should().Be(en);
+    }
+
+    [Theory]
+    [MemberData(nameof(ClockRanges))]
+    public void ClockRanges_ReadTheSharedCases(string from, string to, string am, string om, string en)
+    {
+        var (fromHour, fromMinute) = Clock(from);
+        var (toHour, toMinute) = Clock(to);
+
+        PushText.FormatClockRange("am", fromHour, fromMinute, toHour, toMinute).Should().Be(am);
+        PushText.FormatClockRange("om", fromHour, fromMinute, toHour, toMinute).Should().Be(om);
+        PushText.FormatClockRange("en", fromHour, fromMinute, toHour, toMinute).Should().Be(en);
+    }
+
+    [Theory]
+    [MemberData(nameof(ClockCases))]
+    public void Deadlines_PutTheSharedClockAfterTheGregorianDay(string time, string am, string om, string en)
+    {
+        // The case's Ethiopia wall-clock time on 27 October, sent as the UTC instant it stands for.
+        var (hour, minute) = Clock(time);
+        var utc = new DateTime(2026, 10, 27, hour, minute, 0, DateTimeKind.Utc) - PushText.EthiopiaOffset;
+        var iso = utc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
+
+        PushText.FormatDeadline("am", iso).Should().Be($"27 ኦክቶ {am}");
+        PushText.FormatDeadline("om", iso).Should().Be($"27 Onk {om}");
+        PushText.FormatDeadline("en", iso).Should().Be($"27 Oct {en}", "English keeps the 24-hour clock");
+    }
+
+    [Fact]
+    public void ClockParts_AreTheSharedWords()
+    {
+        var parts = ClockFixture.Value.GetProperty("parts");
+        var hours = new[] { ("night", 2), ("morning", 8), ("day", 13), ("evening", 20) };
+
+        foreach (var (part, hour) in hours)
+        {
+            PushText.FormatClock("am", hour, 0).Should().StartWith(Text(parts.GetProperty("am"), part) + " ");
+            PushText.FormatClock("om", hour, 0).Should().EndWith(" " + Text(parts.GetProperty("om"), part));
+        }
+    }
+
+    [Fact]
+    public void CropAndQuantity_AreWrittenTheWayEachLanguageReadsThem()
+    {
+        PushText.Render(NotificationTypes.OrderRequest, "am", Full).Title.Should().Contain("500 ኪ.ግ ጤፍ");
+        PushText.Render(NotificationTypes.OrderRequest, "om", Full).Title.Should().Contain("xaafii kg 500");
+
+        var unknownCrop = new Dictionary<string, string>(Full) { [P.CropType] = "quinoa" };
+        PushText.Render(NotificationTypes.OrderRequest, "en", unknownCrop).Title.Should().Be("New order: 500 kg quinoa");
+    }
+
+    [Fact]
+    public void MissingParams_DropTheirOptionalPart_AndNeverLeaveAPlaceholder()
+    {
+        var noDeadline = new Dictionary<string, string>(Full);
+        noDeadline.Remove(P.DeadlineAt);
+        noDeadline.Remove(P.AmountEtb);
+
+        var (title, body) = PushText.Render(NotificationTypes.OrderRequest, "en", noDeadline);
+
+        title.Should().Be("New order: 500 kg teff");
+        body.Should().Be("Buyer Abebe Tesfaye paid, held safely until delivery. Please accept or decline.");
+
+        PushText.Render(NotificationTypes.OrderRequest, "en", Empty)
+            .Should().Be(("New order", "Buyer paid, held safely until delivery. Please accept or decline."));
+    }
+
+    [Fact]
+    public void APhoneNumberInAName_IsNeverPushed()
+    {
+        var p = new Dictionary<string, string>(Full) { [P.BuyerName] = "Abebe +251 911-22-33-44 Tesfaye" };
+
+        foreach (var language in PushText.Languages)
+        {
+            var (title, body) = PushText.Render(NotificationTypes.OrderRequest, language, p);
+            (title + body).Should().NotContain("+251").And.NotContain("911").And.NotContain("33-44");
+            body.Should().Contain("Abebe Tesfaye");
+        }
+
+        PushText.Name("0911223344").Should().BeEmpty();
+        PushText.Name("Lot 12 Farm").Should().Be("Lot 12 Farm");
+    }
+
+    [Theory]
+    [InlineData("Abebe 0911/223/344", "Abebe")]
+    [InlineData("Abebe 0911_223344", "Abebe")]
+    [InlineData("Abebe 09 11 22 33 44", "Abebe")]
+    [InlineData("Abebe ፱፩፩፪፪፫፫፬", "Abebe")]
+    [InlineData("Lot 12 Farm 345", "Lot 12 Farm 345")]
+    public void PhoneNumbers_AreRemoved_HoweverTheyAreSeparated(string raw, string expected)
+    {
+        PushText.ScrubName(raw).Should().Be(expected);
+    }
+
+    [Fact]
+    public void FormatCharacters_AreRemoved_SoARightToLeftOverrideCannotReorderThePush()
+    {
+        PushText.ScrubName("Abebe\u202E Kebede\u200B").Should().Be("Abebe Kebede");
+    }
+
+    [Fact]
+    public void ACut_NeverSplitsASurrogatePair()
+    {
+        // 29 letters then an emoji (two UTF-16 units) straddling the 30 character cut.
+        var name = PushText.Name(new string('A', PushText.MaxNameLength - 2) + "\U0001F33E" + "tail");
+
+        name.Should().EndWith("…");
+        char.IsHighSurrogate(name[^2]).Should().BeFalse();
+    }
+
+    [Fact]
+    public void LongNames_AreCut_SoTheBodyStaysWhole()
+    {
+        var (_, body) = PushText.Render(NotificationTypes.OrderRequest, "en", Longest);
+
+        body.Should().Contain(new string('A', PushText.MaxNameLength - 1) + "…");
+        body.Should().EndWith("Please accept or decline by 31 Dec 23:59.");
+    }
+
+    [Theory]
+    [InlineData("fayda_required", "Please verify your Fayda ID in the app.")]
+    [InlineData("phone_unverified", "Please verify your phone number in the app.")]
+    [InlineData("profile_missing", "Please complete your profile in the app.")]
+    [InlineData("something_new", "Open the app to see what is needed.")]
+    public void PayoutBlocked_SaysWhatThePayeeCanDo(string reason, string hint)
+    {
+        var p = new Dictionary<string, string> { [P.AmountEtb] = "1500.00", [P.Reason] = reason };
+
+        PushText.Render(NotificationTypes.PayoutBlocked, "en", p).Body
+            .Should().Be($"Your payment of 1,500 ETB is waiting. {hint}");
+    }
+
+    [Theory]
+    [InlineData("farmer_wins", "The money goes to the farmer.")]
+    [InlineData("buyer_wins", "The money goes back to the buyer.")]
+    [InlineData("", "Open the app for the details.")]
+    public void DisputeResolved_SaysTheVerdict(string resolution, string sentence)
+    {
+        var p = new Dictionary<string, string> { [P.Resolution] = resolution };
+
+        PushText.Render(NotificationTypes.DisputeResolved, "en", p).Body
+            .Should().Be($"Our team has decided on the reported problem. {sentence}");
+    }
+
+    [Fact]
+    public void TruckNearby_SaysTheDistanceAndTheMinutes_InEachLanguage()
+    {
+        PushText.Render(NotificationTypes.TruckNearby, "en", Full).Should().Be((
+            "Truck nearby",
+            "Trucker Dawit Kebede is near you, 3.2 km away, arriving in about 25 minutes. Please be ready to receive the crops."));
+
+        var (amTitle, amBody) = PushText.Render(NotificationTypes.TruckNearby, "am", Full);
+        amTitle.Should().Be("የጭነት መኪናው ቀርቧል");
+        amBody.Should().Contain("Dawit Kebede").And.Contain("3.2 ኪ.ሜ").And.Contain("በ25 ደቂቃ");
+
+        var (omTitle, omBody) = PushText.Render(NotificationTypes.TruckNearby, "om", Full);
+        omTitle.Should().Be("Konkolaataan dhihaateera");
+        omBody.Should().Contain("Dawit Kebede").And.Contain("km 3.2").And.Contain("daqiiqaa 25");
+    }
+
+    [Fact]
+    public void TruckNearby_WithoutMinutes_DropsTheTimePart_AndNeverReadsAClockTime()
+    {
+        var p = new Dictionary<string, string>(Full);
+        p.Remove(P.Minutes);
+
+        PushText.Render(NotificationTypes.TruckNearby, "en", p).Body
+            .Should().Be("Trucker Dawit Kebede is near you, 3.2 km away. Please be ready to receive the crops.");
+        PushText.Render(NotificationTypes.TruckNearby, "en", new Dictionary<string, string>(p) { [P.Minutes] = "0" }).Body
+            .Should().NotContain("arriving");
+        PushText.Render(NotificationTypes.TruckNearby, "en", new Dictionary<string, string> { [P.TruckerName] = "Dawit" }).Body
+            .Should().Be("Trucker Dawit is near you. Please be ready to receive the crops.");
+
+        // No clock times: the minutes are a count, whatever the deadline params say.
+        foreach (var language in PushText.Languages)
+        {
+            var (title, body) = PushText.Render(NotificationTypes.TruckNearby, language, Full);
+            (title + body).Should().NotMatchRegex(@"\d{1,2}:\d{2}");
+            body.Should().NotContain("{").And.NotContain("[");
+        }
+    }
+
+    [Fact]
+    public void AmharicAndOromo_AreTheirOwnScripts()
+    {
+        var (amTitle, amBody) = PushText.Render(NotificationTypes.PaymentConfirmed, "am", Full);
+        (amTitle + amBody).Should().MatchRegex("[ሀ-፿]");
+        amBody.Should().Contain("42,500 ብር");
+
+        var (omTitle, omBody) = PushText.Render(NotificationTypes.PaymentConfirmed, "om", Full);
+        (omTitle + omBody).Should().NotMatchRegex("[ሀ-፿]");
+        omBody.Should().Contain("42,500 Birrii");
+    }
+
+    // ===== FUP-286 and FUP-338: the words of a judged pickup or drop-off =====
+
+    public static IEnumerable<object[]> ReasonsAndLanguages()
+        => PushText.ReasonKeys.SelectMany(key => PushText.Languages.Select(language => new object[] { key, language }));
+
+    private static (string Type, string Reason) Split(string key)
+    {
+        var cut = key.IndexOf('#');
+        return (key[..cut], key[(cut + 1)..]);
+    }
+
+    [Fact]
+    public void TheReasonTexts_AreTheContractsJudgedOutcomes()
+    {
+        PushText.ReasonKeys.Should().BeEquivalentTo(
+            "transport_failed#trucker_no_show", "transport_failed_keep_crops#trucker_no_show", "pickup_missed#trucker_no_show",
+            "order_cancelled#farmer_no_show", "order_cancelled#buyer_no_show",
+            "pickup_overdue#both_present_no_scan", "pickup_overdue#unchecked_check_in",
+            "pickup_missed#both_present_no_scan", "pickup_missed#unchecked_check_in",
+            "delivered#auto_confirmed", "delivered_payout_pending#auto_confirmed",
+            "dispute_opened#delivery_overdue", "dispute_opened#silent_buyer", "dispute_opened#dropoff_out_of_range");
+        PushText.ReasonKeys.Select(k => Split(k).Type).Should().OnlyContain(type => NotificationTypes.All.Contains(type));
+    }
+
+    [Theory]
+    [MemberData(nameof(ReasonsAndLanguages))]
+    public void EveryReason_InEveryLanguage_HasItsOwnCleanText_ThatFits(string key, string language)
+    {
+        var (type, reason) = Split(key);
+        var typical = new Dictionary<string, string>(Full) { [P.Reason] = reason };
+
+        foreach (var p in new[]
+                 {
+                     typical, new Dictionary<string, string>(Longest) { [P.Reason] = reason },
+                     new Dictionary<string, string> { [P.Reason] = reason }
+                 })
+        {
+            var (title, body) = PushText.Render(type, language, p);
+            foreach (var text in new[] { title, body })
+            {
+                text.Should().NotBeNullOrWhiteSpace();
+                text.Should().NotContainAny("{", "}", "[", "]");
+                text.Should().NotContain("  ");
+                text.Should().Be(text.Trim());
+            }
+
+            body.Length.Should().BeLessThan(140, $"{key}/{language} body: {body}");
+            title.Length.Should().BeLessThanOrEqualTo(PushText.MaxTitleLength);
+        }
+
+        foreach (var deadline in new[] { "2026-10-27T02:59:00Z", "2026-10-27T14:59:00Z" })
+        {
+            PushText.Render(type, language, new Dictionary<string, string>(typical) { [P.DeadlineAt] = deadline }).Body
+                .Should().NotEndWith("…", $"{key}/{language}: a typical order fits whatever the part of the day");
+        }
+
+        // Its own words, not the type's.
+        PushText.Render(type, language, typical).Body.Should().NotBe(PushText.Render(type, language, Full).Body);
+    }
+
+    [Fact]
+    public void AReasonWithoutWordsOfItsOwn_KeepsTheTypesText()
+    {
+        var other = new Dictionary<string, string>(Full) { [P.Reason] = "trucker_declined" };
+
+        PushText.Render(NotificationTypes.TransportFailed, "en", other)
+            .Should().Be(PushText.Render(NotificationTypes.TransportFailed, "en", Full));
+        PushText.Render(NotificationTypes.TransportFailed, "en", new Dictionary<string, string>(Full) { [P.Reason] = "trucker_no_show" })
+            .Title.Should().Be("The trucker did not check in");
+    }
+
+    [Fact]
+    public void DeliveryArrived_SaysWhenTheDeliveryMayBeConfirmed_InEachLanguage_WithoutPromisingIt()
+    {
+        var p = new Dictionary<string, string>(Full) { [P.DeadlineAt] = "2026-11-24T10:00:00.0000000Z" };
+
+        var en = PushText.Render(NotificationTypes.DeliveryArrived, "en", p);
+        en.Body.Should().Be(
+            "Trucker Dawit Kebede has arrived. Please confirm or report a problem by 24 Nov 13:00; after that it may be confirmed for you.");
+        PushText.Render(NotificationTypes.DeliveryArrived, "am", p).Body.Should().Contain("24 ኖቬም ከቀኑ 7:00").And.Contain("ሊረጋገጥ ይችላል");
+        PushText.Render(NotificationTypes.DeliveryArrived, "om", p).Body.Should().Contain("24 Sad 7:00 waaree booda")
+            .And.Contain("danda'a");
+
+        PushText.Render(NotificationTypes.DeliveryConfirmReminder, "en", p).Body.Should().Contain("by 24 Nov 13:00");
+    }
+
+    [Fact]
+    public void TheCheckInTexts_NameTheCounterpart()
+    {
+        PushText.Render(NotificationTypes.TruckerArrived, "en", Full).Body.Should().StartWith("Trucker Dawit Kebede has arrived");
+        PushText.Render(NotificationTypes.BuyerArrived, "en", Full).Body.Should().StartWith("Buyer Abebe Tesfaye has arrived");
+        PushText.Render(NotificationTypes.CropsReady, "en", Full).Body.Should().StartWith("Farmer Chaltu Gemechu says the crops");
+        PushText.Render(NotificationTypes.PickupReminder, "en", Full).Body
+            .Should().Be("The pickup check-in for 500 kg teff closes at 27 Oct 18:00. Please open the order and check in.");
+    }
+}

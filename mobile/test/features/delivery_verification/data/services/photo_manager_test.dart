@@ -326,6 +326,32 @@ void main() {
       });
     });
 
+    // FRD-12: after the attach every file of that handoff goes, retakes too.
+    group('deleteLocalPhotos', () {
+      test('deletes the handoff\'s files and leaves the other handoff',
+          () async {
+        final dir = Directory('$tempPath/photos/$_validUuid')
+          ..createSync(recursive: true);
+        final pickup = File('${dir.path}/pickup-1700000000000.webp')
+          ..writeAsStringSync('a');
+        final retake = File('${dir.path}/pickup-1700000000001-fb.webp')
+          ..writeAsStringSync('b');
+        final dropoff = File('${dir.path}/dropoff-1700000000000.webp')
+          ..writeAsStringSync('c');
+
+        await photoManager.deleteLocalPhotos(_validUuid, PhotoType.pickup);
+
+        expect(pickup.existsSync(), isFalse);
+        expect(retake.existsSync(), isFalse);
+        expect(dropoff.existsSync(), isTrue);
+      });
+
+      test('ignores an invalid delivery id and a missing directory', () async {
+        await photoManager.deleteLocalPhotos('../etc', PhotoType.pickup);
+        await photoManager.deleteLocalPhotos(_validUuid, PhotoType.dropoff);
+      });
+    });
+
     group('deleteLocalPhoto', () {
       test('deletes file within the photos directory', () async {
         final photoDir = Directory('$tempPath/photos/$_validUuid');

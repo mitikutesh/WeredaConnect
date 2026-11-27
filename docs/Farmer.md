@@ -212,7 +212,7 @@ The farmer gets a clear financial overview of all their transactions, can filter
 **Purpose:** The Payment Status screen provides a comprehensive breakdown of a single escrow transaction, including the amount, commission, farmer payout, and a visual timeline of the payment lifecycle.
 
 **What the User Sees:**
-On this screen, the farmer sees a prominent status badge at the top ("FUNDS RELEASED — Funds sent to farmer"). The Total Amount section provides a detailed financial breakdown: the total payment amount, the platform commission (2.5%), and the net amount the farmer receives. The Delivery section shows the linked delivery reference, creation date, expiration date, and Telebirr mobile money reference. The Timeline section visually tracks the payment through its lifecycle stages (Payment Pending, Funds Held Safely, Funds Released, Payment Complete).
+On this screen, the farmer sees a prominent status badge at the top ("FUNDS RELEASED", funds sent to farmer). The Total Amount section provides a detailed financial breakdown: the total the buyer paid, the platform commission, what the farmer receives (the full crop price) and, when a truck carried the order, what the trucker receives. The commission is 5% of the crop cost, which the buyer pays on top of the crop price and transport; it is never taken out of the farmer's crop price. The Delivery section shows the linked delivery reference, creation date, expiration date, and Telebirr mobile money reference. The Timeline section visually tracks the payment through its lifecycle stages (Payment Pending, Funds Held Safely, Funds Released, Payment Complete).
 
 **Primary User Actions:**
 1. Review the **amount breakdown** to confirm the total, commission, and payout.
@@ -221,12 +221,12 @@ On this screen, the farmer sees a prominent status badge at the top ("FUNDS RELE
 4. Tap the **refresh icon** in the top-right to check for status updates.
 
 **Expected Outcome:**
-The farmer has full visibility into how much was paid, how much they receive after commission, and the exact status of the funds at every stage.
+The farmer has full visibility into how much was paid, how much they receive (their full crop price), and the exact status of the funds at every stage.
 
 **Common Sales Talking Points:**
 - Full financial transparency: farmers see exactly what they receive and what the platform commission is.
 - Telebirr integration leverages Ethiopia's dominant mobile money platform, requiring no bank account.
-- Commission structure (2.5%, minimum ETB 5) is clearly displayed, building trust with all parties.
+- Commission structure (5% of the crop cost, paid by the buyer on top of the order, never deducted from the farmer) is clearly displayed, building trust with all parties.
 - Visual timeline provides an auditable record of every state change with timestamps.
 - Auto-expiry date (7 days) protects buyers from indefinitely locked funds.
 

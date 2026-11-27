@@ -168,11 +168,183 @@ public class CropRepositoryTests
         await _mockDynamoDb.Received(1).UpdateItemAsync(
             Arg.Is<UpdateItemRequest>(r =>
                 r.TableName == TableName &&
-                r.ConditionExpression == "#v = :expectedVersion" &&
+                r.ConditionExpression == NotDeletedAtVersion &&
                 r.ExpressionAttributeValues[":expectedVersion"].N == "2" &&
                 r.ExpressionAttributeValues[":newVersion"].N == "3"),
             Arg.Any<CancellationToken>());
     }
+
+    // --- FUP-152: never onto a deleted listing ---
+
+    /// <summary>
+    /// The update's condition: the version the client read, not deleted (stamp or status) and
+    /// (FUP-495) not sold.
+    /// </summary>
+    private const string NotDeletedAtVersion =
+        "#v = :expectedVersion AND attribute_not_exists(#deleted)"
+        + " AND (attribute_not_exists(#st) OR (#st <> :deletedStatus AND #st <> :soldStatus))";
+
+    private static Dictionary<string, AttributeValue> LiveListing(int version) => new()
+    {
+        { "cropId", new AttributeValue { S = "crop-001" } },
+        { "createdAt", new AttributeValue { S = "2026-01-01T00:00:00Z" } },
+        { "version", new AttributeValue { N = version.ToString() } },
+        { "status", new AttributeValue { S = "available" } }
+    };
+
+    private static Dictionary<string, AttributeValue> DeletedListing(int version, bool stamped)
+    {
+        var item = LiveListing(version);
+        item["status"] = new AttributeValue { S = "deleted" };
+        if (stamped)
+        {
+            item["deletedAt"] = new AttributeValue { S = "2026-02-15T10:00:00Z" };
+        }
+
+        return item;
+    }
+
+    [Fact]
+    public async Task UpdateAsync_TheConditionRefusesADeletedListing_AndAsksForTheRowItSaw()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [LiveListing(2)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse { Attributes = LiveListing(3) });
+
+        await _repository.UpdateAsync("crop-001", new Dictionary<string, object> { { "pricePerKg", 50.0 } }, 2);
+
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.ConditionExpression == NotDeletedAtVersion &&
+                r.ExpressionAttributeNames["#deleted"] == "deletedAt" &&
+                r.ExpressionAttributeNames["#st"] == "status" &&
+                r.ExpressionAttributeValues[":deletedStatus"].S == "deleted" &&
+                r.ExpressionAttributeValues[":soldStatus"].S == "sold" &&
+                r.ReturnValuesOnConditionCheckFailure == ReturnValuesOnConditionCheckFailure.ALL_OLD &&
+                !r.UpdateExpression.Contains("#deleted")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task UpdateAsync_DeletedWhenTheConditionRan_ReturnsAlreadyDeleted(bool stamped)
+    {
+        // The read saw a live listing at version 2; a delete landed before the write (version 3).
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [LiveListing(2)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("deleted") { Item = DeletedListing(3, stamped) });
+
+        var result = await _repository.UpdateAsync(
+            "crop-001", new Dictionary<string, object> { { "pricePerKg", 50.0 } }, 2);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal(CropRepository.AlreadyDeletedCode, result.Error.Code);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ConditionFailsWithoutTheRow_TheReadDecides()
+    {
+        // No ALL_OLD item on the exception: the read before the write says deleted.
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [DeletedListing(4, stamped: true)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("deleted"));
+
+        var result = await _repository.UpdateAsync(
+            "crop-001", new Dictionary<string, object> { { "quantity", 3.0 } }, 4);
+
+        Assert.Equal(CropRepository.AlreadyDeletedCode, result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_LiveListingAtAnotherVersion_IsStillAVersionConflict()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [LiveListing(5)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("version") { Item = LiveListing(5) });
+
+        var result = await _repository.UpdateAsync(
+            "crop-001", new Dictionary<string, object> { { "quantity", 3.0 } }, 2);
+
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal("SYNC_CONFLICT", result.Error.Code);
+        Assert.Contains("Version conflict", result.Error.Message);
+    }
+
+    // --- FUP-495: never onto a sold listing ---
+
+    private static Dictionary<string, AttributeValue> SoldListing(int version)
+    {
+        var item = LiveListing(version);
+        item["status"] = new AttributeValue { S = "sold" };
+        return item;
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SoldWhenTheConditionRan_ReturnsSold()
+    {
+        // The read saw a live listing at version 2; the farmer's other device marked it sold first.
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [LiveListing(2)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("sold") { Item = SoldListing(3) });
+
+        var result = await _repository.UpdateAsync(
+            "crop-001", new Dictionary<string, object> { { "pricePerKg", 50.0 } }, 2);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal(CropRepository.SoldCode, result.Error.Code);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SoldAtTheStoredVersion_WithoutTheRow_TheReadDecides()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [SoldListing(4)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("sold"));
+
+        var result = await _repository.UpdateAsync(
+            "crop-001", new Dictionary<string, object> { { "quantity", 3.0 } }, 4);
+
+        Assert.Equal(CropRepository.SoldCode, result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SoldAndStamped_IsAlreadyDeleted()
+    {
+        // Account deletion stamps a sold listing and keeps its status: deleted wins.
+        var stampedSold = SoldListing(3);
+        stampedSold["deletedAt"] = new AttributeValue { S = "2026-02-15T10:00:00Z" };
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [stampedSold] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("deleted") { Item = stampedSold });
+
+        var result = await _repository.UpdateAsync(
+            "crop-001", new Dictionary<string, object> { { "quantity", 3.0 } }, 3);
+
+        Assert.Equal(CropRepository.AlreadyDeletedCode, result.Error!.Code);
+    }
+
+    [Theory]
+    [InlineData("sold", true)]
+    [InlineData("Sold", true)]
+    [InlineData("available", false)]
+    [InlineData("reserved", false)]
+    [InlineData("deleted", false)]
+    public void IsSold_ReadsTheStatus(string status, bool sold)
+        => Assert.Equal(sold, CropRepository.IsSold(new Dictionary<string, object> { { "status", status } }));
+
+    [Fact]
+    public void IsSold_NoStatus_IsNotSold()
+        => Assert.False(CropRepository.IsSold(new Dictionary<string, object>()));
 
     // --- SIM-13: stock restore ---
 
@@ -459,6 +631,191 @@ public class CropRepositoryTests
         Assert.Equal("sold", result.Value["status"]);
     }
 
+    // --- FUP-132: deleted by update, and rows deleted before the stamp was written ---
+
+    [Fact]
+    public async Task UpdateAsync_ToDeleted_StampsDeletedAtLikeADelete()
+    {
+        var existingItem = new Dictionary<string, AttributeValue>
+        {
+            { "cropId", new AttributeValue { S = "crop-001" } },
+            { "createdAt", new AttributeValue { S = "2026-01-01T00:00:00Z" } },
+            { "version", new AttributeValue { N = "2" } },
+            { "status", new AttributeValue { S = "available" } }
+        };
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [existingItem] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse { Attributes = existingItem });
+
+        var result = await _repository.UpdateAsync(
+            "crop-001", new Dictionary<string, object> { { "status", "deleted" } }, 2);
+
+        Assert.True(result.IsSuccess);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                r.ExpressionAttributeNames["#deleted"] == "deletedAt" &&
+                r.UpdateExpression.Contains("#deleted = if_not_exists(#deleted, :updated)") &&
+                r.ExpressionAttributeValues.ContainsKey(":updated") &&
+                r.ConditionExpression == NotDeletedAtVersion),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("sold")]
+    [InlineData("reserved")]
+    [InlineData("available")]
+    public async Task UpdateAsync_ToAnotherStatus_WritesNoDeletedAt(string status)
+    {
+        var existingItem = new Dictionary<string, AttributeValue>
+        {
+            { "cropId", new AttributeValue { S = "crop-001" } },
+            { "createdAt", new AttributeValue { S = "2026-01-01T00:00:00Z" } },
+            { "version", new AttributeValue { N = "2" } }
+        };
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [existingItem] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse { Attributes = existingItem });
+
+        await _repository.UpdateAsync(
+            "crop-001", new Dictionary<string, object> { { "status", status } }, 2);
+
+        // FUP-152: deletedAt is named for the condition, never set.
+        await _mockDynamoDb.Received(1).UpdateItemAsync(
+            Arg.Is<UpdateItemRequest>(r =>
+                !r.UpdateExpression.Contains("#deleted") &&
+                !r.UpdateExpression.Contains("deletedAt")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("deleted", null, true)]
+    [InlineData("DELETED", null, true)]
+    [InlineData("deleted", "2026-02-15T10:00:00Z", true)]
+    [InlineData("available", "2026-02-15T10:00:00Z", true)]
+    [InlineData("available", null, false)]
+    [InlineData("sold", "", false)]
+    [InlineData(null, null, false)]
+    public void IsDeleted_ByStampOrByStatus(string? status, string? deletedAt, bool expected)
+    {
+        var crop = new Dictionary<string, object> { { "cropId", "crop-001" } };
+        if (status != null)
+        {
+            crop["status"] = status;
+        }
+
+        if (deletedAt != null)
+        {
+            crop["deletedAt"] = deletedAt;
+        }
+
+        Assert.Equal(expected, CropRepository.IsDeleted(crop));
+    }
+
+    private static Dictionary<string, AttributeValue> ListRow(string cropId, string status) => new()
+    {
+        { "cropId", new AttributeValue { S = cropId } },
+        { "createdAt", new AttributeValue { S = "2026-01-01T00:00:00Z" } },
+        { "farmerId", new AttributeValue { S = "user-001" } },
+        { "cropType", new AttributeValue { S = "teff" } },
+        { "status", new AttributeValue { S = status } }
+    };
+
+    /// <summary>One live row and one row with status 'deleted' and no deletedAt, on every read.</summary>
+    private void ListsReturnALegacyDeletedRow()
+    {
+        var rows = new List<Dictionary<string, AttributeValue>>
+        {
+            ListRow("crop-live", "available"), ListRow("crop-legacy-deleted", "deleted")
+        };
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new QueryResponse { Items = rows.ToList(), LastEvaluatedKey = [] });
+        _mockDynamoDb.ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new ScanResponse { Items = rows.ToList(), LastEvaluatedKey = [] });
+        _mockDynamoDb.BatchGetItemAsync(Arg.Any<BatchGetItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new BatchGetItemResponse
+            {
+                Responses = new Dictionary<string, List<Dictionary<string, AttributeValue>>>
+                {
+                    { TableName, rows.ToList() }
+                }
+            });
+    }
+
+    private static void AssertOnlyTheLiveRow(List<Dictionary<string, object>> items)
+    {
+        var item = Assert.Single(items);
+        Assert.Equal("crop-live", item["cropId"]);
+    }
+
+    [Fact]
+    public async Task QueryCropsAsync_FarmerOwnList_DropsARowDeletedByStatusOnly()
+    {
+        ListsReturnALegacyDeletedRow();
+
+        var (items, _) = await _repository.QueryCropsAsync(farmerId: "user-001");
+
+        AssertOnlyTheLiveRow(items);
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r => r.IndexName == "FarmerIdCreatedAtIndex"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task QueryCropsAsync_FarmerAskingForDeleted_GetsNothing()
+    {
+        ListsReturnALegacyDeletedRow();
+
+        var (items, _) = await _repository.QueryCropsAsync(farmerId: "user-001", status: "deleted");
+
+        Assert.Empty(items);
+    }
+
+    [Fact]
+    public async Task QueryCropsAsync_BuyerBrowseByStatus_DropsARowDeletedByStatusOnly()
+    {
+        ListsReturnALegacyDeletedRow();
+
+        var (items, _) = await _repository.QueryCropsAsync(status: "available");
+
+        AssertOnlyTheLiveRow(items);
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r => r.IndexName == "StatusCreatedAtIndex"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task QueryCropsAsync_StatusDeletedPartition_NeverReturnsTheLegacyRow()
+    {
+        ListsReturnALegacyDeletedRow();
+
+        var (items, _) = await _repository.QueryCropsAsync(status: "deleted");
+
+        Assert.DoesNotContain(items, i => (string)i["cropId"] == "crop-legacy-deleted");
+    }
+
+    [Fact]
+    public async Task QueryCropsAsync_MatchingByCropType_DropsARowDeletedByStatusOnly()
+    {
+        ListsReturnALegacyDeletedRow();
+
+        var (items, _) = await _repository.QueryCropsAsync(cropType: "teff");
+
+        AssertOnlyTheLiveRow(items);
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r => r.IndexName == "CropTypeCreatedAtIndex"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task QueryCropsAsync_UnfilteredScan_DropsARowDeletedByStatusOnly()
+    {
+        ListsReturnALegacyDeletedRow();
+
+        var (items, _) = await _repository.QueryCropsAsync();
+
+        AssertOnlyTheLiveRow(items);
+        await _mockDynamoDb.Received(1).ScanAsync(Arg.Any<ScanRequest>(), Arg.Any<CancellationToken>());
+    }
+
     // --- DeleteAsync ---
 
     [Fact]
@@ -494,11 +851,65 @@ public class CropRepositoryTests
         Assert.Equal("deleted", result.Value["status"]);
         Assert.True(result.Value.ContainsKey("deletedAt"));
 
+        // FUP-494: the condition also refuses a listing already deleted, and asks for the row it saw.
         await _mockDynamoDb.Received(1).UpdateItemAsync(
             Arg.Is<UpdateItemRequest>(r =>
                 r.TableName == TableName &&
-                r.ConditionExpression == "#v = :expectedVersion"),
+                r.ConditionExpression == NotDeletedForDelete &&
+                r.ExpressionAttributeNames["#deleted"] == "deletedAt" &&
+                r.ExpressionAttributeNames["#status"] == "status" &&
+                r.ExpressionAttributeValues[":status"].S == "deleted" &&
+                r.ReturnValuesOnConditionCheckFailure == ReturnValuesOnConditionCheckFailure.ALL_OLD),
             Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>FUP-494: the delete's condition, the version the client read and not deleted yet.</summary>
+    private const string NotDeletedForDelete =
+        "#v = :expectedVersion AND attribute_not_exists(#deleted) AND (attribute_not_exists(#status) OR #status <> :status)";
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DeleteAsync_DeletedWhenTheConditionRan_ReturnsAlreadyDeleted(bool stamped)
+    {
+        // The read saw a live listing at version 2; another delete landed before the write.
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [LiveListing(2)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("deleted") { Item = DeletedListing(3, stamped) });
+
+        var result = await _repository.DeleteAsync("crop-001", 2);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(409, result.Error!.HttpStatus);
+        Assert.Equal(CropRepository.AlreadyDeletedCode, result.Error.Code);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_ConditionFailsWithoutTheRow_TheReadDecides()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [DeletedListing(4, stamped: true)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("deleted"));
+
+        var result = await _repository.DeleteAsync("crop-001", 4);
+
+        Assert.Equal(CropRepository.AlreadyDeletedCode, result.Error!.Code);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_SoldListingAtAnotherVersion_IsAVersionConflict()
+    {
+        // Sold does not stop a delete: only the version and an earlier delete do.
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = [SoldListing(5)] });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ConditionalCheckFailedException("version") { Item = SoldListing(5) });
+
+        var result = await _repository.DeleteAsync("crop-001", 4);
+
+        Assert.Equal("SYNC_CONFLICT", result.Error!.Code);
     }
 
     [Fact]

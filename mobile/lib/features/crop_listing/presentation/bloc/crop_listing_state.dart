@@ -45,6 +45,17 @@ class CropListingCreated extends CropListingState {
   List<Object?> get props => [listing];
 }
 
+/// SIM-56: the farmer's edit of their own listing was saved (on the phone
+/// first on mobile, on the server on web).
+class CropListingUpdated extends CropListingState {
+  final CropListing listing;
+
+  const CropListingUpdated({required this.listing});
+
+  @override
+  List<Object?> get props => [listing];
+}
+
 /// Error state when an operation fails. [code] drives the localized, user-facing
 /// message; [message] is the raw detail, kept for logging and message-based
 /// special cases (e.g. FRAUD_* codes) — do NOT show it directly to users.

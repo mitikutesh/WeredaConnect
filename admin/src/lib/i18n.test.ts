@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import en from "@/i18n/en.json";
 import { t, type Locale } from "@/lib/i18n";
+import { NO_FIX_CAUSES } from "@/lib/evidence";
+import { NO_SHOW_EVENTS } from "@/lib/pickup";
 
 /* Every key the manual payouts page (ESC-02) reads must exist in all three locales,
  * otherwise the page shows the raw key to an Amharic or Afan Oromo admin. */
@@ -57,6 +59,10 @@ describe("unapplied payment strings exist in every locale", () => {
     "errors.ESCROW_042",
     "errors.ESCROW_043",
     "errors.ESCROW_044",
+    // ESC-20: a duplicate payment the escrow ledger refunds is recorded in Manual Payouts, not here.
+    "errors.ESCROW_045",
+    // ESC-20: a split verdict that does not fit what the escrow holds.
+    "errors.ADMIN_021",
     "transactions.action_order_payment_refunded_manual",
     "transactions.action_admin_payment_refunded_manual",
   ];
@@ -108,6 +114,15 @@ describe("fraud review strings exist in every locale", () => {
     "escrows.disputed",
     "escrows.dispute_resolved",
     "escrows.held",
+    // FRD-07: the held queue's amount column and its queued-payout answer, the dashboard's held
+    // count, and the suspend reason on the user page.
+    "escrows.amount",
+    "errors.ESCROW_034",
+    "errors.ESCROW_016",
+    "dashboard.fraudFlags",
+    "dashboard.heldEscrows",
+    "users.suspendReason",
+    "users.suspendReason_fraud_confirmed",
   ];
   for (const locale of locales) {
     it(`${locale} has every fraud key and the codes`, () => {
@@ -119,6 +134,26 @@ describe("fraud review strings exist in every locale", () => {
     for (const locale of locales) {
       expect(t("fraud.result_reject", locale)).toContain("{userId}");
       expect(t("fraud.result_whitelist", locale)).toContain("{date}");
+      // FRD-07
+      expect(t("fraud.riskScore", locale)).toContain("{score}");
+      expect(t("fraud.riskScore", locale)).toContain("{tier}");
+      expect(t("fraud.confirm_release", locale)).toContain("{amount}");
+      expect(t("fraud.confirm_refund", locale)).toContain("{amount}");
+    }
+  });
+
+  it("FRD-07: labels every risk tier, hold reason and held-for value the server sends", () => {
+    const values = [
+      ...["low", "medium", "high", "critical"].map((v) => `fraud.tier_${v}`),
+      ...["fraud_confirmed", "account_suspended", "risk_critical"].map((v) => `fraud.holdReason_${v}`),
+      ...["release", "refund"].map((v) => `fraud.heldFor_${v}`),
+      ...["release", "refund"].map((v) => `fraud.confirm_${v}`),
+      ...["release", "refund"].map((v) => `fraud.confirmButton_${v}`),
+      ...["release", "refund"].map((v) => `fraud.verdictOnly_${v}`),
+      ...["release", "refund"].map((v) => `fraud.settled_${v}`),
+    ];
+    for (const locale of locales) {
+      expect(values.filter((key) => t(key, locale) === key)).toEqual([]);
     }
   });
 
@@ -164,6 +199,10 @@ describe("dispute disposition strings exist in every locale", () => {
     "dispositionHint_delivered_anyway",
     "dispositionHint_settle_now",
     "dispositionHint_wait_for_delivery",
+    // FUP-64: the exit of a verdict no goods disposition fits.
+    "caseNoFit",
+    "disposition_settle_as_is",
+    "dispositionHint_settle_as_is",
     "dispositionReason",
     "dispositionReasonHint",
     "confirmDisposition",
@@ -178,12 +217,244 @@ describe("dispute disposition strings exist in every locale", () => {
     "transactions.action_dispute_resolved_delivered_anyway",
     "transactions.action_dispute_resolved_settled_early",
     "transactions.action_dispute_resolved_waiting_for_delivery",
+    "transactions.action_dispute_resolved_settled_as_is",
     "common.cancel",
   ];
   for (const locale of locales) {
     it(`${locale} has every disposition key`, () => {
       const missing = [...disputeKeys, ...otherKeys].filter((key) => t(key, locale) === key);
       expect(missing).toEqual([]);
+    });
+  }
+});
+
+/* LT-13: the dispute page, its Trip trail tab and the trail's not-found code. */
+describe("trip trail strings exist in every locale", () => {
+  const keys = [
+    ...Object.keys(en.trail).map((k) => `trail.${k}`),
+    "disputes.detailTitle",
+    "disputes.evidence",
+    "disputes.raisedAt",
+    "disputes.delivery",
+    "errors.ADMIN_018",
+    "common.retry",
+  ];
+  for (const locale of locales) {
+    it(`${locale} has every trail key`, () => {
+      expect(keys.filter((key) => t(key, locale) === key)).toEqual([]);
+    });
+  }
+
+  it("keeps the placeholders the tab fills in", () => {
+    const placeholders: Record<string, string[]> = {
+      window: ["{from}", "{until}"],
+      windowOpen: ["{from}"],
+      mapLabel: ["{fixes}"],
+      legValue: ["{km}", "{minutes}", "{kmh}"],
+      legSameTime: ["{km}"],
+      flagCoarse: ["{meters}"],
+      flagLate: ["{time}"],
+      event_paused: ["{time}"],
+      pauseRange: ["{from}", "{until}"],
+      gapRange: ["{from}", "{until}", "{minutes}"],
+      saysSharedWholeWay: ["{fixes}"],
+      saysGaps: ["{gaps}"],
+      saysDeclined: ["{fixes}"],
+      saysNoJumps: ["{kmh}"],
+      saysJumps: ["{jumps}"],
+      saysMocked: ["{count}"],
+      saysCoarse: ["{count}"],
+      saysLate: ["{count}"],
+      saysPauses: ["{count}"],
+      saysDistance: ["{km}", "{minutes}"],
+    };
+    for (const locale of locales) {
+      for (const [key, names] of Object.entries(placeholders)) {
+        for (const name of names) {
+          expect([locale, key, t(`trail.${key}`, locale).includes(name)]).toEqual([locale, key, true]);
+        }
+      }
+    }
+  });
+});
+
+/* FRD-14: the dispute evidence tabs, their error codes and the audit row of a message read. */
+describe("dispute evidence strings exist in every locale", () => {
+  const evidenceKeys = Object.keys(en.evidence).map((k) => `evidence.${k}`);
+  const keys = [
+    ...evidenceKeys,
+    "errors.ADMIN_003",
+    "errors.ADMIN_004",
+    "errors.ADMIN_019",
+    "errors.ADMIN_020",
+    "transactions.action_admin_dispute_messages_read",
+  ];
+
+  for (const locale of locales) {
+    it(`${locale} has every evidence key`, () => {
+      expect(keys.filter((key) => t(key, locale) === key)).toEqual([]);
+    });
+  }
+
+  it("FUP-440: names every cause of a missing fix and both platforms the server stores", () => {
+    const stored = [...NO_FIX_CAUSES.map((c) => `evidence.gpsCause_${c}`), "evidence.platform_android", "evidence.platform_web"];
+    for (const locale of locales) {
+      expect([locale, stored.filter((key) => t(key, locale) === key)]).toEqual([locale, []]);
+    }
+  });
+
+  it("keeps the placeholders the tabs fill in", () => {
+    const placeholders: Record<string, string[]> = {
+      tabPhotosCount: ["{count}"],
+      method_qr: ["{who}"],
+      method_code: ["{who}"],
+      method_unknown: ["{who}"],
+      capturedAt: ["{time}"],
+      gpsFixAt: ["{time}"],
+      gpsAccuracy: ["{meters}"],
+      fromListing: ["{km}"],
+      fromDestination: ["{km}"],
+      messageFromTo: ["{from}", "{to}"],
+    };
+    for (const locale of locales) {
+      for (const [key, names] of Object.entries(placeholders)) {
+        for (const name of names) {
+          expect([locale, key, t(`evidence.${key}`, locale).includes(name)]).toEqual([locale, key, true]);
+        }
+      }
+    }
+  });
+});
+
+/* ESC-24: the legs (transport leg, ledger view, per-leg verdict) and the stuck orders page. */
+describe("legs and stuck order strings exist in every locale", () => {
+  const keys = [
+    ...Object.keys(en.legs).map((k) => `legs.${k}`),
+    ...Object.keys(en.stuckOrders).map((k) => `stuckOrders.${k}`),
+    "nav.stuckOrders",
+    "disputes.verdict_partial_refund",
+    "errors.ADMIN_021",
+  ];
+  for (const locale of locales) {
+    it(`${locale} has every legs and stuckOrders key`, () => {
+      const missing = keys.filter((key) => t(key, locale) === key);
+      expect(missing).toEqual([]);
+    });
+  }
+
+  it("keeps the placeholders the pages fill in", () => {
+    for (const locale of locales) {
+      expect(t("legs.splitHeld", locale)).toContain("{amount}");
+      expect(t("stuckOrders.ageHours", locale)).toContain("{hours}");
+      expect(t("stuckOrders.ageDays", locale)).toContain("{days}");
+    }
+  });
+
+  it("labels every value the server sends", () => {
+    const sent = [
+      ...["held", "released", "refunded", "paid", "pending", "blocked", "manual_queue", "none"].map((s) => `legs.truckerState_${s}`),
+      ...["no_trucker", "profile_missing", "phone_unverified", "fayda_required", "trucker_mismatch"].map((r) => `legs.block_${r}`),
+      ...["crop", "transport", "commission"].map((l) => `legs.leg_${l}`),
+      ...["held", "released", "refunded", "kept"].map((s) => `legs.legState_${s}`),
+      ...["release", "refund", "verdict", "shift", "topup"].map((k) => `legs.kind_${k}`),
+      ...["pending", "sent", "done", "failed", "manual"].map((s) => `legs.rowStatus_${s}`),
+      ...["PAYOUT_NOT_SUPPORTED", "GATEWAY_REF_MISSING", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_REFUSED_3", "PAYEE_NOT_VERIFIED"].map(
+        (r) => `legs.manual_${r}`,
+      ),
+      ...[
+        "hold_cap", "farmer_response", "trucker_response", "buyer_choice", "pickup_overdue", "pickup_waiting",
+        // ESC-34: the judgement's deadline kind and its queue reasons.
+        "pickup_judgement", "both_present_no_scan", "unchecked_check_in", "late_pickup_evidence",
+        // ESC-36: T8 and T9 (deadline kinds and queue reasons of the same names).
+        "delivery_overdue", "silent_buyer", "dropoff_out_of_range",
+      ].map((r) => `stuckOrders.reason_${r}`),
+    ];
+    for (const locale of locales) {
+      expect(sent.filter((key) => t(key, locale) === key)).toEqual([]);
+    }
+  });
+});
+
+/* FUP-173: ADMIN_014 (an invalid verdict request) names the three verdicts by the labels the pages show. */
+describe("ADMIN_014 names the three verdicts", () => {
+  for (const locale of locales) {
+    it(`${locale}`, () => {
+      const text = t("errors.ADMIN_014", locale);
+      for (const label of ["disputes.farmerWins", "disputes.buyerWins", "legs.decidePerLeg"]) {
+        expect(text).toContain(t(label, locale));
+      }
+      expect(text).toContain("10");
+      expect(text).toContain("500");
+    });
+  }
+});
+
+/* FUP-287: the pickup judgement's evidence and its re-open, every key in every locale. */
+describe("pickup judgement strings exist in every locale", () => {
+  const flatten = (prefix: string, value: unknown): string[] =>
+    typeof value === "string"
+      ? [prefix]
+      : Object.entries(value as Record<string, unknown>).flatMap(([k, v]) => flatten(`${prefix}.${k}`, v));
+  const keys = [
+    ...flatten("pickup", en.pickup),
+    ...[
+      "PICKUP_REOPEN_INVALID",
+      "PICKUP_REOPEN_NOT_ALLOWED",
+      "PICKUP_REOPEN_CHANGED",
+      "PICKUP_REOPEN_MONEY_NOT_HELD",
+      // FUP-330
+      "PICKUP_REOPEN_TRIP_UNAVAILABLE",
+    ].map((code) => `errors.${code}`),
+  ];
+  for (const locale of locales) {
+    it(`${locale} has every pickup key and the codes`, () => {
+      const missing = keys.filter((key) => t(key, locale) === key);
+      expect(missing).toEqual([]);
+    });
+  }
+
+  it("labels every judgement and exit the server sends, and keeps the placeholders", () => {
+    const sent = [
+      ...["pending", "scanned", "trucker_no_show", "farmer_no_show", "buyer_no_show", "both_present_no_scan", "unchecked_check_in"].map(
+        (j) => `pickup.judgement_${j}`,
+      ),
+      ...["pending", "handoff_confirmed"].map((e) => `pickup.exit_${e}`),
+    ];
+    for (const locale of locales) {
+      expect(sent.filter((key) => t(key, locale) === key)).toEqual([]);
+      expect(t("pickup.reopen.hoursOption", locale)).toContain("{hours}");
+      expect(t("pickup.reopen.confirmPending", locale)).toContain("{hours}");
+      // FUP-330: the trucker no-show re-open's confirm, and a line for every noShowEvent the server sends.
+      expect(t("pickup.noShowReopen.confirmPending", locale)).toContain("{hours}");
+      expect(NO_SHOW_EVENTS.map((e) => `pickup.noShowEvent_${e}`).filter((key) => t(key, locale) === key)).toEqual([]);
+    }
+  });
+});
+
+/* The admin commission change of one unpaid order: every form text, the rate row, the error codes and the timeline
+ * label in every locale, with the placeholders the form fills in. */
+describe("commission change strings exist in every locale", () => {
+  const keys = [
+    ...Object.keys(en.commission).map((k) => `commission.${k}`),
+    "transactions.commissionRate",
+    "transactions.action_admin_commission_changed",
+    "errors.COMMISSION_CHANGE_INVALID",
+    "errors.COMMISSION_CHANGE_NOT_ALLOWED",
+    "errors.COMMISSION_CHANGE_CHANGED",
+  ];
+  const placeholders: Record<string, string[]> = {
+    "commission.current": ["{rate}", "{amount}", "{total}"],
+    "commission.preview": ["{amount}", "{total}"],
+    "commission.confirmText": ["{fromRate}", "{toRate}", "{fromTotal}", "{toTotal}"],
+    "commission.done": ["{rate}", "{total}"],
+  };
+
+  for (const locale of locales) {
+    it(`${locale} has every key and keeps the placeholders`, () => {
+      expect(keys.filter((key) => t(key, locale) === key)).toEqual([]);
+      for (const [key, names] of Object.entries(placeholders)) {
+        for (const name of names) expect(t(key, locale)).toContain(name);
+      }
     });
   }
 });

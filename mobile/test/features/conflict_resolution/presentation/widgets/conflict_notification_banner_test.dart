@@ -81,7 +81,7 @@ void main() {
       expect(viewChangesCalled, isTrue);
     });
 
-    testWidgets('has amber background and sync icon',
+    testWidgets('has the orange tint and sync icon',
         (WidgetTester tester) async {
       await tester.pumpWidget(
         _buildWidget(
@@ -98,12 +98,9 @@ void main() {
       // Sync icon is present
       expect(find.byIcon(Icons.sync), findsOneWidget);
 
-      // MaterialBanner has amber background
+      // MaterialBanner sits on the orange tint
       final banner = tester.widget<MaterialBanner>(find.byType(MaterialBanner));
-      expect(
-        banner.backgroundColor,
-        equals(AppTheme.statusWarning.withAlpha(25)),
-      );
+      expect(banner.backgroundColor, equals(AppTheme.orangeTint));
     });
 
     testWidgets('text has correct style (fontSize 16, maxLines 2)',

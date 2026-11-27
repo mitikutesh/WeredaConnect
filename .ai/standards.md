@@ -100,6 +100,25 @@ Text(AppLocalizations.of(context)!.welcomeMessage)
 Text('Welcome') // Never hardcode strings
 ```
 
+Clock times (LT-03, `specs/features/live-trip.md` section 9) go through the
+clock helper, never `DateFormat.jm()`, `Hm()` or a hand-built `HH:mm`: it shows
+Ethiopia time on the Ethiopian clock in Amharic and Afaan Oromo and on the
+24-hour clock in English, following Settings > Clock.
+```dart
+final clock = clockFormatOf(context);   // shared/widgets/clock_text.dart
+Text(clock.time(message.createdAt));     // "ከቀኑ 7:20" / "13:20"
+Text(clock.dateTime(order.createdAt));   // am/om: Ethiopian date, Gregorian in brackets
+ClockText(clock.deadline(deadline,       // deadlines: small 24-hour time
+    date: formatMonthDay, sentence: l10n.commitmentAnswerBy));
+```
+
+Dates shown to the user go through `core/utils/date_locale.dart` (`formatDate`,
+`formatMonthDay`, `formatDualDate`), never a bare `DateFormat`: in Amharic and
+Afaan Oromoo they show the Ethiopian date first and the Gregorian month and day
+in brackets ("ኅዳር 10፣ 2019 (ኖቬም 19)"); English is Gregorian only. Pass
+`dayInEthiopia(instant)` for a server instant. Storage, ids, the wire and
+parsing stay Gregorian.
+
 ### Testing Standards
 
 See `mobile/TESTING.md` for detailed testing patterns and examples.

@@ -60,16 +60,46 @@ class CropListing {
   /// Supports Amharic, Afan Oromo, and English
   late String description;
 
-  /// Farmer's reliability score in [0, 1] (listing-conversion track record),
-  /// server-injected and denormalized onto the listing. Null when the server
-  /// hasn't supplied it (old listings / farmers with no history); the matcher
-  /// treats null as a neutral default. Never client-set.
+  /// The old listing-conversion reliability in [0, 1]. Kept only so rows the
+  /// server still returns it for parse as before: since ESC-30 the server no
+  /// longer writes it and the matcher no longer reads it (see
+  /// [ownerReliabilityPct]). Never client-set.
   double? farmerReliability;
+
+  /// ESC-30: the farmer's reliability in whole percent (0 to 100), the
+  /// server's `ownerReliabilityPct` copy on the row (reputation-api.md
+  /// section 7). Null when the server sent none: the public reputation flag
+  /// is off, the farmer has fewer than 3 orders, or the row has no copy yet.
+  /// The matcher then uses its neutral value. Never client-set.
+  int? ownerReliabilityPct;
+
+  /// ESC-31: the rest of the farmer's public reputation copy on the row
+  /// (reputation-api.md section 7), sent only while the server's public
+  /// reputation flag is on. All null when the server sent none; the cards
+  /// then look as they did before. Never client-set, never sent back.
+  ///
+  /// The public tier: `good` or `low`.
+  String? ownerTier;
+
+  /// The buyers' star average minus the penalty deduction, one decimal.
+  /// Null while the farmer has no ratings.
+  double? ownerEffectiveRating;
+
+  /// How many ratings are behind [ownerEffectiveRating].
+  int? ownerRatingCount;
+
+  /// When the server wrote this copy ("As of {date}" on the detail).
+  DateTime? ownerReputationAt;
 
   /// Reference to local audio file (voice note)
   /// Format: 'audio/{userId}/{listingId}.m4a'
   /// Null if farmer didn't record voice note
   String? audioNoteRef;
+
+  /// The listing's photos in display order, the first being the cover
+  /// (crop-listing-api.md 1.6.0: 2 to 4 on every new listing). Empty for
+  /// listings made before photos existed.
+  List<CropPhoto> photos = [];
 
   /// Current status of the listing
   @Index()
@@ -98,6 +128,39 @@ class LatLng {
   /// Longitude in decimal degrees
   /// Ethiopian range: ~33° to 48° East
   late double longitude;
+}
+
+/// One photo of a crop listing (crop-listing-api.md 1.6.0).
+///
+/// The server keeps two renditions per photo, a 320 px thumb and a 1024 px
+/// full image, read through short-lived presigned URLs. The farmer's own
+/// device also keeps the photo it took, so the listing shows it offline.
+@embedded
+class CropPhoto {
+  /// UUID made on the device; names the photo on the server.
+  String photoId = '';
+
+  /// Presigned URL of the 320 px thumb, from the last server read. Expires
+  /// (6 hours), so images are cached by [photoId], never by this URL.
+  String? thumbUrl;
+
+  /// Presigned URL of the 1024 px image. Only `GET /crops/{id}` hands it out
+  /// (1 hour), so it is usually null in the marketplace cache.
+  String? fullUrl;
+
+  /// The photo as this device took it (app-private file). Null for photos
+  /// read from the server.
+  String? localPath;
+
+  /// MIME type of [localPath] (`image/jpeg`, `image/png` or `image/webp`).
+  String contentType = 'image/jpeg';
+
+  /// Length of [localPath] in bytes, signed into the upload URL.
+  int sizeBytes = 0;
+
+  /// Whether [localPath] reached the incoming bucket. The sync executor holds
+  /// the listing's create until every photo is uploaded.
+  bool uploaded = false;
 }
 
 /// Status of a crop listing in its lifecycle

@@ -31,8 +31,12 @@ class ApiConfig {
   static const Duration receiveTimeout = Duration(seconds: 30);
 
   /// This build's number: the `+N` of `version:` in pubspec.yaml. Bump both
-  /// together (a test compares them).
-  static const int appBuild = 2;
+  /// together (a test compares them). 3 is the first build that knows the
+  /// `awaiting_transport` status and the farmer and trucker commands
+  /// (ESC-15), and the server's minimum for order operations on `/sync`
+  /// (`MIN_ORDER_APP_BUILD`, ESC-25): below it every order operation is
+  /// refused with `APP_UPDATE_REQUIRED` (sync-protocol.md 1.41.0).
+  static const int appBuild = 3;
 
   /// Sent with [appBuild] on every request. The server answers builds before
   /// 2, which send nothing, with the escrow statuses they parse
@@ -72,6 +76,10 @@ class ApiConfig {
   /// DELETE /user/account - Delete the caller's account (online only,
   /// specs/contracts/account-deletion.md)
   static const String userAccountEndpoint = '/user/account';
+
+  /// GET /user/profile - The caller's own `user` object (SIM-56,
+  /// specs/contracts/user-entity.md 2.2.0). Edits go through /sync.
+  static const String userProfileEndpoint = '/user/profile';
 
   /// POST /auth/login - Login with phone/password
   static const String loginEndpoint = '/auth/login';

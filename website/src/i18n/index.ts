@@ -8,11 +8,21 @@ const translations: Record<Locale, typeof en> = { en, am, om };
 
 export const defaultLocale: Locale = 'en';
 
-export const locales: { code: Locale; label: string; dir: 'ltr' | 'rtl' }[] = [
-  { code: 'en', label: 'EN', dir: 'ltr' },
-  { code: 'am', label: 'አማ', dir: 'ltr' },
-  { code: 'om', label: 'OM', dir: 'ltr' },
+export const locales: { code: Locale; label: string; name: string; dir: 'ltr' | 'rtl' }[] = [
+  { code: 'en', label: 'EN', name: 'English', dir: 'ltr' },
+  { code: 'am', label: 'አማ', name: 'አማርኛ', dir: 'ltr' },
+  { code: 'om', label: 'OM', name: 'Afaan Oromoo', dir: 'ltr' },
 ];
+
+/** Avatar initials: first character of the first two words (one fidäl character is one syllable). */
+export function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => Array.from(word)[0])
+    .join('');
+}
 
 /**
  * Get a nested translation value by dot-separated key.

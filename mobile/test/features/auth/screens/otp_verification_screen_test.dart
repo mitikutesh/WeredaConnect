@@ -34,15 +34,21 @@ void main() {
 
   tearDown(() => states.close());
 
-  Widget app({Duration cooldown = const Duration(seconds: 60)}) =>
+  Widget app({
+    Duration cooldown = const Duration(seconds: 60),
+    DateTime? expiresAt,
+    Locale locale = const Locale('en'),
+  }) =>
       BlocProvider<AuthBloc>.value(
         value: bloc,
         child: MaterialApp(
+          locale: locale,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: OtpVerificationScreen(
             phoneNumber: '+251911234567',
             resendCooldown: cooldown,
+            expiresAt: expiresAt,
           ),
         ),
       );
@@ -52,7 +58,38 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text('We sent a 6-digit code by SMS to +251911234567.'),
+      find.text(
+        'We sent a 6-digit code by SMS to '
+        '+251\u00A0911\u00A0234\u00A0567.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  // LT-03: the expiry on the viewer's clock, in Ethiopia time. 10:05 UTC is
+  // 13:05 in Ethiopia, 7:05 in the day on the Ethiopian clock.
+  testWidgets('English shows the expiry on the 24-hour clock', (tester) async {
+    await tester.pumpWidget(app(expiresAt: DateTime.utc(2026, 9, 25, 10, 5)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('The code expires at 13:05.'), findsOneWidget);
+  });
+
+  testWidgets('Amharic shows the expiry on the Ethiopian clock, 24-hour small',
+      (tester) async {
+    await tester.pumpWidget(
+      app(
+        expiresAt: DateTime.utc(2026, 9, 25, 10, 5),
+        locale: const Locale('am'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final am = lookupAppLocalizations(const Locale('am'));
+    expect(
+      find.text(
+        am.otpExpiresAt('ከቀኑ 7:05').replaceFirst('7:05', '7:05 (13:05)'),
+      ),
       findsOneWidget,
     );
   });
@@ -76,6 +113,71 @@ void main() {
         ),
       ),
     ).called(1);
+  });
+
+  testWidgets('the title shows once, on the page, not in the bar',
+      (tester) async {
+    await tester.pumpWidget(app());
+    await tester.pump();
+
+    expect(find.text('Confirm your phone'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('Confirm your phone'),
+      ),
+      findsNothing,
+    );
+  });
+
+  // Register OTP board: one box per digit, expiry and resend on one line.
+  testWidgets('the code shows one digit per box', (tester) async {
+    await tester.pumpWidget(app());
+    await tester.pump();
+
+    await tester.enterText(find.byKey(const Key('otp_code_field')), '481');
+    await tester.pump();
+
+    expect(find.text('4'), findsOneWidget);
+    expect(find.text('8'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    final first = tester.getTopLeft(find.text('4'));
+    final third = tester.getTopLeft(find.text('1'));
+    expect(third.dy, first.dy);
+    expect(third.dx, greaterThan(first.dx));
+  });
+
+  testWidgets('resend sits on the line under the boxes', (tester) async {
+    await tester.pumpWidget(app());
+    await tester.pump();
+
+    final resend = tester.getCenter(find.byKey(const Key('otp_resend_button')));
+    final verify = tester.getCenter(find.byKey(const Key('otp_verify_button')));
+    expect(resend.dy, lessThan(verify.dy));
+  });
+
+  // Register OTP board: Verify is active with three digits typed; a short
+  // code asks for the rest and sends nothing.
+  testWidgets('Verify is active from the first digit and asks for the rest',
+      (tester) async {
+    await tester.pumpWidget(app());
+    await tester.pump();
+    FilledButton button() => tester.widget<FilledButton>(
+          find.byKey(const Key('otp_verify_button')),
+        );
+    expect(button().onPressed, isNull);
+
+    await tester.enterText(find.byKey(const Key('otp_code_field')), '481');
+    await tester.pump();
+    expect(button().onPressed, isNotNull);
+
+    // The resend link's 48 dp hit area puts Verify just below a 600 tall
+    // test window: scroll to it, as a user would.
+    await tester.ensureVisible(find.byKey(const Key('otp_verify_button')));
+    await tester.tap(find.byKey(const Key('otp_verify_button')));
+    await tester.pump();
+    expect(find.text('Please enter 6-digit code'), findsOneWidget);
+    verifyNever(() => bloc.add(any(that: isA<AuthVerifyOtpRequested>())));
   });
 
   testWidgets('ignores non-digits', (tester) async {

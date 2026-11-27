@@ -1,20 +1,25 @@
 # Rating API
 
 ## Version
-1.1.0
+1.7.0
 
 ## Parties
-Mobile, Backend, Infrastructure
+Mobile, Web, Backend, Infrastructure, Admin
 
 ## Overview
-Lets a **buyer** rate the counterparties of a completed order — the **farmer**
-and, when the order was transported, the **trucker**. Ratings are 1–5 stars with
+Lets a **buyer** rate the counterparties of a completed order: the **farmer**
+and, when the order was transported, the **trucker**. Ratings are 1 to 5 stars with
 an optional comment, are **create-only and immutable**, and there is **exactly
 one rating per (order, ratee)**.
 
 - **Writes** go through the offline-first `/sync` endpoint as `rating` create
   operations (mirrors `buyer_intent`).
 - **Reads** are served by a dedicated `RatingFunction` at `GET /ratings`.
+- **Reputation**: the ratee's star sum and count are stored on their users row
+  when a rating is created (1.3.0, BUILT in ESC-28); reads are limited to buyers
+  and the ratee and filtered by `rateeRole`, and the summary carries the effective
+  rating of `reputation-api.md` (1.2.0; BUILT in 1.4.0, ESC-29). See "Stored
+  aggregate" and "Read rules" below.
 
 ## Request Format
 
@@ -48,12 +53,14 @@ One operation inside the standard sync batch (see `sync-protocol.md`):
 - `action` MUST be `create`. `update`/`delete` are rejected (immutable).
 
 ### Read
-- `GET /ratings?rateeId=<userId>&limit=<1-50>&nextToken=<token>` — ratings a user
-  received, newest first, plus an aggregate summary.
-- `GET /ratings/{id}` — a single rating by its `ratingId`.
+- `GET /ratings?rateeId=<userId>&rateeRole=<farmer|trucker>&limit=<1-50>&nextToken=<token>`:
+  ratings a user received, newest first, plus an aggregate summary. `rateeRole`
+  is new in 1.2.0 and optional (default: the ratee's current role).
+- `GET /ratings/{id}`: a single rating by its `ratingId`.
 
-Both require a valid JWT (any authenticated user may read a ratee's aggregate —
-buyers need farmer averages while browsing; farmers/truckers see their own).
+Both require a valid app user pool JWT (the route's authorizer refuses an admin
+pool token with `401`). Up to 1.1.0 any authenticated user could read any ratee;
+since 1.2.0 (BUILT in 1.4.0, ESC-29) only buyers and the ratee can (see "Read rules").
 
 ## Response Format
 
@@ -74,10 +81,33 @@ buyers need farmer averages while browsing; farmers/truckers see their own).
       "version": 1
     }
   ],
-  "summary": { "average": 4.6, "count": 12 },
+  "summary": { "average": 4.6, "count": 12, "rateeRole": "farmer", "effectiveRating": 4.2 },
+  "reputation": {
+    "userId": "farmer456",
+    "role": "farmer",
+    "tier": "good",
+    "ratingAverage": 4.6,
+    "ratingCount": 12,
+    "effectiveRating": 4.2,
+    "reliabilityPct": 83,
+    "completedOrders90d": 10,
+    "totalOrders90d": 12,
+    "asOf": "2026-11-07T09:00:00.000Z"
+  },
   "nextToken": null
 }
 ```
+
+1.2.0 additions (BUILT in 1.4.0, ESC-29):
+- `summary.rateeRole`: the role the list and the summary are for.
+- `summary.effectiveRating`: `reputation-api.md` 1.4 (the average minus 0.1 per
+  active penalty point, at most 1.0 off, never below 1.0, one decimal). Left out
+  when `count` is 0, when `reputationPublicTags` is off, or when `rateeRole` is
+  not the ratee's current role.
+- `reputation`: the public summary of `GET /reputation/{userId}`
+  (`reputation-api.md` section 3), only for a farmer or trucker ratee whose
+  `rateeRole` is their current role, and only with `reputationPublicTags` on.
+  Saves the detail screens a second call.
 
 ### `GET /ratings/{id}`
 ```json
@@ -89,14 +119,170 @@ Standard `SyncOperationResult`: `status` is `success` (with `serverData` and
 `serverVersion: 1`), `duplicate` (idempotency replay), or `conflict` (a rating
 for this order+ratee already exists).
 
+## Stored aggregate (1.2.0; BUILT in 1.3.0, ESC-28)
+
+Up to 1.1.0 every `GET /ratings` walked up to 50 pages of the ratee index to
+compute the summary, and browse called it once per farmer card (spec R3). Since
+1.2.0 the ratee's users row carries the sum and count of their stars
+(`user-entity.md` 2.0.0, top-level `ratingSum`, `ratingCount`,
+`ratingsAggregatedAt`), kept exact by the create:
+
+1. **Create.** After the 1.1.0 checks, one `TransactWriteItems`:
+   - Put the rating with `attribute_not_exists(ratingId)` and `inAggregate: true`;
+   - Update the ratee's users row: `ADD ratingSum :stars, ratingCount :one`,
+     condition `attribute_exists(userId) AND #role = :rateeRole AND
+     attribute_not_exists(deletionState)`;
+   - Upsert the ratee's `HEAL#{day}` row in `reputation-events` (the daily job
+     refreshes the copied owner fields, `reputation-api.md` section 7).
+2. **Outcomes.** Success: `success` as before. The rating's condition failed:
+   `conflict` as before (nothing else written). Only the users condition failed
+   (the ratee's role changed since the order, a rare admin `change_role`): the
+   rating is put alone with `inAggregate: false`, so the summary of the current
+   role stays exact; the answer is still `success`. Any other failure: the
+   operation fails as before and the client retries; nothing was written.
+3. **After the commit**, best effort: `ReputationService` recomputes the ratee's
+   effective rating and refreshes their copied owner fields; a failure is logged
+   (`REPUTATION_COPY_FAILED`) and the `HEAL` row makes the daily job do it. As
+   built (1.3.0): the refresh runs only while `reputationPenalties` is on (no map is
+   written while the reputation build ships dark) and writes the `reputation` map
+   when a public field changed; the copies onto listings are ESC-29's.
+4. **Backfill**, once per environment before ESC-29 reads the aggregate
+   (architecture doc 12.2): for each farmer and trucker (Query on
+   `RoleWaredaIndex`, no Scan), sum their ratings without `inAggregate` whose
+   `rateeRole` is the user's role, `ADD` them in one transaction with `SET
+   inAggregate` on those rating rows (conditioned `attribute_not_exists`, so a
+   rerun adds nothing twice), and stamp `ratingsAggregatedAt`. Ratings of another
+   role get `inAggregate: false`. New registrations start with `ratingSum: 0`,
+   `ratingCount: 0` and `ratingsAggregatedAt`. As built (1.3.0): the order-cron
+   action `reputation_backfill_ratings`, invoked by hand, not flagged; a rerun
+   skips stamped users and flagged ratings. A farmer or trucker without a
+   `woreda` is not on `RoleWaredaIndex`: up to 1.4.0 their row stayed unstamped
+   and reads kept the 1.1.0 walk for them.
+   As built in 1.5.0 (FUP-162), two more paths stamp those rows, both with the
+   same per-user transaction (each added rating flagged `inAggregate` under
+   `attribute_not_exists`, the stamp under `attribute_not_exists(ratingsAggregatedAt)`,
+   the sum and count `ADD`ed), so a concurrent create, heal or backfill can
+   neither count a rating twice nor lose one; the loser's transaction is
+   cancelled and writes nothing:
+   - **The action's Scan.** After the index walk, a one-off filtered `Scan` of
+     the users table (`role` farmer or trucker, no `ratingsAggregatedAt`, no
+     `deletionState`; projection `userId, role`) backfills the rows the index
+     does not list. It runs only in this manual action, never on a request path,
+     and reads the whole table once (read capacity for every row, matching or
+     not). It keeps to the 4 minute budget: a run that stops in the Scan answers
+     `outcome: partial` with `scanCursor`, and `{"action":
+     "reputation_backfill_ratings", "scanFrom": "<scanCursor>"}` resumes it.
+     The answer gains `unindexed` (users the Scan backfilled).
+   - **The create's heal.** After a successful `/sync` rating create, when the
+     ratee's row (read before the create) has no `ratingsAggregatedAt` and is
+     still in the rated role, the server stamps it in one more transaction: a
+     bounded read of the ratee index (pages of 100, at most 5) for the ratings
+     without `inAggregate`, at most 99 of them. More than that is left to the
+     action. Best effort: the rating stays a `success` whatever the heal does;
+     a failure other than a lost race logs `RATING_AGGREGATE_HEAL_FAILED`. The
+     heal runs before the reputation refresh of step 3, so the refresh reads
+     the stamped aggregate. The heal is a transaction on the ratee's row, so a
+     create for the same ratee at that moment can be cancelled with
+     `TransactionConflict` (nothing written): the create sends the same
+     conditional transaction once more before failing as in step 2.
+   The reads (`GET /ratings`, `GET /reputation/*`) stay read-only: a ratee with
+   no new rating keeps the walk until the action runs.
+5. **Role change.** An admin `change_role` rebuilds the aggregate for the new
+   role (sum of the ratee's ratings with that `rateeRole`, `SET` conditioned on
+   the `ratingCount` it read) and flips `inAggregate` accordingly (ESC-32, still
+   PLANNED).
+
+Built in ESC-28 (1.3.0): `RatingRepository.CreateAsync` (the transaction, the
+`inAggregate: false` fallback, `inAggregate` never taken from a payload nor
+returned), `UserRepository.CreateUserAsync` (the registration stamp),
+`RatingAggregateBackfill` (order-cron `reputation_backfill_ratings`).
+Built in FUP-162 (1.5.0): the users Scan and `scanFrom` of
+`RatingAggregateBackfill`, and `RatingAggregateHeal`, called from
+`SyncFunction` after the create.
+
+The wire shape of the create is unchanged; the mobile and web clients change
+nothing for it.
+
+### Ratings between linked accounts (1.7.0, persona simulation BUG-3)
+
+A rating create whose rater and ratee are linked accounts is stored outside the aggregate:
+
+- linked means one identity (the same user id, phone number or Fayda ID on both users rows, the rule of
+  `SELF_TRADE`) or a common install (`knownDevices`, the `X-Device-Id` of each sign-in, the rule of
+  `SHARED_DEVICE_TRADE`; fraud spec 15.2). Decided at the create from the two users rows; the fraud signal
+  rows are not read. A rater row that cannot be read counts the rating (the check never fails a rating).
+- The rating is put alone (`attribute_not_exists(ratingId)`, the same conflict) with `inAggregate: false`
+  and the server-only `aggregateExclusion: linked_accounts`. The ratee's `ratingSum`, `ratingCount` and
+  `HEAL` row are not touched.
+- The backfill (step 4) and the create's heal read only ratings without `inAggregate`, so they never add
+  it; the 1.1.0 summary walk skips a row with `aggregateExclusion`. A future role rebuild (step 5) must
+  skip it too.
+- The answer is the `success` every rating gets, with the same `serverData`; neither field is returned.
+  The row stays readable (`GET /ratings` lists it to buyers and the ratee) and visible to admins.
+- A family or cooperative phone loses only the effect of its members rating each other.
+
+## Read rules (1.2.0; BUILT in 1.4.0, ESC-29)
+
+| Caller | `GET /ratings?rateeId=` | `GET /ratings/{id}` |
+|---|---|---|
+| buyer | any farmer or trucker ratee | a rating whose ratee is a farmer or trucker |
+| farmer or trucker | only `rateeId` = themselves | only a rating they received |
+| anyone else, or a farmer or trucker asking about someone else | `403 RATING_FORBIDDEN` | `403 RATING_FORBIDDEN` |
+
+Admins never reach these routes: they sit behind the app user pool's authorizer,
+so an admin pool token gets `401`. Admins see a user's rating sum and count in
+`GET /admin/users/{userId}/reputation` (`reputation-api.md` 9.1, ESC-32).
+
+- A ratee with no users row, or a buyer ratee, answers a buyer with an empty
+  list and `{ "average": 0, "count": 0 }` (no account oracle), as 1.1.0 did for
+  an unknown id.
+- `rateeRole` filters the list (FilterExpression on `RateeIdCreatedAtIndex`)
+  and the summary. A value other than `farmer` or `trucker` is
+  `400 RATING_VALIDATION`.
+- **Summary source.** When `rateeRole` is the ratee's current role and the row
+  carries `ratingsAggregatedAt`: `ratingSum / ratingCount` from the users row
+  (one GetItem, which the access check already made). Otherwise the 1.1.0 walk,
+  filtered by `rateeRole`.
+- The caller's role comes from the `custom:role` claim; the ratee's from the
+  users row read for the summary.
+- The mobile and web clients already call these routes only as a buyer (browse,
+  crop detail, the buyer's `hasRated` check by id) or for the user's own id, so
+  no client breaks. ESC-31 drops the per-card calls in favour of the copied
+  owner fields.
+
+As built (1.4.0, `Functions/RatingFunction.cs`):
+- The read rules are not flagged. The refusal is decided from the caller's
+  `custom:role` claim before any read; a caller with no role, or another role,
+  is refused too.
+- `GET /ratings/{id}` answers a farmer or trucker `403` both for a rating of
+  someone else and for an id that does not exist; a buyer gets `404` for a
+  missing id.
+- A ratee without a usable users row keeps the 1.1.0 read, so nothing that
+  was readable before goes empty: an id with no row (an unknown id, or a legacy
+  account whose row sits under another id), a buyer ratee and a deleted account
+  get the ratings stored for the id with no role filter and the walked summary,
+  without `summary.rateeRole`, `effectiveRating` or `reputation`. An id with no
+  ratings still reads empty, so the answer is no account oracle. This replaces
+  the "empty list" wording above for an id that does have ratings.
+- With a role filter the page is filled: DynamoDB applies the limit before the
+  filter, so the server reads on until the page is full and looks one row ahead
+  (`PageFill`, as the crop and trip lists do); `nextToken` is present only when
+  a row follows.
+- `summary.rateeRole` is present whenever the ratee's row was used.
+  `summary.effectiveRating` and `reputation` need `reputationPublicTags`.
+- The ratee's row is one `GetItem` (`ReputationService.ReadAsync`); their
+  reputation events are read only when `now` has passed the stored
+  `nextChangeAt`.
+
 ## Error Codes
 | Code | HTTP | Meaning |
 |------|------|---------|
 | `RATING_VALIDATION` | 400 | Missing/invalid fields; unknown fields; `stars` out of 1–5; bad `rateeRole`; `ratee` is not the order's farmer/trucker; order not found; malformed `ratingId`; bad `limit`/`nextToken` |
 | `RATING_UNAUTHORIZED` | 200 (sync op `error`) | Caller is not a buyer, or `raterId` ≠ authenticated user |
-| `RATING_FORBIDDEN` | 200 (sync op `error`) | Order is not the buyer's, or order not `delivered`, `disbursing` or `settled` (1.1.0) |
+| `RATING_FORBIDDEN` | 200 (sync op `error`) | Order is not the buyer's, or order not `delivered`, `disbursing` or `settled` (1.1.0), or a `delivered` order whose escrow is `disputed` or `dispute_resolved` (1.6.0) |
+| `RATING_FORBIDDEN` | 403 (1.2.0, `GET`) | The caller may not read this ratee's ratings (Read rules) |
 | `RATING_UNAVAILABLE` | 200 (sync op `error`) | Ratings table not provisioned in this environment |
-| `RATING_NOT_FOUND` | 404 | `GET /ratings/{id}` — no such rating |
+| `RATING_NOT_FOUND` | 404 | `GET /ratings/{id}`: no such rating |
 | `SYNC_CONFLICT` | 200 (sync op `conflict`) | A rating already exists for this (order, ratee) |
 | `RATING_SERVER_ERROR` | 500 | Unexpected server failure on read |
 
@@ -105,17 +291,37 @@ for this order+ratee already exists).
    plus a create-time `attribute_not_exists(ratingId)` condition.
 2. **Only the buyer of an order may rate**, and only its farmer or trucker.
 3. **Order must be `delivered`, `disbursing` or `settled`** at rating time (1.1.0: the order follows its money after delivery, and `disbursing` can last days while a manual payout waits, `order-lifecycle.md` 1.17.0).
+   **And its money must not be in dispute (1.6.0):** for a `delivered` order the server reads the order's escrow (`escrow-order-{orderId}`, strongly consistent; when the order has none, the escrow the `DeliveryIndex` names for the order's active delivery, paid through `POST /escrow/initiate`). An escrow `held` for review counts by the status it was held from. An escrow that is `disputed` or `dispute_resolved` refuses the create with `RATING_FORBIDDEN: This order is in dispute and cannot be rated.`, whatever the order status says (a dispute raised between pickup and delivery could leave the order reading `delivered`, `order-lifecycle.md` 2.24.0). No escrow record, or one in any other status, changes nothing. An escrow that cannot be read refuses for now with the unprefixed `The order's payment could not be read. Please try again later.`, which clients retry. Clients need no change: they treat this `RATING_FORBIDDEN` like the not-delivered one.
 4. **Ratings are immutable** — no update/delete.
 5. `stars ∈ [1,5]` (integer); `comment` ≤ 500 chars.
 6. `createdAt`, `updatedAt`, `version` are server-stamped (client values ignored).
+7. **The stored aggregate is exact** (1.2.0): once a user carries
+   `ratingsAggregatedAt`, `ratingSum` and `ratingCount` on their users row equal
+   the sum and count of the stars of their ratings with `inAggregate: true`, which
+   are exactly their ratings whose `rateeRole` is their current role. Only the
+   rating create transaction (and its heal of an unstamped ratee, 1.5.0), the
+   backfill and the role-change rebuild write them.
+8. **Farmers and truckers never read another user's ratings** (1.2.0); buyers
+   read only farmers' and truckers'.
 
 ## DynamoDB Schema (Ratings table)
 - PK `ratingId` (STRING, `"{orderId}:{rateeId}"`) — **sole key, no sort key**, so
   `attribute_not_exists(ratingId)` on create truly enforces one-per-(order,ratee).
 - GSI `RateeIdCreatedAtIndex`: PK `rateeId`, SK `createdAt`, projection ALL —
   powers `GET /ratings?rateeId=` and the aggregate summary.
+- `inAggregate` (BOOL, 1.2.0): written by the create transaction and the
+  backfill; `true` when the stars are in the ratee's stored aggregate. Never
+  returned to clients.
+- `aggregateExclusion` (STRING, 1.7.0): `linked_accounts` on a rating kept out of
+  the aggregate on purpose (with `inAggregate: false`). Never returned to clients.
 
 ## Changelog
+- **1.7.0** (2026-11-19): BUILT (persona simulation BUG-3, fraud spec 3.44.0 Rule 7): a rating between linked accounts (one identity, or one install in `knownDevices`) is stored with `inAggregate: false` and `aggregateExclusion: linked_accounts`, never added to the ratee's sum and count by the create, the backfill or the heal, and skipped by the summary walk. The answer is unchanged (`success`). Wire shapes unchanged.
+- **1.6.0** (2026-11-19): BUILT (persona simulation BUG-1): a rating create for a `delivered` order whose escrow is `disputed` or `dispute_resolved` is refused with `RATING_FORBIDDEN: This order is in dispute and cannot be rated.`; an escrow that cannot be read refuses for now without a code (retried). Create and read wire shapes unchanged.
+- **1.5.0** (2026-11-12): BUILT (FUP-162): the farmers and truckers without `ratingsAggregatedAt` (no `woreda`, so the ESC-28 backfill skipped them) get stamped. `reputation_backfill_ratings` Scans the users table once after the index walk (manual action only; time budget; `scanCursor` in the answer, `scanFrom` in the request to resume; new `unindexed` count), and a successful `/sync` rating create stamps an unstamped ratee's full aggregate (bounded, best effort, before the reputation refresh). Both count each rating once through the per-rating `inAggregate` condition. A create cancelled by `TransactionConflict` on the ratee's row is sent once more. Create and read wire shapes unchanged; the reads stay read-only.
+- **1.4.0** (2026-11-11): BUILT (ESC-29): the read rules. `GET /ratings` and `GET /ratings/{id}` only for buyers (farmer and trucker ratees) and the ratee, else `403 RATING_FORBIDDEN`, decided from the caller's role claim before any read; new optional `rateeRole` filter (`400 RATING_VALIDATION` for another value), default the ratee's current role; the summary from the users row when the role is current and the row carries `ratingsAggregatedAt`, else the walk filtered by role; `summary.rateeRole`; `summary.effectiveRating` and the `reputation` block behind `reputationPublicTags` (off everywhere). Create unchanged.
+- **1.3.0** (2026-11-07): BUILT (ESC-28): the stored aggregate. The `/sync` rating create is the transaction of "Stored aggregate" (rating, `ADD ratingSum, ratingCount`, heal marker), a changed role puts the rating alone with `inAggregate: false`, registration stamps `ratingSum: 0`, `ratingCount: 0`, `ratingsAggregatedAt`, and the order-cron action `reputation_backfill_ratings` runs the one-time backfill. The best-effort refresh after the commit runs only with `reputationPenalties` on. Read rules stay PLANNED (ESC-29). Create wire shape unchanged.
+- **1.2.0** (2026-11-07): PLANNED (ESC-27 for ESC-28 and ESC-29). Stored aggregate: the create puts the rating and `ADD`s the stars to the ratee's users row (`ratingSum`, `ratingCount`) in one transaction, conditioned on the ratee's role, plus a `HEAL` row for the daily job; a one-time backfill without Scan; a role change rebuilds it; ratings gain the server-only `inAggregate`. Read rules: `GET /ratings` and `GET /ratings/{id}` only for buyers (farmer and trucker ratees) and the ratee, else `403 RATING_FORBIDDEN` (admins use the admin reputation panel); new optional `rateeRole` filter; the summary comes from the users row when aggregated and gains `rateeRole` and `effectiveRating`; new optional `reputation` block (`reputation-api.md` 1.0.0) behind `reputationPublicTags`. Create wire shape unchanged.
 - **1.1.0** (2026-10-10): ratings also open on `disbursing` (ESC-09); `RATING_FORBIDDEN` reads "You can only rate a delivered order (delivered, disbursing or settled)."
 - **1.0.0** (2026-07-09) — Initial contract: buyer rates farmer/trucker after a
   delivered order; sync-create + `GET /ratings` reads; ratings immutable.

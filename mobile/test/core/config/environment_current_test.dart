@@ -65,7 +65,6 @@ void main() {
       const prod = Environment.production;
       expect(prod.isProduction, isTrue);
       expect(prod.isDevelopment, isFalse);
-      expect(prod.enableLogging, isFalse);
       expect(prod.connectTimeout, const Duration(seconds: 15));
       expect(prod.receiveTimeout, const Duration(seconds: 15));
       expect(

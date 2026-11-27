@@ -18,6 +18,7 @@ import 'package:wereda_connect/features/crop_listing/data/repositories/crop_list
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
 import 'package:wereda_connect/features/order/data/repositories/order_repository.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
+import '../../helpers/crop_photo_fixtures.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -137,6 +138,68 @@ void main() {
     ).thenAnswer((_) async => {'orders': orders});
   }
 
+  // BUG-37: the Home tiles and the Action needed card both ask for the
+  // orders when Home opens.
+  group('pullOrders while one is on its way (BUG-37)', () {
+    test(
+        'a second call for the same user and role waits for the first: one '
+        'request, and both see the orders stored', () async {
+      var requests = 0;
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/orders',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((_) async {
+        requests++;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        return {
+          'orders': [_serverOrder()],
+        };
+      });
+
+      final first = sync.pullOrders(userId: 'farmer-1', role: 'farmer');
+      var secondDone = false;
+      final second = sync
+          .pullOrders(userId: 'farmer-1', role: 'farmer')
+          .then((_) => secondDone = true);
+      await Future<void>.delayed(Duration.zero);
+      expect(secondDone, isFalse, reason: 'it waits for the pull on its way');
+
+      await Future.wait([first, second]);
+
+      expect(requests, 1);
+      expect((await load())!.status, OrderStatus.funded);
+    });
+
+    test('a failed pull fails both callers and the next one asks again',
+        () async {
+      var requests = 0;
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/orders',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((_) async {
+        requests++;
+        if (requests == 1) throw const NetworkException();
+        return {
+          'orders': [_serverOrder()],
+        };
+      });
+
+      final first = sync.pullOrders(userId: 'farmer-1', role: 'farmer');
+      final second = sync.pullOrders(userId: 'farmer-1', role: 'farmer');
+      await expectLater(first, throwsA(isA<NetworkException>()));
+      await expectLater(second, throwsA(isA<NetworkException>()));
+
+      await sync.pullOrders(userId: 'farmer-1', role: 'farmer');
+
+      expect(requests, 2);
+      expect(await load(), isNotNull);
+    });
+  });
+
   group('revertRejected', () {
     test('an update goes back to the server order and version', () async {
       final op = await acceptThenReject();
@@ -199,14 +262,29 @@ void main() {
     // Reviewer repro: pay then cancel offline, both refused, GET 503. Each
     // optimistic write bumped the version (3 -> 4 -> 5), so restoring only
     // one op's base (4) left the row ahead of the server and the pull guard
-    // skipped it forever.
+    // skipped it forever. The repository now refuses a cancel after paying
+    // (ESC-15, no payment_submitted -> cancelled edge), so the cancel is
+    // queued here as an older build queued it.
     group('two refused changes and a failed read', () {
       Future<(SyncOperation, SyncOperation)> payThenCancelRefused() async {
         await putOrder(status: OrderStatus.created);
         await repo.submitPayment('order-1', 'REF-1');
         // Idempotency keys have millisecond resolution.
         await Future<void>.delayed(const Duration(milliseconds: 2));
-        await repo.cancelOrder('order-1', 'buyer-1');
+        await queue.enqueue(
+          userId: 'buyer-1',
+          entityType: 'order',
+          entityId: 'order-1',
+          action: 'update',
+          data: '{"orderId":"order-1","status":"cancelled","version":4}',
+          operationId: 'op-cancel',
+        );
+        await isar.writeTxn(() async {
+          final order = (await load())!
+            ..status = OrderStatus.cancelled
+            ..version = 5;
+          await isar.orders.put(order);
+        });
         expect((await load())!.version, 5);
         final ops = await opsFor('order-1');
         ops.sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -723,7 +801,11 @@ void main() {
     late CropListingRepository crops;
 
     setUp(() {
-      crops = CropListingRepository(isar: isar, syncQueue: queue);
+      crops = CropListingRepository(
+        isar: isar,
+        syncQueue: queue,
+        photoFiles: tempCropPhotoFileStore(),
+      );
     });
 
     /// A listing as `GET /crops/{id}` and `GET /crops` return it (flat).
@@ -792,6 +874,8 @@ void main() {
     for (final message in [
       'CROP_HAS_ACTIVE_ORDERS: This listing has active orders.',
       'REPUTATION_RESTRICTED: restricted',
+      // FUP-51
+      'CROP_CONTACT_IN_TEXT: Remove the phone number from description.',
     ]) {
       test(
           'a refused delete goes back to the server listing and version '
@@ -811,6 +895,9 @@ void main() {
 
     for (final message in [
       'REPUTATION_RESTRICTED: restricted',
+      // FUP-51
+      'CROP_CONTACT_IN_TEXT: Remove the phone number from description.',
+      'FRAUD_ACCOUNT_HELD: Your account is under review.',
     ]) {
       test(
           'a refused create removes the local listing without a read '
@@ -846,6 +933,29 @@ void main() {
         await sync.revertRejected(op, 'CROP_HAS_ACTIVE_ORDERS: x');
 
         expect(await loadCrop(), isNull, reason: '$error');
+      }
+    });
+
+    // FUP-149: the read answers 404 for a deleted listing (crop-listing-api
+    // 1.10.0); a deleted row that still comes back is removed the same way,
+    // never put back as `active`.
+    test('a deleted row read back removes the local listing', () async {
+      for (final deletion in <Map<String, dynamic>>[
+        {'status': 'deleted', 'deletedAt': '2026-11-12T08:00:00.000Z'},
+        {'status': 'deleted'},
+        {'deletedAt': '2026-11-12T08:00:00.000Z'},
+      ]) {
+        await isar.writeTxn(() => isar.clear());
+        final op = await deleteThenReject();
+        answerCrop(
+          () async => {
+            'crop': {...serverCrop(), ...deletion},
+          },
+        );
+
+        await sync.revertRejected(op, 'CROP_HAS_ACTIVE_ORDERS: x');
+
+        expect(await loadCrop(), isNull, reason: '$deletion');
       }
     });
 
@@ -905,7 +1015,9 @@ void main() {
       for (final message in [
         'FRAUD_VELOCITY_EXCEEDED: slow down',
         'CROP_VALIDATION: The farmer profile could not be read.',
+        'CROP_UNAUTHORIZED: You can only update your own crop listings.',
         'TRIP_HAS_BOOKINGS: x',
+        'TRIP_CONTACT_IN_TEXT: x',
         'APP_UPDATE_REQUIRED: minimum 2.0.0',
         '',
       ]) {
@@ -992,6 +1104,10 @@ void main() {
     for (final message in [
       'TRIP_HAS_BOOKINGS: This trip has booked orders.',
       'REPUTATION_RESTRICTED: restricted',
+      // FUP-51
+      'TRIP_CONTACT_IN_TEXT: Remove the phone number from vehiclePlate.',
+      // FUP-128
+      'TRIP_TERMINAL_STATE: Cannot update a terminal-state trip.',
     ]) {
       test(
           'a refused cancel goes back to the server trip and version '
@@ -1011,6 +1127,11 @@ void main() {
 
     for (final message in [
       'REPUTATION_RESTRICTED: restricted',
+      // FUP-51
+      'TRIP_CONTACT_IN_TEXT: Remove the phone number from vehiclePlate.',
+      'FRAUD_ACCOUNT_HELD: Your account is under review.',
+      // trip-listing-api 2.10.0: the duplicate never reached the server.
+      'FRAUD_DUPLICATE_LISTING: You already have a trip on this route.',
     ]) {
       test(
           'a refused create removes the local trip without a read '
@@ -1097,9 +1218,11 @@ void main() {
 
       for (final message in [
         'TRIP_VALIDATION: bad',
+        'TRIP_UNAUTHORIZED: You can only update your own trips.',
         'TRIP_CAPACITY_EXCEEDED: x',
         'CROP_HAS_ACTIVE_ORDERS: x',
-        'FRAUD_ACCOUNT_HELD: held',
+        'CROP_CONTACT_IN_TEXT: x',
+        'FRAUD_VELOCITY_EXCEEDED: slow down',
         'APP_UPDATE_REQUIRED: minimum 2.0.0',
       ]) {
         await sync.revertRejected(op, message);

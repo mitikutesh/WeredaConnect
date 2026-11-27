@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:wereda_connect/core/routing/route_names.dart';
+import 'package:wereda_connect/core/utils/entity_id.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/forgot_password_screen.dart';
@@ -13,8 +15,11 @@ import 'package:wereda_connect/features/auth/screens/reset_password_screen.dart'
 import 'package:wereda_connect/features/auth/widgets/security_prompt_listener.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
+import 'package:wereda_connect/features/live_trip/presentation/share_consent_listener.dart';
 import 'package:wereda_connect/features/messaging/presentation/screens/messages_inbox_screen.dart';
 import 'package:wereda_connect/features/messaging/presentation/widgets/message_arrival_listener.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/screens/order_detail_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/browse_trips_screen.dart';
 import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
@@ -24,6 +29,7 @@ import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
 import 'package:wereda_connect/shared/layout/adaptive_shell.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
+import 'package:wereda_connect/shared/widgets/app_update_banner.dart';
 
 const _authRoutes = {
   '/login',
@@ -32,21 +38,42 @@ const _authRoutes = {
   '/reset-password',
 };
 
+/// Prefix of the order-detail route (`/orders/{orderId}`, ESC-21).
+const orderDetailRoutePrefix = '/orders/';
+
 /// Where the web router sends [location] for [authState], or null to stay.
 ///
 /// Pure so it can be unit-tested without mounting the shell. Besides the
 /// sign-in gate it applies the role guard (SIM-21): a wrong-role URL (typed,
 /// bookmarked, stale) must not mount a screen whose loads the server would
-/// refuse with 403, so it goes home instead.
+/// refuse with 403, so it goes home instead. An order's own page is open to
+/// every role: the server answers it only for the order's parties, and the
+/// screen says so to anyone else.
 String? webRedirect(AuthState authState, String location) {
   final isAuthRoute = _authRoutes.contains(location);
   if (authState is! AuthAuthenticated) {
     return isAuthRoute ? null : '/login';
   }
-  if (isAuthRoute) return '/';
-  if (!webRoutesForRole(authState.role).contains(location)) return '/';
-  return null;
+  final landing = landingRouteForRole(authState.role);
+  if (isAuthRoute) return landing;
+  // Only a plain id: an encoded slash or dot segment never reaches a path.
+  if (location.startsWith(orderDetailRoutePrefix) &&
+      isPlainEntityId(location.substring(orderDetailRoutePrefix.length))) {
+    return null;
+  }
+  // A role without a Home (the buyer) lands on its first tab, also from
+  // `/`, where every sign-in and old bookmark arrives.
+  if (!webRoutesForRole(authState.role).contains(location)) return landing;
+  // Old bookmarks open the tab itself, so the bar marks it and offers its
+  // create button.
+  return _legacyTabRoutes[location];
 }
+
+/// The addresses the tabs had before, and the tab each now is.
+const Map<String, String> _legacyTabRoutes = {
+  '/marketplace': '/find-crops',
+  '/listings': '/my-crops',
+};
 
 /// Creates the go_router configuration for web navigation.
 ///
@@ -91,7 +118,16 @@ GoRouter createWebRouter(AuthBloc authBloc) {
         observers: [pushedRoutes],
         builder: (context, state, child) => MessageArrivalListener(
           child: SecurityPromptListener(
-            child: AdaptiveShell(pushedRoutes: pushedRoutes, child: child),
+            // LT-09: a trucker's first pickup scan of a trip asks whether
+            // to share where the truck is.
+            child: ShareConsentListener(
+              child: AdaptiveShell(
+                pushedRoutes: pushedRoutes,
+                // FUP-75: "reload for the latest app" above every page while
+                // the server refuses this bundle's orders.
+                child: AppUpdateBanner(child: child),
+              ),
+            ),
           ),
         ),
         routes: [
@@ -133,6 +169,22 @@ GoRouter createWebRouter(AuthBloc authBloc) {
             path: '/orders',
             name: RouteNames.orders,
             builder: (context, state) => const OrdersTabScreen(),
+          ),
+          // ESC-21: an order's own page (the bell, the Action-needed cards and
+          // trip bookings open it on web), with a route-scoped OrderBloc like
+          // the Orders tab's detail.
+          GoRoute(
+            path: '/orders/:orderId',
+            name: RouteNames.orderDetail,
+            builder: (context, state) {
+              final orderId = state.pathParameters['orderId'] ?? '';
+              return BlocProvider<OrderBloc>(
+                create: (_) => OrderBloc(
+                  repository: context.read<OrderBloc>().repository,
+                ),
+                child: OrderDetailScreen(orderId: orderId),
+              );
+            },
           ),
           GoRoute(
             path: '/deliveries',

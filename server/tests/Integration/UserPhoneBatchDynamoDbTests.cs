@@ -80,4 +80,24 @@ public sealed class UserPhoneBatchDynamoDbTests
 
         phones.Should().BeEmpty();
     }
+
+    [LocalDynamoDbFact]
+    public async Task GetPreferredLanguages_ReadsOnlyThatAttribute_AndLeavesOutUsersWithoutOne()
+    {
+        // ESC-21: the push text's language, through the same batched read.
+        await SeedAsync(1);
+        await SeedAsync(2);
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Users,
+            Key = new Dictionary<string, AttributeValue> { ["userId"] = new() { S = UserId(1) } },
+            UpdateExpression = "SET preferredLanguage = :l",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { [":l"] = new() { S = "om" } }
+        });
+
+        var languages = await Users.GetPreferredLanguagesAsync(new[] { UserId(1), UserId(2), UserId(3) });
+
+        languages.Should().ContainSingle();
+        languages[UserId(1)].Should().Be("om");
+    }
 }

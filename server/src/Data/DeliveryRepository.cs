@@ -1,5 +1,6 @@
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
+using WeredaConnect.Server.Helpers;
 
 namespace WeredaConnect.Server.Data;
 
@@ -415,7 +416,12 @@ public sealed class DeliveryRepository : IDeliveryRepository
     }
 
     /// <inheritdoc />
-    public async Task<bool> TryCancelPendingAsync(string deliveryId)
+    public Task<bool> TryCancelPendingAsync(string deliveryId) => CancelPendingAsync(deliveryId, judgement: false);
+
+    /// <inheritdoc />
+    public Task<bool> TryCancelPendingForJudgementAsync(string deliveryId) => CancelPendingAsync(deliveryId, judgement: true);
+
+    private async Task<bool> CancelPendingAsync(string deliveryId, bool judgement)
     {
         var existing = await GetItemAsync(deliveryId, consistentRead: true);
         if (existing == null)
@@ -433,7 +439,9 @@ public sealed class DeliveryRepository : IDeliveryRepository
                 { "deliveryId", new AttributeValue { S = deliveryId } },
                 { "tripId", new AttributeValue { S = tripId } }
             },
-            UpdateExpression = "SET #status = :cancelled, #updated = :now ADD #v :one",
+            UpdateExpression = judgement
+                ? "SET #status = :cancelled, #updated = :now, #judged = :now ADD #v :one"
+                : "SET #status = :cancelled, #updated = :now ADD #v :one",
             ConditionExpression = "#status = :pending",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
@@ -447,6 +455,10 @@ public sealed class DeliveryRepository : IDeliveryRepository
                 { ":one", new AttributeValue { N = "1" } }
             }
         };
+        if (judgement)
+        {
+            request.ExpressionAttributeNames["#judged"] = PickupJudgement.DeliveryCancelledAtField;
+        }
 
         try
         {
@@ -510,6 +522,251 @@ public sealed class DeliveryRepository : IDeliveryRepository
             },
             UpdateExpression = "SET " + set + " ADD #v :one",
             ConditionExpression = "#status = :from AND attribute_not_exists(#resolution)",
+            ExpressionAttributeNames = names,
+            ExpressionAttributeValues = values
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryMarkDropoffDisputedAsync(
+        string deliveryId, string tripId, string fromStatus, string reason, string disputedAt)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            // ESC-07: ADD, never a version from a read. The condition is the status the cron read.
+            UpdateExpression = "SET #status = :disputed, #updated = :now, #by = :system, #reason = :reason, #at = :now ADD #v :one",
+            ConditionExpression = "#status = :from",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }, { "#updated", "updatedAt" }, { "#v", "version" },
+                { "#by", "disputedBy" }, { "#reason", "disputeReason" }, { "#at", "disputedAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":disputed", new AttributeValue { S = "disputed" } },
+                { ":from", new AttributeValue { S = fromStatus } },
+                { ":now", new AttributeValue { S = disputedAt } },
+                { ":system", new AttributeValue { S = Helpers.DropoffJudgement.SystemActor } },
+                { ":reason", new AttributeValue { S = reason } },
+                { ":one", new AttributeValue { N = "1" } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryAutoConfirmAsync(
+        string deliveryId, string tripId, string fromStatus, int expectedVersion, string confirmedAt)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            // The buyer's confirm writes status, confirmedAt, updatedAt and the next version; the system's
+            // adds autoConfirmedAt, so every reader can tell who confirmed.
+            UpdateExpression = "SET #status = :delivered, #confirmed = :at, #auto = :at, #updated = :at, #v = :next",
+            ConditionExpression = "#status = :from AND #v = :expected",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }, { "#updated", "updatedAt" }, { "#v", "version" },
+                { "#confirmed", "confirmedAt" }, { "#auto", Helpers.DropoffJudgement.AutoConfirmedAtField }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":delivered", new AttributeValue { S = "delivered" } },
+                { ":from", new AttributeValue { S = fromStatus } },
+                { ":at", new AttributeValue { S = confirmedAt } },
+                { ":expected", new AttributeValue { N = expectedVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":next", new AttributeValue { N = (expectedVersion + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryMarkInTransitAsync(string deliveryId, string tripId, int expectedVersion)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            UpdateExpression = "SET #status = :inTransit, #updated = :now, #v = :next",
+            ConditionExpression = "#status = :pickedUp AND #v = :expected",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }, { "#updated", "updatedAt" }, { "#v", "version" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":inTransit", new AttributeValue { S = "inTransit" } },
+                { ":pickedUp", new AttributeValue { S = "pickedUp" } },
+                { ":now", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                { ":expected", new AttributeValue { N = expectedVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":next", new AttributeValue { N = (expectedVersion + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// FUP-287: the delivery's <c>pending → pickedUp</c> when an admin confirms a handoff a judged pickup refused,
+    /// as an item of the order's transaction: the status, <c>pickedUpAt</c> and <c>updatedAt</c> the server's time,
+    /// the version moved by one, conditioned on the delivery still <c>pending</c> at the version read. Nothing the
+    /// scan would have carried (<c>gpsPickup</c>, <c>pickupCapturedAt</c>, a photo) is written, so the delivery's
+    /// time and GPS fraud rules skip it. The key is <c>deliveryId</c> and <c>tripId</c>, as every delivery write.
+    /// </summary>
+    public TransactWriteItem BuildConfirmedPickupItem(string deliveryId, string tripId, int expectedVersion, string nowIso) => new()
+    {
+        Update = new Update
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            UpdateExpression = "SET #status = :pickedUp, #pickedUpAt = :now, #updated = :now, #v = :next",
+            ConditionExpression = "#status = :pending AND #v = :expected",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }, { "#pickedUpAt", "pickedUpAt" }, { "#updated", "updatedAt" }, { "#v", "version" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":pickedUp", new AttributeValue { S = "pickedUp" } },
+                { ":pending", new AttributeValue { S = "pending" } },
+                { ":now", new AttributeValue { S = nowIso } },
+                { ":expected", new AttributeValue { N = expectedVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":next", new AttributeValue { N = (expectedVersion + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) } }
+            }
+        }
+    };
+
+    /// <summary>
+    /// FUP-330: the delivery a trucker no-show judgement cancelled, back to <c>pickedUp</c> when an admin confirms the
+    /// handoff a late scan proved, as an item of the order's transaction: the status, <c>pickedUpAt</c> and
+    /// <c>updatedAt</c> the server's time, the version moved by one, conditioned on the delivery still <c>cancelled</c>
+    /// at the version read with no <c>cancelReason</c>, verdict or soft delete, and (FUP-363) carrying the judgement's
+    /// own cancel stamp (<see cref="PickupJudgement.DeliveryCancelledAtField"/>), which the write removes: the delivery
+    /// is no longer cancelled. As with <see cref="BuildConfirmedPickupItem"/>, nothing a scan would have carried is
+    /// written.
+    /// </summary>
+    public TransactWriteItem BuildRevivedPickupItem(string deliveryId, string tripId, int expectedVersion, string nowIso) => new()
+    {
+        Update = new Update
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            UpdateExpression = "SET #status = :pickedUp, #pickedUpAt = :now, #updated = :now, #v = :next REMOVE #judged",
+            ConditionExpression = "#status = :cancelled AND #v = :expected AND attribute_not_exists(#cancelReason)"
+                                  + " AND attribute_not_exists(#resolution) AND attribute_not_exists(#deletedAt)"
+                                  + " AND attribute_exists(#judged)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" }, { "#pickedUpAt", "pickedUpAt" }, { "#updated", "updatedAt" }, { "#v", "version" },
+                { "#cancelReason", "cancelReason" }, { "#resolution", "disputeResolution" }, { "#deletedAt", "deletedAt" },
+                { "#judged", PickupJudgement.DeliveryCancelledAtField }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":pickedUp", new AttributeValue { S = "pickedUp" } },
+                { ":cancelled", new AttributeValue { S = "cancelled" } },
+                { ":now", new AttributeValue { S = nowIso } },
+                { ":expected", new AttributeValue { N = expectedVersion.ToString(System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":next", new AttributeValue { N = (expectedVersion + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) } }
+            }
+        }
+    };
+
+    /// <inheritdoc />
+    public async Task<bool> TryStampNearbyAsync(
+        string deliveryId, string tripId, string notifiedAt, double distanceKm, int? minutes)
+    {
+        var names = new Dictionary<string, string>
+        {
+            { "#status", "status" }, { "#at", "nearbyNotifiedAt" }, { "#km", "nearbyDistanceKm" }
+        };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":pickedUp", new AttributeValue { S = "pickedUp" } },
+            { ":inTransit", new AttributeValue { S = "inTransit" } },
+            { ":at", new AttributeValue { S = notifiedAt } },
+            { ":km", new AttributeValue { N = distanceKm.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) } }
+        };
+        var set = "#at = :at, #km = :km";
+        if (minutes is { } m)
+        {
+            names["#min"] = "nearbyMinutes";
+            values[":min"] = new AttributeValue { N = m.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+            set += ", #min = :min";
+        }
+
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "deliveryId", new AttributeValue { S = deliveryId } },
+                { "tripId", new AttributeValue { S = tripId } }
+            },
+            // No version and no updatedAt: a server-only stamp must not make a party's queued update conflict.
+            UpdateExpression = "SET " + set,
+            ConditionExpression = "#status IN (:pickedUp, :inTransit) AND attribute_not_exists(#at)",
             ExpressionAttributeNames = names,
             ExpressionAttributeValues = values
         };

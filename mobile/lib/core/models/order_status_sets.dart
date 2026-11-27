@@ -1,19 +1,44 @@
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 
 /// Shared order-status semantics (specs/contracts/order-lifecycle.md),
 /// consumed by the dashboard overview tiles and the profile
 /// "In Escrow (ETB)" stat so the web and Isar paths cannot drift.
 
 /// Statuses where the buyer's money is held in escrow — funded through
-/// delivered, plus disputed. Excludes disbursing and later: the money is
-/// already leaving escrow.
+/// delivered, plus disputed and (ESC-15) a funded order whose transport fell
+/// through. Excludes disbursing and later: the money is already leaving escrow.
 const Set<OrderStatus> escrowHeldOrderStatuses = {
   OrderStatus.funded,
+  OrderStatus.awaitingTransport,
   OrderStatus.accepted,
   OrderStatus.pickupConfirmed,
   OrderStatus.inTransit,
   OrderStatus.delivered,
   OrderStatus.disputed,
+};
+
+/// Statuses whose quantity the server took off the crop listing when the
+/// order was funded (a reject or cancel puts it back; a resolved dispute does
+/// not, order-lifecycle.md). My Crops counts these as ordered.
+const Set<OrderStatus> listingStockTakenOrderStatuses = {
+  ...escrowHeldOrderStatuses,
+  OrderStatus.disbursing,
+  OrderStatus.settled,
+  OrderStatus.disputeResolved,
+};
+
+/// Statuses of an order that still needs its crop listing: the server refuses
+/// to delete a listing while one of its orders is in one (crop-listing-api.md
+/// 1.7.0 rule 10, `CROP_HAS_ACTIVE_ORDERS`). The farmer's Delete checks the
+/// orders this device knows against them first (SIM-56), so a listing is not
+/// removed from under a paid order where the server's check is off.
+const Set<OrderStatus> listingRemovalBlockingOrderStatuses = {
+  OrderStatus.paymentSubmitted,
+  OrderStatus.funded,
+  OrderStatus.awaitingTransport,
+  OrderStatus.accepted,
 };
 
 /// Buyer-facing "active" orders: in flight from creation through acceptance.
@@ -22,6 +47,7 @@ const Set<OrderStatus> activeOrderStatuses = {
   OrderStatus.pendingPayment,
   OrderStatus.paymentSubmitted,
   OrderStatus.funded,
+  OrderStatus.awaitingTransport,
   OrderStatus.accepted,
 };
 
@@ -36,11 +62,15 @@ const Set<OrderStatus> deliveredOrderStatuses = {
 };
 
 /// ESC-48: statuses at which the parties of an order may reach each other
-/// (order-lifecycle.md 1.18.0): from the farmer's accept until the money goes
-/// back. Only the fallback for an order the server has not judged yet
-/// ([Order.contactOpen] null); the server's flag also closes contact after an
-/// admin override refund, which the status alone does not show.
+/// (order-lifecycle.md 2.0.0): from the farmer's accept until the money goes
+/// back. In `funded` and `awaitingTransport` the farmer's answer decides
+/// (ESC-15, [isOrderContactOpen]). Only the fallback for an order the server
+/// has not judged yet ([Order.contactOpen] null); the server's flag also
+/// closes contact after an admin override refund, which the status alone does
+/// not show, and for a trucker who has not committed.
 const Set<OrderStatus> contactOpenOrderStatuses = {
+  OrderStatus.funded,
+  OrderStatus.awaitingTransport,
   OrderStatus.accepted,
   OrderStatus.pickupConfirmed,
   OrderStatus.inTransit,
@@ -62,9 +92,15 @@ const Set<OrderStatus> contactNotYetOpenOrderStatuses = {
 
 /// ESC-48: whether the parties of [order] may call, copy and message each
 /// other. The server's [Order.contactOpen] decides; a status outside the open
-/// set always closes (a local cancel or reject not synced yet).
+/// set always closes (a local cancel or reject not synced yet), and so does a
+/// funded order the farmer has not accepted (ESC-15).
 bool isOrderContactOpen(Order order) {
   if (!contactOpenOrderStatuses.contains(order.status)) return false;
+  if ((order.status == OrderStatus.funded ||
+          order.status == OrderStatus.awaitingTransport) &&
+      farmerResponseOf(order) != CommitmentResponse.accepted) {
+    return false;
+  }
   return order.contactOpen ?? true;
 }
 
@@ -94,9 +130,13 @@ final Set<String> activeOrderStatusNames =
 /// [Order.pickupDeadlineAt] counts as a transport failure, and its buyer may
 /// cancel it for a full refund (order-lifecycle.md 1.15.0). This uses the
 /// device clock to show the action; the server decides with its own clock.
+/// Never on an order stamped for the pickup judgement (ESC-34,
+/// order-lifecycle.md 2.15.0): the check-ins decide it and the server
+/// refuses that cancel.
 bool isTransportFailureCancelOpen(Order order, DateTime nowUtc) {
   final deadline = order.pickupDeadlineAt;
   return order.status == OrderStatus.accepted &&
+      !isPickupJudgementStamped(order) &&
       deadline != null &&
       !nowUtc.isBefore(deadline);
 }

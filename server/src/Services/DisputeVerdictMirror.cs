@@ -1,4 +1,5 @@
 using System.Globalization;
+using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 
@@ -62,6 +63,18 @@ public sealed record DisputeVerdictMirrorResult
     public Dictionary<string, object>? OrderItem { get; init; }
 
     /// <summary>
+    /// FUP-53: the order cancel landed in one transaction with the caller's refund arm
+    /// (<see cref="DisputeVerdictMirror.CancelBeforeRefundAsync"/>), whatever the later steps did.
+    /// </summary>
+    public bool RefundArmed { get; init; }
+
+    /// <summary>
+    /// FUP-53: the order cancel was refused because the caller's refund arm was (the escrow is no
+    /// longer a plain hold). Nothing was written to the order or the escrow.
+    /// </summary>
+    public bool RefundArmRefused { get; init; }
+
+    /// <summary>
     /// <c>order:&lt;reason&gt;,delivery:&lt;reason&gt;</c> for every leg that did not reach the
     /// verdict; null when both did or had nothing to do.
     /// </summary>
@@ -118,7 +131,14 @@ public static class DisputeDisposition
     /// <summary><c>farmer_wins</c> before delivery: nothing moves; the farmer is paid once the order is delivered.</summary>
     public const string WaitForDelivery = "wait_for_delivery";
 
-    /// <summary>The verdict a disposition belongs to; null for an unknown value.</summary>
+    /// <summary>
+    /// FUP-64: either verdict, when no other disposition fits (<see cref="DispositionCase.NoFit"/>): the money
+    /// settles as the verdict says, a live order is closed at <c>dispute_resolved</c> and the delivery is left as
+    /// it is (escrow-protocol.md 2.21.0).
+    /// </summary>
+    public const string SettleAsIs = "settle_as_is";
+
+    /// <summary>The verdict a disposition belongs to; null for an unknown value and for <see cref="SettleAsIs"/>, which goes with both.</summary>
     public static string? VerdictOf(string? disposition) => disposition switch
     {
         ReturnToFarmer or DeliveredAnyway => "buyer_wins",
@@ -132,6 +152,7 @@ public static class DisputeDisposition
         ReturnToFarmer => "dispute_resolved_goods_returned",
         DeliveredAnyway => "dispute_resolved_delivered_anyway",
         SettleNow => "dispute_resolved_settled_early",
+        SettleAsIs => "dispute_resolved_settled_as_is",
         _ => "dispute_resolved_waiting_for_delivery"
     };
 
@@ -144,7 +165,8 @@ public static class DisputeDisposition
     };
 
     internal static bool IsAuditAction(string action) => action is "dispute_resolved_goods_returned"
-        or "dispute_resolved_delivered_anyway" or "dispute_resolved_settled_early" or "dispute_resolved_waiting_for_delivery";
+        or "dispute_resolved_delivered_anyway" or "dispute_resolved_settled_early" or "dispute_resolved_waiting_for_delivery"
+        or "dispute_resolved_settled_as_is";
 }
 
 /// <summary>FUP-16: the escrow row attributes that record a disposition (escrow-protocol.md 1.21.0).</summary>
@@ -168,7 +190,10 @@ public enum DispositionCase
     /// <summary><c>farmer_wins</c> before delivery: <c>wait_for_delivery</c>, or <c>settle_now</c> once picked up.</summary>
     BeforeDelivery,
 
-    /// <summary>A leg cannot follow and no disposition fits (a missing row, another verdict, a closed order, ...).</summary>
+    /// <summary>
+    /// A leg cannot follow and no goods disposition fits (a missing row, another verdict, a closed order, ...).
+    /// FUP-64: only <see cref="DisputeDisposition.SettleAsIs"/> may fit, see <see cref="DispositionPlan.SettleAsIsRefusal"/>.
+    /// </summary>
     NoFit,
 
     /// <summary>A read failed: nothing is known, so nothing may be written.</summary>
@@ -181,8 +206,19 @@ public enum DispositionCase
 /// <param name="ClosedDeliveryStatus">The status of a delivery an earlier run of a disposition already closed, else null.</param>
 /// <param name="Started">An earlier run already closed a leg (the delivery, or the order at <c>dispute_resolved</c>).</param>
 /// <param name="Legs">The legs that cannot follow, as <c>order:&lt;reason&gt;,delivery:&lt;reason&gt;</c>.</param>
+/// <param name="SettleAsIsRefusal">
+/// FUP-64, <see cref="DispositionCase.NoFit"/> only: why <see cref="DisputeDisposition.SettleAsIs"/> may not settle a
+/// <c>farmer_wins</c> (<c>goods_not_handed_over</c>, <c>goods_returned</c>, <c>order_paid_out</c>); null when it may.
+/// </param>
+/// <param name="OrderOpen">
+/// FUP-64, <see cref="DispositionCase.NoFit"/> only: the order still needs the write of
+/// <see cref="DisputeDisposition.SettleAsIs"/> before any money moves: it is live (before delivery, <c>delivered</c> or
+/// <c>disputed</c>) and is closed, or a <c>buyer_wins</c> leaves it at <c>disbursing</c> or <c>settled</c> with its
+/// contact open and it is flagged.
+/// </param>
 public sealed record DispositionPlan(
-    DispositionCase Case, bool GoodsHandedOver, string? ClosedDeliveryStatus, bool Started, string? Legs)
+    DispositionCase Case, bool GoodsHandedOver, string? ClosedDeliveryStatus, bool Started, string? Legs,
+    string? SettleAsIsRefusal = null, bool OrderOpen = false)
 {
     /// <summary>Whether <paramref name="disposition"/> resolves this case.</summary>
     public bool Fits(string disposition)
@@ -194,11 +230,20 @@ public sealed record DispositionPlan(
             DisputeDisposition.SettleNow => Case == DispositionCase.BeforeDelivery && GoodsHandedOver,
             // Waiting makes no sense once a leg was closed by another choice.
             DisputeDisposition.WaitForDelivery => Case == DispositionCase.BeforeDelivery && !Started,
+            // FUP-64: only where no other choice fits, and never paying a farmer for goods not handed over.
+            DisputeDisposition.SettleAsIs => Case == DispositionCase.NoFit && SettleAsIsRefusal == null,
             _ => false
         };
         return fitsCase
                && (ClosedDeliveryStatus == null || ClosedDeliveryStatus == DisputeDisposition.DeliveryTarget(disposition));
     }
+
+    /// <summary>
+    /// FUP-64: a recorded <see cref="DisputeDisposition.SettleAsIs"/> lets the settlement go ahead: it still fits,
+    /// and its order needs no write any more (the admin's action closed or flagged it, or there was none). A run
+    /// that stopped before that keeps the settlement refused until the admin sends it again.
+    /// </summary>
+    public bool SettlesAsIs => Fits(DisputeDisposition.SettleAsIs) && !OrderOpen;
 }
 
 /// <summary>
@@ -285,15 +330,27 @@ public sealed class DisputeVerdictMirror
     private readonly IDeliveryRepository? _deliveryRepo;
     private readonly ITransactionAuditRepository? _txAuditRepo;
     private readonly ICropRepository? _cropRepo;
+    private readonly ITripRepository? _tripRepo;
+    private readonly IEscrowRepository? _escrowRepo;
 
+    /// <param name="tripRepo">
+    /// FUP-123: releases the trip booking of an order this mirror cancels. Null (no trip table, or
+    /// <c>COMMITMENTS_ENABLED</c> off) leaves the trip alone.
+    /// </param>
+    /// <param name="escrowRepo">
+    /// FUP-64: reads the order's other escrows, so a <c>farmer_wins</c> <c>settle_as_is</c> never pays an order another
+    /// escrow already paid out. Null leaves that check out (the order status is still checked).
+    /// </param>
     public DisputeVerdictMirror(
         IOrderRepository? orderRepo, IDeliveryRepository? deliveryRepo, ITransactionAuditRepository? txAuditRepo,
-        ICropRepository? cropRepo = null)
+        ICropRepository? cropRepo = null, ITripRepository? tripRepo = null, IEscrowRepository? escrowRepo = null)
     {
         _orderRepo = orderRepo;
         _deliveryRepo = deliveryRepo;
         _txAuditRepo = txAuditRepo;
         _cropRepo = cropRepo;
+        _tripRepo = tripRepo;
+        _escrowRepo = escrowRepo;
     }
 
     /// <param name="escrow">The escrow row (reads <c>escrowId</c>, <c>orderId</c>, <c>deliveryId</c>, <c>disputedBy</c>).</param>
@@ -350,16 +407,22 @@ public sealed class DisputeVerdictMirror
 
     /// <summary>
     /// ESC-09 Part B: before an admin refunds a plain <c>escrowed</c> order escrow, end an order that never
-    /// got going, as a <c>buyer_wins</c> refund does: an order <c>funded</c>, or <c>accepted</c> with no
+    /// got going, as a <c>buyer_wins</c> refund does: an order <c>funded</c> or <c>awaiting_transport</c>, or <c>accepted</c> with no
     /// delivery or a <c>pending</c> one, has its pending delivery cancelled first, then the order
     /// (<c>cancelReason: escrow_refunded</c>), its slot freed and its stock restored. Returns the order leg
     /// as <see cref="VerdictLegOutcome.Cancelled"/>, <see cref="VerdictLegOutcome.Blocked"/> (a write the
     /// refund depends on did not land), <see cref="VerdictLegOutcome.Unknown"/> (a read failed),
     /// <see cref="VerdictLegOutcome.Mismatch"/> (the goods are moving or the order is anything else) or
     /// <see cref="VerdictLegOutcome.None"/> (no order). Never moves an order toward a dispute. Never throws.
+    /// FUP-53: with <paramref name="refundArm"/> (the escrow's refund arm,
+    /// <see cref="IEscrowRepository.BuildRefundArm"/>) the order cancel and the arm are one transaction:
+    /// <see cref="DisputeVerdictMirrorResult.RefundArmed"/> when it landed, and
+    /// <see cref="DisputeVerdictMirrorResult.RefundArmRefused"/> (order leg
+    /// <see cref="VerdictLegOutcome.Blocked"/>, nothing written to the order) when the escrow refused it.
     /// </summary>
     public async Task<DisputeVerdictMirrorResult> CancelBeforeRefundAsync(
-        Dictionary<string, object> escrow, ILambdaContext? context = null)
+        Dictionary<string, object> escrow, ILambdaContext? context = null,
+        IReadOnlyList<TransactWriteItem>? refundArm = null)
     {
         var escrowId = Str(escrow, "escrowId") ?? "";
         var (orderId, deliveryId, order, delivery, readError) = await ReadLegsAsync(escrow);
@@ -380,7 +443,8 @@ public sealed class DisputeVerdictMirror
 
         var status = Str(order, "status") ?? "";
         var deliveryStatus = delivery != null ? Str(delivery, "status") : string.IsNullOrEmpty(deliveryId) ? null : "unknown";
-        if (!(status == "funded" || (status == "accepted" && deliveryStatus is null or "pending" or "cancelled")))
+        if (!(status is "funded" or OrderCommitment.AwaitingTransportStatus
+              || (status == "accepted" && deliveryStatus is null or "pending" or "cancelled")))
         {
             return Result(VerdictLegOutcome.Mismatch, $"mismatch:{status}", VerdictLegOutcome.None, null, orderId, deliveryId, order);
         }
@@ -393,13 +457,13 @@ public sealed class DisputeVerdictMirror
 
         var transactionId = string.IsNullOrEmpty(orderId) ? escrowId : orderId;
         return await CancelBeforePickupAsync(order, orderId, VerdictLegOutcome.Cancelled, delivery, deliveryId, deliveryPlan,
-            transactionId, context, AdminRefundAuditTag);
+            transactionId, context, AdminRefundAuditTag, refundArm);
     }
 
     /// <summary>Order statuses a disposition may close: the order is live and not delivered yet.</summary>
     private static readonly HashSet<string> PreDeliveryOrderStatuses = new(StringComparer.Ordinal)
     {
-        "funded", "accepted", "pickup_confirmed", "in_transit"
+        "funded", OrderCommitment.AwaitingTransportStatus, "accepted", "pickup_confirmed", "in_transit"
     };
 
     /// <summary>
@@ -408,8 +472,12 @@ public sealed class DisputeVerdictMirror
     /// cannot, which admin disposition resolves it. Reads strongly consistent, like <see cref="ApplyAsync"/>.
     /// Never throws.
     /// </summary>
-    public async Task<DispositionPlan> PlanDispositionAsync(Dictionary<string, object> escrow, string resolution)
-        => (await ReadDispositionAsync(escrow, resolution)).Plan;
+    /// <param name="split">
+    /// FUP-64: the verdict is a split (<c>partial_refund</c>, planned in its <c>farmer_wins</c> direction), which never
+    /// takes <see cref="DisputeDisposition.SettleAsIs"/>: the order's other escrows are not read for it.
+    /// </param>
+    public async Task<DispositionPlan> PlanDispositionAsync(Dictionary<string, object> escrow, string resolution, bool split = false)
+        => (await ReadDispositionAsync(escrow, resolution, split)).Plan;
 
     /// <summary>
     /// FUP-16: apply an admin disposition to the legs behind a verdict, as a system actor. The legs are
@@ -420,11 +488,14 @@ public sealed class DisputeVerdictMirror
     /// racing in never leaves a closed order behind a live delivery. Each write is conditional on the
     /// status it was decided on and has one transaction-audit row. A leg already closed by an earlier run
     /// is left as it is, so a replay repairs a run that stopped half way. <c>wait_for_delivery</c> writes
-    /// nothing. Listing stock is never restored. Never throws.
+    /// nothing; <c>settle_as_is</c> (FUP-64) closes only a live order (<see cref="SettleAsIsAsync"/>). Listing stock
+    /// is never restored. Never throws.
     /// </summary>
+    /// <param name="actor">FUP-64: the admin, on the contact flag <c>settle_as_is</c> writes (<c>disputeOverrideBy</c>).</param>
+    /// <param name="adminReason">FUP-64: the admin's reason, on the same flag (<c>disputeOverrideReason</c>).</param>
     public async Task<DisputeVerdictMirrorResult> ApplyDispositionAsync(
         Dictionary<string, object> escrow, string resolution, string disposition, string resolvedAt,
-        ILambdaContext? context = null)
+        ILambdaContext? context = null, string? actor = null, string? adminReason = null)
     {
         var read = await ReadDispositionAsync(escrow, resolution);
         var plan = read.Plan;
@@ -447,6 +518,12 @@ public sealed class DisputeVerdictMirror
                 VerdictLegOutcome.None, null, read.OrderId, read.DeliveryId, read.Order);
         }
 
+        var metadata = $"resolution={resolution};disposition={disposition}";
+        if (disposition == DisputeDisposition.SettleAsIs)
+        {
+            return await SettleAsIsAsync(read, Str(escrow, "escrowId") ?? "", resolution, metadata, actor, adminReason, context);
+        }
+
         var target = DisputeDisposition.DeliveryTarget(disposition);
         if (target == null)
         {
@@ -455,7 +532,6 @@ public sealed class DisputeVerdictMirror
 
         var escrowId = Str(escrow, "escrowId") ?? "";
         var transactionId = string.IsNullOrEmpty(read.OrderId) ? escrowId : read.OrderId;
-        var metadata = $"resolution={resolution};disposition={disposition}";
         try
         {
             var (deliveryOutcome, deliveryReason) = await CloseDeliveryAsync(
@@ -478,11 +554,65 @@ public sealed class DisputeVerdictMirror
         }
     }
 
+    /// <summary>
+    /// FUP-64: <see cref="DisputeDisposition.SettleAsIs"/> closes a live order at <c>dispute_resolved</c>, so the parties
+    /// see the dispute decided and their contact closes before the money moves: an order before delivery goes
+    /// straight there (status-conditioned, as a disposition's order), a <c>delivered</c> or <c>disputed</c> one
+    /// through the verdict's own hops. A <c>buyer_wins</c> on an order left at <c>disbursing</c> or <c>settled</c> flags it
+    /// (<c>disputeOverrideAt</c>, <c>By</c>, <c>Reason</c>, <c>EscrowId</c>, version-checked, its status left alone) so its
+    /// contact closes with the refund. Any other order (missing, <c>cancelled</c>, <c>rejected</c>,
+    /// <c>dispute_resolved</c>, before payment, already flagged) is left as it is, and so is the delivery (missing,
+    /// another verdict on it, closed, or still on the road). Listing stock is never restored.
+    /// </summary>
+    private async Task<DisputeVerdictMirrorResult> SettleAsIsAsync(
+        DispositionRead read, string escrowId, string resolution, string metadata, string? actor, string? adminReason,
+        ILambdaContext? context)
+    {
+        var status = read.Order != null ? Str(read.Order, "status") : null;
+        if (!read.Plan.OrderOpen || read.Order == null || string.IsNullOrEmpty(read.OrderId))
+        {
+            return Result(VerdictLegOutcome.None, null, VerdictLegOutcome.None, null, read.OrderId, read.DeliveryId, read.Order);
+        }
+
+        try
+        {
+            if (NeedsContactFlag(resolution, read.Order))
+            {
+                var flagged = await FlagOrderAsync(read.OrderId, new Dictionary<string, object>
+                {
+                    { OrderMoneyFields.DisputeOverrideAt, DateTime.UtcNow.ToString("o") },
+                    { "disputeOverrideBy", actor ?? EscrowService.SystemActor },
+                    { "disputeOverrideReason", adminReason ?? "" },
+                    { "disputeOverrideEscrowId", escrowId }
+                });
+                return flagged
+                    ? Result(VerdictLegOutcome.Resolved, null, VerdictLegOutcome.None, null, read.OrderId, read.DeliveryId, read.Order)
+                    : Result(VerdictLegOutcome.Failed, "flag_failed", VerdictLegOutcome.None, null, read.OrderId, read.DeliveryId, read.Order);
+            }
+
+            if (PreDeliveryOrderStatuses.Contains(status!))
+            {
+                var (outcome, reason, item) = await CloseOrderAsync(read.Order, read.OrderId, metadata, context);
+                return Result(outcome, reason, VerdictLegOutcome.None, null, read.OrderId, read.DeliveryId, item ?? read.Order);
+            }
+
+            var deliveryStatus = read.Delivery != null ? Str(read.Delivery, "status") : null;
+            var (moved, movedReason) = await MoveOrderAsync(
+                read.Order, read.OrderId, deliveryStatus, resolution, ClosedByVerdict(read.Delivery), context);
+            return Result(moved, movedReason, VerdictLegOutcome.None, null, read.OrderId, read.DeliveryId, read.Order);
+        }
+        catch (Exception ex)
+        {
+            var reason = $"[{ex.GetType().Name}]";
+            return Result(VerdictLegOutcome.Failed, reason, VerdictLegOutcome.None, null, read.OrderId, read.DeliveryId, read.Order);
+        }
+    }
+
     private sealed record DispositionRead(
         DispositionPlan Plan, string? OrderId, string? DeliveryId,
         Dictionary<string, object>? Order, Dictionary<string, object>? Delivery);
 
-    private async Task<DispositionRead> ReadDispositionAsync(Dictionary<string, object> escrow, string resolution)
+    private async Task<DispositionRead> ReadDispositionAsync(Dictionary<string, object> escrow, string resolution, bool split = false)
     {
         var (orderId, deliveryId, order, delivery, readError) = await ReadLegsAsync(escrow);
         if (readError != null)
@@ -517,16 +647,178 @@ public sealed class DisputeVerdictMirror
         if ((!hasOrderLeg && !hasDeliveryLeg) || !orderOk || !deliveryOk)
         {
             return new DispositionRead(
-                new DispositionPlan(DispositionCase.NoFit, false, null, false, legs), orderId, deliveryId, order, delivery);
+                await NoFitPlanAsync(escrow, resolution, legs, hasOrderLeg ? order : null, orderId, deliveryId, deliveryStatus, delivery, split),
+                orderId, deliveryId, order, delivery);
         }
 
         var started = closedDeliveryStatus != null || orderStatus == "dispute_resolved";
         var handedOver = started || orderStatus is "pickup_confirmed" or "in_transit" || deliveryStatus is "pickedUp" or "inTransit";
-        var dispositionCase = resolution == "farmer_wins"
-            ? DispositionCase.BeforeDelivery
-            : handedOver ? DispositionCase.GoodsMoving : DispositionCase.NoFit;
+        if (resolution != "farmer_wins" && !handedOver)
+        {
+            return new DispositionRead(
+                await NoFitPlanAsync(escrow, resolution, legs, hasOrderLeg ? order : null, orderId, deliveryId, deliveryStatus, delivery, split),
+                orderId, deliveryId, order, delivery);
+        }
+
+        var dispositionCase = resolution == "farmer_wins" ? DispositionCase.BeforeDelivery : DispositionCase.GoodsMoving;
         return new DispositionRead(
             new DispositionPlan(dispositionCase, handedOver, closedDeliveryStatus, started, legs), orderId, deliveryId, order, delivery);
+    }
+
+    /// <summary>
+    /// FUP-64: order statuses <see cref="DisputeDisposition.SettleAsIs"/> closes at <c>dispute_resolved</c> (a live order).
+    /// Every other status is left as it is: <c>cancelled</c>, <c>rejected</c>, <c>dispute_resolved</c>, <c>disbursing</c>
+    /// and <c>settled</c> (flagged for a <c>buyer_wins</c>, <see cref="NeedsContactFlag"/>), and one before payment
+    /// (<c>created</c>, <c>pending_payment</c>, <c>payment_submitted</c>, <c>payment_failed</c>), whose contact is closed.
+    /// </summary>
+    private static bool IsOpenForSettleAsIs(string? orderStatus)
+        => orderStatus != null && (PreDeliveryOrderStatuses.Contains(orderStatus) || orderStatus is "delivered" or "disputed");
+
+    /// <summary>
+    /// FUP-64: a <c>buyer_wins</c> <c>settle_as_is</c> on an order left at <c>disbursing</c> or <c>settled</c> refunds the
+    /// buyer while the order keeps a status whose contact is open, so the order is flagged as the override did
+    /// (<c>disputeOverrideAt</c>, ContactReveal 1.18.0), once.
+    /// </summary>
+    private static bool NeedsContactFlag(string resolution, Dictionary<string, object>? order)
+        => resolution == "buyer_wins" && order != null && Str(order, "status") is "disbursing" or "settled"
+           && string.IsNullOrEmpty(Str(order, OrderMoneyFields.DisputeOverrideAt));
+
+    /// <summary>
+    /// FUP-64: the plan of a verdict no goods disposition fits. <see cref="DisputeDisposition.SettleAsIs"/> may
+    /// settle a <c>buyer_wins</c> always (the refund returns the money to the buyer who paid it). A
+    /// <c>farmer_wins</c> only when the goods left the farm and did not come back, and the order shows no payout
+    /// (never for a split, whose other escrows are not read: it never takes the exit):
+    /// <list type="bullet">
+    /// <item><c>order_paid_out</c>: the order is <c>disbursing</c> or <c>settled</c>, or another escrow of the order (its
+    /// own, one its order index names, the delivery's) paid the farmer or is about to (<see cref="IsReleaseDecided"/>),
+    /// so a release could pay twice.</item>
+    /// <item><c>double_escrow</c>: this escrow is a second payment for the order while the order's own escrow holds or
+    /// paid the trade's money (<see cref="EscrowService.OrderEscrowPaidStatuses"/>); FUP-41 refunds such an escrow, never
+    /// releases it.</item>
+    /// <item><c>goods_returned</c>: the delivery was cancelled under <c>buyer_wins</c> (the goods went back).</item>
+    /// <item><c>goods_not_handed_over</c>: nothing shows a pickup: no <c>deliveryConfirmedAt</c> on the escrow, the
+    /// order never reached <c>pickup_confirmed</c>, the delivery never <c>pickedUp</c> (no <c>pickedUpAt</c>; a delivery an
+    /// admin cancelled, <c>admin_cancelled</c>, does not count: FUP-19 cancels goods taken back too). An order
+    /// at <c>dispute_resolved</c> shows a pickup only once this escrow carries its own <c>settle_as_is</c>: recording it
+    /// needed the pickup shown elsewhere, and its own action may have closed the order since; another escrow's
+    /// verdict may have closed the order before any pickup.</item>
+    /// </list>
+    /// The order's other escrows are read only for a <c>farmer_wins</c> that is otherwise safe; a read that fails makes
+    /// the plan <see cref="DispositionCase.Unknown"/> (nothing is recorded or settled on this run).
+    /// </summary>
+    private async Task<DispositionPlan> NoFitPlanAsync(
+        Dictionary<string, object> escrow, string resolution, string? legs, Dictionary<string, object>? order,
+        string? orderId, string? deliveryId, string? deliveryStatus, Dictionary<string, object>? delivery, bool split)
+    {
+        var orderStatus = order != null ? Str(order, "status") : null;
+        string? refusal = null;
+        if (resolution == "farmer_wins")
+        {
+            var returned = deliveryStatus == "cancelled" && delivery != null
+                           && (Str(delivery, "cancelReason") == "dispute_buyer_wins" || Str(delivery, "disputeResolution") == "buyer_wins");
+            var closedByThisExit = orderStatus == "dispute_resolved"
+                                   && Str(escrow, DisputeDispositionFields.Disposition) == DisputeDisposition.SettleAsIs;
+            var handedOver = !string.IsNullOrEmpty(Str(escrow, "deliveryConfirmedAt"))
+                             || orderStatus is "pickup_confirmed" or "in_transit" or "delivered" or "disputed"
+                             || closedByThisExit
+                             || deliveryStatus is "pickedUp" or "inTransit" or "delivered" or "disputed"
+                             || (delivery != null && !string.IsNullOrEmpty(Str(delivery, "pickedUpAt"))
+                                 && Str(delivery, "cancelReason") != "admin_cancelled");
+            refusal = orderStatus is "disbursing" or "settled" ? "order_paid_out"
+                : returned ? "goods_returned"
+                : handedOver ? null
+                : "goods_not_handed_over";
+            if (refusal == null && !split)
+            {
+                var (otherRefusal, readError) = await OtherEscrowRefusalAsync(Str(escrow, "escrowId") ?? "", orderId, deliveryId);
+                if (readError != null)
+                {
+                    return new DispositionPlan(DispositionCase.Unknown, false, null, false, readError);
+                }
+
+                refusal = otherRefusal;
+            }
+        }
+
+        var needsWrite = IsOpenForSettleAsIs(orderStatus) || NeedsContactFlag(resolution, order);
+        return new DispositionPlan(DispositionCase.NoFit, false, null, false, legs, refusal, needsWrite);
+    }
+
+    /// <summary>
+    /// FUP-64: why another escrow of the order forbids a <c>farmer_wins</c> release, or null. The candidates are the
+    /// order's own escrow, the ones its order index names and the one the delivery index names, each read again
+    /// strongly consistent (as the admin delivery cancel reads them, FUP-19); this escrow is never counted.
+    /// <c>double_escrow</c> when this escrow is not the order's own and the order's own is in
+    /// <see cref="EscrowService.OrderEscrowPaidStatuses"/> (FUP-41: the second payment is refunded, never released);
+    /// <c>order_paid_out</c> when another escrow paid the farmer or is about to (<see cref="IsReleaseDecided"/>).
+    /// </summary>
+    private async Task<(string? Refusal, string? Error)> OtherEscrowRefusalAsync(string escrowId, string? orderId, string? deliveryId)
+    {
+        if (_escrowRepo == null)
+        {
+            return (null, null);
+        }
+
+        try
+        {
+            var ownId = string.IsNullOrEmpty(orderId) ? null : $"escrow-order-{orderId}";
+            var ids = new List<string>();
+            if (ownId != null)
+            {
+                ids.Add(ownId);
+                var indexed = await _escrowRepo.QueryByOrderIdAsync(orderId!);
+                ids.AddRange((indexed ?? []).Select(e => Str(e, "escrowId") ?? ""));
+            }
+
+            if (!string.IsNullOrEmpty(deliveryId) && await _escrowRepo.GetByDeliveryIdAsync(deliveryId) is { } byDelivery)
+            {
+                ids.Add(Str(byDelivery, "escrowId") ?? "");
+            }
+
+            string? refusal = null;
+            foreach (var id in ids.Where(id => id.Length > 0 && id != escrowId).Distinct(StringComparer.Ordinal))
+            {
+                var other = await _escrowRepo.GetByIdAsync(id, consistentRead: true);
+                if (other == null || Str(other, "escrowId") == escrowId)
+                {
+                    continue;
+                }
+
+                if (id == ownId && EscrowService.OrderEscrowPaidStatuses.Contains(Str(other, "status") ?? ""))
+                {
+                    return ("double_escrow", null);
+                }
+
+                if (IsReleaseDecided(other))
+                {
+                    refusal = "order_paid_out";
+                }
+            }
+
+            return (refusal, null);
+        }
+        catch (Exception ex)
+        {
+            return (null, $"escrows:read:[{ex.GetType().Name}]");
+        }
+    }
+
+    /// <summary>
+    /// FUP-64: another escrow paid the farmer or is about to, whatever its verdict: <c>released</c> or
+    /// <c>completed</c>; a release in flight (<c>settlementLock = release</c>) or waiting in the manual payout queue
+    /// (marker open, op <c>release</c>); a ledger escrow whose crop leg is <c>released</c>; or a recorded verdict that
+    /// releases (<c>dispute_resolved</c> under <c>farmer_wins</c> or a split), which its own settlement would pay.
+    /// </summary>
+    private static bool IsReleaseDecided(Dictionary<string, object> other)
+    {
+        var status = Str(other, "status");
+        return status is "released" or "completed"
+               || Str(other, "settlementLock") == "release"
+               || (Str(other, ManualPayoutFields.Marker) == ManualPayoutFields.MarkerOpen
+                   && Str(other, ManualPayoutFields.Op) == ManualPayoutFields.OpRelease)
+               || (LedgerEscrowFields.IsLedger(other)
+                   && LedgerEscrow.From(other).LegState(LedgerEscrowFields.LegCrop) == LedgerEscrowFields.Released)
+               || (status == "dispute_resolved" && Str(other, "disputeResolution") is "farmer_wins" or DisputeVerdicts.PartialRefund);
     }
 
     /// <summary>The delivery leg of a disposition: closed under the verdict, or left when an earlier run closed it.</summary>
@@ -664,9 +956,10 @@ public sealed class DisputeVerdictMirror
     }
 
     /// <summary>
-    /// ESC-03: flag an order whose verdict an admin settled over a mismatch (the override), with a
-    /// version-checked write that leaves its status alone. Best-effort; false when the write did
-    /// not land after three attempts.
+    /// Flag an order with a version-checked write that leaves its status alone: ESC-09 Part B's admin refund
+    /// over goods on the move (<c>refundOverride*</c>), and since FUP-64 a <c>buyer_wins</c> <c>settle_as_is</c> on an
+    /// order left at <c>disbursing</c> or <c>settled</c> (<c>disputeOverride*</c>; ESC-03's verdict override that wrote
+    /// them is gone). False when the order is missing or the write did not land after three attempts.
     /// </summary>
     public async Task<bool> FlagOrderAsync(string orderId, Dictionary<string, object> fields)
     {
@@ -742,7 +1035,8 @@ public sealed class DisputeVerdictMirror
             // FUP-16: a delivery an admin disposition cancelled was picked up; its order waits for the
             // admin's replay of the disposition, never for the cancel-and-restock path.
             if (!deliveryClosedByVerdict
-                && (status == "funded" || (status == "accepted" && deliveryStatus is null or "pending" or "cancelled")))
+                && (status is "funded" or OrderCommitment.AwaitingTransportStatus
+                    || (status == "accepted" && deliveryStatus is null or "pending" or "cancelled")))
             {
                 return cancelAllowed ? (VerdictLegOutcome.Cancelled, null) : (VerdictLegOutcome.Deferred, null);
             }
@@ -902,7 +1196,8 @@ public sealed class DisputeVerdictMirror
     private async Task<DisputeVerdictMirrorResult> CancelBeforePickupAsync(
         Dictionary<string, object>? order, string? orderId, VerdictLegOutcome orderPlan,
         Dictionary<string, object>? delivery, string? deliveryId, VerdictLegOutcome deliveryPlan,
-        string transactionId, ILambdaContext? context, string auditTag)
+        string transactionId, ILambdaContext? context, string auditTag,
+        IReadOnlyList<TransactWriteItem>? refundArm = null)
     {
         var deliveryOutcome = deliveryPlan;
         string? deliveryReason = null;
@@ -955,12 +1250,22 @@ public sealed class DisputeVerdictMirror
             return Result(orderPlan, null, deliveryOutcome, deliveryReason, orderId, deliveryId, order);
         }
 
-        var (orderOutcome, orderReason, cancelled) = await CancelOrderAsync(order!, orderId!, deliveryId, context, auditTag);
-        return Result(orderOutcome, orderReason, deliveryOutcome, deliveryReason, orderId, deliveryId, cancelled ?? order);
+        var armed = false;
+        var (orderOutcome, orderReason, cancelled) = await CancelOrderAsync(
+            order!, orderId!, deliveryId, context, auditTag, refundArm, () => armed = true);
+        return Result(orderOutcome, orderReason, deliveryOutcome, deliveryReason, orderId, deliveryId, cancelled ?? order) with
+        {
+            RefundArmed = armed,
+            RefundArmRefused = orderReason == RefundArmRefusedReason
+        };
     }
 
+    /// <summary>FUP-53: the order leg's reason when the refund arm refused the cancel's transaction.</summary>
+    private const string RefundArmRefusedReason = "cancel:escrow_changed";
+
     private async Task<(VerdictLegOutcome, string?, Dictionary<string, object>?)> CancelOrderAsync(
-        Dictionary<string, object> order, string orderId, string? cancelledDeliveryId, ILambdaContext? context, string auditTag)
+        Dictionary<string, object> order, string orderId, string? cancelledDeliveryId, ILambdaContext? context, string auditTag,
+        IReadOnlyList<TransactWriteItem>? refundArm = null, Action? onArmed = null)
     {
         try
         {
@@ -972,24 +1277,54 @@ public sealed class DisputeVerdictMirror
                     return (VerdictLegOutcome.Closed, null, order);
                 }
 
-                if (status is not ("funded" or "accepted"))
+                if (status is not ("funded" or OrderCommitment.AwaitingTransportStatus or "accepted"))
                 {
                     // Accepted and picked up in between: the refund waits for the order.
                     return (VerdictLegOutcome.Mismatch, $"mismatch:{status}", order);
                 }
 
-                var update = await _orderRepo!.UpdateAsync(orderId, new Dictionary<string, object>
+                var cancelFields = new Dictionary<string, object>
                 {
                     { "status", "cancelled" },
                     { "cancelledAt", DateTime.UtcNow.ToString("o") },
                     { "cancelReason", "escrow_refunded" }
-                }, Int(order, "version"));
+                };
+                AuthResult<Dictionary<string, object>> update;
+                if (refundArm is { Count: > 0 })
+                {
+                    // FUP-53: the cancel and the caller's refund arm land together or not at all.
+                    var write = await _orderRepo!.TryUpdateWithAsync(orderId, cancelFields, Int(order, "version"), status, refundArm);
+                    switch (write.Outcome)
+                    {
+                        case OrderLinkedWriteOutcome.LinkedItemRefused:
+                            // The escrow is no longer a plain hold: nothing was written, the order stays live.
+                            return (VerdictLegOutcome.Blocked, RefundArmRefusedReason, order);
+                        case OrderLinkedWriteOutcome.OrderNotFound:
+                            return (VerdictLegOutcome.Missing, "missing", null);
+                        case OrderLinkedWriteOutcome.Written:
+                            onArmed?.Invoke();
+                            update = AuthResult<Dictionary<string, object>>.Success(write.Order ?? order);
+                            break;
+                        default:
+                            update = AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict.");
+                            break;
+                    }
+                }
+                else
+                {
+                    update = await _orderRepo!.UpdateAsync(orderId, cancelFields, Int(order, "version"));
+                }
+
                 if (update.IsSuccess)
                 {
                     await TransactionAuditWriter.EmitAsync(_txAuditRepo, context, orderId, "order", orderId,
                         "order_cancelled", status, "cancelled", AuditContext.ForSystem(),
                         metadata: $"{auditTag};cancelReason=escrow_refunded");
                     await ReleaseDeliverySlotAsync(orderId, cancelledDeliveryId);
+
+                    // FUP-123: the cancelled order's quintals go back on its trip. Best-effort and
+                    // never throws: a release that fails changes neither this outcome nor the refund.
+                    await TripBookingRelease.ReleaseAsync(_tripRepo, order, context);
 
                     // The order is cancelled; a stock restore that did not land blocks this run's
                     // refund, and the next run (order now closed) retries the restore first.

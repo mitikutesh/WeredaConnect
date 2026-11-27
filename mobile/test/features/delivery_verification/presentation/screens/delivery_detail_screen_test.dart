@@ -11,6 +11,7 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 class MockDeliveryBloc extends Mock implements DeliveryBloc {}
 
@@ -73,6 +74,7 @@ void main() {
   Widget buildTestWidget({
     required Delivery delivery,
     String currentUserId = 'farmer-001',
+    bool? telebirrLive,
   }) {
     return BlocProvider<DeliveryBloc>.value(
       value: deliveryBloc,
@@ -83,13 +85,14 @@ void main() {
         home: DeliveryDetailScreen(
           delivery: delivery,
           currentUserId: currentUserId,
+          telebirrLive: telebirrLive,
         ),
       ),
     );
   }
 
   group('DeliveryDetailScreen', () {
-    testWidgets('renders delivery ID in app bar', (tester) async {
+    testWidgets('renders delivery ID in the header', (tester) async {
       final delivery = _makeDelivery();
 
       await tester.pumpWidget(buildTestWidget(delivery: delivery));
@@ -144,16 +147,51 @@ void main() {
       expect(find.text('Mekonnen Tadesse'), findsOneWidget);
     });
 
+    testWidgets(
+        'each party wears its own role colour, whoever is looking (trucker)',
+        (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          delivery: _makeDelivery(),
+          currentUserId: 'trucker-001',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      Color iconColour(IconData icon) =>
+          tester.widget<Icon>(find.byIcon(icon)).color!;
+      expect(iconColour(Icons.agriculture), RoleColors.farmer.primary);
+      expect(iconColour(Icons.local_shipping), RoleColors.trucker.primary);
+      expect(iconColour(Icons.store), RoleColors.buyer.primary);
+    });
+
     testWidgets('renders status timeline steps', (tester) async {
       final delivery = _makeDelivery(status: DeliveryStatus.inTransit);
 
       await tester.pumpWidget(buildTestWidget(delivery: delivery));
       await tester.pumpAndSettle();
 
-      expect(find.text('Pending'), findsOneWidget);
-      expect(find.text('Picked Up'), findsOneWidget);
-      expect(find.text('In Transit'), findsOneWidget);
-      expect(find.text('Delivered'), findsOneWidget);
+      // The header pill names the status too, so look inside the card.
+      final timeline = find.byKey(const Key('delivery_timeline'));
+      expect(timeline, findsOneWidget);
+      for (final step in ['Pending', 'Picked Up', 'In Transit', 'Delivered']) {
+        expect(
+          find.descendant(of: timeline, matching: find.text(step)),
+          findsOneWidget,
+        );
+      }
+      expect(find.text('Delivery Timeline'), findsOneWidget);
+    });
+
+    testWidgets('names the status in the header pill', (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          delivery: _makeDelivery(status: DeliveryStatus.inTransit),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('In Transit'), findsNWidgets(2));
     });
 
     testWidgets('shows GPS coordinates when gpsPickup is set', (tester) async {
@@ -271,6 +309,51 @@ void main() {
       expect(find.text('Confirm Delivery'), findsOneWidget);
     });
 
+    // T-3: the trucker shows the buyer the drop-off QR from pickup on; the
+    // farmer and the buyer never get it.
+    for (final status in [DeliveryStatus.pickedUp, DeliveryStatus.inTransit]) {
+      testWidgets('the trucker gets Show drop-off QR on ${status.name}',
+          (tester) async {
+        await tester.pumpWidget(
+          buildTestWidget(
+            delivery: _makeDelivery(status: status),
+            currentUserId: 'trucker-001',
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('delivery_dropoff_qr')), findsOneWidget);
+        expect(find.text('Show drop-off QR'), findsOneWidget);
+      });
+
+      for (final userId in ['farmer-001', 'buyer-001']) {
+        testWidgets('$userId gets no drop-off QR on ${status.name}',
+            (tester) async {
+          await tester.pumpWidget(
+            buildTestWidget(
+              delivery: _makeDelivery(status: status),
+              currentUserId: userId,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(const Key('delivery_dropoff_qr')), findsNothing);
+        });
+      }
+    }
+
+    testWidgets('no drop-off QR before pickup', (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          delivery: _makeDelivery(),
+          currentUserId: 'trucker-001',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('delivery_dropoff_qr')), findsNothing);
+    });
+
     // ESC-08: every party may cancel before pickup (the same screen on mobile
     // and web), nobody after.
     for (final userId in ['farmer-001', 'trucker-001', 'buyer-001']) {
@@ -338,14 +421,28 @@ void main() {
       expect(find.text('Delivery Details'), findsOneWidget);
     });
 
-    testWidgets('shows Pickup and Delivery section titles', (tester) async {
+    testWidgets('shows Pickup and Delivery section labels', (tester) async {
       final delivery = _makeDelivery();
 
       await tester.pumpWidget(buildTestWidget(delivery: delivery));
       await tester.pumpAndSettle();
 
-      expect(find.text('Pickup'), findsAtLeastNWidgets(1));
-      expect(find.text('Delivery'), findsAtLeastNWidgets(1));
+      // The boards' section labels are uppercase.
+      expect(find.text('PICKUP'), findsOneWidget);
+      expect(find.text('DELIVERY'), findsOneWidget);
+    });
+
+    testWidgets('names the crop and weight when the row carries them',
+        (tester) async {
+      final delivery = _makeDelivery()
+        ..cropType = 'teff'
+        ..quantity = 1500;
+
+      await tester.pumpWidget(buildTestWidget(delivery: delivery));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Teff · 1,500 kg'), findsOneWidget);
+      expect(find.textContaining('Delivery #'), findsNothing);
     });
 
     testWidgets('shows "Not yet picked up" when pickedUpAt is null',
@@ -367,5 +464,182 @@ void main() {
 
       expect(find.text('Not yet delivered'), findsOneWidget);
     });
+  });
+
+  // LT-11: the buyer and the farmer open the live trip from the delivery;
+  // the trucker never gets the buyer's map here.
+  group('DeliveryDetailScreen live trip (LT-11)', () {
+    for (final status in [
+      DeliveryStatus.pickedUp,
+      DeliveryStatus.inTransit,
+      DeliveryStatus.delivered,
+    ]) {
+      for (final userId in ['buyer-001', 'farmer-001']) {
+        testWidgets('$userId sees Live trip on a ${status.name} delivery',
+            (tester) async {
+          await tester.pumpWidget(
+            buildTestWidget(
+              delivery: _makeDelivery(status: status),
+              currentUserId: userId,
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(find.byKey(const Key('delivery_live_trip')), findsOneWidget);
+        });
+      }
+
+      testWidgets('the trucker sees no Live trip on a ${status.name} delivery',
+          (tester) async {
+        await tester.pumpWidget(
+          buildTestWidget(
+            delivery: _makeDelivery(status: status),
+            currentUserId: 'trucker-001',
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('delivery_live_trip')), findsNothing);
+      });
+    }
+
+    testWidgets('nobody gets it before pickup or on a self-pickup',
+        (tester) async {
+      for (final delivery in [
+        _makeDelivery(),
+        _makeDelivery(
+          status: DeliveryStatus.delivered,
+          truckerId: '',
+          deliveryType: 'self_pickup',
+        ),
+      ]) {
+        await tester.pumpWidget(
+          buildTestWidget(delivery: delivery, currentUserId: 'buyer-001'),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('delivery_live_trip')), findsNothing);
+      }
+    });
+  });
+
+  // FUP-19: an admin cancels a delivery after pickup (or a dispute
+  // disposition does). The row keeps its pickup time; every party sees it
+  // cancelled and gets no handoff, drop-off, cancel or live trip action.
+  group('DeliveryDetailScreen cancelled after pickup (FUP-19)', () {
+    for (final userId in ['farmer-001', 'trucker-001', 'buyer-001']) {
+      testWidgets('$userId sees it cancelled, with no action left',
+          (tester) async {
+        await tester.pumpWidget(
+          buildTestWidget(
+            delivery: _makeDelivery(
+              status: DeliveryStatus.cancelled,
+              pickedUpAt: DateTime(2026, 11, 11, 7),
+              gpsPickup: LatLng()
+                ..latitude = 9.68
+                ..longitude = 39.53,
+            ),
+            currentUserId: userId,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Cancelled'), findsAtLeastNWidgets(1));
+        expect(find.byKey(const Key('delivery_dropoff_qr')), findsNothing);
+        expect(find.byKey(const Key('delivery_live_trip')), findsNothing);
+        for (final action in [
+          'Show QR Code',
+          'Confirm Pickup',
+          'Mark In Transit',
+          'Confirm Delivery',
+          'Cancel Delivery',
+        ]) {
+          expect(find.text(action), findsNothing, reason: action);
+        }
+      });
+    }
+  });
+
+  // FUP-69: the delivery payment (the screen that calls
+  // `POST /escrow/initiate`) is the buyer's, on a pending delivery, and only
+  // on a demo build. A live Telebirr build never offers it: the server
+  // refuses the path there (ESCROW_039) and the order is paid from its page.
+  // The same screen runs on mobile and web.
+  group('DeliveryDetailScreen delivery payment (FUP-69)', () {
+    const payEntry = Key('delivery_escrow_pay');
+
+    testWidgets('a demo build offers it to the buyer of a pending delivery',
+        (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          delivery: _makeDelivery(),
+          currentUserId: 'buyer-001',
+          telebirrLive: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(payEntry), findsOneWidget);
+    });
+
+    testWidgets('a live build never offers it to the buyer', (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          delivery: _makeDelivery(),
+          currentUserId: 'buyer-001',
+          telebirrLive: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(payEntry), findsNothing);
+      expect(find.text('Pay for Delivery'), findsNothing);
+      // The buyer's other step on a pending delivery stays.
+      expect(find.text('Cancel Delivery'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a live build keeps the self-pickup scan and drops only the payment',
+        (tester) async {
+      await tester.pumpWidget(
+        buildTestWidget(
+          delivery: _makeDelivery(truckerId: '', deliveryType: 'self_pickup'),
+          currentUserId: 'buyer-001',
+          telebirrLive: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(payEntry), findsNothing);
+      expect(find.text("Scan farmer's QR to collect"), findsOneWidget);
+    });
+
+    for (final live in [false, true]) {
+      for (final userId in ['farmer-001', 'trucker-001']) {
+        testWidgets('$userId never gets it (live: $live)', (tester) async {
+          await tester.pumpWidget(
+            buildTestWidget(
+              delivery: _makeDelivery(),
+              currentUserId: userId,
+              telebirrLive: live,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(payEntry), findsNothing);
+        });
+      }
+
+      testWidgets('the buyer does not get it after pickup (live: $live)',
+          (tester) async {
+        await tester.pumpWidget(
+          buildTestWidget(
+            delivery: _makeDelivery(status: DeliveryStatus.pickedUp),
+            currentUserId: 'buyer-001',
+            telebirrLive: live,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(payEntry), findsNothing);
+      });
+    }
   });
 }

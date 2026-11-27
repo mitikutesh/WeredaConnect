@@ -11,10 +11,12 @@ import 'package:wereda_connect/core/auth/auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_result.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
+import 'package:wereda_connect/core/database/schemas/app_notification.dart';
 import 'package:wereda_connect/core/database/schemas/buyer_intent.dart';
 import 'package:wereda_connect/core/database/schemas/conversation_read.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/location_ping.dart';
 import 'package:wereda_connect/core/database/schemas/message.dart';
 import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
@@ -171,6 +173,17 @@ Rating _rating(String id, String rater, String ratee) => Rating()
   ..updatedAt = _at
   ..version = 1;
 
+LocationPing _ping(String pingId, String truckerId) => LocationPing()
+  ..pingId = pingId
+  ..tripId = pingId.split('#').first
+  ..truckerId = truckerId
+  ..kind = 'fix'
+  ..source = 'hourly'
+  ..capturedAt = DateTime.utc(2026, 10, 28)
+  ..latitude = 8.75
+  ..longitude = 38.98
+  ..accuracyM = 30;
+
 ConversationRead _read(String conversationId) => ConversationRead()
   ..conversationId = conversationId
   ..lastReadAt = _at;
@@ -203,6 +216,7 @@ void main() {
   late int tokenDeletes;
   late List<String> forgottenMarkers;
   late List<String> forgottenUsage;
+  late List<String> forgottenTracks;
   late StreamController<String> accountGone;
 
   setUpAll(() async {
@@ -235,6 +249,7 @@ void main() {
     tokenDeletes = 0;
     forgottenMarkers = [];
     forgottenUsage = [];
+    forgottenTracks = [];
     accountGone = StreamController<String>.broadcast();
     dir = Directory.systemTemp.createTempSync('account_deleted_test_');
     isar = await Isar.open(
@@ -251,6 +266,8 @@ void main() {
         RatingSchema,
         MessageSchema,
         ConversationReadSchema,
+        AppNotificationSchema,
+        LocationPingSchema,
       ],
       directory: dir.path,
       name: 'account_deleted_${DateTime.now().microsecondsSinceEpoch}',
@@ -295,6 +312,7 @@ void main() {
       pushTokenDeleter: pushTokenDeleter ?? () async => tokenDeletes++,
       forgetReadMarkers: (userId) async => forgottenMarkers.add(userId),
       forgetDataUsage: (userId) async => forgottenUsage.add(userId),
+      forgetTrackSnapshots: (userId) async => forgottenTracks.add(userId),
       sessionExpired: const Stream.empty(),
       accountGone: accountGone.stream,
     );
@@ -351,6 +369,8 @@ void main() {
       ]);
       await isar.users
           .putAll([_user(_me, _phone), _user(_other, '+251911000002')]);
+      await isar.locationPings
+          .putAll([_ping('t-me#1', _me), _ping('t-x#1', _other)]);
     });
     final queue = SyncQueue(isar);
     await queue.enqueue(
@@ -429,6 +449,10 @@ void main() {
       (await isar.users.where().findAll()).map((u) => u.userId),
       [_other],
     );
+    expect(
+      (await isar.locationPings.where().findAll()).map((p) => p.pingId),
+      ['t-x#1'],
+    );
 
     // Secure storage (auth slots), offline cache, push token, read markers.
     for (final key in _sessionKeys) {
@@ -439,6 +463,8 @@ void main() {
     verifyNever(() => cache.clearCredentials(any()));
     expect(tokenDeletes, 1);
     expect(forgottenMarkers, [_me]);
+    // LT-10: the stored live trip snapshots go with the account.
+    expect(forgottenTracks, [_me]);
 
     // The server already ended the sessions and removed the device tokens.
     verifyNever(

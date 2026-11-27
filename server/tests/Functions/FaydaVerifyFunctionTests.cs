@@ -54,12 +54,28 @@ public class FaydaVerifyFunctionTests
             .Returns("mock-verification-token");
 
         // Default: the provider's authorize URL
-        _mockFayda.BuildAuthorizationUrlAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+        _mockFayda.BuildAuthorizationUrlAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
             .Returns(ci => AuthResult<string>.Success(
-                $"https://fayda.test/authorize?state={ci.ArgAt<string>(1)}&nonce={ci.ArgAt<string>(2)}&code_challenge={ci.ArgAt<string>(3)}"));
+                $"https://fayda.test/authorize?state={ci.ArgAt<string>(1)}&nonce={ci.ArgAt<string>(2)}&code_challenge={ci.ArgAt<string>(3)}"
+                + (ci.ArgAt<string?>(4) is { } hint ? $"&login_hint={Uri.EscapeDataString(hint)}" : "")));
     }
 
-    private static AuthStateEntry StateRow(string purpose, string? userId = null, string? redirect = null) => new()
+    /// <summary>The function as deployed against the mock provider (FAYDA_MOCK=true on a dev function).</summary>
+    private FaydaVerifyFunction MockModeFunction() =>
+        new(_mockFayda, _mockRepo, _mockAuthState, _mockRateLimit,
+            Env(("FAYDA_MOCK", "true"), ("AWS_LAMBDA_FUNCTION_NAME", "wereda-connect-dev-auth-fayda-verify")));
+
+    /// <summary>The sandbox test client's registered redirect, where the local relay listens.</summary>
+    private const string SandboxRedirect = "http://localhost:3000/callback";
+
+    /// <summary>The function as deployed against the VeriFayda sandbox (FAYDA_SANDBOX=true on a dev function).</summary>
+    private FaydaVerifyFunction SandboxModeFunction(string functionName = "wereda-connect-dev-auth-fayda-verify") =>
+        new(_mockFayda, _mockRepo, _mockAuthState, _mockRateLimit,
+            Env(("FAYDA_SANDBOX", "true"), ("FAYDA_SANDBOX_REDIRECT_URI", SandboxRedirect),
+                (FaydaStartRequest.MockWebRedirectUrisEnv, "http://localhost:8080/fayda-callback.html"),
+                ("AWS_LAMBDA_FUNCTION_NAME", functionName)));
+
+    private static AuthStateEntry StateRow(string purpose, string? userId = null, string? redirect = null, string? providerRedirect = null) => new()
     {
         Key = StateKey,
         Attributes = new Dictionary<string, string>
@@ -70,6 +86,7 @@ public class FaydaVerifyFunctionTests
             { "redirectUri", redirect ?? "weredaconnect://fayda-callback" },
             { "createdAt", "2026-09-25T10:00:00Z" }
         }.Concat(userId == null ? [] : new[] { new KeyValuePair<string, string>("userId", userId) })
+         .Concat(providerRedirect == null ? [] : new[] { new KeyValuePair<string, string>("providerRedirectUri", providerRedirect) })
          .ToDictionary(kv => kv.Key, kv => kv.Value),
         ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds()
     };
@@ -340,6 +357,22 @@ public class FaydaVerifyFunctionTests
         Assert.Contains(expectedCode, response.Body);
     }
 
+    [Theory]
+    [InlineData("{\"state\":\"state-xyz\",\"redirectUri\":\"weredaconnect://fayda-callback\"}", "FAYDA_001", "authorizationCode")]
+    [InlineData("{\"authorizationCode\":\"code\",\"redirectUri\":\"weredaconnect://fayda-callback\"}", "FAYDA_002", "state")]
+    [InlineData("{\"authorizationCode\":\"code\",\"state\":\"state-xyz\"}", "AUTH_007", "redirectUri")]
+    public async Task Verify_AbsentField_AnswersThatFieldsCode(string body, string code, string field)
+    {
+        // SIM-27 (auth-api 2.13.0): an absent field is answered like a blank one, not as
+        // AUTH_007 "Invalid JSON" without a field.
+        var response = await _function.FunctionHandler(
+            new APIGatewayProxyRequest { Path = "/auth/fayda-verify", Body = body }, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+    }
+
     [Fact]
     public async Task AnyRoute_IpRateLimited_Returns429()
     {
@@ -350,6 +383,199 @@ public class FaydaVerifyFunctionTests
 
         Assert.Equal(429, response.StatusCode);
         await _mockAuthState.DidNotReceive().ConsumeAsync(Arg.Any<string>());
+    }
+
+    // ===== sandbox mode: the real VeriFayda sandbox with its shared test client =====
+
+    [Fact]
+    public async Task Start_InSandbox_AuthorizesWithTheSandboxRedirect_AndStoresTheAppRedirect()
+    {
+        IReadOnlyDictionary<string, string>? stored = null;
+        _mockAuthState.PutAsync(Arg.Any<string>(), Arg.Do<IReadOnlyDictionary<string, string>>(a => stored = a), FaydaVerifyFunction.StateTtlSeconds)
+            .Returns(Task.CompletedTask);
+
+        var response = await SandboxModeFunction().FunctionHandler(
+            MakeRequest(new { redirectUri = "weredaconnect://fayda-callback" }, "/auth/fayda-start"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockFayda.Received(1).BuildAuthorizationUrlAsync(
+            SandboxRedirect, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), null);
+        Assert.Equal("weredaconnect://fayda-callback", stored!["redirectUri"]);
+        Assert.Equal(SandboxRedirect, stored["providerRedirectUri"]);
+    }
+
+    [Fact]
+    public async Task Start_OutsideSandbox_RecordsTheAppRedirectAsTheProviderRedirect()
+    {
+        IReadOnlyDictionary<string, string>? stored = null;
+        _mockAuthState.PutAsync(Arg.Any<string>(), Arg.Do<IReadOnlyDictionary<string, string>>(a => stored = a), FaydaVerifyFunction.StateTtlSeconds)
+            .Returns(Task.CompletedTask);
+
+        await _function.FunctionHandler(MakeRequest(null, "/auth/fayda-start"), _context);
+
+        Assert.Equal("weredaconnect://fayda-callback", stored!["providerRedirectUri"]);
+    }
+
+    [Fact]
+    public async Task Start_InSandbox_TheSandboxRedirectItselfIsNotAnAppRedirect()
+    {
+        var response = await SandboxModeFunction().FunctionHandler(
+            MakeRequest(new { redirectUri = SandboxRedirect }, "/auth/fayda-start"), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("AUTH_007", response.Body);
+    }
+
+    [Fact]
+    public async Task Start_SandboxMarkerWithoutAUsableRedirect_WarnsAndSendsTheAppRedirect()
+    {
+        var function = new FaydaVerifyFunction(_mockFayda, _mockRepo, _mockAuthState, _mockRateLimit,
+            Env(("FAYDA_SANDBOX", "true"), ("FAYDA_SANDBOX_REDIRECT_URI", "http://evil.example/callback"),
+                ("AWS_LAMBDA_FUNCTION_NAME", "wereda-connect-dev-auth-fayda-verify")));
+
+        var response = await function.FunctionHandler(MakeRequest(null, "/auth/fayda-start"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockFayda.Received(1).BuildAuthorizationUrlAsync(
+            "weredaconnect://fayda-callback", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), null);
+        Assert.Contains("FAYDA_SANDBOX_REDIRECT_URI", ((TestLambdaLogger)_context.Logger).Buffer.ToString());
+    }
+
+    [Fact]
+    public async Task Start_InSandbox_WebCallback_IsAccepted()
+    {
+        var response = await SandboxModeFunction().FunctionHandler(
+            MakeRequest(new { redirectUri = "http://localhost:8080/fayda-callback.html" }, "/auth/fayda-start"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockFayda.Received(1).BuildAuthorizationUrlAsync(
+            SandboxRedirect, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), null);
+    }
+
+    [Fact]
+    public async Task Verify_InSandbox_ExchangesWithTheSandboxRedirect_AfterMatchingTheAppRedirect()
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("registration", providerRedirect: SandboxRedirect));
+
+        var response = await SandboxModeFunction().FunctionHandler(MakeRequest(VerifyBody()), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockFayda.Received(1).ExchangeCodeAsync("valid-code", SandboxRedirect, "verifier-1", "nonce-1");
+    }
+
+    [Fact]
+    public async Task Verify_RepeatsTheProviderRedirectTheStartRecorded_EvenAfterAModeFlip()
+    {
+        // Started in sandbox mode, exchanged after a deploy back to the mock within the state TTL.
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("registration", providerRedirect: SandboxRedirect));
+
+        var response = await _function.FunctionHandler(MakeRequest(VerifyBody()), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockFayda.Received(1).ExchangeCodeAsync("valid-code", SandboxRedirect, "verifier-1", "nonce-1");
+    }
+
+    [Fact]
+    public async Task Verify_InSandbox_RowWithoutAProviderRedirect_ExchangesWithTheAppRedirect()
+    {
+        // A row from before the field existed authorized with the app redirect.
+        var response = await SandboxModeFunction().FunctionHandler(MakeRequest(VerifyBody()), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockFayda.Received(1).ExchangeCodeAsync("valid-code", "weredaconnect://fayda-callback", "verifier-1", "nonce-1");
+    }
+
+    [Fact]
+    public async Task Verify_InSandbox_AppMustStillSendItsOwnRedirect()
+    {
+        // The app never learns the sandbox redirect; sending it instead of its own is a mismatch.
+        var response = await SandboxModeFunction().FunctionHandler(
+            MakeRequest(VerifyBody(redirect: SandboxRedirect)), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("FAYDA_002", response.Body);
+        await _mockFayda.DidNotReceive().ExchangeCodeAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Link_InSandbox_ExchangesWithTheSandboxRedirect()
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-7", providerRedirect: SandboxRedirect));
+        _mockRepo.GetUserByIdAsync("user-7").Returns(LinkingUser());
+        _mockRepo.UpdateUserAsync(Arg.Any<UserDto>(), 2)
+            .Returns(ci => AuthResult<UserDto>.Success(ci.Arg<UserDto>() with { Version = 3 }));
+
+        var response = await SandboxModeFunction().FunctionHandler(
+            MakeRequest(VerifyBody(), "/user/fayda-link", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockFayda.Received(1).ExchangeCodeAsync("valid-code", SandboxRedirect, "verifier-1", "nonce-1");
+    }
+
+    [Fact]
+    public async Task UserStart_InSandbox_SendsNoHint()
+    {
+        _mockRepo.GetUserByIdAsync("user-7").Returns(LinkingUser() with { FaydaId = "sub-1" });
+
+        var response = await SandboxModeFunction().FunctionHandler(MakeRequest(null, "/user/fayda-start", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.DoesNotContain("login_hint", response.Body);
+        await _mockFayda.Received(1).BuildAuthorizationUrlAsync(
+            SandboxRedirect, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), null);
+    }
+
+    [Fact]
+    public async Task Sandbox_OnAProdFunction_IsIgnored()
+    {
+        var response = await SandboxModeFunction(functionName: "wereda-connect-prod-auth-fayda-verify").FunctionHandler(
+            MakeRequest(new { redirectUri = "weredaconnect://fayda-callback" }, "/auth/fayda-start"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockFayda.Received(1).BuildAuthorizationUrlAsync(
+            "weredaconnect://fayda-callback", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), null);
+    }
+
+    [Theory]
+    [InlineData("http://evil.example/callback")]
+    [InlineData("http://localhost:3000/callback?x=1")]
+    [InlineData("http://localhost:3000/callback#frag")]
+    [InlineData("not a url")]
+    [InlineData("")]
+    public void SandboxProviderRedirect_RefusesAnythingButLoopbackHttpOrHttps(string configured)
+    {
+        var dev = ("AWS_LAMBDA_FUNCTION_NAME", "wereda-connect-dev-auth-fayda-verify");
+
+        Assert.Null(FaydaStartRequest.SandboxProviderRedirect(
+            Env(("FAYDA_SANDBOX", "true"), ("FAYDA_SANDBOX_REDIRECT_URI", configured), dev)));
+        // Without the marker the redirect setting alone means nothing.
+        Assert.Null(FaydaStartRequest.SandboxProviderRedirect(
+            Env(("FAYDA_SANDBOX_REDIRECT_URI", SandboxRedirect), dev)));
+    }
+
+    [Theory]
+    [InlineData("http://localhost:3000/callback")]
+    [InlineData("http://127.0.0.1:3001/callback")]
+    [InlineData("https://relay.example.et/fayda/callback")]
+    public void SandboxProviderRedirect_AcceptsLoopbackHttpAndHttps(string configured)
+    {
+        var dev = ("AWS_LAMBDA_FUNCTION_NAME", "wereda-connect-dev-auth-fayda-verify");
+
+        Assert.Equal(configured, FaydaStartRequest.SandboxProviderRedirect(
+            Env(("FAYDA_SANDBOX", "true"), ("FAYDA_SANDBOX_REDIRECT_URI", " " + configured + " "), dev)));
+    }
+
+    [Fact]
+    public void IsAllowedRedirect_WebCallback_AlsoAllowedWithSandbox()
+    {
+        var sandbox = Env(("FAYDA_SANDBOX", "true"), (FaydaStartRequest.MockWebRedirectUrisEnv, WebCallback),
+            ("AWS_LAMBDA_FUNCTION_NAME", "wereda-connect-dev-auth-fayda-verify"));
+        var sandboxOnProd = Env(("FAYDA_SANDBOX", "true"), (FaydaStartRequest.MockWebRedirectUrisEnv, WebCallback),
+            ("AWS_LAMBDA_FUNCTION_NAME", "wereda-connect-prod-auth-fayda-verify"));
+
+        Assert.True(FaydaStartRequest.IsAllowedRedirect(WebCallback, sandbox));
+        Assert.False(FaydaStartRequest.IsAllowedRedirect(WebCallback, sandboxOnProd));
     }
 
     // ===== fayda-start =====
@@ -423,6 +649,82 @@ public class FaydaVerifyFunctionTests
         Assert.Equal(200, response.StatusCode);
         Assert.Equal("link", stored!["purpose"]);
         Assert.Equal("user-7", stored["userId"]);
+    }
+
+    // ===== fayda-start login_hint (mock provider only) =====
+
+    [Fact]
+    public async Task UserStart_WithMockAndFaydaId_HintsTheAccountIdentity()
+    {
+        _mockRepo.GetUserByIdAsync("user-7").Returns(LinkingUser() with { FaydaId = "sub-1" });
+
+        var response = await MockModeFunction().FunctionHandler(MakeRequest(null, "/user/fayda-start", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("login_hint=sub%3Asub-1", response.Body);
+        await _mockFayda.Received(1).BuildAuthorizationUrlAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), "sub:sub-1");
+    }
+
+    [Fact]
+    public async Task UserStart_WithMock_NoFaydaId_HintsTheAccountPhone()
+    {
+        _mockRepo.GetUserByIdAsync("user-7").Returns(LinkingUser());
+
+        var response = await MockModeFunction().FunctionHandler(MakeRequest(null, "/user/fayda-start", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockFayda.Received(1).BuildAuthorizationUrlAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), "phone:+251912345678");
+    }
+
+    [Fact]
+    public async Task UserStart_WithoutMock_SendsNoHint_AndReadsNoAccountForIt()
+    {
+        _mockRepo.GetUserByIdAsync("user-7").Returns(LinkingUser() with { FaydaId = "sub-1" });
+
+        var response = await _function.FunctionHandler(MakeRequest(null, "/user/fayda-start", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.DoesNotContain("login_hint", response.Body);
+        await _mockFayda.Received(1).BuildAuthorizationUrlAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), null);
+        // The deletion guard reads the row strongly consistent; the hint adds no read in live mode.
+        await _mockRepo.DidNotReceive().GetUserByIdAsync("user-7");
+    }
+
+    [Fact]
+    public async Task Start_Registration_NeverSendsHint_EvenAgainstTheMock()
+    {
+        var response = await MockModeFunction().FunctionHandler(
+            MakeRequest(new { phoneNumber = "0912345678" }, "/auth/fayda-start"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.DoesNotContain("login_hint", response.Body);
+        await _mockRepo.DidNotReceive().GetUserByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task UserStart_WithMock_AccountReadFails_StillStartsWithoutHint()
+    {
+        _mockRepo.GetUserByIdAsync("user-7").Returns<UserDto?>(_ => throw new InvalidOperationException("DynamoDB down"));
+
+        var response = await MockModeFunction().FunctionHandler(MakeRequest(null, "/user/fayda-start", userId: "user-7"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.DoesNotContain("login_hint", response.Body);
+    }
+
+    [Theory]
+    [InlineData("sub-1", "+251912345678", "sub:sub-1")]
+    [InlineData("", "+251912345678", "phone:+251912345678")]
+    [InlineData("", "", null)]
+    public void MockLoginHint_PrefersTheFaydaId_ThenThePhone_ElseNothing(string faydaId, string phone, string? expected)
+    {
+        var user = LinkingUser() with { FaydaId = faydaId.Length == 0 ? null : faydaId, PhoneNumber = phone };
+
+        Assert.Equal(expected, FaydaStartRequest.MockLoginHint(user));
+        Assert.Null(FaydaStartRequest.MockLoginHint(null));
     }
 
     // ===== fayda-link (post-registration) =====
@@ -656,6 +958,25 @@ public class FaydaVerifyFunctionTests
         var response = await _function.FunctionHandler(MakeRequest(VerifyBody(), "/user/fayda-link"), _context);
 
         Assert.Equal(401, response.StatusCode);
+    }
+
+    // ===== ESC-29 (reputation-api.md 8.4): a suspended account links no Fayda identity =====
+
+    [Theory]
+    [InlineData("/user/fayda-start")]
+    [InlineData("/user/fayda-link")]
+    public async Task UserFaydaRoutes_ForASuspendedAccount_Return403Auth025_BeforeAnyStateOrExchange(string path)
+    {
+        _mockAuthState.ConsumeAsync(StateKey).Returns(StateRow("link", userId: "user-7"));
+        _mockRepo.GetUserByIdAsync("user-7", true).Returns(LinkingUser() with { Suspended = true });
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(path.EndsWith("link") ? VerifyBody() : null, path, userId: "user-7"), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("AUTH_025", response.Body);
+        await _mockAuthState.DidNotReceive().ConsumeAsync(Arg.Any<string>());
+        await _mockAuthState.DidNotReceive().PutAsync(Arg.Any<string>(), Arg.Any<IReadOnlyDictionary<string, string>>(), Arg.Any<int>());
     }
 
     // ===== ACC-02: a deleting or deleted account links no Fayda identity =====

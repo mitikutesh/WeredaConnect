@@ -157,6 +157,22 @@ public class VerifyOtpFunctionTests
 
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("password", response.Body);
+        Assert.Contains("\"code\":\"AUTH_002\"", response.Body);
+    }
+
+    [Theory]
+    [InlineData("{\"otpCode\":\"482913\",\"password\":\"secure123\"}", "AUTH_001", "phoneNumber")]
+    [InlineData("{\"phoneNumber\":\"+251912345678\",\"password\":\"secure123\"}", "AUTH_009", "otpCode")]
+    [InlineData("{\"phoneNumber\":\"+251912345678\",\"otpCode\":\"482913\"}", "AUTH_002", "password")]
+    public async Task Verify_MissingField_AnswersThatFieldsCode(string body, string code, string field)
+    {
+        // SIM-27 (auth-api 2.13.0): it was AUTH_007 "Invalid JSON".
+        var response = await _function.FunctionHandler(
+            new APIGatewayProxyRequest { Path = "/auth/verify-otp", Body = body }, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
     }
 
     [Fact]
@@ -332,6 +348,21 @@ public class VerifyOtpFunctionTests
         Assert.Equal(429, response.StatusCode);
         Assert.Equal("42", response.Headers["Retry-After"]);
         await _mockSms.DidNotReceive().SendAsync(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"phoneNumber\":null}")]
+    public async Task Resend_AbsentPhone_AnswersAuth001(string body)
+    {
+        // FUP-127 audit: the reader leaves the absent phoneNumber null (its "" initializer does not
+        // run); the validator answers it like a blank one and nothing is sent.
+        var response = await _function.FunctionHandler(
+            new APIGatewayProxyRequest { Path = "/auth/resend-otp", Body = body }, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"AUTH_001\"", response.Body);
+        Assert.Contains("\"field\":\"phoneNumber\"", response.Body);
     }
 
     [Fact]

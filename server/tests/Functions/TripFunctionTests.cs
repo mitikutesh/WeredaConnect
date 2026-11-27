@@ -6,6 +6,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using Xunit;
 
@@ -516,6 +517,272 @@ public class TripFunctionTests
         Assert.Contains("Failed to query", response.Body, StringComparison.OrdinalIgnoreCase);
     }
 
+    // --- FUP-126: paging that never hands out a token to an empty last page (as SIM-26 for crops) ---
+
+    private static Dictionary<string, AttributeValue> PageKey(string tripId) => new()
+    {
+        { "tripId", new AttributeValue { S = tripId } },
+        { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } }
+    };
+
+    private static List<Dictionary<string, object>> Page(int count, string prefix = "trip")
+        => Enumerable.Range(1, count).Select(i => CreateTripItem($"{prefix}-{i}")).ToList();
+
+    /// <summary>The buyer browse read (StatusDepartureDateIndex) asked for exactly this.</summary>
+    private void BrowseReturns(
+        int limit,
+        Dictionary<string, AttributeValue>? startKey,
+        List<Dictionary<string, object>> items,
+        Dictionary<string, AttributeValue>? lastKey)
+    {
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            limit,
+            startKey)
+            .Returns((items, lastKey));
+    }
+
+    private static string? NextTokenTripId(string body)
+    {
+        using var doc = JsonDocument.Parse(body);
+        if (!doc.RootElement.TryGetProperty("nextToken", out var token))
+        {
+            return null;
+        }
+
+        return PaginationTokenHelper.DecodeNextToken(token.GetString()!)?["tripId"].S;
+    }
+
+    private static List<string> TripIds(string body)
+    {
+        using var doc = JsonDocument.Parse(body);
+        return doc.RootElement.GetProperty("trips").EnumerateArray()
+            .Select(t => t.GetProperty("tripId").GetString()!)
+            .ToList();
+    }
+
+    private static Dictionary<string, string> Limit(int limit) => new() { { "limit", limit.ToString() } };
+
+    [Fact]
+    public async Task HandleGetTrips_FullPageWithNothingAfter_HasNoNextToken()
+    {
+        // The FUP-126 case: DynamoDB hands back a key after exactly `limit` trips even when
+        // nothing follows. The one-trip look-ahead finds nothing, so no token is sent.
+        var k1 = PageKey("trip-2");
+        BrowseReturns(2, null, Page(2), k1);
+        BrowseReturns(1, k1, new List<Dictionary<string, object>>(), null);
+
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: Limit(2)), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(new[] { "trip-1", "trip-2" }, TripIds(response.Body));
+        Assert.Null(NextTokenTripId(response.Body));
+        Assert.Contains("\"hasMore\":false", response.Body);
+        Assert.Contains("\"total\":2", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_FullPageWithATripAfter_TokenStartsAtTheLookAhead()
+    {
+        var k1 = PageKey("trip-2");
+        var k2 = PageKey("next-1");
+        BrowseReturns(2, null, Page(2), k1);
+        BrowseReturns(1, k1, Page(1, "next"), k2);
+
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: Limit(2)), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        // The look-ahead trip belongs to the next page, not this one.
+        Assert.Equal(new[] { "trip-1", "trip-2" }, TripIds(response.Body));
+        Assert.Equal("trip-2", NextTokenTripId(response.Body));
+        Assert.Contains("\"hasMore\":true", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_CancelledTripsDropped_PageIsFilledFromTheNextKey()
+    {
+        // SIM-31 drops a trip cancelled by a status update after DynamoDB counted it. The page
+        // used to come back short with a token; now it reads on until it is full.
+        var k1 = PageKey("trip-cancelled");
+        BrowseReturns(3, null, new List<Dictionary<string, object>>
+        {
+            CreateTripItem("trip-1"),
+            CreateTripItem("trip-cancelled", "cancelled"),
+            CreateTripItem("trip-2")
+        }, k1);
+        BrowseReturns(1, k1, Page(1, "more"), null);
+
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: Limit(3)), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(new[] { "trip-1", "trip-2", "more-1" }, TripIds(response.Body));
+        Assert.Null(NextTokenTripId(response.Body));
+        Assert.Contains("\"hasMore\":false", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_QueryFilters_RunInsideThePageFill()
+    {
+        // minCapacity is applied in memory: a trip it drops does not leave the page short.
+        var small = CreateTripItem("trip-small");
+        small["capacity"] = "10";
+        var k1 = PageKey("trip-small");
+        BrowseReturns(2, null, new List<Dictionary<string, object>> { CreateTripItem("trip-1"), small }, k1);
+        BrowseReturns(1, k1, Page(1, "more"), null);
+
+        var queryParams = new Dictionary<string, string> { { "limit", "2" }, { "minCapacity", "100" } };
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: queryParams), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(new[] { "trip-1", "more-1" }, TripIds(response.Body));
+        Assert.Contains("\"hasMore\":false", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_LookAheadSkipsFilteredTrips()
+    {
+        // The first look-ahead read only a cancelled trip: the token skips it, and a trip that
+        // passes the filters follows, so there is a next page.
+        var k1 = PageKey("trip-2");
+        var k2 = PageKey("trip-cancelled");
+        var k3 = PageKey("next-1");
+        BrowseReturns(2, null, Page(2), k1);
+        BrowseReturns(1, k1, new List<Dictionary<string, object>> { CreateTripItem("trip-cancelled", "cancelled") }, k2);
+        BrowseReturns(1, k2, Page(1, "next"), k3);
+
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: Limit(2)), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(new[] { "trip-1", "trip-2" }, TripIds(response.Body));
+        Assert.Equal("trip-cancelled", NextTokenTripId(response.Body));
+        Assert.Contains("\"hasMore\":true", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_OnlyFilteredTripsAfterAFullPage_HasNoNextToken()
+    {
+        // Everything after the page is cancelled: nothing a client can see follows.
+        var k1 = PageKey("trip-2");
+        BrowseReturns(2, null, Page(2), k1);
+        BrowseReturns(1, k1, new List<Dictionary<string, object>> { CreateTripItem("trip-cancelled", "cancelled") }, null);
+
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: Limit(2)), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(2, TripIds(response.Body).Count);
+        Assert.Null(NextTokenTripId(response.Body));
+        Assert.Contains("\"hasMore\":false", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_ReadBudgetSpent_ReturnsTheKeyItReached()
+    {
+        // A long run of filtered-out trips: the reads are bounded and the page may be short,
+        // but the token still points past what was read.
+        var key = PageKey("cancelled-n");
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateTripItem("cancelled-n", "cancelled") }, key));
+
+        var response = await _function.FunctionHandler(MakeGetRequest(), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Empty(TripIds(response.Body));
+        Assert.Equal("cancelled-n", NextTokenTripId(response.Body));
+        Assert.Contains("\"hasMore\":true", response.Body);
+        await _mockTripRepo.Received(PageFill.MaxReads).QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_IncomingToken_IsTheFirstReadsStartKey()
+    {
+        var queryParams = new Dictionary<string, string>
+        {
+            { "limit", "1" },
+            { "nextToken", PaginationTokenHelper.EncodeNextToken(PageKey("trip-start")) }
+        };
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((Page(1), null));
+
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: queryParams), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockTripRepo.Received(1).QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            1,
+            Arg.Is<Dictionary<string, AttributeValue>?>(k => k != null && k["tripId"].S == "trip-start"));
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_TruckerOwnList_IsFilledAndStaysOwnOnly()
+    {
+        // The trucker's own list pages the same way, and every read is scoped to the trucker:
+        // the fill never widens the query to the browse index.
+        var k1 = PageKey("trip-2");
+        _mockTripRepo.QueryTripsByTruckerAsync("trucker-001", Arg.Any<string?>(), 2, null)
+            .Returns((Page(2), k1));
+        _mockTripRepo.QueryTripsByTruckerAsync("trucker-001", Arg.Any<string?>(), 1, k1)
+            .Returns((new List<Dictionary<string, object>>(), null));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedGetRequest("trucker-001", "trucker", queryParams: Limit(2)), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Equal(2, TripIds(response.Body).Count);
+        Assert.Null(NextTokenTripId(response.Body));
+        Assert.Contains("\"hasMore\":false", response.Body);
+        await _mockTripRepo.Received(2).QueryTripsByTruckerAsync(
+            "trucker-001",
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+        await _mockTripRepo.DidNotReceive().QueryTripsByTruckerAsync(
+            Arg.Is<string>(id => id != "trucker-001"),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+        await _mockTripRepo.DidNotReceive().QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_InvalidMinCapacity_Returns400WithoutReading()
+    {
+        var queryParams = new Dictionary<string, string> { { "minCapacity", "-1" } };
+        var response = await _function.FunctionHandler(MakeGetRequest(queryParams: queryParams), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("minCapacity", response.Body, StringComparison.OrdinalIgnoreCase);
+        await _mockTripRepo.DidNotReceive().QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>());
+    }
+
     // --- HandleGetTripById Tests ---
 
     [Fact]
@@ -533,6 +800,26 @@ public class TripFunctionTests
         Assert.Contains("Tadesse Worku", response.Body);
         Assert.Contains("Bishoftu", response.Body);
         Assert.Contains("\"trip\":", response.Body);
+    }
+
+    [Theory]
+    [InlineData("buyer-default", "buyer")]
+    [InlineData("trucker-789", "trucker")]
+    public async Task HandleGetTripById_OpenTripThatLeftDaysAgo_IsStillReturned(string userId, string role)
+    {
+        // L-7 hides a departed open trip from the browse only: its orders, the buyer's
+        // live trip and the trucker's own screens still read it by id.
+        var trip = CreateTripItem("trip-001");
+        trip["departureDate"] = DateTime.UtcNow.AddDays(-10)
+            .ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        _mockTripRepo.GetByIdAsync("trip-001").Returns(trip);
+
+        var pathParams = new Dictionary<string, string> { { "id", "trip-001" } };
+        var request = MakeAuthenticatedGetRequest(userId, role, "/trips/trip-001", pathParams: pathParams);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("trip-001", response.Body);
     }
 
     [Fact]
@@ -1455,6 +1742,43 @@ public class TripFunctionTests
         }
 
         Assert.Equal(expected, TripFunction.IsCancelledOrDeleted(trip));
+    }
+
+    // --- FUP-122: the order lead the browse reports ---
+
+    [Theory]
+    [InlineData(true, 24)]
+    [InlineData(false, 0)]
+    public async Task HandleGetTrips_ReportsTheOrderLead_FromTheCommitmentsFlag(bool enabled, int expectedHours)
+    {
+        _mockTripRepo.QueryTripsAsync(
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<string?>(),
+            Arg.Any<int>(),
+            Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>> { CreateTripItem() }, null));
+        var function = new TripFunction(_mockTripRepo) { CommitmentsEnabled = enabled };
+
+        var response = await function.FunctionHandler(MakeGetRequest(), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        using var doc = JsonDocument.Parse(response.Body);
+        Assert.Equal(expectedHours, doc.RootElement.GetProperty("orderLeadHours").GetInt32());
+        Assert.Single(doc.RootElement.GetProperty("trips").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task HandleGetTrips_EmptyPage_StillReportsTheOrderLead()
+    {
+        var function = new TripFunction(_mockTripRepo) { CommitmentsEnabled = true };
+
+        var response = await function.FunctionHandler(
+            MakeGetRequest(queryParams: new Dictionary<string, string> { { "status", "cancelled" } }), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        using var doc = JsonDocument.Parse(response.Body);
+        Assert.Equal(24, doc.RootElement.GetProperty("orderLeadHours").GetInt32());
     }
 
     // --- Constructor Tests ---

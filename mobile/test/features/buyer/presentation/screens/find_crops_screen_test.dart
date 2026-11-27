@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -18,7 +19,8 @@ import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dar
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -113,27 +115,78 @@ void main() {
       expect(find.text('My Requests'), findsOneWidget);
     });
 
-    testWidgets(
-        'only one GreenHeader in the tree — embedded BrowseListingsScreen '
-        'does not render its own header', (tester) async {
+    testWidgets('the header asks for the buyer sketch under its buttons',
+        (tester) async {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      // FindCropsScreen owns exactly one GreenHeader.
-      // BrowseListingsScreen(showHeader: false) must not add a second one.
-      expect(find.byType(GreenHeader), findsOneWidget);
+      final header = tester.widget<FwPageHeader>(find.byType(FwPageHeader));
+      expect(header.sketchRole, UserRole.buyer);
+      expect(header.sketchBelowTrailing, isTrue);
+      expect(header.trailing, isNotNull);
     });
 
-    testWidgets('TabBarView uses NeverScrollableScrollPhysics', (tester) async {
+    testWidgets('the tabs are the board segmented switch (Market board)',
+        (tester) async {
       await tester.pumpWidget(buildTestWidget());
       await tester.pumpAndSettle();
 
-      expect(
-        find.byWidgetPredicate(
-          (w) => w is TabBarView && w.physics is NeverScrollableScrollPhysics,
-        ),
-        findsOneWidget,
-      );
+      expect(find.byType(FwSegmented<int>), findsOneWidget);
+      expect(find.byType(TabBar), findsNothing);
+      // Both bodies stay alive behind the switch, the hidden one off stage.
+      expect(find.byType(Offstage), findsWidgets);
+    });
+
+    testWidgets(
+        'one page header: the embedded BrowseListingsScreen does not add '
+        'its own', (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FwPageHeader), findsOneWidget);
+      expect(find.text('Find Crops'), findsOneWidget);
+    });
+
+    testWidgets(
+        'search and price filters stay behind the header button (board)',
+        (tester) async {
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Search crops, farmers...'), findsNothing);
+      expect(find.text('Min'), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.search));
+      await tester.pumpAndSettle();
+      expect(find.text('Search crops, farmers...'), findsOneWidget);
+      expect(find.text('Min'), findsOneWidget);
+      expect(find.text('Max'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.search).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Search crops, farmers...'), findsNothing);
+    });
+
+    testWidgets('My Requests counts the active intents', (tester) async {
+      final intent = BuyerIntent()
+        ..intentId = 'intent-001'
+        ..buyerId = 'buyer-001'
+        ..cropType = 'wheat'
+        ..quantityNeeded = 100
+        ..maxPricePerKg = 30
+        ..deliveryWoreda = 'Adama'
+        ..status = BuyerIntentStatus.active
+        ..createdAt = DateTime.utc(2026)
+        ..updatedAt = DateTime.utc(2026)
+        ..version = 1;
+      final state = ActiveIntentsLoaded(intents: [intent]);
+      when(() => buyerIntentBloc.state).thenReturn(state);
+      when(() => buyerIntentBloc.stream).thenAnswer((_) => Stream.value(state));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.text('My Requests · 1'), findsOneWidget);
     });
 
     testWidgets('My Requests tab shows loading indicator when loading',
@@ -173,6 +226,106 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('No matches yet'), findsOneWidget);
+    });
+
+    testWidgets('My Requests list ends clear of the floating create button',
+        (tester) async {
+      // LT-01: on web this screen is the buyer's tab under the shell FAB.
+      final intent = BuyerIntent()
+        ..intentId = 'intent-001'
+        ..buyerId = 'buyer-001'
+        ..cropType = 'wheat'
+        ..quantityNeeded = 100
+        ..maxPricePerKg = 30
+        ..deliveryWoreda = 'Adama'
+        ..status = BuyerIntentStatus.active
+        ..createdAt = DateTime.utc(2026)
+        ..updatedAt = DateTime.utc(2026)
+        ..version = 1;
+      final state = ActiveIntentsLoaded(intents: [intent]);
+      when(() => buyerIntentBloc.state).thenReturn(state);
+      when(() => buyerIntentBloc.stream).thenAnswer((_) => Stream.value(state));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('My Requests · 1'));
+      await tester.pumpAndSettle();
+
+      final list = tester.widget<ListView>(
+        find.descendant(
+          of: find.byType(RefreshIndicator),
+          matching: find.byType(ListView),
+        ),
+      );
+      expect(
+        list.padding!.resolve(TextDirection.ltr).bottom,
+        Breakpoints.fabClearance,
+      );
+    });
+  });
+
+  // MarketM board.
+  group('page M', () {
+    BuyerIntent intent() => BuyerIntent()
+      ..intentId = 'intent-001'
+      ..buyerId = 'buyer-001'
+      ..cropType = 'wheat'
+      ..quantityNeeded = 20
+      ..maxPricePerKg = 45
+      ..deliveryWoreda = 'Addis Ababa'
+      ..matchCount = 3
+      ..status = BuyerIntentStatus.active
+      ..createdAt = DateTime.utc(2026)
+      ..updatedAt = DateTime.utc(2026)
+      ..version = 1;
+
+    testWidgets('the eyebrow reads "Deliver to" with the buyer\'s place',
+        (tester) async {
+      when(() => authBloc.state).thenReturn(
+        const AuthAuthenticated(
+          userId: 'buyer-001',
+          tokens: _testTokens,
+          role: UserRole.buyer,
+          woreda: 'Addis Ababa',
+        ),
+      );
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Deliver to Addis Ababa'), findsOneWidget);
+      expect(find.byIcon(Icons.place_outlined), findsOneWidget);
+      expect(find.text('Find Crops'), findsOneWidget);
+    });
+
+    testWidgets('a request reads kilograms first, its matches as a pill',
+        (tester) async {
+      final state = ActiveIntentsLoaded(intents: [intent()]);
+      when(() => buyerIntentBloc.state).thenReturn(state);
+      when(() => buyerIntentBloc.stream).thenAnswer((_) => Stream.value(state));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('My Requests · 1'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Wheat · 2,000 kg (20 quintals)'), findsOneWidget);
+      expect(find.widgetWithText(FwPill, '3 matches found'), findsOneWidget);
+      // The link to add another request scrolls with the list.
+      expect(find.text('New Buying Intent'), findsOneWidget);
+    });
+
+    testWidgets('search hides with the Browse segment', (tester) async {
+      final state = ActiveIntentsLoaded(intents: [intent()]);
+      when(() => buyerIntentBloc.state).thenReturn(state);
+      when(() => buyerIntentBloc.stream).thenAnswer((_) => Stream.value(state));
+
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.search), findsOneWidget);
+
+      await tester.tap(find.text('My Requests · 1'));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.search), findsNothing);
     });
   });
 }

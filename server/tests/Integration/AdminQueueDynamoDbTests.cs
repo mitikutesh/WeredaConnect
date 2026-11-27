@@ -6,6 +6,7 @@ using FluentAssertions;
 using NSubstitute;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
@@ -306,5 +307,132 @@ public sealed class AdminQueueDynamoDbTests
 
         (await EscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: "2000-01-01T00:00:00Z", limit: 500))
             .Select(e => (string)e["escrowId"]).Should().NotContain(escrowId);
+    }
+
+    // ===== FUP-334: the hold-cap stamp lands only on the entry it read =====
+
+    private Task<EscrowLinkedWriteOutcome> StampAsync(string escrowId, string orderId, string queuedAt, string? entryEscrowId)
+        => EscrowRepo.TryUpdateStatusWithAsync(escrowId, "2026-09-01T10:00:00.0000000Z", "escrowed", "escrowed",
+            new Dictionary<string, object> { { AdminQueueFields.HoldCapReachedAt, queuedAt } },
+            new[] { OrderRepo.BuildAdminQueueEntryCheck(orderId, CreatedAt, queuedAt, entryEscrowId) });
+
+    [LocalDynamoDbFact]
+    public async Task HoldCapStampTransaction_LandsOnlyWhileTheEntryReadStands()
+    {
+        const string first = "2026-10-22T10:00:00.0000000Z";
+        const string second = "2026-10-23T10:00:00.0000000Z";
+        var orderId = await SeedOrderAsync("accepted");
+        var escrowId = await SeedEscrowAsync(orderId, "2099-02-01T00:00:00.0000000Z", "2026-09-01T10:00:00.0000000Z");
+        await OrderRepo.TryEnterAdminQueueAsync(orderId, PickupJudgement.ReasonBothPresent, escrowId, first, "accepted");
+
+        // Another queue time, another escrow, or no escrow named: not the entry read.
+        (await StampAsync(escrowId, orderId, second, escrowId)).Should().Be(EscrowLinkedWriteOutcome.LinkedItemRefused);
+        (await StampAsync(escrowId, orderId, first, "escrow-someone-else")).Should().Be(EscrowLinkedWriteOutcome.LinkedItemRefused);
+        (await StampAsync(escrowId, orderId, first, null)).Should().Be(EscrowLinkedWriteOutcome.LinkedItemRefused);
+
+        // The entry read, removed before the stamp (the re-open, a clear): refused, nothing written.
+        (await OrderRepo.TryLeaveAdminQueueAsync(orderId, first)).Should().BeTrue();
+        (await StampAsync(escrowId, orderId, first, escrowId)).Should().Be(EscrowLinkedWriteOutcome.LinkedItemRefused);
+        (await EscrowRepo.GetByIdAsync(escrowId, consistentRead: true)).Should().NotContainKey(AdminQueueFields.HoldCapReachedAt);
+
+        // The entry read, still standing: stamped.
+        await OrderRepo.TryEnterAdminQueueAsync(orderId, AdminQueueFields.ReasonHoldCap, escrowId, second, "accepted");
+        (await StampAsync(escrowId, orderId, second, escrowId)).Should().Be(EscrowLinkedWriteOutcome.Written);
+        (await EscrowRepo.GetByIdAsync(escrowId, consistentRead: true))![AdminQueueFields.HoldCapReachedAt].Should().Be(second);
+
+        // An entry without adminQueueEscrowId (it names the order escrow) passes only while it still has none.
+        var unnamedOrder = await SeedOrderAsync("accepted");
+        var unnamedEscrow = await SeedEscrowAsync(unnamedOrder, "2099-02-01T00:00:00.0000000Z", "2026-09-01T10:00:00.0000000Z");
+        await Ddb.UpdateItemAsync(new UpdateItemRequest
+        {
+            TableName = _db.Orders,
+            Key = new Dictionary<string, AttributeValue> { ["orderId"] = S(unnamedOrder), ["createdAt"] = S(CreatedAt) },
+            UpdateExpression = "SET adminQueue = :open, adminQueuedAt = :at, adminQueueReason = :reason",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                [":open"] = S("open"),
+                [":at"] = S(first),
+                [":reason"] = S(AdminQueueFields.ReasonHoldCap)
+            }
+        });
+        (await StampAsync(unnamedEscrow, unnamedOrder, first, null)).Should().Be(EscrowLinkedWriteOutcome.Written);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task HoldCapStamp_EntryRemovedBetweenTheReadAndTheStamp_EscrowNotCapped_NoAlarm_NextRunQueuesItsOwn()
+    {
+        // The pickup judgement queued the order an hour ago; its escrow reaches the cap now (funded 2026-09-01).
+        var judgedAt = DateTime.UtcNow.AddHours(-1).ToString("o");
+        var orderId = await SeedOrderAsync("accepted");
+        var escrowId = await SeedEscrowAsync(orderId, "1999-03-01T00:00:00.0000000Z", "2026-09-01T10:00:00.0000000Z");
+        (await OrderRepo.TryEnterAdminQueueAsync(orderId, PickupJudgement.ReasonBothPresent, escrowId, judgedAt, "accepted"))
+            .Should().BeTrue();
+
+        // Right before the cron's stamp (after it read the judgement's entry and wrote its audit row), the admin's
+        // pickup re-open lands: FUP-287's transaction, which removes the judgement's entry while the escrow has no
+        // holdCapReachedAt.
+        OrderLinkedWriteResult? reopen = null;
+        var racing = new FaultyEscrowRepository(EscrowRepo)
+        {
+            OnUpdateStatus = (id, newStatus) =>
+            {
+                if (id == escrowId && newStatus == "escrowed" && reopen == null)
+                {
+                    reopen = Task.Run(() => OrderRepo.TryUpdateGuardedAsync(orderId,
+                        new Dictionary<string, object> { { PickupJudgement.Field, PickupJudgement.Outcome.Pending } },
+                        AdminQueueFields.All, 3,
+                        new Dictionary<string, string> { { AdminQueueFields.QueuedAt, judgedAt } },
+                        Array.Empty<string>(),
+                        new[]
+                        {
+                            OrderRepository.EscrowHoldsMoneyCheck(
+                                new EscrowRowKey(_db.Escrows, escrowId, "2026-09-01T10:00:00.0000000Z"), notHoldCapped: true)
+                        })).GetAwaiter().GetResult();
+                }
+
+                return null;
+            }
+        };
+        var firstRun = new TestLambdaContext();
+        var response = await new EscrowCronFunction(Service(), racing, AuditRepo, _gateway, DeliveryRepo, OrderRepo, CropRepo,
+            transactionAuditRepo: TxRepo).FunctionHandler(
+            new APIGatewayProxyRequest { Body = "{\"action\":\"auto_release_and_refund\"}" }, firstRun);
+        response.StatusCode.Should().Be(200, response.Body);
+
+        reopen.Should().NotBeNull("the re-open ran between the cron's read and its stamp");
+        reopen!.Value.Outcome.Should().Be(OrderLinkedWriteOutcome.Written);
+        (await RawOrderAsync(orderId)).Should().NotContainKeys("adminQueue", "adminQueuedAt", "adminQueueReason", "adminQueueEscrowId");
+
+        // Not capped: the escrow stays in the sweep window. No money alarm, one info line.
+        var escrow = await EscrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+        escrow!["status"].Should().Be("escrowed");
+        escrow.Should().NotContainKey(AdminQueueFields.HoldCapReachedAt);
+        (await EscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: "2000-01-01T00:00:00Z", limit: 500))
+            .Select(e => (string)e["escrowId"]).Should().Contain(escrowId);
+        var logs = ((TestLambdaLogger)firstRun.Logger).Buffer.ToString();
+        logs.Should().Contain(
+            $"ORDER_ESCROW_HOLD_CAP_STAMP_SKIPPED escrowId={escrowId} orderId={orderId} reason=queue_entry_changed");
+        logs.Split('\n').Where(l => l.Contains(escrowId) || l.Contains(orderId))
+            .Should().NotContain(l => l.Contains("ESCROW_SETTLEMENT_FAILED") || l.Contains("ADMIN_QUEUE_OVERDUE"));
+        _refunded.Should().NotContain($"refund:{escrowId}");
+
+        // The next run decides again: the order is not queued, so it writes its own hold_cap entry and stamps
+        // the escrow against that one.
+        var secondRun = new TestLambdaContext();
+        response = await new EscrowCronFunction(Service(), EscrowRepo, AuditRepo, _gateway, DeliveryRepo, OrderRepo, CropRepo,
+            transactionAuditRepo: TxRepo).FunctionHandler(
+            new APIGatewayProxyRequest { Body = "{\"action\":\"auto_release_and_refund\"}" }, secondRun);
+        response.StatusCode.Should().Be(200, response.Body);
+
+        var queued = await RawOrderAsync(orderId);
+        queued["adminQueue"].S.Should().Be("open");
+        queued["adminQueueReason"].S.Should().Be(AdminQueueFields.ReasonHoldCap);
+        queued["adminQueueEscrowId"].S.Should().Be(escrowId);
+        var capped = await EscrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+        capped![AdminQueueFields.HoldCapReachedAt].Should().Be(queued["adminQueuedAt"].S);
+        ((TestLambdaLogger)secondRun.Logger).Buffer.ToString().Should().NotContain($"STAMP_SKIPPED escrowId={escrowId}");
+        (await EscrowRepo.QueryByStatusForCronAsync("escrowed", expiresAtBefore: "2000-01-01T00:00:00Z", limit: 500))
+            .Select(e => (string)e["escrowId"]).Should().NotContain(escrowId);
+        _refunded.Should().NotContain($"refund:{escrowId}");
     }
 }

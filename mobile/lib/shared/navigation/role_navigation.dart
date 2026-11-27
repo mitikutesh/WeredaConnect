@@ -3,15 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
-/// Role-shaped navigation (design brief 2026-07-06).
+/// Role-shaped navigation (design canvas page M, specs/design-canvas).
 ///
-/// Five slots per role — Home and the role's fulfilment view anchor the
-/// ends, the middle is the role's actual job, and the center FAB is the
-/// role's single create verb:
+/// Four slots per role in one bar: three destinations, then the role's
+/// single create verb as the bar's orange button:
 ///
-///   Farmer:  Home · My Crops · [Sell Crop]   · Orders     · Deliveries
-///   Trucker: Home · My Trips · [New Trip]    · Deliveries · Payments
-///   Buyer:   Home · Market   · [New Request] · Orders     · Deliveries
+///   Farmer:  Home       · My Crops · Orders     · [Sell]
+///   Trucker: Home       · My Trips · Deliveries · [Post trip]
+///   Buyer:   Deliveries · Market   · Orders     · [Buy]
+///
+/// What left the bar stays one tap away ([sidebarExtrasForRole]): the web
+/// sidebar lists it, and on a phone the account sheet and Home's tiles
+/// open it.
 ///
 /// This file is the single source of truth for which destination sits at
 /// which index — the mobile shell, the web shell, and every "jump to tab"
@@ -25,6 +28,9 @@ enum RoleTab {
   deliveries,
   payments,
   messages,
+
+  /// Every trucker's trips, for a buyer (never a bar tab).
+  findTrips,
 }
 
 extension RoleTabVisual on RoleTab {
@@ -37,6 +43,7 @@ extension RoleTabVisual on RoleTab {
         RoleTab.deliveries => Icons.local_shipping_outlined,
         RoleTab.payments => Icons.account_balance_wallet_outlined,
         RoleTab.messages => Icons.chat_bubble_outline,
+        RoleTab.findTrips => Icons.route_outlined,
       };
 
   IconData get activeIcon => switch (this) {
@@ -48,6 +55,7 @@ extension RoleTabVisual on RoleTab {
         RoleTab.deliveries => Icons.local_shipping,
         RoleTab.payments => Icons.account_balance_wallet,
         RoleTab.messages => Icons.chat_bubble,
+        RoleTab.findTrips => Icons.route,
       };
 
   String label(AppLocalizations l10n) => switch (this) {
@@ -59,6 +67,7 @@ extension RoleTabVisual on RoleTab {
         RoleTab.deliveries => l10n.deliveries,
         RoleTab.payments => l10n.payments,
         RoleTab.messages => l10n.messages,
+        RoleTab.findTrips => l10n.findTrips,
       };
 
   /// Web route for this destination (go_router).
@@ -71,53 +80,70 @@ extension RoleTabVisual on RoleTab {
         RoleTab.deliveries => '/deliveries',
         RoleTab.payments => '/payments',
         RoleTab.messages => '/messages',
+        RoleTab.findTrips => '/trips',
       };
 }
 
-/// The four bar destinations for [role] (the FAB occupies the center slot).
+/// The three bar destinations for [role] (the create button ends the bar).
+/// The first one is where the role lands after sign-in.
 List<RoleTab> tabsForRole(UserRole role) {
   return switch (role) {
     UserRole.farmer => const [
         RoleTab.home,
         RoleTab.myCrops,
         RoleTab.orders,
-        RoleTab.deliveries,
       ],
     UserRole.trucker => const [
         RoleTab.home,
         RoleTab.myTrips,
         RoleTab.deliveries,
-        RoleTab.payments,
       ],
     UserRole.buyer => const [
-        RoleTab.home,
+        RoleTab.deliveries,
         RoleTab.market,
         RoleTab.orders,
-        RoleTab.deliveries,
       ],
   };
 }
 
+/// The web route [role] lands on: its first bar tab.
+String landingRouteForRole(UserRole role) => tabsForRole(role).first.route;
+
 /// Destinations that didn't earn a bar slot for [role] but stay reachable
-/// from the web sidebar (desktop/tablet has room; mobile pushes instead).
+/// from the web sidebar (desktop/tablet has room) and, without a sidebar,
+/// from the header's account button (account_menu.dart).
 List<RoleTab> sidebarExtrasForRole(UserRole role) {
   return switch (role) {
-    UserRole.farmer => const [RoleTab.messages, RoleTab.payments],
-    UserRole.trucker => const [RoleTab.messages, RoleTab.orders],
-    UserRole.buyer => const [RoleTab.messages, RoleTab.payments],
+    UserRole.farmer => const [
+        RoleTab.deliveries,
+        RoleTab.messages,
+        RoleTab.payments,
+      ],
+    UserRole.trucker => const [
+        RoleTab.payments,
+        RoleTab.messages,
+        RoleTab.orders,
+      ],
+    // A buyer has no Home: every trucker's trips, which Home linked to,
+    // stay here (a buyer must always be able to browse ALL trips).
+    UserRole.buyer => const [
+        RoleTab.findTrips,
+        RoleTab.messages,
+        RoleTab.payments,
+      ],
   };
 }
 
 /// Web routes (go_router paths) [role] may open. A URL outside this set is
-/// redirected to `/` before any screen mounts, so a wrong-role page never
+/// redirected to the role's landing route before any screen mounts, so a wrong-role page never
 /// fires the requests the server would refuse with 403 (SIM-21). Legacy
-/// aliases stay for old bookmarks; buyers may browse ALL trips (their Home
-/// links there), farmers and truckers may not.
+/// aliases stay for old bookmarks; buyers may browse ALL trips, farmers and
+/// truckers may not. `/` is Home: a buyer, who has none, is sent on to
+/// their first tab.
 Set<String> webRoutesForRole(UserRole role) {
   final routes = <String>{
     for (final tab in tabsForRole(role)) tab.route,
     for (final tab in sidebarExtrasForRole(role)) tab.route,
-    RoleTab.home.route,
     '/profile',
     '/settings',
   };
@@ -125,7 +151,7 @@ Set<String> webRoutesForRole(UserRole role) {
     case UserRole.farmer:
       routes.add('/listings');
     case UserRole.buyer:
-      routes.addAll(['/marketplace', '/trips']);
+      routes.add('/marketplace');
     case UserRole.trucker:
       break;
   }

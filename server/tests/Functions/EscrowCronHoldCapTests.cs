@@ -23,6 +23,7 @@ public class EscrowCronHoldCapTests
 {
     private const string OrderId = "ord-1";
     private const string EscrowId = "escrow-order-ord-1";
+    private const string OrderCreatedAt = "2026-09-01T10:00:00.0000000Z";
 
     private readonly IEscrowRepository _escrows = Substitute.For<IEscrowRepository>();
     private readonly IEscrowAuditRepository _audit = Substitute.For<IEscrowAuditRepository>();
@@ -36,6 +37,9 @@ public class EscrowCronHoldCapTests
     private readonly TestLambdaContext _context = new();
 
     private List<Dictionary<string, object>> _queue = new();
+
+    /// <summary>FUP-334: the item the order repository builds for the hold-cap stamp's transaction.</summary>
+    private readonly TransactWriteItem _entryCheck = new() { ConditionCheck = new ConditionCheck { TableName = "orders" } };
 
     public EscrowCronHoldCapTests()
     {
@@ -52,18 +56,37 @@ public class EscrowCronHoldCapTests
             .Returns(new RefundFundsResponse { Success = true, TelebirrRef = "MOCK-REFUND-REF" });
         _txAudit.AppendAsync(Arg.Do<Dictionary<string, object>>(r => _txRows.Add(r))).Returns(Task.CompletedTask);
         _escrows.TryExtendExpiryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+        // FUP-334: the hold-cap stamp is one transaction with the check of the order's queue entry.
+        _escrows.TryUpdateStatusWithAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<Dictionary<string, object>?>(), Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .Returns(EscrowLinkedWriteOutcome.Written);
+        _orders.BuildAdminQueueEntryCheck(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>())
+            .Returns(_entryCheck);
     }
 
-    private EscrowCronFunction MakeFunction()
+    /// <summary>
+    /// FUP-334: the hold-cap stamp on <paramref name="escrows"/> (the substitute, or its <c>Received</c>): its
+    /// field and the one other item of its transaction, the order repository's queue entry check.
+    /// </summary>
+    private Task<EscrowLinkedWriteOutcome> HoldCapStamp(IEscrowRepository escrows, string? holdCapReachedAt = null)
+        => escrows.TryUpdateStatusWithAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>?>(f => f != null && f.ContainsKey("holdCapReachedAt")
+                && (holdCapReachedAt == null || (string)f["holdCapReachedAt"] == holdCapReachedAt)),
+            Arg.Is<IReadOnlyList<TransactWriteItem>>(items => items.Count == 1 && items[0] == _entryCheck));
+
+    private EscrowCronFunction MakeFunction(bool commitments = false)
     {
         var service = new EscrowService(_escrows, _audit, _idempotency, _gateway);
         return new EscrowCronFunction(service, _escrows, _audit, _gateway,
-            deliveryRepo: _deliveries, orderRepo: _orders, cropRepo: _crops, transactionAuditRepo: _txAudit);
+            deliveryRepo: _deliveries, orderRepo: _orders, cropRepo: _crops, transactionAuditRepo: _txAudit)
+        {
+            CommitmentsEnabled = commitments
+        };
     }
 
-    private async Task<Dictionary<string, string>> RunAsync()
+    private async Task<Dictionary<string, string>> RunAsync(bool commitments = false)
     {
-        var response = await MakeFunction().FunctionHandler(new APIGatewayProxyRequest
+        var response = await MakeFunction(commitments).FunctionHandler(new APIGatewayProxyRequest
         {
             Body = JsonSerializer.Serialize(new Dictionary<string, string> { { "action", "auto_release_and_refund" } })
         }, _context);
@@ -102,6 +125,59 @@ public class EscrowCronHoldCapTests
         _swept!.AssertServed();
     }
 
+    // ESC-16 (spec 4.5): with COMMITMENTS_ENABLED the order deadlines own the trade's life, so the sweep
+    // no longer pushes a live trade's expiry 48 hours at a time: it holds it to the cap in one write.
+    [Theory]
+    [InlineData(7.0)]
+    [InlineData(20.99)]
+    public async Task CommitmentsOn_ProgressingOrderBeforeTheCap_IsHeldToTheCapInOneWrite(double fundedDaysAgo)
+    {
+        var fundedAt = DateTime.UtcNow.AddDays(-fundedDaysAgo);
+        var escrow = Escrow(fundedAt);
+        var cap = DateTime.Parse((string)escrow["createdAt"], null, System.Globalization.DateTimeStyles.AdjustToUniversal).AddDays(21);
+        SweepFinds(escrow);
+        OrderIs("in_transit");
+        var extendedTo = new List<string>();
+        _escrows.TryExtendExpiryAsync(EscrowId, Arg.Any<string>(), Arg.Do<string>(e => extendedTo.Add(e))).Returns(true);
+
+        await RunAsync(commitments: true);
+
+        var only = extendedTo.Should().ContainSingle().Subject;
+        DateTime.Parse(only, null, System.Globalization.DateTimeStyles.AdjustToUniversal)
+            .Should().BeCloseTo(cap, TimeSpan.FromMilliseconds(1));
+        Logs.Should().Contain($"ORDER_ESCROW_HELD_TO_CAP escrowId={EscrowId} orderId={OrderId}");
+        await _orders.DidNotReceive().TryEnterAdminQueueAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        _swept!.AssertServed();
+    }
+
+    [Fact]
+    public async Task CommitmentsOn_ARefundScheduledSinceTheRead_KeepsItsExpiry()
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-8)));
+        OrderIs("accepted");
+        _escrows.TryExtendExpiryAsync(EscrowId, Arg.Any<string>(), Arg.Any<string>()).Returns(false);
+
+        await RunAsync(commitments: true);
+
+        Logs.Should().NotContain("ORDER_ESCROW_HELD_TO_CAP");
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task CommitmentsOn_AtTheCap_TheOrderStillEntersTheQueue()
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-21).AddMinutes(-1)));
+        OrderIs("accepted");
+        _orders.TryEnterAdminQueueAsync(OrderId, "hold_cap", EscrowId, Arg.Any<string>(), "accepted").Returns(true);
+
+        await RunAsync(commitments: true);
+
+        await _escrows.DidNotReceive().TryExtendExpiryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        await _orders.Received(1).TryEnterAdminQueueAsync(OrderId, "hold_cap", EscrowId, Arg.Any<string>(), "accepted");
+    }
+
     [Theory]
     [InlineData(21.0)]
     [InlineData(30.0)]
@@ -109,8 +185,9 @@ public class EscrowCronHoldCapTests
     {
         var fundedAt = DateTime.UtcNow.AddDays(-fundedDaysAgo).AddMinutes(-1);
         SweepFinds(Escrow(fundedAt));
-        OrderIs("accepted");
-        _orders.TryEnterAdminQueueAsync(OrderId, "hold_cap", EscrowId, Arg.Any<string>(), "accepted").Returns(true);
+        OrderIs("accepted", createdAt: OrderCreatedAt);
+        string? written = null;
+        _orders.TryEnterAdminQueueAsync(OrderId, "hold_cap", EscrowId, Arg.Do<string>(q => written = q), "accepted").Returns(true);
 
         var summary = await RunAsync();
 
@@ -120,12 +197,18 @@ public class EscrowCronHoldCapTests
         {
             _orders.TryEnterAdminQueueAsync(OrderId, "hold_cap", EscrowId, Arg.Any<string>(), "accepted");
             _audit.AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(a => (string)a["action"] == "hold_cap_reached"));
-            _escrows.UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
-                Arg.Is<Dictionary<string, object>>(f => f.ContainsKey("holdCapReachedAt")));
+            HoldCapStamp(_escrows);
         });
+        // FUP-334: the stamp lands only while the entry it just wrote still stands.
+        written.Should().NotBeNull();
+        _orders.Received(1).BuildAdminQueueEntryCheck(OrderId, OrderCreatedAt, written!, EscrowId);
+        await HoldCapStamp(_escrows.Received(1), written);
+        await _escrows.DidNotReceive().UpdateStatusAsync(EscrowId, Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
         _txRows.Should().ContainSingle(r => (string)r["action"] == "admin_queue_entered");
         summary["adminQueueEntered"].Should().Be("1");
         Logs.Should().Contain($"ORDER_ESCROW_HOLD_CAPPED orderId=ord-1 escrowId=escrow-order-ord-1");
+        Logs.Should().NotContain(EscrowCronFunction.HoldCapStampSkippedToken);
         _swept!.AssertServed();
     }
 
@@ -133,7 +216,7 @@ public class EscrowCronHoldCapTests
     public async Task AlreadyQueued_RepairsTheAuditAndTheStamp_WithTheQueueTime_AndAuditsTheEntryOnce()
     {
         SweepFinds(Escrow(DateTime.UtcNow.AddDays(-22)));
-        OrderIs("accepted", queuedAt: "2026-10-01T08:00:00.0000000Z");
+        OrderIs("accepted", queuedAt: "2026-10-01T08:00:00.0000000Z", createdAt: OrderCreatedAt);
         _orders.TryEnterAdminQueueAsync(OrderId, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
             .Returns(false);
 
@@ -142,9 +225,78 @@ public class EscrowCronHoldCapTests
         await _audit.Received(1).AppendIfAbsentAsync(Arg.Is<Dictionary<string, object>>(a =>
             (string)a["timestamp"] == "2026-10-01T08:00:00.0000000Z"
             && (string)a["auditId"] == EscrowAuditRepository.DeterministicAuditId("hold_cap_reached", "2026-10-01T08:00:00.0000000Z")));
-        await _escrows.Received(1).UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
-            Arg.Is<Dictionary<string, object>>(f => (string)f["holdCapReachedAt"] == "2026-10-01T08:00:00.0000000Z"));
+        await HoldCapStamp(_escrows.Received(1), "2026-10-01T08:00:00.0000000Z");
+        // FUP-334: an entry read without adminQueueEscrowId (it names the order escrow) must still have none.
+        _orders.Received(1).BuildAdminQueueEntryCheck(OrderId, OrderCreatedAt, "2026-10-01T08:00:00.0000000Z", null);
         _txRows.Should().BeEmpty();
+    }
+
+    // FUP-334: the entry the cron did not write (here a pickup judgement's, naming the order escrow) is the
+    // stamp's condition as read: its queue time and its escrow.
+    [Fact]
+    public async Task AlreadyQueuedByTheJudgement_TheStampIsConditionedOnThatEntry()
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-22)));
+        OrderIs("accepted", queuedAt: "2026-10-01T08:00:00.0000000Z", createdAt: OrderCreatedAt, queueEscrowId: EscrowId);
+        _orders.TryEnterAdminQueueAsync(OrderId, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(false);
+
+        await RunAsync();
+
+        _orders.Received(1).BuildAdminQueueEntryCheck(OrderId, OrderCreatedAt, "2026-10-01T08:00:00.0000000Z", EscrowId);
+        await HoldCapStamp(_escrows.Received(1), "2026-10-01T08:00:00.0000000Z");
+    }
+
+    // FUP-334: an entry removed between the read and the stamp (the admin's pickup re-open, a clear) refuses the
+    // transaction's check; an escrow that moved on since its read refuses the stamp itself. Neither is a failure:
+    // nothing was written, one info line, no money alarm, and the escrow stays in the sweep windows.
+    [Theory]
+    [InlineData(EscrowLinkedWriteOutcome.LinkedItemRefused, "queue_entry_changed")]
+    [InlineData(EscrowLinkedWriteOutcome.EscrowRefused, "escrow_changed")]
+    public async Task TheStampRefused_LogsOneInfoLine_NoAlarm(EscrowLinkedWriteOutcome outcome, string reason)
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-22)));
+        OrderIs("accepted", queuedAt: "2026-10-01T08:00:00.0000000Z", queueEscrowId: EscrowId);
+        _orders.TryEnterAdminQueueAsync(OrderId, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>())
+            .Returns(false);
+        HoldCapStamp(_escrows).Returns(outcome);
+
+        var summary = await RunAsync();
+
+        await HoldCapStamp(_escrows.Received(1), "2026-10-01T08:00:00.0000000Z");
+        Logs.Should().Contain(
+            $"ORDER_ESCROW_HOLD_CAP_STAMP_SKIPPED escrowId={EscrowId} orderId={OrderId} reason={reason}; the next run decides again.");
+        Logs.Should().NotContain("ESCROW_SETTLEMENT_FAILED");
+        Logs.Should().NotContain("ADMIN_QUEUE_OVERDUE");
+        Logs.Should().NotContain("unexpected error");
+        summary["adminQueueOverdue"].Should().Be("0");
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        _swept!.AssertServed();
+    }
+
+    // FUP-334: the run after a refused stamp sees the escrow again (it was not stamped) and finds the order without
+    // an entry (the re-open removed it): it writes its own hold_cap entry and stamps against that one.
+    [Fact]
+    public async Task AfterARefusedStamp_TheNextRunQueuesTheOrderAgain_AndStampsAgainstItsOwnEntry()
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-22)));
+        OrderIs("accepted", queuedAt: "2026-10-01T08:00:00.0000000Z", createdAt: OrderCreatedAt, queueEscrowId: EscrowId);
+        _orders.TryEnterAdminQueueAsync(OrderId, "hold_cap", EscrowId, Arg.Any<string>(), "accepted").Returns(false);
+        HoldCapStamp(_escrows).Returns(EscrowLinkedWriteOutcome.LinkedItemRefused);
+        await RunAsync();
+
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-22)));
+        OrderIs("accepted", createdAt: OrderCreatedAt);
+        string? written = null;
+        _orders.TryEnterAdminQueueAsync(OrderId, "hold_cap", EscrowId, Arg.Do<string>(q => written = q), "accepted").Returns(true);
+        HoldCapStamp(_escrows).Returns(EscrowLinkedWriteOutcome.Written);
+        var summary = await RunAsync();
+
+        written.Should().NotBeNull();
+        _orders.Received(1).BuildAdminQueueEntryCheck(OrderId, OrderCreatedAt, written!, EscrowId);
+        await HoldCapStamp(_escrows.Received(1), written);
+        summary["adminQueueEntered"].Should().Be("1");
+        Logs.Should().NotContain("ESCROW_SETTLEMENT_FAILED");
     }
 
     [Fact]
@@ -159,6 +311,8 @@ public class EscrowCronHoldCapTests
 
         await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _escrows.DidNotReceive().TryUpdateStatusWithAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
         await _audit.DidNotReceive().AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>());
         _swept!.AssertServed();
     }
@@ -220,6 +374,8 @@ public class EscrowCronHoldCapTests
         summary["adminQueueOverdue"].Should().Be("1");
         await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+        await _escrows.DidNotReceive().TryUpdateStatusWithAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
         _swept!.AssertServed();
     }
 
@@ -291,6 +447,57 @@ public class EscrowCronHoldCapTests
         await _crops.DidNotReceive().RestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
         await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
         _swept!.AssertServed();
+    }
+
+    [Fact]
+    public async Task AdminRefundCancel_WhoseRestoreFailed_GetsItsStockBackBeforeTheSweepRefunds()
+    {
+        // FUP-211: the admin's cancel armed the refund in its own write and its restore failed after
+        // (the admin got 503); the sweep finds the armed refund first and gives the stock back first.
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-3), refundReason: "admin_refund"));
+        OrderIs("cancelled", cancelReason: "escrow_refunded");
+        _crops.RestoreStockAsync("listing-1", OrderId, 5.0).Returns(StockRestoreResult.Restored);
+
+        await RunAsync();
+
+        Received.InOrder(() =>
+        {
+            _crops.RestoreStockAsync("listing-1", OrderId, 5.0);
+            _gateway.RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        });
+        _swept!.AssertServed();
+    }
+
+    [Theory]
+    [InlineData("admin_refund")]
+    [InlineData(EscrowCronFunction.ExpiredOrderRefundReason)]
+    public async Task EscrowRefundedCancel_RestockKeepsFailing_BlocksTheRefundThisRun(string refundReason)
+    {
+        // Fail closed for the sweep's own cancel too (a refund that failed after it is retried here).
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-3), refundReason: refundReason));
+        OrderIs("cancelled", cancelReason: EscrowCronFunction.EscrowRefundedCancelReason);
+        _crops.RestoreStockAsync("listing-1", OrderId, 5.0).Returns(StockRestoreResult.Failed);
+
+        await RunAsync();
+
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        Logs.Should().Contain("ORDER_STOCK_RESTORE_FAILED orderId=ord-1 listingId=listing-1");
+        _swept!.AssertServed();
+    }
+
+    [Theory]
+    [InlineData(StockRestoreResult.AlreadyRestored)]
+    [InlineData(StockRestoreResult.ListingNotFound)]
+    public async Task EscrowRefundedCancel_StockAlreadyBackOrListingGone_Refunds(StockRestoreResult restock)
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-3), refundReason: EscrowCronFunction.ExpiredOrderRefundReason));
+        OrderIs("cancelled", cancelReason: EscrowCronFunction.EscrowRefundedCancelReason);
+        _crops.RestoreStockAsync("listing-1", OrderId, 5.0).Returns(restock);
+
+        await RunAsync();
+
+        await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        Logs.Should().NotContain("ORDER_STOCK_RESTORE_FAILED");
     }
 
     [Fact]
@@ -449,6 +656,143 @@ public class EscrowCronHoldCapTests
         Logs.Should().NotContain("ADMIN_QUEUE_OVERDUE");
     }
 
+    // ===== FUP-66: an order escrow whose link to its delivery never landed (no deliveryId) =====
+
+    private void ActiveDeliveryIs(string status, string orderId = OrderId)
+        => _deliveries.GetByIdAsync("del-1", true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", "del-1" }, { "orderId", orderId }, { "status", status }, { "confirmedAt", "2026-10-09T08:00:00Z" }
+        });
+
+    [Theory]
+    [InlineData("cancelled")]
+    [InlineData("funded")]
+    [InlineData("in_transit")]
+    [InlineData("delivered")]
+    public async Task Refund_UnlinkedOrderEscrow_DeliveredActiveDelivery_IsStamped_NeverRefunded(string orderStatus)
+    {
+        // The refund sweep's safety net read only the escrow's deliveryId: an unlinked order escrow of a
+        // refundable order was refunded although its delivery was confirmed.
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-8)));
+        OrderIs(orderStatus, activeDeliveryId: "del-1");
+        ActiveDeliveryIs("delivered");
+
+        await RunAsync();
+
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await _escrows.Received(1).UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => (string)f["deliveryConfirmedAt"] == "2026-10-09T08:00:00Z"
+                && f.ContainsKey("disputeWindowEndsAt") && !f.ContainsKey("deliveryId")));
+        await _escrows.DidNotReceive().TryExtendExpiryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+        Logs.Should().Contain("delivery del-1 was delivered but escrow was unstamped");
+    }
+
+    [Fact]
+    public async Task Refund_UnlinkedOrderEscrow_StampFails_IsStillNotRefunded_AndAlarmed()
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-8)));
+        OrderIs("cancelled", activeDeliveryId: "del-1");
+        ActiveDeliveryIs("delivered");
+        _escrows.UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed", Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new InvalidOperationException("throttled"));
+
+        await RunAsync();
+
+        await _gateway.DidNotReceive().RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        Logs.Should().Contain("ESCROW_DELIVERY_STAMP_FAILED escrowId=escrow-order-ord-1 deliveryId=del-1 source=escrow-cron");
+    }
+
+    [Theory]
+    [InlineData("inTransit")]
+    [InlineData("cancelled")]
+    public async Task Refund_UnlinkedOrderEscrow_ActiveDeliveryNotDelivered_RefundsAsBefore(string deliveryStatus)
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-8)));
+        OrderIs("cancelled", activeDeliveryId: "del-1");
+        ActiveDeliveryIs(deliveryStatus);
+
+        await RunAsync();
+
+        await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task Refund_UnlinkedOrderEscrow_ActiveDeliveryOfAnotherOrder_IsNotHonoured()
+    {
+        // A delivery that names another order proves nothing about this escrow's order.
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-8)));
+        OrderIs("cancelled", activeDeliveryId: "del-1");
+        ActiveDeliveryIs("delivered", orderId: "ord-other");
+
+        await RunAsync();
+
+        await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+        await _escrows.DidNotReceive().UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => f.ContainsKey("deliveryConfirmedAt")));
+    }
+
+    [Fact]
+    public async Task Refund_UnlinkedOrderEscrow_OrderWithoutAnActiveDelivery_ReadsNoDelivery_AndRefunds()
+    {
+        SweepFinds(Escrow(DateTime.UtcNow.AddDays(-8)));
+        OrderIs("cancelled");
+
+        await RunAsync();
+
+        await _deliveries.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task Refund_LinkedOrderEscrow_ReadsItsOwnDeliveryOnce_NotTheOrdersActiveOne()
+    {
+        var escrow = Escrow(DateTime.UtcNow.AddDays(-8));
+        escrow["deliveryId"] = "del-linked";
+        SweepFinds(escrow);
+        OrderIs("cancelled", activeDeliveryId: "del-1");
+        _deliveries.GetByIdAsync("del-linked").Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", "del-linked" }, { "orderId", OrderId }, { "status", "cancelled" }
+        });
+
+        await RunAsync();
+
+        await _deliveries.Received(1).GetByIdAsync("del-linked");
+        await _deliveries.DidNotReceive().GetByIdAsync("del-1", Arg.Any<bool>());
+        await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
+    }
+
+    [Fact]
+    public async Task Report_UnlinkedOrderEscrow_DeliveredActiveDelivery_GetsTheStampRepair()
+    {
+        // The queue's repair needed the escrow's deliveryId too.
+        QueueHas(queuedAt: DateTime.UtcNow.AddHours(-40));
+        EscrowRowIs(Escrow(DateTime.UtcNow.AddDays(-23), holdCapReachedAt: "x"));
+        OrderIs("in_transit", activeDeliveryId: "del-1");
+        ActiveDeliveryIs("delivered");
+
+        await RunAsync();
+
+        await _escrows.Received(1).UpdateStatusAsync(EscrowId, Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => (string)f["deliveryConfirmedAt"] == "2026-10-09T08:00:00Z"));
+        Logs.Should().NotContain("ADMIN_QUEUE_OVERDUE");
+    }
+
+    [Fact]
+    public async Task Report_UnlinkedOrderEscrow_ActiveDeliveryNotDelivered_IsStillOverdue()
+    {
+        QueueHas(queuedAt: DateTime.UtcNow.AddHours(-30));
+        EscrowRowIs(Escrow(DateTime.UtcNow.AddDays(-23), holdCapReachedAt: "x"));
+        OrderIs("in_transit", activeDeliveryId: "del-1");
+        ActiveDeliveryIs("inTransit");
+
+        await RunAsync();
+
+        Logs.Should().Contain("ADMIN_QUEUE_OVERDUE orderId=ord-1 reason=hold_cap ageHours=30");
+        await _escrows.DidNotReceive().UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
     [Fact]
     public async Task Report_LinkedDeliveryNotDeliveredYet_IsStillOverdue()
     {
@@ -547,17 +891,28 @@ public class EscrowCronHoldCapTests
 
     private void OrderIs(
         string status, string? queuedAt = null, string? cancelReason = null, double quantity = 500,
-        DateTime? pickupDeadlineAt = null)
+        DateTime? pickupDeadlineAt = null, string? activeDeliveryId = null, string? createdAt = null,
+        string? queueEscrowId = null)
     {
         var order = new Dictionary<string, object>
         {
             { "orderId", OrderId }, { "status", status }, { "version", "3" },
             { "listingId", "listing-1" }, { "quantity", quantity.ToString(System.Globalization.CultureInfo.InvariantCulture) }
         };
+        if (createdAt != null)
+        {
+            order["createdAt"] = createdAt;
+        }
+
         if (queuedAt != null)
         {
             order["adminQueue"] = "open";
             order["adminQueuedAt"] = queuedAt;
+        }
+
+        if (queueEscrowId != null)
+        {
+            order["adminQueueEscrowId"] = queueEscrowId;
         }
 
         if (cancelReason != null)
@@ -568,6 +923,11 @@ public class EscrowCronHoldCapTests
         if (pickupDeadlineAt != null)
         {
             order["pickupDeadlineAt"] = pickupDeadlineAt.Value.ToString("o");
+        }
+
+        if (activeDeliveryId != null)
+        {
+            order["activeDeliveryId"] = activeDeliveryId;
         }
 
         _orders.GetByIdAsync(OrderId).Returns(order);

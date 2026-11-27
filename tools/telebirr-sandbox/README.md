@@ -25,16 +25,59 @@ Both are git-ignored.
 |---|---|---|
 | POST | `/payment/v1/token` | Returns a fabric token (checks `X-APP-Key`); `/apply/fabric-token` is an alias |
 | POST | `/payment/v1/merchant/preOrder` | Verifies our `SHA256WithRSA` sign, returns `prepay_id` |
+| POST | `/payment/v1/merchant/queryOrder` | Verifies our sign, answers the order's state from the simulator's store (below) |
 | GET | `/payment/web/paygate` | Buyer "pay page" with **Pay**/**Fail** buttons |
-| POST | `/simulate/complete` | Fires the RSA-signed webhook to `notify_url` in the documented flat shape |
+| POST | `/simulate/complete` | `?prepay_id=..&result=success\|fail`: fires the RSA-signed webhook to `notify_url` in the documented flat shape; `&notify=0` records the payment without sending it |
+| POST | `/simulate/expire` | `?prepay_id=..`: ends a pending checkout's window now (no webhook) |
 | GET | `/health`, `/` | status / help |
 
 ## Self-test
 
 ```bash
 node server.js &          # start it
-npm run selftest          # drives the full flow, verifies webhook signature
+npm run selftest          # drives the full flow, verifies webhook signature, then queryOrder in every state
 ```
+
+The C# gateway against the running simulator (hold, then queryOrder):
+
+```bash
+TELEBIRR_SIM_URL=http://127.0.0.1:8790 \
+TELEBIRR_CREDS_FILE="$(git rev-parse --show-toplevel)/tools/telebirr-sandbox/credentials.local.json" \
+  dotnet test server --filter "FullyQualifiedName~against_live_simulator"
+```
+
+## queryOrder (FUP-430)
+
+The server's `TelebirrSandboxGateway.QueryOrderAsync` (FUP-37, escrow-protocol 2.23.0) asks
+`POST /payment/v1/merchant/queryOrder` with `method: payment.queryorder` and a signed
+`biz_content {appid, merch_code, merch_order_id}`, under the fabric token. The simulator checks the
+token (`401` without it) and the signature (`60200099` when it does not verify), finds the latest
+preOrder with that `merch_order_id`, and answers `result: SUCCESS` with a signed `biz_content`:
+
+| Simulator state | `order_status` |
+|---|---|
+| preOrder done, not paid, window open | `WAIT_PAY` |
+| paid (`/simulate/complete`, with or without `notify=0`) | `PAY_SUCCESS` |
+| failed (`/simulate/complete?result=fail`) | `PAY_FAILED` |
+| unpaid past its window (`timeout_express`, 120 minutes; or `/simulate/expire`) | `ORDER_CLOSED` |
+
+`biz_content` carries `merch_order_id, order_status, total_amount, trans_currency`, and once a payment
+was simulated `payment_order_id, trans_id, trans_time`: the same ids its notify carried, so a late
+notify after a reconciled payment is the same payment. Only `order_status` is sent (the documented
+sample and a live sandbox run use it; the table's `trade_status` is not). The answer is signed by the
+"Telebirr" key with the same rule as everything else here; the server does not check it yet.
+
+An order the simulator never created gets `result: FAIL`, `code: SIM_ORDER_NOT_FOUND`, no `biz_content`.
+That code is a placeholder: Telebirr's real code is undocumented (FUP-429 records it), and the server
+reads any refusal as unknown, never as "not paid". Orders live in memory, so a restarted simulator
+answers this for every earlier order.
+
+To exercise the escrow-cron `order_payment_reconcile` locally (it asks only about an order within an
+hour of its payment deadline, or a stuck checkout; escrow-protocol §Additions in 2.23.0): open a
+checkout, then either pay it with
+`/simulate/complete?prepay_id=..&result=success&notify=0` (paid, no notify: the reconciliation
+hands it to the webhook inbox) or end it with `/simulate/expire?prepay_id=..` (closed: `not_paid`).
+The `prepay_id` is in the checkout URL.
 
 ## Config (env)
 

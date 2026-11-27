@@ -39,7 +39,8 @@ void main() {
     await tester.pumpAndSettle();
     final am = lookupAppLocalizations(const Locale('am'));
 
-    expect(find.text('${am.deletedUser} → Almaz'), findsOneWidget);
+    // The buyer's line names the farmer and the driver.
+    expect(find.textContaining('${am.deletedUser} · Kebede'), findsOneWidget);
     expect(find.textContaining('Kebede'), findsOneWidget);
     expect(find.textContaining(deletedUserSentinel), findsNothing);
   });

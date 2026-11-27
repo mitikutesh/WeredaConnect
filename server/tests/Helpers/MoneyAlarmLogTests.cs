@@ -28,7 +28,15 @@ public class MoneyAlarmLogTests
         // FRD-04: logged flag on or off; its metric filter and alarm are FRD-16's.
         "RISK_TABLE_UNCONFIGURED",
         // FUP-27: the dispute mirror's failed legs, and a sync delivery dispute's freeze (dispute rate).
-        "DISPUTE_PROPAGATION_FAILED", "DELIVERY_DISPUTE_FROZEN"
+        "DISPUTE_PROPAGATION_FAILED", "DELIVERY_DISPUTE_FROZEN",
+        // FUP-41: a release the payout identity gate has blocked for a day.
+        "RELEASE_BLOCKED_OVERDUE",
+        // FUP-64: a recorded wait_for_delivery a week old.
+        "DISPUTE_VERDICT_WAIT_OVERDUE",
+        // FUP-06: a manual payout leg overdue for the first time.
+        "MANUAL_PAYOUT_NEWLY_OVERDUE",
+        // FUP-436: the edge twins of the trucker, release-blocked and ledger row overdue lines.
+        "TRUCKER_PAYOUT_NEWLY_OVERDUE", "RELEASE_BLOCKED_NEWLY_OVERDUE", "LEDGER_ROW_NEWLY_OVERDUE"
     };
 
     /// <summary>A client value that spells every alarm token.</summary>
@@ -83,6 +91,17 @@ public class MoneyAlarmLogTests
     }
 
     [Fact]
+    public void DisputeVerdictWaitOverdue_FormatsTokenAndFields_AndDefangsTheIds()
+    {
+        MoneyAlarmLog.DisputeVerdictWaitOverdue("escrow-order-ord-1", "release", TimeSpan.FromDays(8.6), "order:mismatch:in_transit")
+            .Should().Be("DISPUTE_VERDICT_WAIT_OVERDUE escrowId=escrow-order-ord-1 op=release ageDays=8 legs=order:mismatch:in-transit");
+        MoneyAlarmLog.DisputeVerdictWaitOverdue("e-1", "release", null, null)
+            .Should().Be("DISPUTE_VERDICT_WAIT_OVERDUE escrowId=e-1 op=release ageDays=unknown legs=-");
+        TokensIn(MoneyAlarmLog.DisputeVerdictWaitOverdue($"escrow-order-{Hostile}", "release", TimeSpan.FromDays(9), Hostile))
+            .Should().Equal("DISPUTE_VERDICT_WAIT_OVERDUE");
+    }
+
+    [Fact]
     public void RiskLines_FormatTokenAndFields_AndCarryOnlyTheirOwnToken()
     {
         MoneyAlarmLog.RiskSettlementSkipped("escrow-order-ord-1", "auto-refund", "flag_off", "account_suspended")
@@ -103,6 +122,17 @@ public class MoneyAlarmLogTests
         MoneyAlarmLog.RiskTableUnconfigured("auto_release_and_refund")
             .Should().Be("RISK_TABLE_UNCONFIGURED action=auto_release_and_refund");
         TokensIn(MoneyAlarmLog.RiskTableUnconfigured("auto_release_and_refund")).Should().Equal("RISK_TABLE_UNCONFIGURED");
+    }
+
+    [Fact]
+    public void ReleaseBlockedOverdue_FormatsTokenAndFields_AndCarriesOnlyItsOwnToken()
+    {
+        MoneyAlarmLog.ReleaseBlockedOverdue("escrow-order-ord-1", "farmer", "phone_unverified", 30)
+            .Should().Be("RELEASE_BLOCKED_OVERDUE escrowId=escrow-order-ord-1 leg=farmer reason=phone_unverified ageHours=30");
+        MoneyAlarmLog.ReleaseBlockedOverdue(null, "trucker", null, -3)
+            .Should().Be("RELEASE_BLOCKED_OVERDUE escrowId=- leg=trucker reason=- ageHours=0");
+        TokensIn(MoneyAlarmLog.ReleaseBlockedOverdue($"escrow-del-{Hostile}", "farmer", "fayda_required", 26))
+            .Should().Equal("RELEASE_BLOCKED_OVERDUE");
     }
 
     [Fact]
@@ -167,6 +197,57 @@ public class MoneyAlarmLogTests
             .Should().Be("ADMIN_QUEUE_OVERDUE orderId=order-001 reason=undelivered ageHours=30");
         MoneyAlarmLog.AdminQueueOverdue(null, null, -5)
             .Should().Be("ADMIN_QUEUE_OVERDUE orderId=- reason=- ageHours=0");
+    }
+
+    [Fact]
+    public void ManualPayoutNewlyOverdue_HasTheOverdueLinesFields_AndOnlyItsOwnToken()
+    {
+        // FUP-06: the edge-triggered line next to the level-triggered one, same fields.
+        MoneyAlarmLog.ManualPayoutNewlyOverdue("escrow-order-ord-1", "release:farmer", 26)
+            .Should().Be("MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=escrow-order-ord-1 ref=release:farmer ageHours=26");
+        MoneyAlarmLog.ManualPayoutNewlyOverdue("escrow-order-o1", "release.trucker.trucker-1", -1)
+            .Should().Be("MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=escrow-order-o1 ref=release.trucker.trucker-1 ageHours=0");
+        // Neither line contains the other's token, so each filter counts only its own line.
+        MoneyAlarmLog.ManualPayoutNewlyOverdue("e", "r", 1).Should().NotContain(MoneyAlarmLog.ManualPayoutOverdueToken);
+        MoneyAlarmLog.ManualPayoutOverdue("e", "r", 1).Should().NotContain(MoneyAlarmLog.ManualPayoutNewlyOverdueToken);
+        TokensIn(MoneyAlarmLog.ManualPayoutNewlyOverdue($"escrow-order-{Hostile}", "refund:buyer", 25))
+            .Should().Equal("MANUAL_PAYOUT_NEWLY_OVERDUE");
+    }
+
+    [Fact]
+    public void TheFup436EdgeLines_HaveTheirLevelLinesFields_AndOnlyTheirOwnToken()
+    {
+        // FUP-436: each edge twin carries the fields of its level-triggered line.
+        MoneyAlarmLog.TruckerPayoutNewlyOverdue("escrow-order-ord-1", "phone_unverified", 26)
+            .Should().Be("TRUCKER_PAYOUT_NEWLY_OVERDUE escrowId=escrow-order-ord-1 reason=phone_unverified ageHours=26");
+        MoneyAlarmLog.ReleaseBlockedNewlyOverdue("escrow-001", "farmer", "fayda_required", -3)
+            .Should().Be("RELEASE_BLOCKED_NEWLY_OVERDUE escrowId=escrow-001 leg=farmer reason=fayda_required ageHours=0");
+        MoneyAlarmLog.LedgerRowNewlyOverdue("escrow-order-o1", "release#trucker#trucker_1", "pending", 25)
+            .Should().Be("LEDGER_ROW_NEWLY_OVERDUE escrowId=escrow-order-o1 ref=release.trucker.trucker-1 status=pending ageHours=25");
+
+        // Neither line of a pair contains the other's token, so each filter counts only its own line.
+        var pairs = new (string Level, string Edge, string LevelToken, string EdgeToken)[]
+        {
+            (MoneyAlarmLog.TruckerPayoutOverdue("e", "r", 1), MoneyAlarmLog.TruckerPayoutNewlyOverdue("e", "r", 1),
+                MoneyAlarmLog.TruckerPayoutOverdueToken, MoneyAlarmLog.TruckerPayoutNewlyOverdueToken),
+            (MoneyAlarmLog.ReleaseBlockedOverdue("e", "farmer", "r", 1), MoneyAlarmLog.ReleaseBlockedNewlyOverdue("e", "farmer", "r", 1),
+                MoneyAlarmLog.ReleaseBlockedOverdueToken, MoneyAlarmLog.ReleaseBlockedNewlyOverdueToken),
+            (MoneyAlarmLog.LedgerRowOverdue("e", "r", "sent", 1), MoneyAlarmLog.LedgerRowNewlyOverdue("e", "r", "sent", 1),
+                MoneyAlarmLog.LedgerRowOverdueToken, MoneyAlarmLog.LedgerRowNewlyOverdueToken)
+        };
+        foreach (var (level, edge, levelToken, edgeToken) in pairs)
+        {
+            level.Should().StartWith(levelToken + " ").And.NotContain(edgeToken);
+            edge.Should().StartWith(edgeToken + " ").And.NotContain(levelToken);
+        }
+
+        // A client id that spells every token is defanged.
+        TokensIn(MoneyAlarmLog.TruckerPayoutNewlyOverdue($"escrow-order-{Hostile}", "blocked", 25))
+            .Should().Equal("TRUCKER_PAYOUT_NEWLY_OVERDUE");
+        TokensIn(MoneyAlarmLog.ReleaseBlockedNewlyOverdue($"escrow-order-{Hostile}", "trucker", "phone_unverified", 25))
+            .Should().Equal("RELEASE_BLOCKED_NEWLY_OVERDUE");
+        TokensIn(MoneyAlarmLog.LedgerRowNewlyOverdue($"escrow-order-{Hostile}", $"release#trucker#{Hostile}", "failed", 25))
+            .Should().Equal("LEDGER_ROW_NEWLY_OVERDUE");
     }
 
     [Fact]

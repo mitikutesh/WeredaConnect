@@ -1,5 +1,8 @@
 import 'package:equatable/equatable.dart';
 
+import 'package:wereda_connect/core/models/order_check_in.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
+
 /// Base class for order events.
 abstract class OrderEvent extends Equatable {
   const OrderEvent();
@@ -52,14 +55,47 @@ class RejectOrder extends OrderEvent {
   final String farmerId;
   final String? reason;
 
+  /// Why the farmer declines, one of `farmerDeclineReasons`.
+  final String? declineReason;
+
   const RejectOrder({
     required this.orderId,
     required this.farmerId,
     this.reason,
+    this.declineReason,
   });
 
   @override
-  List<Object?> get props => [orderId, farmerId, reason];
+  List<Object?> get props => [orderId, farmerId, reason, declineReason];
+}
+
+/// ESC-15: the trucker accepts the transport request of an order whose
+/// farmer accepted.
+class TruckerAcceptOrder extends OrderEvent {
+  final String orderId;
+  final String truckerId;
+
+  const TruckerAcceptOrder({required this.orderId, required this.truckerId});
+
+  @override
+  List<Object?> get props => [orderId, truckerId];
+}
+
+/// ESC-15: the trucker declines the transport request, or drops out of an
+/// accepted order before pickup. [declineReason] is a reason code.
+class TruckerDeclineOrder extends OrderEvent {
+  final String orderId;
+  final String truckerId;
+  final String? declineReason;
+
+  const TruckerDeclineOrder({
+    required this.orderId,
+    required this.truckerId,
+    this.declineReason,
+  });
+
+  @override
+  List<Object?> get props => [orderId, truckerId, declineReason];
 }
 
 /// Create a new order (buyer action).
@@ -78,6 +114,12 @@ class CreateOrder extends OrderEvent {
   final double? transportCost;
   final double? commissionRate;
 
+  /// LT-12: the buyer's optional drop-off landmark.
+  final String? dropoffNote;
+
+  /// LT-14: the order's own drop-off point (the picked place's point).
+  final DeliveryPoint? deliveryPoint;
+
   const CreateOrder({
     required this.listingId,
     required this.buyerId,
@@ -92,6 +134,8 @@ class CreateOrder extends OrderEvent {
     this.truckerName,
     this.transportCost,
     this.commissionRate,
+    this.dropoffNote,
+    this.deliveryPoint,
   });
 
   @override
@@ -109,6 +153,8 @@ class CreateOrder extends OrderEvent {
         truckerName,
         transportCost,
         commissionRate,
+        dropoffNote,
+        deliveryPoint,
       ];
 }
 
@@ -149,12 +195,107 @@ class CancelOrder extends OrderEvent {
   List<Object?> get props => [orderId, userId, reason];
 }
 
+/// LT-12: the buyer adds, changes or clears (null or blank) the drop-off
+/// landmark of an order before pickup.
+class UpdateDropoffNote extends OrderEvent {
+  final String orderId;
+  final String buyerId;
+  final String? dropoffNote;
+
+  const UpdateDropoffNote({
+    required this.orderId,
+    required this.buyerId,
+    this.dropoffNote,
+  });
+
+  @override
+  List<Object?> get props => [orderId, buyerId, dropoffNote];
+}
+
+/// LT-14: the buyer changes the order's drop-off point before pickup.
+class UpdateDeliveryLocation extends OrderEvent {
+  final String orderId;
+  final String buyerId;
+  final DeliveryPoint point;
+
+  const UpdateDeliveryLocation({
+    required this.orderId,
+    required this.buyerId,
+    required this.point,
+  });
+
+  @override
+  List<Object?> get props => [orderId, buyerId, point];
+}
+
+/// ESC-34 (FUP-285): [userId]'s arrival check-in of [kind] at the farm: the
+/// trucker's (or self-pickup buyer's) "I have arrived" with its GPS [fix],
+/// or the farmer's "Crops are ready", whose fix is optional.
+class CheckInAtPickup extends OrderEvent {
+  final String orderId;
+  final String userId;
+  final String kind;
+  final HandoffCheckInFix? fix;
+
+  const CheckInAtPickup({
+    required this.orderId,
+    required this.userId,
+    required this.kind,
+    this.fix,
+  });
+
+  @override
+  List<Object?> get props => [
+        orderId,
+        userId,
+        kind,
+        fix?.latitude,
+        fix?.longitude,
+        fix?.accuracyM,
+      ];
+}
+
+/// ESC-36 (FUP-336): the trucker's "Arrived at drop-off" on [orderId]: the
+/// arrival photo of [deliveryId] first ([arrivalPhotoRef], null when the
+/// delivery has it already), then the check-in with its GPS [fix].
+class CheckInAtDropoff extends OrderEvent {
+  final String orderId;
+  final String userId;
+  final String deliveryId;
+  final HandoffCheckInFix fix;
+  final String? arrivalPhotoRef;
+
+  const CheckInAtDropoff({
+    required this.orderId,
+    required this.userId,
+    required this.deliveryId,
+    required this.fix,
+    this.arrivalPhotoRef,
+  });
+
+  @override
+  List<Object?> get props => [
+        orderId,
+        userId,
+        deliveryId,
+        fix.latitude,
+        fix.longitude,
+        fix.accuracyM,
+        arrivalPhotoRef,
+      ];
+}
+
 /// Load a single order by its ID.
 class LoadOrderById extends OrderEvent {
   final String orderId;
 
-  const LoadOrderById({required this.orderId});
+  /// ESC-23: a reload behind an order already on screen (the server's copy
+  /// just reached the device). No loading state, and a failed or empty read
+  /// changes nothing, so the screen and its actions are never blocked.
+  final bool quiet;
+
+  const LoadOrderById({required this.orderId, this.quiet = false});
 
   @override
-  List<Object?> get props => [orderId];
+  List<Object?> get props => [orderId, quiet];
 }

@@ -1,0 +1,25 @@
+{
+  "description": "Shared test cases for the Ethiopian clock formatter (specs/features/live-trip.md section 9). Input is Ethiopia wall-clock time (UTC+3), 24-hour. Used by the Dart and the C# formatter tests (LT-03, LT-04).",
+  "rule": "hour = (h - 6) mod 12, 0 shown as 12; part of day from h: 0-5 night, 6-11 morning, 12-17 day, 18-23 evening; am puts the part before the time, om after it",
+  "parts": {
+    "am": { "night": "ከሌሊቱ", "morning": "ከጠዋቱ", "day": "ከቀኑ", "evening": "ከምሽቱ" },
+    "om": { "night": "halkan", "morning": "ganama", "day": "waaree booda", "evening": "galgala" }
+  },
+  "cases": [
+    { "time": "00:00", "am": "ከሌሊቱ 6:00", "om": "6:00 halkan", "en": "00:00" },
+    { "time": "02:00", "am": "ከሌሊቱ 8:00", "om": "8:00 halkan", "en": "02:00" },
+    { "time": "05:59", "am": "ከሌሊቱ 11:59", "om": "11:59 halkan", "en": "05:59" },
+    { "time": "06:00", "am": "ከጠዋቱ 12:00", "om": "12:00 ganama", "en": "06:00" },
+    { "time": "08:05", "am": "ከጠዋቱ 2:05", "om": "2:05 ganama", "en": "08:05" },
+    { "time": "11:42", "am": "ከጠዋቱ 5:42", "om": "5:42 ganama", "en": "11:42" },
+    { "time": "12:00", "am": "ከቀኑ 6:00", "om": "6:00 waaree booda", "en": "12:00" },
+    { "time": "13:20", "am": "ከቀኑ 7:20", "om": "7:20 waaree booda", "en": "13:20" },
+    { "time": "17:59", "am": "ከቀኑ 11:59", "om": "11:59 waaree booda", "en": "17:59" },
+    { "time": "18:00", "am": "ከምሽቱ 12:00", "om": "12:00 galgala", "en": "18:00" },
+    { "time": "23:59", "am": "ከምሽቱ 5:59", "om": "5:59 galgala", "en": "23:59" }
+  ],
+  "ranges": [
+    { "from": "13:20", "to": "14:00", "am": "ከቀኑ 7:20-8:00", "om": "7:20-8:00 waaree booda", "en": "13:20-14:00" },
+    { "from": "17:30", "to": "18:30", "am": "ከቀኑ 11:30-ከምሽቱ 12:30", "om": "11:30 waaree booda-12:30 galgala", "en": "17:30-18:30" }
+  ]
+}

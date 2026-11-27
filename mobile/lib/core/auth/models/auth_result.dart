@@ -70,6 +70,16 @@ class AuthResult {
   /// The server flagged this login as coming from a device it has not seen.
   final bool newDevice;
 
+  /// The `preferredLanguage` on the server profile, as the response's `user`
+  /// object carried it (login, register 201, verify-otp), unvalidated. Null
+  /// for an offline login: the offline cache does not keep it (SIM-37).
+  final String? preferredLanguage;
+
+  /// BUG-35: a `NETWORK_ERROR` failure that was a timeout: the request went
+  /// out but the server did not answer in time (a very slow network), as
+  /// opposed to no connection at all.
+  final bool timedOut;
+
   const AuthResult._({
     required this.isSuccess,
     this.tokens,
@@ -86,6 +96,8 @@ class AuthResult {
     this.faydaVerified,
     this.faydaVerifiedAt,
     this.newDevice = false,
+    this.preferredLanguage,
+    this.timedOut = false,
   });
 
   /// Create a successful authentication result
@@ -99,6 +111,7 @@ class AuthResult {
     bool? faydaVerified,
     DateTime? faydaVerifiedAt,
     bool newDevice = false,
+    String? preferredLanguage,
   }) {
     return AuthResult._(
       isSuccess: true,
@@ -111,6 +124,7 @@ class AuthResult {
       faydaVerified: faydaVerified,
       faydaVerifiedAt: faydaVerifiedAt,
       newDevice: newDevice,
+      preferredLanguage: preferredLanguage,
     );
   }
 
@@ -133,12 +147,25 @@ class AuthResult {
     String errorCode,
     String errorMessage, {
     int? retryAfterSeconds,
+    bool timedOut = false,
   }) {
     return AuthResult._(
       isSuccess: false,
       errorCode: errorCode,
       errorMessage: errorMessage,
       retryAfterSeconds: retryAfterSeconds,
+      timedOut: timedOut,
+    );
+  }
+
+  /// BUG-35: the server could not be reached in time on a first login (no
+  /// offline credentials on this device). The device is online, so this is
+  /// not [AuthResult.offlineNotAvailable].
+  factory AuthResult.networkTooSlow() {
+    return AuthResult.failure(
+      'NETWORK_TOO_SLOW',
+      'The network is too slow to log in. Please try again.',
+      timedOut: true,
     );
   }
 

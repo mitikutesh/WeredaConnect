@@ -4,13 +4,31 @@ import { t as translate } from "@/lib/i18n";
 
 import {
   adminQueueLabel,
+  commitmentResponseLabel,
   deriveStage,
   escrowStatusLabel,
   escrowStatusVariant,
   orderStatusLabel,
+  orderStatusVariant,
+  partyLabel,
   stageLabel,
+  stateLabel,
   timelineActionLabel,
+  timelineEntityLabel,
+  transportFailureLabel,
 } from "./transaction";
+
+describe("outcome label rows (FRD-18)", () => {
+  it("name the entity and the action in all three locales, and leave an unknown entity raw", () => {
+    const en = (key: string) => translate(key, "en");
+    expect(timelineEntityLabel("label", en)).toBe("Outcome");
+    expect(timelineEntityLabel("label", (key) => translate(key, "am"))).toBe("ውጤት");
+    expect(timelineEntityLabel("label", (key) => translate(key, "om"))).toBe("Bu'aa");
+    expect(timelineEntityLabel("escrow", en)).toBe("Escrow");
+    expect(timelineEntityLabel("fraud", en)).toBe("fraud");
+    expect(timelineActionLabel("outcome_label", en)).toBe("Outcome labelled (admin)");
+  });
+});
 
 describe("held escrow (FRD-03)", () => {
   it("has a badge colour and a label, and its audit actions are labelled", () => {
@@ -34,6 +52,7 @@ describe("deriveStage", () => {
     for (const s of [
       "payment_submitted",
       "funded",
+      "awaiting_transport",
       "accepted",
       "pickup_confirmed",
       "in_transit",
@@ -67,6 +86,25 @@ describe("deriveStage", () => {
     }
   });
 
+  // ESC-15: the commitment status and fields read as words in every locale.
+  it("labels awaiting_transport and the commitment values in every locale", () => {
+    for (const locale of ["en", "am", "om"] as const) {
+      const tr = (key: string) => translate(key, locale);
+      expect(orderStatusLabel("awaiting_transport", tr)).not.toBe("awaiting_transport");
+      expect(tr("transactions.action_trucker_responded")).not.toBe("transactions.action_trucker_responded");
+      for (const r of ["pending", "accepted", "declined", "expired", "cancelled", "not_asked", "failed_capacity", "none", "no_show"]) {
+        expect(commitmentResponseLabel(r, tr)).not.toBe(r);
+      }
+      for (const f of ["trucker_declined", "trucker_expired", "trucker_cancelled", "trip_cancelled", "trip_full", "trucker_no_show"]) {
+        expect(transportFailureLabel(f, tr)).not.toBe(f);
+      }
+      for (const p of ["buyer", "farmer", "trucker", "system"]) {
+        expect(partyLabel(p, tr)).not.toBe(p);
+      }
+    }
+    expect(orderStatusVariant.awaiting_transport).toBe("warning");
+  });
+
   it("falls back to unknown for unmapped statuses", () => {
     expect(deriveStage("something_new")).toBe("unknown");
   });
@@ -93,9 +131,41 @@ describe("admin queue label (ESC-06)", () => {
     for (const locale of ["en", "am", "om"] as const) {
       const tr = (key: string) => translate(key, locale);
       expect(adminQueueLabel("hold_cap", tr)).not.toBe("hold_cap");
+      // ESC-34: the pickup judgement's queue reasons.
+      for (const r of ["both_present_no_scan", "unchecked_check_in", "late_pickup_evidence"]) {
+        expect(adminQueueLabel(r, tr)).not.toBe(r);
+      }
+      // ESC-36: an overdue delivery or a silent buyer whose money could not be moved.
+      for (const r of ["delivery_overdue", "silent_buyer", "dropoff_out_of_range"]) {
+        expect(adminQueueLabel(r, tr)).not.toBe(r);
+      }
       expect(tr("transactions.adminQueue")).not.toBe("transactions.adminQueue");
       expect(tr("transactions.pickupDeadline")).not.toBe("transactions.pickupDeadline");
       expect(adminQueueLabel("t11_verdict", tr)).toBe("t11_verdict");
     }
+  });
+});
+
+describe("audit row states (FUP-80)", () => {
+  const en = (key: string) => translate(key, "en");
+
+  it("names a state by its leg's status label in every locale", () => {
+    expect(stateLabel("escrow", "escrowed", en)).toBe("Held in escrow");
+    expect(stateLabel("order", "payment_submitted", en)).toBe("Payment submitted");
+    expect(stateLabel("delivery", "pickedUp", en)).toBe("Picked up");
+    expect(stateLabel("escrow", "released", (key) => translate(key, "am"))).toBe("ተለቋል");
+    expect(stateLabel("order", "funded", (key) => translate(key, "om"))).toBe("Kaffalame");
+  });
+
+  it("reads a state that is a step, or of another leg, as words, never snake_case", () => {
+    // Escrow rows can store the step as their state (release_failed); it has an action label.
+    expect(stateLabel("escrow", "release_failed", en)).toBe("Release failed");
+    // An admin row's decision, or a state no label knows yet.
+    expect(stateLabel("label", "fraud_confirmed", en)).toBe("Fraud confirmed");
+    expect(stateLabel("order", "some_future_status", en)).toBe("Some future status");
+  });
+
+  it("keeps an empty state empty", () => {
+    expect(stateLabel("escrow", "", en)).toBe("");
   });
 });

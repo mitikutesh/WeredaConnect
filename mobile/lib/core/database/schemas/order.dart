@@ -69,7 +69,10 @@ class Order {
   @Index()
   String? tripId;
 
-  /// Trucker assigned for delivery
+  /// Trucker assigned for delivery. Indexed (ESC-22) so the trucker's order
+  /// reads (`where().truckerIdEqualTo`) skip everyone else's orders. Isar
+  /// builds a new index over the stored rows when the app next opens the db.
+  @Index()
   String? truckerId;
 
   /// Trucker's display name
@@ -124,6 +127,143 @@ class Order {
   String? buyerPhone;
   String? farmerPhone;
   String? truckerPhone;
+
+  /// ESC-15: `trucker` (trip order) or `self_pickup`, stamped by the server
+  /// when the money is held; null before (see order_commitment.dart).
+  String? fulfillment;
+
+  /// ESC-15: the farmer's answer to the paid order: `pending`, `accepted`,
+  /// `declined` or `expired`. Server-written; null on a row it never stamped.
+  String? farmerResponse;
+
+  /// ESC-15: the trucker's answer: `none` (self-pickup), `not_asked` (the
+  /// farmer has not accepted yet), `pending`, `accepted`, `declined`,
+  /// `expired`, `cancelled` or `failed_capacity`. Server-written.
+  String? truckerResponse;
+
+  /// ESC-15: the trip's departure on a trip order, stamped at funding (UTC).
+  /// Null before funding and on a self-pickup order.
+  DateTime? pickupDate;
+
+  /// ESC-15: when the farmer's and the trucker's answers are due (UTC).
+  DateTime? farmerDeadlineAt;
+  DateTime? truckerDeadlineAt;
+
+  /// ESC-15: in `awaitingTransport`, until when the buyer may decide (UTC).
+  DateTime? buyerChoiceDeadlineAt;
+
+  /// ESC-15: why the transport failed (`trucker_declined`, `trucker_expired`,
+  /// `trucker_cancelled`, `trip_cancelled`, `trip_full`).
+  String? transportFailure;
+
+  /// ESC-15: the decline reason code the farmer or trucker gave.
+  String? declineReason;
+
+  /// ESC-15: who ended the order: `buyer`, `farmer`, `trucker` or `system`.
+  String? cancelledBy;
+
+  /// The listing's place name at create (order-lifecycle 2.2.0): where the
+  /// goods are collected. Server-written; null on an older order or when the
+  /// listing had none (the trip's route stands in).
+  String? pickupPlace;
+
+  /// The buyer's registered woreda at create (order-lifecycle 2.2.0): where
+  /// the goods go. Server-written; null on an older order.
+  String? dropoffPlace;
+
+  /// LT-12 (order-lifecycle 2.5.0): the buyer's drop-off landmark ("Merkato,
+  /// near Anwar Mosque"), at most 80 characters, changed by the buyer until
+  /// pickup. The server sends it to the buyer, the farmer and the committed
+  /// trucker only; null otherwise and when there is none.
+  String? dropoffNote;
+
+  /// LT-14 (order-lifecycle 2.9.0): the order's own drop-off point, the place
+  /// the buyer picked (both or neither). Changed by the buyer until pickup;
+  /// sent to the buyer, the farmer and, while the money is held, the order's
+  /// trucker still on it (not asked yet, asked or committed). Null when there
+  /// is none: the trip's destination is then the drop-off.
+  double? deliveryLatitude;
+  double? deliveryLongitude;
+
+  /// ESC-34 (order-lifecycle 2.15.0): `pending` on an order accepted with
+  /// `pickupClassification` on, until the order cron judges its pickup at
+  /// the deadline; then the outcome (`scanned`, `trucker_no_show`,
+  /// `farmer_no_show`, `buyer_no_show`, `both_present_no_scan`,
+  /// `unchecked_check_in`). Null on every other order. Server-written.
+  String? pickupJudgement;
+
+  /// ESC-34: when the pickup was judged (UTC). Server-written.
+  DateTime? pickupJudgedAt;
+
+  /// ESC-34: the arrival check-ins the server received, one per kind
+  /// (`arrived_pickup`, `crops_ready`; ESC-36: the trucker's
+  /// `arrived_dropoff`). Server-written; empty when none.
+  List<OrderCheckIn> checkIns = [];
+
+  /// ESC-36 (order-lifecycle 2.18.0, FUP-336): `pending` on an order picked
+  /// up with `dropoffClassification` on, until the order cron judges the
+  /// drop-off (T8 at [dropoffDeadlineAt], or T9 48 hours after the trucker's
+  /// drop-off check-in); then `closed`, `auto_confirmed`, `silent_buyer`,
+  /// `delivery_overdue`, `dropoff_out_of_range` or `queued`. Null on every
+  /// other order. Server-written.
+  String? dropoffJudgement;
+
+  /// ESC-36: when the drop-off was judged (UTC). Server-written.
+  DateTime? dropoffJudgedAt;
+
+  /// ESC-36: T8 (UTC), the pickup plus 72 hours: without the trucker's
+  /// drop-off check-in by then the delivery is disputed as overdue.
+  DateTime? dropoffDeadlineAt;
+
+  /// FUP-370 (order-lifecycle 2.22.0): T9 (UTC) as the server computes it,
+  /// the trucker's counted drop-off check-in plus the SSM `silent-buyer-hours`.
+  /// Sent only while the order is on the road and [dropoffJudgement] is
+  /// `pending` after that check-in; null otherwise, and from a server before
+  /// it (the client then shows its 48 hour estimate). Server-written.
+  DateTime? dropoffConfirmAt;
+
+  /// ESC-36: why the system disputed the order (`delivery_overdue`,
+  /// `dropoff_out_of_range`, `silent_buyer`). Server-written.
+  String? disputeReason;
+
+  /// FUP-285: the check-ins made on this phone that the server has not
+  /// refused, by kind (the local mark). Not stored: the order repository
+  /// reads them from the sync queue with the order, so a refused one is gone
+  /// as soon as the queue rejects it.
+  @ignore
+  Map<String, QueuedCheckIn> queuedCheckIns = const {};
+}
+
+/// FUP-285: a check-in made on this phone, as its sync operation stands.
+class QueuedCheckIn {
+  const QueuedCheckIn({required this.madeAt, this.sent = false});
+
+  /// When it was made on the phone (UTC).
+  final DateTime madeAt;
+
+  /// The server took it; its copy arrives with the next read of the order.
+  final bool sent;
+}
+
+/// ESC-34: one arrival check-in as the parties read it
+/// (`delivery-verification-api.md` 2.6.0): no coordinates, no sender.
+@embedded
+class OrderCheckIn {
+  /// `arrived_pickup`, `crops_ready` or (ESC-36) `arrived_dropoff`.
+  String kind = '';
+
+  /// When the server received it (UTC): the only time the judgement reads.
+  DateTime? receivedAt;
+
+  /// When the phone took it (UTC), kept by the server only when plausible.
+  DateTime? capturedAt;
+
+  /// Whether its GPS fix was measured against the farm.
+  bool distanceChecked = false;
+
+  /// It reached the server after the pickup deadline: kept for review,
+  /// never counted.
+  bool isLate = false;
 }
 
 /// Status of an order in its lifecycle
@@ -172,4 +312,12 @@ enum OrderStatus {
 
   /// Dispute has been resolved
   disputeResolved,
+
+  /// ESC-15: the transport fell through after payment; the buyer decides
+  /// (cancel for a full refund). Server-managed.
+  awaitingTransport,
+
+  /// A status this app version does not know (a newer server). Shown as
+  /// "Updating" with no actions until the app is updated.
+  unknown,
 }

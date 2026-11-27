@@ -63,6 +63,28 @@ void main() {
         );
       });
 
+      test(
+          'a drop-off token carries the tagged nonce, and parses as any '
+          '(ESC-35)', () async {
+        final delivery = _createTestDelivery();
+
+        final (token, nonce) =
+            await service.generateQrToken(delivery, dropoff: true);
+
+        expect(nonce, startsWith(DeliveryConstants.dropoffNoncePrefix));
+        expect(
+          nonce.length,
+          lessThanOrEqualTo(DeliveryConstants.maxQrFieldLength),
+        );
+        // A buyer app of any version reads it the same way.
+        final parsed = service.parseQrToken(token, delivery);
+        expect(parsed.isValid, isTrue);
+        expect(parsed.nonce, nonce);
+        // A farmer's nonce never carries the tag.
+        final (_, farmerNonce) = await service.generateQrToken(delivery);
+        expect(farmerNonce, isNot(contains('.')));
+      });
+
       test('returns different tokens for different deliveries', () async {
         final delivery1 = _createTestDelivery();
         final delivery2 = _createTestDelivery()

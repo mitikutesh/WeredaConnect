@@ -105,6 +105,15 @@ class WebEscrowRepository extends BaseEscrowRepository {
       );
     }
     if (e is ServerException) {
+      // FUP-36: a status the client does not type (422 ESCROW_039, ESCROW_010)
+      // still carries the server's own code; keep it so the screen localizes
+      // it. FUP-70: also on 502 and 503, where a `503 ESCROW_012` is a failed
+      // read and not Telebirr. Only an answer without a code falls back to
+      // the gateway texts.
+      final serverCode = escrowCodeOf(e, '');
+      if (serverCode.isNotEmpty) {
+        return EscrowError(serverCode, e.message);
+      }
       if (e.statusCode == 502) {
         return const EscrowError(
           'ESCROW_013',
@@ -117,9 +126,7 @@ class WebEscrowRepository extends BaseEscrowRepository {
           'Telebirr is currently unavailable. Please try later.',
         );
       }
-      // FUP-36: a status the client does not type (422 ESCROW_039, ESCROW_010)
-      // still carries the server's own code; keep it so the screen localizes it.
-      return EscrowError(escrowCodeOf(e, 'ESCROW_SERVER'), e.message);
+      return EscrowError('ESCROW_SERVER', e.message);
     }
     if (e is NetworkException) return EscrowError('ESCROW_NETWORK', e.message);
     return EscrowError('ESCROW_CLIENT', e.message);
@@ -269,21 +276,32 @@ class WebEscrowRepository extends BaseEscrowRepository {
   }
 
   Payment _parsePaymentMap(Map<String, dynamic> m) {
+    final amount = (m['amount'] as num?)?.toDouble() ?? 0;
+    final commission = (m['commission'] as num?)?.toDouble() ?? 0;
+    final truckerPayout = (m['truckerPayout'] as num?)?.toDouble();
+    // Pre-SIM-15 history rows carry no per-party legs: the farmer leg is then
+    // the remainder after commission and any trucker leg.
+    final farmerPayout = (m['farmerPayout'] as num?)?.toDouble() ??
+        (amount - commission - (truckerPayout ?? 0));
     return Payment()
       ..paymentId = m['paymentId'] as String? ?? m['escrowId'] as String? ?? ''
       ..deliveryId = m['deliveryId'] as String? ?? ''
       ..farmerId = m['farmerId'] as String? ?? ''
       ..buyerId = m['buyerId'] as String? ?? ''
-      ..amount = (m['amount'] as num?)?.toDouble() ?? 0
-      ..commission = (m['commission'] as num?)?.toDouble() ?? 0
-      ..commissionRate = (m['commissionRate'] as num?)?.toDouble() ?? 0.025
-      // Pre-SIM-15 history rows carry no per-party legs: the farmer leg is then
-      // the remainder after commission and any trucker leg.
-      ..farmerPayout = (m['farmerPayout'] as num?)?.toDouble() ??
-          (((m['amount'] as num?)?.toDouble() ?? 0) -
-              ((m['commission'] as num?)?.toDouble() ?? 0) -
-              ((m['truckerPayout'] as num?)?.toDouble() ?? 0))
-      ..truckerPayout = (m['truckerPayout'] as num?)?.toDouble()
+      ..amount = amount
+      ..commission = commission
+      // The server's stored rate; history rows from servers before FUP-129
+      // carry none, the rate is then derived on the right base.
+      ..commissionRate = (m['commissionRate'] as num?)?.toDouble() ??
+          deriveEscrowCommissionRate(
+            amount: amount,
+            commission: commission,
+            farmerPayout: farmerPayout,
+            truckerPayout: truckerPayout,
+            orderId: m['orderId'] as String?,
+          )
+      ..farmerPayout = farmerPayout
+      ..truckerPayout = truckerPayout
       ..truckerId = m['truckerId'] as String?
       ..orderId = m['orderId'] as String?
       ..refundPending = m['refundPending'] as bool? ?? false
@@ -295,6 +313,9 @@ class WebEscrowRepository extends BaseEscrowRepository {
       ..updatedAt =
           DateTime.tryParse(m['updatedAt'] as String? ?? '') ?? DateTime.now()
       ..expiresAt = DateTime.tryParse(m['expiresAt'] as String? ?? '')
+      // FUP-97: a confirmed hold past its expiry waits for its payout.
+      ..deliveryConfirmedAt =
+          DateTime.tryParse(m['deliveryConfirmedAt'] as String? ?? '')
       ..disputeWindowEndsAt =
           DateTime.tryParse(m['disputeWindowEndsAt'] as String? ?? '')
       // FRD-13: sent to the farmer and the trucker only.

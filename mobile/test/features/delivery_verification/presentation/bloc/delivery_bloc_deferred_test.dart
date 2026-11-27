@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -7,6 +8,8 @@ import 'package:wereda_connect/features/delivery_verification/domain/repositorie
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/delivery_error_l10n.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 class _MockRepository extends Mock implements BaseDeliveryRepository {}
 
@@ -84,6 +87,83 @@ void main() {
     await done;
   });
 
+  // FUP-43: on web a dispute answered AUTH_040 asks for the password (the
+  // dispute screen prompts and resends); AUTH_041 keeps the generic error.
+  for (final (error, code) in <(Object, String)>[
+    (
+      const SyncRejectedException('AUTH_040: Confirm it is you.'),
+      DeliveryErrorCode.stepUpRequired,
+    ),
+    (
+      const StepUpRequiredException('step-up required'),
+      DeliveryErrorCode.stepUpRequired,
+    ),
+    (
+      const SyncRejectedException('AUTH_041: Confirm it is you with Fayda.'),
+      DeliveryErrorCode.generic,
+    ),
+    (
+      const StepUpRequiredException('Fayda needed', 403, 'AUTH_041'),
+      DeliveryErrorCode.generic,
+    ),
+  ]) {
+    test('a dispute answered "$error" emits $code', () async {
+      final repository = _MockRepository();
+      when(
+        () => repository.raiseDispute(
+          deliveryId: any(named: 'deliveryId'),
+          userId: any(named: 'userId'),
+          reason: any(named: 'reason'),
+        ),
+      ).thenThrow(error);
+      final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
+
+      final done = expectLater(
+        bloc.stream,
+        emitsThrough(isA<DeliveryError>().having((e) => e.code, 'code', code)),
+      );
+      bloc.add(
+        const RaiseDispute(
+          deliveryId: 'del-1',
+          userId: 'buyer-1',
+          reason: 'wet bags',
+          tripId: 'trip-1',
+        ),
+      );
+      await done;
+    });
+  }
+
+  // A step-up on anything but a dispute keeps its handling.
+  test('AUTH_040 on a cancel stays the generic error', () async {
+    final repository = _MockRepository();
+    when(
+      () => repository.cancelDelivery(
+        deliveryId: any(named: 'deliveryId'),
+        userId: any(named: 'userId'),
+      ),
+    ).thenThrow(const SyncRejectedException('AUTH_040: Confirm it is you.'));
+    final bloc = DeliveryBloc(repository: repository);
+    addTearDown(bloc.close);
+
+    final done = expectLater(
+      bloc.stream,
+      emitsThrough(
+        isA<DeliveryError>()
+            .having((e) => e.code, 'code', DeliveryErrorCode.generic),
+      ),
+    );
+    bloc.add(
+      const CancelDelivery(
+        deliveryId: 'del-1',
+        userId: 'farmer-1',
+        tripId: 'trip-1',
+      ),
+    );
+    await done;
+  });
+
   // ESC-07: web sends the dispute straight to /sync too: a dispute the server
   // could not freeze the payment for, or one after the 48-hour window, gets
   // its own message instead of the generic error.
@@ -127,4 +207,187 @@ void main() {
       await done;
     });
   }
+
+  // T-1: web waits for the server, so a refused typed code reaches the bloc
+  // and gets its own message.
+  for (final (message, code) in [
+    (
+      'DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.',
+      DeliveryErrorCode.codeMismatch,
+    ),
+    (
+      'DELIVERY_CODE_LOCKED: Too many wrong codes for this delivery.',
+      DeliveryErrorCode.codeLocked,
+    ),
+    (
+      'DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this drop-off.',
+      DeliveryErrorCode.codeLockedDropoff,
+    ),
+    (
+      'DELIVERY_CODE_GPS_REQUIRED: Location is required.',
+      DeliveryErrorCode.codeGpsRequired,
+    ),
+  ]) {
+    test('a refused typed code emits $code', () async {
+      final repository = _MockRepository();
+      when(
+        () => repository.confirmDelivery(
+          deliveryId: any(named: 'deliveryId'),
+          buyerId: any(named: 'buyerId'),
+          gpsDropoff: any(named: 'gpsDropoff'),
+          photoRef: any(named: 'photoRef'),
+          scannedQrNonce: any(named: 'scannedQrNonce'),
+          scannedQrCode: any(named: 'scannedQrCode'),
+        ),
+      ).thenThrow(SyncRejectedException(message));
+      final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
+
+      final done = expectLater(
+        bloc.stream,
+        emitsThrough(
+          isA<DeliveryError>().having((e) => e.code, 'code', code),
+        ),
+      );
+      bloc.add(
+        const ConfirmDelivery(
+          deliveryId: 'del-1',
+          buyerId: 'buyer-1',
+          scannedQrCode: '757555978',
+        ),
+      );
+      await done;
+      verify(
+        () => repository.confirmDelivery(
+          deliveryId: 'del-1',
+          buyerId: 'buyer-1',
+          gpsDropoff: any(named: 'gpsDropoff'),
+          photoRef: any(named: 'photoRef'),
+          scannedQrNonce: any(named: 'scannedQrNonce'),
+          scannedQrCode: '757555978',
+        ),
+      ).called(1);
+    });
+  }
+
+  // FUP-439: web waits for the server, so a handoff refused for its GPS
+  // reaches the bloc and gets one text per reason (the trucker's pickup, the
+  // self-pickup buyer's and the drop-off buyer's confirm).
+  test('a pickup refused for its GPS emits the pickup-far error', () async {
+    final repository = _MockRepository();
+    when(
+      () => repository.confirmPickup(
+        deliveryId: any(named: 'deliveryId'),
+        truckerId: any(named: 'truckerId'),
+        gpsPickup: any(named: 'gpsPickup'),
+        photoRef: any(named: 'photoRef'),
+        scannedQrNonce: any(named: 'scannedQrNonce'),
+        scannedQrCode: any(named: 'scannedQrCode'),
+      ),
+    ).thenThrow(
+      const SyncRejectedException(
+        'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is 11.1km from '
+        'listing location (max 5km).',
+      ),
+    );
+    final bloc = DeliveryBloc(repository: repository);
+    addTearDown(bloc.close);
+
+    final done = expectLater(
+      bloc.stream,
+      emitsThrough(
+        isA<DeliveryError>()
+            .having((e) => e.code, 'code', DeliveryErrorCode.gpsPickupFar),
+      ),
+    );
+    bloc.add(
+      const ConfirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        scannedQrNonce: 'n',
+      ),
+    );
+    await done;
+  });
+
+  for (final (message, code) in [
+    (
+      'DELIVERY_GPS_PROXIMITY: self_pickup_no_fix: Location is required to '
+          'confirm self-pickup at the farm.',
+      DeliveryErrorCode.gpsSelfPickupNoFix,
+    ),
+    (
+      'DELIVERY_GPS_PROXIMITY: self_pickup_no_farm_point: This listing has no '
+          'registered location, so self-pickup cannot be verified.',
+      DeliveryErrorCode.gpsSelfPickupNoFarmPoint,
+    ),
+    (
+      'DELIVERY_GPS_PROXIMITY: self_pickup_far: You are 11.1km from the farm '
+          'location (max 5km).',
+      DeliveryErrorCode.gpsSelfPickupFar,
+    ),
+    (
+      'DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is 16.2km from the '
+          'drop-off point (max 5km).',
+      DeliveryErrorCode.gpsDropoffFar,
+    ),
+    // A server without the reason token: the generic delivery text.
+    (
+      'DELIVERY_GPS_PROXIMITY: You are 11.1km from the farm location '
+          '(max 5km).',
+      DeliveryErrorCode.generic,
+    ),
+  ]) {
+    test('a confirm refused for its GPS emits $code', () async {
+      final repository = _MockRepository();
+      when(
+        () => repository.confirmDelivery(
+          deliveryId: any(named: 'deliveryId'),
+          buyerId: any(named: 'buyerId'),
+          gpsDropoff: any(named: 'gpsDropoff'),
+          photoRef: any(named: 'photoRef'),
+          scannedQrNonce: any(named: 'scannedQrNonce'),
+          scannedQrCode: any(named: 'scannedQrCode'),
+        ),
+      ).thenThrow(SyncRejectedException(message));
+      final bloc = DeliveryBloc(repository: repository);
+      addTearDown(bloc.close);
+
+      final done = expectLater(
+        bloc.stream,
+        emitsThrough(
+          isA<DeliveryError>().having((e) => e.code, 'code', code),
+        ),
+      );
+      bloc.add(
+        const ConfirmDelivery(
+          deliveryId: 'del-1',
+          buyerId: 'buyer-1',
+          scannedQrNonce: 'n',
+        ),
+      );
+      await done;
+    });
+  }
+
+  test('each GPS refusal has its own delivery text in en, am and om', () async {
+    const codes = [
+      DeliveryErrorCode.gpsPickupFar,
+      DeliveryErrorCode.gpsSelfPickupNoFix,
+      DeliveryErrorCode.gpsSelfPickupNoFarmPoint,
+      DeliveryErrorCode.gpsSelfPickupFar,
+      DeliveryErrorCode.gpsDropoffFar,
+    ];
+    for (final locale in ['en', 'am', 'om']) {
+      final l10n = await AppLocalizations.delegate.load(Locale(locale));
+      final texts = {for (final c in codes) localizeDeliveryError(l10n, c)};
+      expect(texts, hasLength(codes.length), reason: locale);
+      expect(texts, isNot(contains(l10n.deliveryErrorGeneric)), reason: locale);
+      expect(
+        deliveryGpsErrorOf('DELIVERY_CODE_MISMATCH: x'),
+        isNull,
+        reason: locale,
+      );
+    }
+  });
 }

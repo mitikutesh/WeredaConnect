@@ -116,7 +116,8 @@ public class SyncMetadataRepositoryTests
             idempotencyKey,
             operationId,
             entityType,
-            result);
+            result,
+            "fingerprint-100");
 
         await _mockDynamoDb.Received(1).PutItemAsync(
             Arg.Is<PutItemRequest>(r =>
@@ -124,8 +125,73 @@ public class SyncMetadataRepositoryTests
                 r.Item["idempotencyKey"].S == idempotencyKey &&
                 r.Item["operationId"].S == operationId &&
                 r.Item["entityType"].S == entityType &&
-                r.Item["result"].S == result),
+                r.Item["result"].S == result &&
+                r.Item["payloadFingerprint"].S == "fingerprint-100"),
             Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task StoreIdempotencyKeyAsync_WithoutAFingerprint_StoresNoFingerprintAttribute(string? fingerprint)
+    {
+        PutItemRequest? capturedRequest = null;
+        _mockDynamoDb.PutItemAsync(Arg.Do<PutItemRequest>(r => capturedRequest = r), Arg.Any<CancellationToken>())
+            .Returns(new PutItemResponse());
+
+        await _repository.StoreIdempotencyKeyAsync("key-105", "op-105", "crop_listing", "success", fingerprint);
+
+        Assert.NotNull(capturedRequest);
+        Assert.False(capturedRequest!.Item.ContainsKey("payloadFingerprint"));
+    }
+
+    // --- GetPayloadFingerprintAsync (SIM-28) ---
+
+    [Fact]
+    public async Task GetPayloadFingerprintAsync_ReturnsTheStoredFingerprint()
+    {
+        const string idempotencyKey = "user:crop_listing:crop-200:create:1";
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new() { ["payloadFingerprint"] = new AttributeValue { S = "abc123" } }
+                }
+            });
+
+        var fingerprint = await _repository.GetPayloadFingerprintAsync(idempotencyKey);
+
+        Assert.Equal("abc123", fingerprint);
+        await _mockDynamoDb.Received(1).QueryAsync(
+            Arg.Is<QueryRequest>(r =>
+                r.TableName == TableName &&
+                r.KeyConditionExpression == "idempotencyKey = :key" &&
+                r.ExpressionAttributeValues[":key"].S == idempotencyKey &&
+                r.ProjectionExpression == "payloadFingerprint" &&
+                r.Limit == 1),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GetPayloadFingerprintAsync_RecordWrittenBeforeFingerprints_ReturnsNull()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>> { new() }
+            });
+
+        Assert.Null(await _repository.GetPayloadFingerprintAsync("user:crop_listing:crop-201:create:1"));
+    }
+
+    [Fact]
+    public async Task GetPayloadFingerprintAsync_NoRecord_ReturnsNull()
+    {
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>>() });
+
+        Assert.Null(await _repository.GetPayloadFingerprintAsync("user:crop_listing:crop-202:create:1"));
     }
 
     [Fact]
@@ -148,7 +214,8 @@ public class SyncMetadataRepositoryTests
             idempotencyKey,
             operationId,
             entityType,
-            result);
+            result,
+            null);
 
         Assert.NotNull(capturedRequest);
         Assert.True(capturedRequest!.Item.ContainsKey("timestamp"));
@@ -181,7 +248,8 @@ public class SyncMetadataRepositoryTests
             idempotencyKey,
             operationId,
             entityType,
-            result);
+            result,
+            null);
 
         var afterCall = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
@@ -218,7 +286,8 @@ public class SyncMetadataRepositoryTests
             idempotencyKey,
             operationId,
             entityType,
-            result);
+            result,
+            null);
 
         Assert.NotNull(capturedRequest);
         var expiresAt = long.Parse(capturedRequest!.Item["expiresAt"].N);
@@ -246,7 +315,8 @@ public class SyncMetadataRepositoryTests
                 idempotencyKey,
                 operationId,
                 entityType,
-                result));
+                result,
+                null));
     }
 
     [Fact]
@@ -264,7 +334,8 @@ public class SyncMetadataRepositoryTests
                 $"key-{resultType}",
                 $"op-{resultType}",
                 "crop_listing",
-                resultType);
+                resultType,
+                null);
 
             await _mockDynamoDb.Received(1).PutItemAsync(
                 Arg.Is<PutItemRequest>(r => r.Item["result"].S == resultType),

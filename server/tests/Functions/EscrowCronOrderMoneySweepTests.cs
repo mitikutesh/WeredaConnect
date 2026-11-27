@@ -8,6 +8,7 @@ using NSubstitute.ExceptionExtensions;
 using NSubstitute.Extensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
 
@@ -96,9 +97,11 @@ public class EscrowCronOrderMoneySweepTests
             });
     }
 
-    private EscrowCronFunction MakeFunction(int maxRows = 2000, TimeSpan? slice = null, IEscrowIdempotencyRepository? cursorStore = null)
+    private EscrowCronFunction MakeFunction(
+        int maxRows = 2000, TimeSpan? slice = null, IEscrowIdempotencyRepository? cursorStore = null,
+        IDeliveryRepository? deliveries = null)
         => new(new EscrowService(_escrows, _audit, _idempotency, _gateway, orderRepo: _orders), _escrows, _audit, _gateway,
-            orderRepo: _orders, idempotencyRepo: cursorStore)
+            deliveryRepo: deliveries, orderRepo: _orders, idempotencyRepo: cursorStore)
         {
             BudgetFactory = () => new CronRunBudget(() => _elapsed),
             OrderMoneySweepMaxRows = maxRows,
@@ -116,6 +119,112 @@ public class EscrowCronOrderMoneySweepTests
     }
 
     private string Logs => ((TestLambdaLogger)_context.Logger).Buffer.ToString();
+
+    // ===== ESC-16: a delivered order's missing delivery stamp =====
+
+    private readonly IDeliveryRepository _deliveries = Substitute.For<IDeliveryRepository>();
+
+    /// <summary>A delivered order whose escrow waits without the delivery stamp; the escrow row is live (writes land on it).</summary>
+    private Dictionary<string, object> SeedUnstampedDelivered(string orderId, string deliveryStatus, bool linked = true)
+    {
+        _orderStatus[orderId] = "delivered";
+        var escrow = new Dictionary<string, object>
+        {
+            { "escrowId", $"escrow-order-{orderId}" }, { "status", "escrowed" }, { "orderId", orderId },
+            { "source", "order" }, { "createdAt", "2026-10-01T10:00:00.0000000Z" }
+        };
+        if (linked)
+        {
+            escrow["deliveryId"] = $"del-{orderId}";
+        }
+
+        _escrows.GetByIdAsync($"escrow-order-{orderId}", true).Returns(_ => new Dictionary<string, object>(escrow));
+        _escrows.UpdateStatusAsync($"escrow-order-{orderId}", Arg.Any<string>(), "escrowed", "escrowed",
+                Arg.Any<Dictionary<string, object>?>())
+            .Returns(call =>
+            {
+                foreach (var (key, value) in call.ArgAt<Dictionary<string, object>?>(4) ?? new Dictionary<string, object>())
+                {
+                    escrow[key] = value;
+                }
+
+                return Task.CompletedTask;
+            });
+        _deliveries.GetByIdAsync($"del-{orderId}").Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", $"del-{orderId}" }, { "status", deliveryStatus }, { "confirmedAt", "2026-11-06T08:00:00.0000000Z" }
+        });
+        return escrow;
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DeliveredOrder_EscrowMissingItsDeliveryStamp_IsStamped_SoTheAutoReleaseCanPay(bool linked)
+    {
+        PartitionsHold();
+        var escrow = SeedUnstampedDelivered("ord-1", "delivered", linked);
+        if (!linked)
+        {
+            // An escrow the delivery was never linked to: the order's active delivery names it.
+            _orderStatus["ord-1"] = "delivered";
+            _orders.QueryMoneySweepPageAsync("delivered", Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+                .Returns((new List<Dictionary<string, object>>
+                {
+                    new() { { "orderId", "ord-1" }, { "status", "delivered" }, { "createdAt", "2026-10-01T09:00:00.0000000Z" },
+                        { "activeDeliveryId", "del-ord-1" } }
+                }, (Dictionary<string, AttributeValue>?)null));
+        }
+
+        var summary = await RunAsync(MakeFunction(deliveries: _deliveries));
+
+        summary["deliveryStampsRepaired"].Should().Be("1");
+        escrow["deliveryConfirmedAt"].Should().Be("2026-11-06T08:00:00.0000000Z");
+        escrow["disputeWindowEndsAt"].Should().Be(DateTime.Parse("2026-11-06T08:00:00.0000000Z", null,
+            System.Globalization.DateTimeStyles.RoundtripKind).AddHours(48).ToString("o"));
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+    }
+
+    [Fact]
+    public async Task DeliveredOrder_DeliveryNotDelivered_NothingIsStamped()
+    {
+        PartitionsHold();
+        SeedUnstampedDelivered("ord-1", "inTransit");
+
+        var summary = await RunAsync(MakeFunction(deliveries: _deliveries));
+
+        summary["deliveryStampsRepaired"].Should().Be("0");
+        await _escrows.DidNotReceive().UpdateStatusAsync("escrow-order-ord-1", Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string?>(), Arg.Any<Dictionary<string, object>?>());
+    }
+
+    [Fact]
+    public async Task DeliveredOrder_EscrowAlreadyStamped_TheDeliveryIsNotRead()
+    {
+        PartitionsHold();
+        SeedOrder("ord-1", "delivered", "escrowed");
+
+        var summary = await RunAsync(MakeFunction(deliveries: _deliveries));
+
+        summary["deliveryStampsRepaired"].Should().Be("0");
+        await _deliveries.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task DeliveredOrder_TheStampFails_IsAlarmed_AndRetriedNextRun()
+    {
+        PartitionsHold();
+        SeedUnstampedDelivered("ord-1", "delivered");
+        _escrows.UpdateStatusAsync("escrow-order-ord-1", Arg.Any<string>(), "escrowed", "escrowed",
+                Arg.Any<Dictionary<string, object>?>())
+            .ThrowsAsync(new InvalidOperationException("throttled"));
+
+        var summary = await RunAsync(MakeFunction(deliveries: _deliveries));
+
+        summary["deliveryStampsRepaired"].Should().Be("0");
+        Logs.Should().Contain(
+            "ESCROW_DELIVERY_STAMP_FAILED escrowId=escrow-order-ord-1 deliveryId=del-ord-1 source=escrow-cron reason=[InvalidOperationException]");
+    }
 
     [Fact]
     public async Task TheSweep_ReadsThePartitionsWhereMoneyMovesFirst_ThenTheLogisticsOnes()

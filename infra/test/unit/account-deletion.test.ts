@@ -30,6 +30,7 @@ function apiTemplate(): Template {
     paymentsTable: db.paymentsTable,
     escrowsTable: db.escrowsTable,
     escrowAuditTable: db.escrowAuditTable,
+    escrowLedgerTable: db.escrowLedgerTable,
     escrowIdempotencyTable: db.escrowIdempotencyTable,
     deliveryQrSecretsTable: db.deliveryQrSecretsTable,
     ordersTable: db.ordersTable,
@@ -39,6 +40,10 @@ function apiTemplate(): Template {
     matchEventsTable: db.matchEventsTable,
     ratingsTable: db.ratingsTable,
     messagesTable: db.messagesTable,
+    notificationsTable: db.notificationsTable,
+    tripLocationsTable: db.tripLocationsTable,
+    listingReportsTable: db.listingReportsTable,
+    reputationEventsTable: db.reputationEventsTable,
     transactionAuditTable: db.transactionAuditTable,
     uploadsBucket: db.uploadsBucket,
   });
@@ -127,6 +132,7 @@ describe('ACC-02 account deletion (ApiStack)', () => {
             INTENTS_TABLE: Match.anyValue(),
             MATCH_EVENTS_TABLE: Match.anyValue(),
             DEVICE_TOKENS_TABLE: Match.anyValue(),
+            NOTIFICATIONS_TABLE: Match.anyValue(),
             COGNITO_USER_POOL_ID: Match.anyValue(),
             COGNITO_CLIENT_ID: Match.anyValue(),
           }),
@@ -175,6 +181,8 @@ describe('ACC-02 account deletion (ApiStack)', () => {
       IntentsTable: ['dynamodb:DeleteItem', 'dynamodb:Query'],
       MatchEventsTable: ['dynamodb:DeleteItem', 'dynamodb:Query'],
       DeviceTokensTable: ['dynamodb:DeleteItem', 'dynamodb:Query'],
+      // FUP-120: own inbox rows deleted, the user's name in other parties' rows anonymized.
+      NotificationsTable: ['dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:UpdateItem'],
     };
     for (const [table, actions] of Object.entries(expected)) {
       expect([table, actionsOn(template, API_FN, table)]).toEqual([table, actions]);
@@ -182,6 +190,15 @@ describe('ACC-02 account deletion (ApiStack)', () => {
     // No other table (payments, fraud signals, rate limits, sync metadata, QR secrets).
     for (const table of ['PaymentsTable', 'FraudSignalsTable', 'RateLimitsTable', 'SyncMetadataTable', 'DeliveryQrSecretsTable']) {
       expect([table, actionsOn(template, API_FN, table)]).toEqual([table, []]);
+    }
+  });
+
+  test('FUP-120: both Lambdas may query, update and delete inbox rows, and nothing else on the notifications table', () => {
+    for (const fn of [API_FN, SWEEP_FN]) {
+      expect([fn, actionsOn(template, fn, 'NotificationsTable')]).toEqual([
+        fn,
+        ['dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:UpdateItem'],
+      ]);
     }
   });
 
@@ -211,6 +228,23 @@ describe('ACC-02 account deletion (ApiStack)', () => {
       Environment: { Variables: Match.objectLike({ USERS_TABLE: Match.anyValue() }) },
     });
     expect(actionsOn(template, 'wereda-connect-dev-device-tokens', 'UsersTable')).toEqual(['dynamodb:GetItem']);
+  });
+
+  test('device tokens (FUP-121): create on the FCM app, read and rebind on its endpoints only', () => {
+    const sns = statementsOf(template, 'wereda-connect-dev-device-tokens').filter((s) =>
+      (Array.isArray(s.Action) ? s.Action : [s.Action]).some((a) => a.startsWith('sns:')));
+    expect(sns).toHaveLength(2);
+
+    const create = sns.find((s) => s.Action === 'sns:CreatePlatformEndpoint');
+    expect(JSON.stringify(create?.Resource)).toContain(':app/GCM/wereda-connect-dev-fcm');
+    expect(JSON.stringify(create?.Resource)).not.toContain('*');
+
+    const rebind = sns.find((s) => Array.isArray(s.Action));
+    expect((rebind?.Action as string[]).sort()).toEqual([
+      'sns:GetEndpointAttributes',
+      'sns:SetEndpointAttributes',
+    ]);
+    expect(JSON.stringify(rebind?.Resource)).toContain(':endpoint/GCM/wereda-connect-dev-fcm/*');
   });
 });
 

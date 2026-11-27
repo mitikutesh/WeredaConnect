@@ -47,6 +47,17 @@ public sealed record UploadPhotoRequest
     /// Photo type: "pickup" or "dropoff".
     /// </summary>
     public required string Type { get; init; }
+
+    /// <summary>
+    /// Exact size of the photo in bytes, 1 to 204800 (200 KiB). Signed into the PUT as its
+    /// Content-Length, so S3 refuses any other size (delivery-verification-api 1.25.0, FRD-12).
+    /// </summary>
+    public long? SizeBytes { get; init; }
+
+    /// <summary>
+    /// "image/webp" (the default, the phone's compressed photo) or "image/jpeg" (the browser's).
+    /// </summary>
+    public string? ContentType { get; init; }
 }
 
 /// <summary>
@@ -182,6 +193,31 @@ public sealed record DeliveryDto
     public string? DeliveryType { get; init; }
 
     /// <summary>
+    /// The order's crop type key ("wheat"), stamped on create from the order (1.21.0) so the
+    /// deliveries list can title each card without one order read per row. Null on deliveries
+    /// created before 1.21.0.
+    /// </summary>
+    public string? CropType { get; init; }
+
+    /// <summary>
+    /// The order's quantity in kilograms, stamped on create from the order (1.21.0). Null on
+    /// deliveries created before 1.21.0.
+    /// </summary>
+    public double? Quantity { get; init; }
+
+    /// <summary>
+    /// Where the crop is picked up: the listing's place name, stamped on create (1.21.0).
+    /// Null when the listing has none or the delivery predates 1.21.0.
+    /// </summary>
+    public string? PickupPlace { get; init; }
+
+    /// <summary>
+    /// ISO 8601 UTC departure date of the trip at create time (1.21.0). Null on a self-pickup
+    /// and on deliveries created before 1.21.0.
+    /// </summary>
+    public string? PickupPlannedAt { get; init; }
+
+    /// <summary>
     /// GPS coordinates at pickup location.
     /// </summary>
     public LatLngDto? GpsPickup { get; init; }
@@ -200,6 +236,39 @@ public sealed record DeliveryDto
     /// S3 reference for dropoff photo evidence.
     /// </summary>
     public string? DropoffPhotoRef { get; init; }
+
+    /// <summary>
+    /// Presigned GET of the pickup photo (15 minutes), on GET /deliveries/{id} for the delivery's
+    /// parties and on the admin transaction view only; never on a list (1.25.0, FRD-12).
+    /// </summary>
+    public string? PickupPhotoUrl { get; init; }
+
+    /// <summary>Presigned GET of the drop-off photo, as <see cref="PickupPhotoUrl"/>.</summary>
+    public string? DropoffPhotoUrl { get; init; }
+
+    /// <summary>
+    /// ESC-36: S3 reference of the trucker's arrival photo at the drop-off (the evidence of the drop-off
+    /// check-in), attached through <c>delivery_photo</c> <c>{deliveryId}#arrival</c>.
+    /// </summary>
+    public string? ArrivalPhotoRef { get; init; }
+
+    /// <summary>ESC-36: presigned GET of the arrival photo, as <see cref="PickupPhotoUrl"/>.</summary>
+    public string? ArrivalPhotoUrl { get; init; }
+
+    /// <summary>
+    /// FUP-373: when the arrival photo was attached as late evidence on the order cron's T8 dispute (the
+    /// server's time); absent on one attached while the goods were on the road.
+    /// </summary>
+    public string? ArrivalPhotoLateAt { get; init; }
+
+    /// <summary>
+    /// FUP-140: when the buyer's drop-off photo was attached as late evidence on a system dispute without a
+    /// confirm (the server's time); absent on the photo of a confirmed delivery.
+    /// </summary>
+    public string? DropoffPhotoLateAt { get; init; }
+
+    /// <summary>ESC-36: when the order cron confirmed the delivery for a silent buyer (absent when the buyer confirmed).</summary>
+    public string? AutoConfirmedAt { get; init; }
 
     /// <summary>
     /// ISO 8601 UTC timestamp of when cargo was picked up.
@@ -235,4 +304,133 @@ public sealed record DeliveryDto
     /// Version number for optimistic concurrency control.
     /// </summary>
     public required int Version { get; init; }
+}
+
+/// <summary>
+/// LT-06: GET /deliveries/{id}/track response (live-trip-api.md section 2). Only the delivery's
+/// buyer, farmer and trucker read it. Coordinates are rounded (party points at 3 decimals, other
+/// stops at 2) and limited to the delivery's own window, from pickup to delivery. Nullable fields
+/// are written as <c>null</c>, as the contract shows them.
+/// </summary>
+public sealed record DeliveryTrackResponse
+{
+    public required string DeliveryId { get; init; }
+
+    /// <summary><c>not_started</c>, <c>live</c>, <c>paused</c>, <c>declined</c> or <c>ended</c>.</summary>
+    public required string Sharing { get; init; }
+
+    /// <summary>The end of the running pause, only while <c>paused</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? PausedUntil { get; init; }
+
+    /// <summary>The server time of this answer.</summary>
+    public required string AsOf { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public TrackLastFixDto? LastFix { get; init; }
+
+    public required List<TrackTrailPointDto> Trail { get; init; }
+
+    public required List<TrackPauseDto> Pauses { get; init; }
+
+    public required TrackPickupDto Pickup { get; init; }
+
+    public required TrackDropoffDto Dropoff { get; init; }
+
+    public required List<TrackStopDto> OtherStops { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public TrackEtaDto? Eta { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? RemainingKm { get; init; }
+
+    /// <summary>Only when <c>ended</c>; carries no coordinates.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public TrackSummaryDto? Summary { get; init; }
+}
+
+/// <summary>The latest check-in of the window.</summary>
+public sealed record TrackLastFixDto
+{
+    public required double Latitude { get; init; }
+    public required double Longitude { get; init; }
+    public required string CapturedAt { get; init; }
+    public required string ReceivedAt { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? AccuracyM { get; init; }
+}
+
+/// <summary>One check-in of the window, in capture order.</summary>
+public sealed record TrackTrailPointDto
+{
+    public required double Latitude { get; init; }
+    public required double Longitude { get; init; }
+    public required string CapturedAt { get; init; }
+    public required string ReceivedAt { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Source { get; init; }
+}
+
+/// <summary>A pause of the driver inside the window.</summary>
+public sealed record TrackPauseDto
+{
+    public required string From { get; init; }
+    public required string Until { get; init; }
+}
+
+/// <summary>The pickup point (gpsPickup, else the listing location) and the pickup time.</summary>
+public sealed record TrackPickupDto
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Latitude { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Longitude { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? At { get; init; }
+}
+
+/// <summary>
+/// The drop-off point and the buyer's landmark note (LT-12: the order's <c>dropoffNote</c> when the
+/// viewer may read it, else null).
+/// </summary>
+public sealed record TrackDropoffDto
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Latitude { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public double? Longitude { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? Note { get; init; }
+}
+
+/// <summary>Another order's pickup or drop-off on the same truck: never named, 2 decimals.</summary>
+public sealed record TrackStopDto
+{
+    /// <summary><c>pickup</c> or <c>dropoff</c>.</summary>
+    public required string Kind { get; init; }
+    public required double Latitude { get; init; }
+    public required double Longitude { get; init; }
+    public required bool Done { get; init; }
+}
+
+/// <summary>The arrival window, on 5 minute marks.</summary>
+public sealed record TrackEtaDto
+{
+    public required string From { get; init; }
+    public required string To { get; init; }
+}
+
+/// <summary>The trip after delivery: distance of the legs, pickup to delivery, number of check-ins.</summary>
+public sealed record TrackSummaryDto
+{
+    public required double DistanceKm { get; init; }
+    public required int DurationMin { get; init; }
+    public required int Fixes { get; init; }
 }

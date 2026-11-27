@@ -1,10 +1,13 @@
 using System.Text;
+using System.Text.Json;
+using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.TestUtilities;
 using Amazon.SimpleNotificationService;
 using Amazon.SimpleNotificationService.Model;
 using NSubstitute;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using Xunit;
 
 namespace WeredaConnect.Server.Tests.Functions;
@@ -295,4 +298,156 @@ public class CropMatchStreamFunctionTests
 
         await _devices.Received(1).DeleteAsync("b1", "arn:dead");
     }
+
+    // ===== FUP-185: the alert's reliability is the one GET /match uses =====
+
+    // A marginal listing for the wheat intent below (barley substitute, over budget by 10 or 14
+    // percent, 3 of the 5 wanted, Mekelle against Adama): type 0.18, geo 0.054, quantity 0.072 and
+    // freshness 0.10, plus price 0.0667 at 110 or 0.0133 at 114. The reliability term (0.10 times
+    // pct / 100, or the neutral 0.07) decides the 0.5 threshold:
+    //   110: neutral 0.543 (alert), pct 0 0.473 (no alert).
+    //   114: neutral 0.489 (no alert), pct 100 0.519 (alert).
+    [Theory]
+    [InlineData(true, 100, 114, true)]   // the stamped 100 lifts it over the threshold
+    [InlineData(false, 100, 114, false)] // flag off: neutral, as before
+    [InlineData(true, null, 114, false)] // no copy on the row: neutral
+    [InlineData(true, 0, 110, false)]    // the stamped 0 drops it under the threshold
+    [InlineData(false, 0, 110, true)]    // flag off: neutral, as before
+    [InlineData(true, null, 110, true)]  // no copy on the row: neutral
+    public async Task Alert_ScoresTheListingAsGetMatchDoes_WithTheSameReliability(
+        bool publicTags, int? reliabilityPct, double price, bool alerted)
+    {
+        var row = ListingRow(price, reliabilityPct);
+
+        // GET /match for the same listing, the same criteria and the same flag.
+        var crops = Substitute.For<ICropRepository>();
+        crops.QueryCropsAsync(Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+                Arg.Any<int>(), Arg.Any<Dictionary<string, Amazon.DynamoDBv2.Model.AttributeValue>?>(), Arg.Any<double?>())
+            .Returns((new List<Dictionary<string, object>> { row }, (Dictionary<string, Amazon.DynamoDBv2.Model.AttributeValue>?)null));
+        var match = new MatchFunction(crops) { ReputationPublicTags = publicTags, HideRestrictedOwners = false };
+        var response = await match.FunctionHandler(BuyerMatchRequest(), _ctx);
+        Assert.Equal(200, response.StatusCode);
+        var matchScore = JsonDocument.Parse(response.Body).RootElement.GetProperty("matches")[0].GetProperty("score").GetDouble();
+
+        // The alert's candidate for the listing's stream image scores the same.
+        var now = DateTime.UtcNow;
+        var image = JsonDocument.Parse(ImageJson(row)).RootElement.Clone();
+        var criteria = new MatchCriteria
+        {
+            CropType = "wheat",
+            MaxPricePerKg = 100,
+            QuantityNeeded = 5,
+            DeliveryWoreda = "Adama",
+            NowUtc = now,
+        };
+        var alertScore = MatchScoring.ScoreListing(criteria, CropMatchStreamFunction.ToCandidate(image, publicTags, now));
+        Assert.Equal(matchScore, alertScore, 12);
+        Assert.Equal(alerted, matchScore >= 0.5);
+
+        // And the alert fires exactly when that score reaches the threshold.
+        _intents.QueryActiveByCropTypeAsync("wheat").Returns(new List<Dictionary<string, object>>
+        {
+            Intent(cropType: "wheat", maxPricePerKg: "100", quantityNeeded: "5", deliveryWoreda: "Adama"),
+        });
+        _devices.GetEndpointArnsByUserAsync("b1").Returns(new List<string> { "arn:endpoint:1" });
+        var fn = new CropMatchStreamFunction(_intents, _devices, _sns) { ReputationPublicTags = publicTags };
+
+        await fn.ProcessStreamAsync(RecordWith(ImageJson(row)), _ctx);
+
+        await _sns.Received(alerted ? 1 : 0).PublishAsync(Arg.Any<PublishRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void PublicTagsOff_TheCandidateIsTheOneBeforeFup185_StampedOrNot()
+    {
+        // Flag off: a stamped row gives exactly the candidate the alert built before FUP-185 (no
+        // reliability, so the neutral 0.7), the same as a row without the copy.
+        var now = DateTime.UtcNow;
+        var stamped = JsonDocument.Parse(ImageJson(ListingRow(110, 0))).RootElement.Clone();
+        var unstamped = JsonDocument.Parse(ImageJson(ListingRow(110, null))).RootElement.Clone();
+        var before = new CropCandidate
+        {
+            CropType = "barley",
+            PricePerKg = 110,
+            Quantity = 3,
+            LocationName = "Mekelle",
+            CreatedAt = now,
+        };
+
+        var candidate = CropMatchStreamFunction.ToCandidate(stamped, publicTags: false, now);
+
+        Assert.Equal(before, candidate);
+        Assert.Equal(before, CropMatchStreamFunction.ToCandidate(unstamped, publicTags: false, now));
+        var criteria = new MatchCriteria { CropType = "wheat", MaxPricePerKg = 100, QuantityNeeded = 5, DeliveryWoreda = "Adama", NowUtc = now };
+        Assert.Equal(MatchScoring.ScoreListing(criteria, before), MatchScoring.ScoreListing(criteria, candidate));
+        // On, the same row carries the stamped value.
+        Assert.Equal(0, CropMatchStreamFunction.ToCandidate(stamped, publicTags: true, now).OwnerReliabilityPct);
+    }
+
+    /// <summary>The listing as a table read returns it (strings, numbers as their text).</summary>
+    private static Dictionary<string, object> ListingRow(double price, int? reliabilityPct)
+    {
+        var createdAt = DateTime.UtcNow.AddMinutes(-1).ToString("o");
+        var row = new Dictionary<string, object>
+        {
+            { "cropId", "crop-1" }, { "farmerId", "farmer-1" }, { "cropType", "barley" }, { "status", "available" },
+            { "pricePerKg", price.ToString(System.Globalization.CultureInfo.InvariantCulture) }, { "quantity", "3" },
+            { "woreda", "Mekelle" }, { "locationName", "Mekelle" },
+            { "createdAt", createdAt }, { "updatedAt", createdAt }, { "version", "1" },
+        };
+        if (reliabilityPct is int pct)
+        {
+            row["ownerTier"] = "good";
+            row["ownerEffectiveRating"] = "4.2";
+            row["ownerRatingCount"] = "12";
+            row["ownerReliabilityPct"] = pct.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            row["ownerReputationAt"] = "2026-11-10T09:00:00.000Z";
+        }
+
+        return row;
+    }
+
+    private static readonly HashSet<string> NumberAttributes = new()
+    {
+        "pricePerKg", "quantity", "version", "ownerEffectiveRating", "ownerRatingCount", "ownerReliabilityPct",
+    };
+
+    /// <summary>The same row as a stream NewImage (DynamoDB JSON).</summary>
+    private static string ImageJson(Dictionary<string, object> row)
+    {
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            foreach (var (key, value) in row)
+            {
+                writer.WriteStartObject(key);
+                writer.WriteString(NumberAttributes.Contains(key) ? "N" : "S", value.ToString());
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
+    private static Stream RecordWith(string imageJson)
+        => new MemoryStream(Encoding.UTF8.GetBytes(
+            "{\"Records\":[{\"eventName\":\"INSERT\",\"dynamodb\":{\"SequenceNumber\":\"seq-1\",\"NewImage\":"
+            + imageJson + "}}]}"));
+
+    private static APIGatewayProxyRequest BuyerMatchRequest() => new()
+    {
+        HttpMethod = "GET",
+        Path = "/match",
+        QueryStringParameters = new Dictionary<string, string>
+        {
+            { "cropType", "wheat" }, { "maxPricePerKg", "100" }, { "quantityNeeded", "5" }, { "deliveryWoreda", "Adama" },
+        },
+        RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+        {
+            Authorizer = new APIGatewayCustomAuthorizerContext { { "sub", "b1" }, { "custom:role", "buyer" } },
+        },
+    };
 }

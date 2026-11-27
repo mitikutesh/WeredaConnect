@@ -2,22 +2,27 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/auth/widgets/step_up_dialog.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/escrow_error_l10n.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/escrow_status_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/payment_cards.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
+import 'package:wereda_connect/features/order/presentation/commission_label.dart';
 
-/// Buyer payment initiation screen with commission breakdown.
+/// Buyer payment initiation screen with commission breakdown (a sibling of
+/// the Buyer · Telebirr payment board: the amount in the green card, the
+/// breakdown card, the escrow and Fayda notes, Confirm pinned at the foot).
 ///
-/// Shows delivery summary, amount with commission calculation,
-/// Fayda ID warning for amounts > 10,000 ETB, and a large confirm button.
 /// Supports both online (immediate) and offline (queued intent) flows.
 class InitiatePaymentScreen extends StatelessWidget {
   final String deliveryId;
@@ -25,6 +30,16 @@ class InitiatePaymentScreen extends StatelessWidget {
   final String farmerId;
   final String farmerName;
   final double amount;
+
+  /// The split of the order this delivery fulfils (its `cropCost`,
+  /// `transportCost` and `commissionAmount`). The server pays the escrow out
+  /// exactly so (escrow-protocol.md rule 6 and Commission Calculation).
+  final double? orderCropCost;
+  final double? orderTransportCost;
+  final double? orderCommission;
+
+  /// The order's own commission rate, for the row's label.
+  final double? orderCommissionRate;
 
   /// Replaces the Fayda screen the Fayda step-up opens (tests).
   final WidgetBuilder? faydaVerificationScreen;
@@ -35,18 +50,37 @@ class InitiatePaymentScreen extends StatelessWidget {
     required this.farmerId,
     required this.farmerName,
     required this.amount,
+    this.orderCropCost,
+    this.orderTransportCost,
+    this.orderCommission,
+    this.orderCommissionRate,
     this.faydaVerificationScreen,
     super.key,
   });
 
-  static final _formatter = NumberFormat('#,##0.00', 'en_US');
+  bool get _hasOrderSplit =>
+      orderCropCost != null ||
+      orderTransportCost != null ||
+      orderCommission != null;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
-    final commission = max(amount * 0.025, 5.0);
-    final farmerPayout = amount - commission;
+    // SIM-30: the server's split. With the order's split (the pay button only
+    // opens this screen for a delivery whose order it found), the commission
+    // is the order's, charged on top of the crop cost. Only without one does
+    // the server fall back to the legacy 2.5 % (5 ETB minimum) taken out of
+    // the amount.
+    final legacyCommission = roundEtb(max(amount * 0.025, 5.0));
+    final commission = _hasOrderSplit
+        ? roundEtb(orderCommission ?? legacyCommission)
+        : legacyCommission;
+    final truckerPayout =
+        _hasOrderSplit ? roundEtb(orderTransportCost ?? 0) : 0.0;
+    final farmerPayout =
+        _hasOrderSplit ? roundEtb(orderCropCost ?? 0) : amount - commission;
+    final shortId =
+        deliveryId.length > 8 ? deliveryId.substring(0, 8) : deliveryId;
 
     return BlocListener<EscrowBloc, EscrowState>(
       listener: (context, state) {
@@ -111,197 +145,128 @@ class InitiatePaymentScreen extends StatelessWidget {
         }
       },
       child: Scaffold(
-        appBar: AppBar(title: Text(l10n.escrowPayForDelivery)),
         body: SafeArea(
+          bottom: false,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Escrow protection info
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer
-                        .withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.shield,
-                        size: 48,
-                        color: theme.colorScheme.primary,
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              l10n.escrowPayments,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              l10n.escrowProtectionInfo,
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Delivery and farmer info
-                Text(
-                  l10n.escrowDeliveryNumber(
-                    deliveryId.length > 8
-                        ? deliveryId.substring(0, 8)
-                        : deliveryId,
-                  ),
-                  style: theme.textTheme.bodyLarge,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  l10n.escrowPaymentTo(farmerName),
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // Amount breakdown card
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
+            child: FwContentWidth(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FwDetailHeader(title: l10n.escrowPayForDelivery),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _BreakdownRow(
-                          label: l10n.escrowTotalAmount,
-                          value:
-                              l10n.escrowEtbAmount(_formatter.format(amount)),
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                        // The amount, with who is paid for which delivery.
+                        PaymentAmountCard(
+                          amount: amount,
+                          detail: '${l10n.escrowPaymentTo(farmerName)} · '
+                              '${l10n.escrowDeliveryNumber(shortId)}',
                         ),
-                        const Divider(height: 24),
-                        _BreakdownRow(
-                          label: l10n.escrowCommission(
-                            (commission / amount * 100).toStringAsFixed(1),
-                          ),
-                          value: l10n.escrowEtbAmount(
-                            _formatter.format(commission),
-                          ),
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.6),
-                          ),
-                        ),
-                        const Divider(height: 24),
-                        _BreakdownRow(
-                          label: l10n.escrowFarmerReceives,
-                          value: l10n.escrowEtbAmount(
-                            _formatter.format(farmerPayout),
-                          ),
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            color: AppTheme.onStatusSuccessContainer,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
+                        const SizedBox(height: 14),
 
-                // Fayda ID warning (advisory, server enforces)
-                if (amount > 10000)
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppTheme.statusWarning.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: AppTheme.statusWarning.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.warning_amber,
-                          color: AppTheme.statusWarning,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            l10n.escrowFaydaWarning,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: AppTheme.onStatusWarningContainer,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 32),
-
-                // Confirm button (56dp height — large touch target)
-                BlocBuilder<EscrowBloc, EscrowState>(
-                  builder: (context, state) {
-                    final isLoading = state is EscrowLoading;
-                    return FilledButton.icon(
-                      onPressed:
-                          isLoading ? null : () => _showConfirmation(context),
-                      icon: isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
+                        // Amount breakdown card
+                        FwCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              FwMoneyRow(
+                                label: l10n.escrowTotalAmount,
+                                amount: l10n.etbCurrency(
+                                  formatEtbAmount(amount),
                                 ),
                               ),
-                            )
-                          : const Icon(Icons.check),
-                      label: Text(l10n.escrowConfirmPayment),
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(56),
-                        textStyle: const TextStyle(fontSize: 18),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Info footer
-                Row(
-                  children: [
-                    Icon(
-                      Icons.info_outline,
-                      size: 16,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        l10n.escrowFundsHeldInfo,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.5),
+                              const SizedBox(height: 9),
+                              FwMoneyRow(
+                                // A rate of the crop cost, not of this
+                                // amount, so the order's label has none.
+                                label: _hasOrderSplit
+                                    ? commissionLabelFor(
+                                        l10n,
+                                        orderCommissionRate,
+                                      )
+                                    : l10n.escrowCommission(
+                                        (commission / amount * 100)
+                                            .toStringAsFixed(1),
+                                      ),
+                                amount: l10n.etbCurrency(
+                                  formatEtbAmount(commission),
+                                ),
+                              ),
+                              const SizedBox(height: 9),
+                              FwMoneyRow(
+                                label: l10n.escrowFarmerReceives,
+                                amount: l10n.etbCurrency(
+                                  formatEtbAmount(farmerPayout),
+                                ),
+                                total: true,
+                              ),
+                              if (truckerPayout > 0) ...[
+                                const SizedBox(height: 9),
+                                FwMoneyRow(
+                                  label: l10n.escrowTruckerReceives,
+                                  amount: l10n.etbCurrency(
+                                    formatEtbAmount(truckerPayout),
+                                  ),
+                                  total: true,
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 14),
+
+                        // Escrow protection info
+                        FwNoteBox(
+                          icon: Icons.shield,
+                          child: Text(l10n.escrowProtectionInfo),
+                        ),
+
+                        // Fayda ID warning (advisory, server enforces)
+                        if (amount > 10000) ...[
+                          const SizedBox(height: 12),
+                          FwNoteBox.cream(
+                            icon: Icons.warning_amber,
+                            child: Text(l10n.escrowFaydaWarning),
+                          ),
+                        ],
+                      ],
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
           ),
+        ),
+        // Confirm, pinned at the foot (54 tall, a large touch target).
+        bottomNavigationBar: BlocBuilder<EscrowBloc, EscrowState>(
+          builder: (context, state) {
+            final isLoading = state is EscrowLoading;
+            return FwBottomActions(
+              children: [
+                FilledButton.icon(
+                  onPressed:
+                      isLoading ? null : () => _showConfirmation(context),
+                  icon: isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              AppTheme.ink,
+                            ),
+                          ),
+                        )
+                      : const Icon(Icons.check),
+                  // The page's one orange action (the theme's button).
+                  label: Text(l10n.escrowConfirmPayment),
+                ),
+                FwActionNote(l10n.escrowFundsHeldInfo),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -340,7 +305,7 @@ class InitiatePaymentScreen extends StatelessWidget {
           title: Text(dl10n.escrowConfirmPayment),
           content: Text(
             dl10n.escrowConfirmPaymentDialog(
-              _formatter.format(amount),
+              formatEtbAmount(amount),
               farmerName,
             ),
           ),
@@ -350,6 +315,9 @@ class InitiatePaymentScreen extends StatelessWidget {
               child: Text(dl10n.cancel),
             ),
             FilledButton(
+              // Beside Cancel, not stacked under it: the theme's button is
+              // full width.
+              style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
               onPressed: () {
                 Navigator.of(dialogContext).pop();
                 context.read<EscrowBloc>().add(_paymentEvent);
@@ -359,29 +327,6 @@ class InitiatePaymentScreen extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-class _BreakdownRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final TextStyle? style;
-
-  const _BreakdownRow({
-    required this.label,
-    required this.value,
-    this.style,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.bodyLarge),
-        Text(value, style: style),
-      ],
     );
   }
 }

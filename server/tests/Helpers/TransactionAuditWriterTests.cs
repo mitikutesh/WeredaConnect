@@ -179,4 +179,24 @@ public class TransactionAuditWriterTests
         (await Write()).Should().BeFalse("the row already exists");
         await FluentActions.Awaiting(Write).Should().ThrowAsync<InvalidOperationException>();
     }
+
+    // ===== FUP-19: the row for a caller's own transaction =====
+
+    [Fact]
+    public async Task BuildOnceEntry_IsTheRowEmitOnceWrites()
+    {
+        var repo = Substitute.For<ITransactionAuditRepository>();
+        Dictionary<string, object>? written = null;
+        repo.AppendIfAbsentAsync(Arg.Do<Dictionary<string, object>>(d => written = d)).Returns(true);
+        const string at = "2026-11-13T09:30:00.0000000Z";
+
+        await TransactionAuditWriter.EmitOnceCheckedAsync(
+            repo, "order-1", "delivery", "del-1", "admin_delivery_cancelled", "pickedUp", "cancelled", Ctx(), at, "reason=x");
+        var built = TransactionAuditWriter.BuildOnceEntry(
+            "order-1", "delivery", "del-1", "admin_delivery_cancelled", "pickedUp", "cancelled", Ctx(), at, "reason=x");
+
+        built.Should().BeEquivalentTo(written);
+        built["auditId"].Should().Be("txaudit-order-1-admin_delivery_cancelled-20261113T0930000000000Z");
+        built["timestamp"].Should().Be(at);
+    }
 }

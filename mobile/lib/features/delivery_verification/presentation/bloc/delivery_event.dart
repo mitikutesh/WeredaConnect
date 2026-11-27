@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 
 /// Base class for delivery events.
 abstract class DeliveryEvent extends Equatable {
@@ -99,20 +100,42 @@ class ConfirmPickup extends DeliveryEvent {
   final String deliveryId;
   final String truckerId;
   final LatLng? gpsPickup;
+
+  /// The capture the scan screen tried, null when it tried none (FUP-440).
+  final GpsCaptureResult? gpsCapture;
   final String? photoRef;
   final String? scannedQrNonce;
+
+  /// The typed fallback for the scan (T-1): the farmer's nine-digit code,
+  /// its check digit already checked. Null when the QR was scanned.
+  final String? scannedQrCode;
+
+  /// The delivery's trip: a successful scan records a check-in for it when
+  /// the trucker shares the trip's location (LT-08).
+  final String? tripId;
 
   const ConfirmPickup({
     required this.deliveryId,
     required this.truckerId,
     this.gpsPickup,
+    this.gpsCapture,
     this.photoRef,
     this.scannedQrNonce,
+    this.scannedQrCode,
+    this.tripId,
   });
 
   @override
-  List<Object?> get props =>
-      [deliveryId, truckerId, gpsPickup, photoRef, scannedQrNonce];
+  List<Object?> get props => [
+        deliveryId,
+        truckerId,
+        gpsPickup,
+        gpsCapture,
+        photoRef,
+        scannedQrNonce,
+        scannedQrCode,
+        tripId,
+      ];
 }
 
 /// Confirm delivery received by buyer.
@@ -120,20 +143,42 @@ class ConfirmDelivery extends DeliveryEvent {
   final String deliveryId;
   final String buyerId;
   final LatLng? gpsDropoff;
+
+  /// The capture the scan screen tried, null when it tried none (FUP-440).
+  final GpsCaptureResult? gpsCapture;
   final String? photoRef;
   final String? scannedQrNonce;
+
+  /// The typed fallback for the scan (T-1): the nine-digit code the trucker
+  /// (or, at a self-pickup, the farmer) shows. Null when the QR was scanned.
+  final String? scannedQrCode;
+
+  /// The delivery's trip, for the drop-off check-in (LT-08). It records only
+  /// on the phone that shares the trip's location.
+  final String? tripId;
 
   const ConfirmDelivery({
     required this.deliveryId,
     required this.buyerId,
     this.gpsDropoff,
+    this.gpsCapture,
     this.photoRef,
     this.scannedQrNonce,
+    this.scannedQrCode,
+    this.tripId,
   });
 
   @override
-  List<Object?> get props =>
-      [deliveryId, buyerId, gpsDropoff, photoRef, scannedQrNonce];
+  List<Object?> get props => [
+        deliveryId,
+        buyerId,
+        gpsDropoff,
+        gpsCapture,
+        photoRef,
+        scannedQrNonce,
+        scannedQrCode,
+        tripId,
+      ];
 }
 
 /// Raise a dispute on a delivery.

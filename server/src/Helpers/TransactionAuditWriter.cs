@@ -74,6 +74,23 @@ public static class TransactionAuditWriter
     }
 
     /// <summary>
+    /// FRD-14: append one event that must land, such as an admin's read of private messages. Unlike
+    /// <see cref="EmitAsync"/> a failed write is not swallowed: the caller answers without the data
+    /// rather than leave the read unrecorded.
+    /// </summary>
+    public static Task EmitRequiredAsync(
+        ITransactionAuditRepository repo,
+        string transactionId,
+        string entityType,
+        string entityId,
+        string action,
+        AuditContext ctx,
+        string? metadata = null)
+        => repo.AppendAsync(BuildEntry(
+            $"txaudit-{Guid.NewGuid():N}", transactionId, entityType, entityId, action,
+            null, null, ctx, DateTime.UtcNow.ToString("o"), metadata));
+
+    /// <summary>
     /// ESC-47: append one event at a deterministic key (<paramref name="timestamp"/> under
     /// <paramref name="transactionId"/>) unless a row with that key exists, so a repair can write a
     /// missing row and a replay never writes it twice. Best effort, like <see cref="EmitAsync"/>.
@@ -133,11 +150,27 @@ public static class TransactionAuditWriter
         AuditContext ctx,
         string timestamp,
         string? metadata = null)
+        => repo.AppendIfAbsentAsync(BuildOnceEntry(
+            transactionId, entityType, entityId, action, fromState, toState, ctx, timestamp, metadata));
+
+    /// <summary>
+    /// The row <see cref="EmitOnceCheckedAsync"/> writes, at its deterministic key, for a caller that puts it in its
+    /// own transaction so the row lands with the change it records or not at all (FUP-19).
+    /// </summary>
+    public static Dictionary<string, object> BuildOnceEntry(
+        string transactionId,
+        string entityType,
+        string entityId,
+        string action,
+        string? fromState,
+        string? toState,
+        AuditContext ctx,
+        string timestamp,
+        string? metadata = null)
     {
         // The id is deterministic too, so two writers that race build the same row.
         var auditId = $"txaudit-{transactionId}-{action}-{new string(timestamp.Where(char.IsAsciiLetterOrDigit).ToArray())}";
-        return repo.AppendIfAbsentAsync(BuildEntry(
-            auditId, transactionId, entityType, entityId, action, fromState, toState, ctx, timestamp, metadata));
+        return BuildEntry(auditId, transactionId, entityType, entityId, action, fromState, toState, ctx, timestamp, metadata);
     }
 
     private static Dictionary<string, object> BuildEntry(

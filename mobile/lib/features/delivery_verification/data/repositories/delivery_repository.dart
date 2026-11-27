@@ -6,9 +6,11 @@ import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 /// Offline-first repository for delivery CRUD operations.
@@ -370,14 +372,78 @@ class DeliveryRepository extends BaseDeliveryRepository {
     );
   }
 
+  /// Queue the trucker's drop-off nonce (ESC-35). It is not stored on the
+  /// phone's delivery row (the drop-off store keeps it); the queue sends it
+  /// behind the pickup, and the server waits for the pickup if it comes
+  /// first. The same code already waiting is not queued twice; a [renew]
+  /// drops the drop-off codes still waiting, so an older one never lands
+  /// after it. Nothing for anyone but the delivery's trucker. The server's
+  /// answer comes later, so a queued code reads as sent.
+  @override
+  Future<DropoffCodeRegistration> persistDropoffQrNonce({
+    required String deliveryId,
+    required String nonce,
+    required String truckerId,
+    bool renew = false,
+  }) async {
+    final delivery = await _isar.deliverys
+        .filter()
+        .deliveryIdEqualTo(deliveryId)
+        .findFirst();
+    if (delivery == null ||
+        truckerId.isEmpty ||
+        delivery.truckerId != truckerId) {
+      return DropoffCodeRegistration.notStored;
+    }
+
+    final waiting = [
+      for (final op
+          in await _syncQueue.waitingOperationsFor('delivery', deliveryId))
+        if (_dropoffNonceOf(op.data) case final queued?) (op, queued),
+    ];
+    if (renew) {
+      await _syncQueue
+          .dropWaiting([for (final (op, _) in waiting) op.operationId]);
+    } else if (waiting.any((w) => w.$2 == nonce)) {
+      return DropoffCodeRegistration.sent;
+    }
+
+    await _syncQueue.enqueue(
+      userId: truckerId,
+      entityType: 'delivery',
+      entityId: deliveryId,
+      action: 'update',
+      data: jsonEncode({
+        'dropoffQrNonce': nonce,
+        if (renew) 'dropoffQrRenew': true,
+        'version': delivery.version,
+      }),
+      operationId: _uuid.v4(),
+    );
+    return DropoffCodeRegistration.sent;
+  }
+
+  /// The drop-off nonce a queued operation registers, or null.
+  static String? _dropoffNonceOf(String data) {
+    try {
+      final decoded = jsonDecode(data);
+      final nonce = decoded is Map ? decoded['dropoffQrNonce'] : null;
+      return nonce is String ? nonce : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
   /// Confirm pickup by trucker. Status → pickedUp.
   @override
   Future<void> confirmPickup({
     required String deliveryId,
     required String truckerId,
     LatLng? gpsPickup,
+    GpsCaptureResult? gpsCapture,
     String? photoRef,
     String? scannedQrNonce,
+    String? scannedQrCode,
   }) async {
     final delivery = await _isar.deliverys
         .filter()
@@ -416,20 +482,21 @@ class DeliveryRepository extends BaseDeliveryRepository {
       syncData['gpsPickup'] = {
         'latitude': gpsPickup.latitude,
         'longitude': gpsPickup.longitude,
+        ...?gpsCapture?.pointEvidence,
       };
     }
+    // FUP-440: why there is no fix, or that there is one.
+    if (gpsCapture != null) syncData['gpsStatus'] = gpsCapture.gpsStatus;
 
-    // Only a server upload key travels in the op. The camera path hands over
-    // the local file path (uploads are FRD-12) and the server refuses anything
-    // but its own key, which used to fail the whole pickup. Isar keeps the
-    // local path above so the photo stays on the device.
-    if (photoRef != null &&
-        DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
-      syncData['pickupPhotoRef'] = photoRef;
-    }
+    // No photo ref travels in the handoff op: the photo has its own
+    // operation, queued below (FRD-12). Isar keeps the local path above so
+    // the photo shows on this phone.
 
     if (scannedQrNonce != null) {
       syncData['scannedQrNonce'] = scannedQrNonce;
+    } else if (scannedQrCode != null) {
+      // T-1: the typed fallback; the server derives it from the stored nonce.
+      syncData['scannedQrCode'] = scannedQrCode;
     }
 
     await _syncQueue.enqueue(
@@ -440,6 +507,12 @@ class DeliveryRepository extends BaseDeliveryRepository {
       data: jsonEncode(syncData),
       operationId: _uuid.v4(),
     );
+    await _enqueueHandoffPhoto(
+      userId: truckerId,
+      deliveryId: deliveryId,
+      type: 'pickup',
+      photoRef: photoRef,
+    );
   }
 
   /// Confirm delivery by buyer. Status → delivered.
@@ -448,8 +521,10 @@ class DeliveryRepository extends BaseDeliveryRepository {
     required String deliveryId,
     required String buyerId,
     LatLng? gpsDropoff,
+    GpsCaptureResult? gpsCapture,
     String? photoRef,
     String? scannedQrNonce,
+    String? scannedQrCode,
   }) async {
     final delivery = await _isar.deliverys
         .filter()
@@ -486,17 +561,18 @@ class DeliveryRepository extends BaseDeliveryRepository {
       syncData['gpsDropoff'] = {
         'latitude': gpsDropoff.latitude,
         'longitude': gpsDropoff.longitude,
+        ...?gpsCapture?.pointEvidence,
       };
     }
+    if (gpsCapture != null) syncData['gpsStatus'] = gpsCapture.gpsStatus;
 
-    // Server upload keys only, as in confirmPickup.
-    if (photoRef != null &&
-        DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
-      syncData['dropoffPhotoRef'] = photoRef;
-    }
+    // The photo has its own operation, as in confirmPickup.
 
     if (scannedQrNonce != null) {
       syncData['scannedQrNonce'] = scannedQrNonce;
+    } else if (scannedQrCode != null) {
+      // T-1: the typed fallback; the server derives it from the stored nonce.
+      syncData['scannedQrCode'] = scannedQrCode;
     }
 
     await _syncQueue.enqueue(
@@ -507,7 +583,42 @@ class DeliveryRepository extends BaseDeliveryRepository {
       data: jsonEncode(syncData),
       operationId: _uuid.v4(),
     );
+    await _enqueueHandoffPhoto(
+      userId: buyerId,
+      deliveryId: deliveryId,
+      type: 'dropoff',
+      photoRef: photoRef,
+    );
     // The listing is left alone, as on create (FUP-18).
+  }
+
+  /// FRD-12: queue the handoff photo this phone took, behind the handoff
+  /// itself. The sync preflight uploads the file when online and attaches
+  /// its key (`delivery_photo`). The photo is optional evidence: no photo,
+  /// or a ref that is not this phone's file for this delivery, queues
+  /// nothing, and a queue that refuses it never fails the handoff.
+  Future<void> _enqueueHandoffPhoto({
+    required String userId,
+    required String deliveryId,
+    required String type,
+    required String? photoRef,
+  }) async {
+    if (photoRef == null ||
+        !DeliveryConstants.isLocalPhotoPath(photoRef, deliveryId)) {
+      return;
+    }
+    try {
+      await _syncQueue.enqueue(
+        userId: userId,
+        entityType: deliveryPhotoEntityType,
+        entityId: deliveryPhotoEntityId(deliveryId, type),
+        action: 'create',
+        data: jsonEncode({deliveryPhotoLocalPathKey: photoRef}),
+        operationId: _uuid.v4(),
+      );
+    } on Object catch (e) {
+      debugPrint('[DeliveryRepository] handoff photo not queued: $e');
+    }
   }
 
   /// Mark delivery as in transit by trucker. Status → inTransit.

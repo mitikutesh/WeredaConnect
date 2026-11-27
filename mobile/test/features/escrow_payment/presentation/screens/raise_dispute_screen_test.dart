@@ -102,7 +102,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('15,000.00'), findsOneWidget);
+      // The header line: "15,000 ETB · Delivery #del-001-".
+      expect(find.textContaining('15,000 ETB'), findsOneWidget);
       expect(find.textContaining('del-001-'), findsOneWidget);
     });
 

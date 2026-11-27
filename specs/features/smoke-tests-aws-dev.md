@@ -225,12 +225,12 @@ Trucker's trip ─┘
   "deliveryId": "{deliveryId-from-order}",
   "buyerId": "{buyerId}",
   "farmerId": "{farmerId}",
-  "amount": 250000,
+  "amount": "{orderTotal-of-the-order}",
   "currency": "ETB",
   "idempotencyKey": "{buyerId}:escrow:{orderId}:initiate:{ts}"
 }
 ```
-- Assert: 200, `escrowId` present, `status: "escrowed"`, `commission` = `max(amount × 0.025, 5 ETB)`
+- Assert: 200, `escrowId` present, `status: "escrowed"`, `amount` = the order's `orderTotal`, `commission` = the order's `commissionAmount` (5% of its crop cost, to the santim; escrow-protocol.md Commission Calculation)
 
 **Get escrow** (`GET /escrow/{escrowId}`)
 - Assert: 200, `status: "escrowed"`, amounts match
@@ -244,7 +244,7 @@ Trucker's trip ─┘
   "idempotencyKey": "{userId}:escrow:{escrowId}:release:{ts}"
 }
 ```
-- Assert: 200, `status: "completed"`, `farmerPayout` = `amount − max(amount × 0.025, 5 ETB)`
+- Assert: 200, `status: "completed"`, `farmerPayout` = the order's `cropCost`, `farmerPayout + truckerPayout + commission` = `amount`
 
 **Escrow history** (`GET /escrow/history`)
 - Assert: 200, history includes the released escrow

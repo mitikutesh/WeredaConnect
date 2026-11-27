@@ -4,6 +4,7 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { WeredaDynamoTable } from "../constructs/dynamodb-construct";
 import { EnvironmentConfig } from "../config/environments";
+import { webCorsOrigins } from "../config/cors-origins";
 
 export interface DatabaseStackProps extends cdk.StackProps {
   readonly envConfig: EnvironmentConfig;
@@ -23,6 +24,7 @@ export class DatabaseStack extends cdk.Stack {
   public readonly paymentsTable: dynamodb.Table;
   public readonly escrowsTable: dynamodb.Table;
   public readonly escrowAuditTable: dynamodb.Table;
+  public readonly escrowLedgerTable: dynamodb.Table;
   public readonly transactionAuditTable: dynamodb.Table;
   public readonly escrowIdempotencyTable: dynamodb.Table;
   public readonly deliveryQrSecretsTable: dynamodb.Table;
@@ -33,6 +35,10 @@ export class DatabaseStack extends cdk.Stack {
   public readonly matchEventsTable: dynamodb.Table;
   public readonly ratingsTable: dynamodb.Table;
   public readonly messagesTable: dynamodb.Table;
+  public readonly notificationsTable: dynamodb.Table;
+  public readonly tripLocationsTable: dynamodb.Table;
+  public readonly listingReportsTable: dynamodb.Table;
+  public readonly reputationEventsTable: dynamodb.Table;
   public readonly uploadsBucket: s3.Bucket;
   public readonly accessLogsBucket: s3.Bucket;
 
@@ -189,12 +195,15 @@ export class DatabaseStack extends cdk.Stack {
       Enabled: true,
     });
 
-    // Deliveries table
+    // Deliveries table. The NEW_AND_OLD_IMAGES stream feeds
+    // OrderNotifyStreamFunction (ESC-21), which only reads INSERT events here
+    // and the MODIFY that stamps nearbyNotifiedAt (LT-07, truck_nearby).
     const deliveries = new WeredaDynamoTable(this, "DeliveriesTable", {
       tableName: `${prefix}-deliveries`,
       partitionKey: { name: "deliveryId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "tripId", type: dynamodb.AttributeType.STRING },
       isProd: envConfig.isProd,
+      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
     });
     this.deliveriesTable = deliveries.table;
 
@@ -291,12 +300,15 @@ export class DatabaseStack extends cdk.Stack {
 
     // ─── R4.3 Escrow Tables (per escrow-protocol.md) ──────────────
 
-    // Escrows table (server-authoritative, not sync-based)
+    // Escrows table (server-authoritative, not sync-based). The
+    // NEW_AND_OLD_IMAGES stream feeds OrderNotifyStreamFunction (ESC-21): the
+    // rules compare the old and new status of each MODIFY.
     const escrows = new WeredaDynamoTable(this, "EscrowsTable", {
       tableName: `${prefix}-escrows`,
       partitionKey: { name: "escrowId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
       isProd: envConfig.isProd,
+      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
     });
     this.escrowsTable = escrows.table;
 
@@ -372,6 +384,28 @@ export class DatabaseStack extends cdk.Stack {
       isProd: envConfig.isProd,
     });
     this.escrowAuditTable = escrowAudit.table;
+
+    // ESC-20: escrow ledger (escrow-protocol.md 2.2.0, P.3). One row per money movement of an order
+    // escrow (PK escrowId, SK ref such as release#farmer or refund#all), written before the gateway is
+    // called and never deleted or re-keyed: no TTL, money records are kept. Point-in-time recovery and
+    // (prod) RETAIN come from the construct.
+    const escrowLedger = new WeredaDynamoTable(this, "EscrowLedgerTable", {
+      tableName: `${prefix}-escrow-ledger`,
+      partitionKey: { name: "escrowId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "ref", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+    });
+    this.escrowLedgerTable = escrowLedger.table;
+
+    // GSI: the open rows (sparse: a done row carries neither key), by status and when the ledger sweep
+    // looks next: pending, sent and failed rows for the 15 minute sweep, manual rows for the admin
+    // payout queue (oldest first). See EscrowLedgerRepository.QueryOpenAsync.
+    this.escrowLedgerTable.addGlobalSecondaryIndex({
+      indexName: "LedgerOpenIndex",
+      partitionKey: { name: "openStatus", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "dueAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
 
     // Transaction audit table (immutable append-only, cross-entity).
     // Unified who/what/when/where trail for the transaction lifecycle legs that
@@ -473,12 +507,27 @@ export class DatabaseStack extends cdk.Stack {
       Enabled: true,
     });
 
+    // GSI: Fraud Review queue (FRD-07). Sparse: only signal rows carry `status`
+    // (`pending`, then `reviewed`); credit and whitelist rows have none, so they are
+    // never indexed. Replaces the admin list and dashboard Scans. The only GSI of this
+    // table: CloudFormation adds one GSI per table per update, so a second one waits
+    // for a later deploy. See AdminFunction.HandleListFraudSignalsAsync.
+    this.fraudSignalsTable.addGlobalSecondaryIndex({
+      indexName: "StatusCreatedAtIndex",
+      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // ─── Orders Table (buyer-initiated orders) ─────────────────────
+    // The NEW_AND_OLD_IMAGES stream feeds OrderNotifyStreamFunction (ESC-21):
+    // the rules compare the old and new status of each MODIFY.
     const orders = new WeredaDynamoTable(this, "OrdersTable", {
       tableName: `${prefix}-orders`,
       partitionKey: { name: "orderId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
       isProd: envConfig.isProd,
+      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
     });
     this.ordersTable = orders.table;
 
@@ -536,14 +585,32 @@ export class DatabaseStack extends cdk.Stack {
     // GSI: Admin stuck-order queue (ESC-06). Sparse: only orders an admin must
     // decide on carry adminQueue = "open" (an order escrow held 21 days after
     // funding while its order is not done); the sort key orders the queue oldest
-    // first. Written and removed without bumping the order version. ESC-16 adds
-    // more reasons to it. See OrderRepository.QueryAdminQueueAsync and the
-    // escrow-cron admin queue report (ADMIN_QUEUE_OVERDUE).
+    // first. Written and removed without bumping the order version. See
+    // OrderRepository.QueryAdminQueueAsync and the escrow-cron admin queue report
+    // (ADMIN_QUEUE_OVERDUE).
     this.ordersTable.addGlobalSecondaryIndex({
       indexName: "AdminQueueIndex",
       partitionKey: { name: "adminQueue", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "adminQueuedAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // GSI: the order deadlines (ESC-16, spec 4.5). Sparse: every order write keeps
+    // the order's next deadline on the row (nextDeadlineAt, nextDeadlineKind and
+    // deadlineShard, removed together when nothing is pending; OrderDeadlines.cs),
+    // so only orders with something pending are here. The order cron's
+    // commitment_deadlines sweep reads "deadlineShard = 0 AND nextDeadlineAt < now",
+    // oldest first, instead of walking the status partitions. One shard: order
+    // writes are far below one partition's limits. Keys only: the sweep reads every
+    // due row again (strongly consistent) before it acts. FUP-170: a second shard,
+    // "watch", holds the pickup waits the admin's Stuck Orders lists; the sweep never
+    // reads it. Deploy this index before
+    // the code that queries it; a table takes one new GSI per deployment.
+    this.ordersTable.addGlobalSecondaryIndex({
+      indexName: "DeadlineIndex",
+      partitionKey: { name: "deadlineShard", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "nextDeadlineAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.KEYS_ONLY,
     });
 
     // ─── Buyer Intents Table (push-alerts; synced from mobile) ─────
@@ -656,6 +723,116 @@ export class DatabaseStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // ─── Notifications Table (order notification inbox, ESC-21) ────
+    // One row per notification for its recipient, written by
+    // OrderNotifyStreamFunction and read by GET /notifications. The sort key is
+    // `{createdAt}#{type}#{entityId}`, so a recipient's partition reads newest
+    // first and the conditional put makes a retried stream record a no-op.
+    // Rows expire on `expiresAt` (epoch seconds, 90 days after creation). No
+    // GSI: the only read is one recipient's own partition. The local index
+    // WrittenAtIndex (sort key `writtenAt`, when the row was first written)
+    // serves the client's incremental pull: rows land out of event order (three
+    // streams in parallel, retries up to a day late), and a local index reads
+    // strongly consistent. An LSI can only be created with the table.
+    const notifications = new WeredaDynamoTable(this, "NotificationsTable", {
+      tableName: `${prefix}-notifications`,
+      partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sortKey", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+      timeToLiveAttribute: "expiresAt",
+    });
+    notifications.table.addLocalSecondaryIndex({
+      indexName: "WrittenAtIndex",
+      sortKey: { name: "writtenAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+    this.notificationsTable = notifications.table;
+
+    // ─── Trip Locations Table (live trip check-ins, LT-05) ─────────
+    // One row per check-in or sharing event of a trip, written by the sync
+    // Lambda (`location_ping`, live-trip-api.md section 1). The sort key is
+    // `{capturedAt}#{kind}`, so a trip's rows read in capture order and a
+    // resent ping lands on the same key (conditional put). Rows expire on
+    // `expiresAt` (epoch seconds, capturedAt + 60 days); the TTL attribute
+    // can never be renamed on a live table, so it matches the other tables.
+    // No GSI: every read is one trip's own partition. Live location never goes
+    // on trip rows, which every buyer can browse (live-trip.md D6).
+    const tripLocations = new WeredaDynamoTable(this, "TripLocationsTable", {
+      tableName: `${prefix}-trip-locations`,
+      partitionKey: { name: "tripId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sortKey", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+      timeToLiveAttribute: "expiresAt",
+    });
+    this.tripLocationsTable = tripLocations.table;
+
+    // ─── Listing Reports Table (FUP-67) ────────────────────────────
+    // A buyer's report of a crop listing or a trip (`listing_report` sync
+    // entity, listing-report-api.md). PK listingId, SK reporterId: one report
+    // per buyer and listing (conditional put). Rows hold ids and a reason code
+    // only, and expire on `expiresAt` (epoch seconds, 180 days after the
+    // report). Read by admins only: the owner never learns who reported.
+    const listingReports = new WeredaDynamoTable(this, "ListingReportsTable", {
+      tableName: `${prefix}-listing-reports`,
+      partitionKey: { name: "listingId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "reporterId", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+      timeToLiveAttribute: "expiresAt",
+    });
+    this.listingReportsTable = listingReports.table;
+
+    // GSI: the admin queue (GET /admin/listing-reports), one status partition
+    // (`open`, `dismissed`, `actioned`) read by report time. Created with the
+    // table, so the one-GSI-per-update rule does not apply.
+    this.listingReportsTable.addGlobalSecondaryIndex({
+      indexName: "StatusCreatedAtIndex",
+      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // ─── Reputation Events Table (ESC-28, reputation-architecture.md section 3) ─
+    // One partition per party. Penalty and completion rows are derived from order
+    // changes by ReputationStreamFunction; the sort key is the slot (`REQUEST#`,
+    // `CANCEL#`, `TRIP_CANCEL#`, `NOSHOW#`, `OVERDUE#` or `COMPLETED#` plus the order
+    // or trip id), so a replayed record finds its slot taken and writes nothing.
+    // System rows (`RESTRICTION#`, `OVERRIDE#`, `TIER#`, `HEAL#`) share the partition
+    // and never show in the party's event list. Rows expire on `purgeAt` (epoch
+    // seconds: 400 days after a penalty, restriction, override or tier row is
+    // recorded, 100 days for a completion, 7 for a heal marker); the TTL attribute
+    // can never be renamed on a live table. The NEW_IMAGE stream feeds
+    // OrderNotifyStreamFunction (penalty_recorded, tier_changed). Both GSIs are
+    // sparse and declared at table creation (the "one GSI per table update" limit
+    // only applies to an already-deployed table):
+    // - AppealStatusIndex: open appeals (`pending`) and open DELIVERY_OVERDUE
+    //   reviews (`review`), oldest first, for the admin queue;
+    // - DueIndex: every row that changes state at `dueAt`, one partition per UTC
+    //   day, so the daily job finds its work with one Query per day instead of a
+    //   Scan. Keys only: the job then reads each user's partition anyway.
+    const reputationEvents = new WeredaDynamoTable(this, "ReputationEventsTable", {
+      tableName: `${prefix}-reputation-events`,
+      partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "eventId", type: dynamodb.AttributeType.STRING },
+      isProd: envConfig.isProd,
+      timeToLiveAttribute: "purgeAt",
+      stream: dynamodb.StreamViewType.NEW_IMAGE,
+    });
+    this.reputationEventsTable = reputationEvents.table;
+
+    this.reputationEventsTable.addGlobalSecondaryIndex({
+      indexName: "AppealStatusIndex",
+      partitionKey: { name: "appealStatus", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "appealedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    this.reputationEventsTable.addGlobalSecondaryIndex({
+      indexName: "DueIndex",
+      partitionKey: { name: "dueDay", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "dueAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.KEYS_ONLY,
+    });
+
     // S3 access logs bucket (F-18: audit logging for compliance)
     this.accessLogsBucket = new s3.Bucket(this, "AccessLogsBucket", {
       bucketName: `${bucketPrefix}-access-logs-${this.account}`,
@@ -686,20 +863,45 @@ export class DatabaseStack extends cdk.Stack {
       versioned: true,
       serverAccessLogsBucket: this.accessLogsBucket,
       serverAccessLogsPrefix: "uploads/",
+      // FRD-12: the web app PUTs a delivery photo straight to its presigned URL
+      // (Content-Type signed) and Flutter web (CanvasKit) fetches photos with
+      // XHR, so both need CORS. The CSP already allows the regional S3 hosts.
+      cors: [
+        {
+          allowedMethods: [
+            s3.HttpMethods.PUT,
+            s3.HttpMethods.GET,
+            s3.HttpMethods.HEAD,
+          ],
+          allowedOrigins: webCorsOrigins(envConfig),
+          allowedHeaders: ["Content-Type"],
+          maxAge: 3000,
+        },
+      ],
       lifecycleRules: [
         {
           expiration: cdk.Duration.days(7),
           prefix: "temp/",
         },
+        // FUP-140 (delivery-verification-api.md 2.14.0): the presigned PUT writes every handoff photo
+        // under uploads/photos/, attached or not (web retakes, uploads never attached). The attach
+        // copies the photo it pins to evidence/photos/, which no rule here touches, and the reads
+        // sign that copy, so uploads/photos/ only holds uploads: current versions expire 30 days
+        // after the upload (S3 then removes the expired delete markers), noncurrent ones (a second
+        // PUT within the presign window, an expired upload) a day later. Disabled until the photo
+        // copy backfill has run in the environment (`deliveryPhotoUploadExpiry`, deployment.md 3e):
+        // photos attached before 2.14.0 are read from this prefix until then.
+        //
+        // No Glacier transition for any photo (the old `photos/` rule matched no key and is gone):
+        // an archived object answers a presigned GET with 403 InvalidObjectState until someone
+        // restores it, so the delivery detail and the admin's dispute evidence would break, and
+        // photos of at most 200 KiB save next to nothing in an archive class.
         {
-          // Move delivery photos to Glacier after 1 year (per escrow-protocol.md)
-          transitions: [
-            {
-              storageClass: s3.StorageClass.GLACIER,
-              transitionAfter: cdk.Duration.days(365),
-            },
-          ],
-          prefix: "photos/",
+          id: "DeliveryPhotoUploadsExpiry",
+          enabled: envConfig.deliveryPhotoUploadExpiry === true,
+          prefix: "uploads/photos/",
+          expiration: cdk.Duration.days(30),
+          noncurrentVersionExpiration: cdk.Duration.days(1),
         },
       ],
     });
@@ -760,6 +962,11 @@ export class DatabaseStack extends cdk.Stack {
       description: "DynamoDB Escrow Audit Table",
     });
 
+    new cdk.CfnOutput(this, "EscrowLedgerTableName", {
+      value: this.escrowLedgerTable.tableName,
+      description: "DynamoDB Escrow Ledger Table (ESC-20)",
+    });
+
     new cdk.CfnOutput(this, "EscrowIdempotencyTableName", {
       value: this.escrowIdempotencyTable.tableName,
       description: "DynamoDB Escrow Idempotency Table",
@@ -783,6 +990,26 @@ export class DatabaseStack extends cdk.Stack {
     new cdk.CfnOutput(this, "MessagesTableName", {
       value: this.messagesTable.tableName,
       description: "DynamoDB Messages Table (in-app chat)",
+    });
+
+    new cdk.CfnOutput(this, "NotificationsTableName", {
+      value: this.notificationsTable.tableName,
+      description: "DynamoDB Notifications Table (order notification inbox)",
+    });
+
+    new cdk.CfnOutput(this, "TripLocationsTableName", {
+      value: this.tripLocationsTable.tableName,
+      description: "DynamoDB Trip Locations Table (live trip check-ins)",
+    });
+
+    new cdk.CfnOutput(this, "ListingReportsTableName", {
+      value: this.listingReportsTable.tableName,
+      description: "DynamoDB Listing Reports Table (buyers' reports, admin queue)",
+    });
+
+    new cdk.CfnOutput(this, "ReputationEventsTableName", {
+      value: this.reputationEventsTable.tableName,
+      description: "DynamoDB Reputation Events Table (penalties, completions and system rows, ESC-28)",
     });
   }
 }

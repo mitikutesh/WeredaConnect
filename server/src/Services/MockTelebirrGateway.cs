@@ -118,6 +118,29 @@ public sealed class MockTelebirrGateway : ITelebirrGateway
         };
     }
 
+    /// <summary>
+    /// FUP-37: a deterministic queryOrder for tests, with no delay. The mock opens no hosted checkout,
+    /// so nothing can have been paid through Telebirr: by default the order is <c>ORDER_CLOSED</c>.
+    /// A merch_order_id containing <c>TIMEOUT</c> answers the timeout error, <c>FAIL</c> a refusal
+    /// (both <see cref="TelebirrPaymentState.Unknown"/>), and <c>WAIT</c> <c>WAIT_PAY</c>.
+    /// </summary>
+    public Task<TelebirrQueryOrderResult> QueryOrderAsync(string merchOrderId)
+    {
+        if (merchOrderId.Contains("TIMEOUT", StringComparison.Ordinal))
+        {
+            return Task.FromResult(TelebirrQueryOrderResult.Failed(TelebirrGatewayErrors.Timeout));
+        }
+
+        if (merchOrderId.Contains("FAIL", StringComparison.Ordinal))
+        {
+            return Task.FromResult(TelebirrQueryOrderResult.Failed("TELEBIRR_MOCK_QUERY_FAILED"));
+        }
+
+        var (state, status) = TelebirrQueryOrder.Classify(
+            merchOrderId.Contains("WAIT", StringComparison.Ordinal) ? "WAIT_PAY" : "ORDER_CLOSED", null);
+        return Task.FromResult(new TelebirrQueryOrderResult { State = state, Status = status, MerchOrderId = merchOrderId });
+    }
+
     /// <summary>The mock holds synchronously; mock orders are funded at payment submit.</summary>
     public bool SupportsHostedCheckout => false;
 

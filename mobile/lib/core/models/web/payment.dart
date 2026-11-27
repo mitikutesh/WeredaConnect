@@ -20,6 +20,7 @@ class Payment {
   late DateTime createdAt;
   late DateTime updatedAt;
   DateTime? expiresAt;
+  DateTime? deliveryConfirmedAt;
   DateTime? disputeWindowEndsAt;
   DateTime? releaseNotBefore;
   DateTime? releasedAt;
@@ -38,11 +39,14 @@ class Payment {
         _ => amount,
       };
 
-  /// Refund on its way: the server flag, or (older servers) an escrowed hold
-  /// whose expiry has passed, which the refund sweep returns to the buyer.
+  /// Refund on its way: the server flag, or (older servers, or a row whose
+  /// expiry passed since it was read) an escrowed hold past its expiry, which
+  /// the refund sweep returns to the buyer. A confirmed delivery's hold is
+  /// never swept: it waits for its payout (FUP-97).
   bool get isRefundPending =>
       refundPending ||
       (status == PaymentStatus.escrowed &&
+          deliveryConfirmedAt == null &&
           expiresAt != null &&
           expiresAt!.isBefore(DateTime.now()));
 }

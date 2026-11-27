@@ -112,14 +112,46 @@ void main() {
     );
   });
 
-  testWidgets('the trip owner sees their own number', (tester) async {
+  // FUP-67: only a buyer may report someone's trip; a farmer or another
+  // trucker reading it, and the owner, get no button.
+  testWidgets('a buyer sees the report button', (tester) async {
+    tallView(tester);
+    signIn('buyer-001', UserRole.buyer);
+
+    await tester.pumpWidget(buildScreen(_trip()));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('report_listing_button')), findsOneWidget);
+    expect(find.text('Report this listing'), findsOneWidget);
+  });
+
+  for (final viewer in [
+    ('farmer-001', UserRole.farmer),
+    ('trucker-002', UserRole.trucker),
+    ('trucker-001', UserRole.trucker),
+  ]) {
+    testWidgets('${viewer.$1} sees no report button', (tester) async {
+      tallView(tester);
+      signIn(viewer.$1, viewer.$2);
+
+      await tester.pumpWidget(buildScreen(_trip()));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('report_listing_button')), findsNothing);
+    });
+  }
+
+  testWidgets('the trip owner sees the bookings, not their own number',
+      (tester) async {
     tallView(tester);
     signIn('trucker-001', UserRole.trucker);
 
     await tester.pumpWidget(buildScreen(_trip()));
     await tester.pumpAndSettle();
 
-    expect(find.text('+251911000003'), findsOneWidget);
+    // Trip and bookings board: the owner's page is the booked orders.
+    expect(find.text('BOOKED ORDERS'), findsOneWidget);
+    expect(find.textContaining('911000003'), findsNothing);
     expect(
       find.text('Contact opens after payment is held in escrow.'),
       findsNothing,
@@ -144,8 +176,93 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Oct 25, 2026'), findsOneWidget);
-      expect(find.text('Oct 24, 2026'), findsNothing);
+      // The header reads "Sun 25 Oct · 100 ETB per 100 kg (quintal)".
+      expect(find.textContaining('Sun 25 Oct'), findsOneWidget);
+      expect(find.textContaining('Oct 24'), findsNothing);
     });
   }
+
+  // Trucker · Trip and bookings board: what a booking means for the trip.
+  group('booking notes', () {
+    const terms = 'Booked trips keep their date, price and route.';
+    const scan = "On the trip day, scan each farmer's QR at pickup. "
+        'Live trip starts with the first scan.';
+    const cancel = 'Cancelling hands booked orders back to their buyers, '
+        'who can cancel for a full refund.';
+
+    Trip booked() => _trip()
+      ..bookedQuintals = 30
+      ..remainingQuintals = 20;
+
+    testWidgets('the owner of a booked trip sees all three', (tester) async {
+      tallView(tester);
+      signIn('trucker-001', UserRole.trucker);
+
+      await tester.pumpWidget(buildScreen(booked()));
+      await tester.pumpAndSettle();
+
+      expect(find.text(terms), findsOneWidget);
+      expect(find.text(scan), findsOneWidget);
+      expect(find.text(cancel), findsOneWidget);
+    });
+
+    testWidgets('a buyer sees only that the terms are fixed', (tester) async {
+      tallView(tester);
+      signIn('buyer-001', UserRole.buyer);
+
+      await tester.pumpWidget(buildScreen(booked()));
+      await tester.pumpAndSettle();
+
+      expect(find.text(terms), findsOneWidget);
+      expect(find.text(scan), findsNothing);
+      expect(find.text(cancel), findsNothing);
+    });
+
+    testWidgets('a trip without bookings has none', (tester) async {
+      tallView(tester);
+      signIn('trucker-001', UserRole.trucker);
+
+      await tester.pumpWidget(buildScreen(_trip()));
+      await tester.pumpAndSettle();
+
+      expect(find.text(terms), findsNothing);
+      expect(find.text(scan), findsNothing);
+      expect(find.text(cancel), findsNothing);
+    });
+
+    testWidgets('the header shows how much of the truck is booked',
+        (tester) async {
+      tallView(tester);
+      signIn('trucker-001', UserRole.trucker);
+
+      await tester.pumpWidget(buildScreen(booked()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Booked'), findsOneWidget);
+      // Kilograms lead; the quintals follow in parentheses.
+      expect(find.text('3,000 of 5,000 kg · 2,000 kg left'), findsOneWidget);
+      expect(find.text('(30 of 50 quintals · 20 left)'), findsOneWidget);
+      final bar = tester.widget<LinearProgressIndicator>(
+        find.byType(LinearProgressIndicator),
+      );
+      expect(bar.value, closeTo(30 / 50, 0.001));
+    });
+
+    testWidgets('an empty truck shows the box with nothing booked',
+        (tester) async {
+      tallView(tester);
+      signIn('trucker-001', UserRole.trucker);
+
+      await tester.pumpWidget(buildScreen(_trip()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('0 of 5,000 kg · 5,000 kg left'), findsOneWidget);
+      expect(find.text('(0 of 50 quintals · 50 left)'), findsOneWidget);
+      final bar = tester.widget<LinearProgressIndicator>(
+        find.byType(LinearProgressIndicator),
+      );
+      expect(bar.value, 0);
+      expect(find.text(terms), findsNothing);
+    });
+  });
 }

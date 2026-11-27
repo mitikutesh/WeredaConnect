@@ -141,6 +141,30 @@ class OfflineAuthCache {
     );
   }
 
+  /// SIM-56: a profile edit, or a fresher server copy, on the cached user
+  /// (platform pair with the Isar implementation). No-op when the cached
+  /// user is not [userId].
+  Future<void> updateProfile({
+    required String userId,
+    required String phoneNumber,
+    required String displayName,
+    required String woreda,
+    String? buyerType,
+    String? companyName,
+  }) async {
+    final existing = await _readUserJson(phoneNumber);
+    if (existing == null || existing['userId'] != userId) return;
+    existing['name'] = displayName;
+    existing['displayName'] = displayName;
+    existing['woreda'] = woreda;
+    if (buyerType != null) existing['buyerType'] = buyerType;
+    if (companyName != null) existing['companyName'] = companyName;
+    await _storage.write(
+      key: _userKey(phoneNumber),
+      value: jsonEncode(existing),
+    );
+  }
+
   Future<Map<String, dynamic>?> _readUserJson(String phoneNumber) async {
     final raw = await _storage.read(key: _userKey(phoneNumber));
     if (raw == null || raw.isEmpty) return null;
@@ -181,6 +205,9 @@ class OfflineAuthCache {
         ..displayName = m['displayName'] as String?
         ..role = role
         ..woreda = m['woreda'] as String? ?? ''
+        // SIM-56: the profile edit shows a company buyer's company name.
+        ..buyerType = m['buyerType'] as String?
+        ..companyName = m['companyName'] as String?
         ..faydaVerified = faydaVerified
         ..isVerified = faydaVerified
         ..faydaVerifiedAt =

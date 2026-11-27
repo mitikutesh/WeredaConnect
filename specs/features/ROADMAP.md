@@ -47,7 +47,7 @@ R1 (Security Foundation), R2 (Auth + Data Models), and R3 (Sync Engine + Crop Li
 - ⚠️ System suggests matching crop listings for a trip route (basic — same woreda matching)
 - ✅ QR code generated at pickup, scanned at delivery, GPS captured at both
 - ✅ Telebirr escrow holds funds on buyer confirmation, releases on verified delivery
-- ⚠️ Fraud detection flags suspicious activity (4 rules: duplicate detection, price anomaly, velocity limits, GPS consistency); risk scoring is designed in fraud-detection-architecture.md v3, not built (EPIC FRD)
+- ⚠️ Fraud detection flags suspicious activity (4 rules: duplicate detection, price anomaly, velocity limits, GPS consistency); the rule-based risk score and its tiers are built (FRD-02, FRD-04, `fraud-detection-architecture.md`); ML scoring is decided and deferred (FRD-20, `specs/decisions/frd-20-ml-risk-scoring.md`)
 - ✅ Sync conflicts show user-friendly resolution UI
 - ✅ S3 uploads bucket has access logging and versioning enabled
 
@@ -109,5 +109,5 @@ Phases R5 (Production Hardening) and R6 (Growth and Expansion) are deferred. See
 
 **Document Version**: 2.4.0
 **Created**: 2026-02-11
-**Last Updated**: 2026-10-06 (F-14 status corrected: risk scoring not built, EPIC FRD); 2026-02-24 (R4 ~95%, all 6 features complete, merge + deploy remaining)
+**Last Updated**: 2026-11-07 (F-14 status: the rule-based risk score and tiers are built, ML deferred; ESC-14 survey 9.6); 2026-10-06 (F-14 status corrected: risk scoring not built, EPIC FRD); 2026-02-24 (R4 ~95%, all 6 features complete, merge + deploy remaining)
 **Completed task history**: See `docs/archive/completed-tasks.md`

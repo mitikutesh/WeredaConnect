@@ -1,15 +1,13 @@
 import { useParams, useNavigate } from "react-router";
 import type { ReactNode } from "react";
-import {
-  ShoppingCart,
-  Truck,
-  Wallet,
-  MapPin,
-  ArrowRight,
-  ArrowLeft,
-} from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { LedgerCard, RecordedSplitRow, TruckerLegRows } from "@/components/escrows/MoneyLegs";
+import { CancelDelivery } from "@/components/transactions/CancelDelivery";
+import { ChangeCommission } from "@/components/transactions/ChangeCommission";
+import { HandoffPhoto, TransactionTimeline } from "@/components/transactions/TransactionTimeline";
+import { PickupEvidenceCard } from "@/components/transactions/PickupEvidenceCard";
 import { useLocale } from "@/hooks/useLocale";
 import { useTransactionDetail } from "@/hooks/useQuery";
 import { formatETB, formatDateTime } from "@/lib/i18n";
@@ -18,15 +16,21 @@ import {
   stageVariant,
   escrowStatusVariant,
   deliveryStatusVariant,
-  timelineEntityVariant,
   orderStatusLabel,
   stageLabel,
   escrowStatusLabel,
   deliveryStatusLabel,
-  timelineActionLabel,
   adminQueueLabel,
+  commitmentResponseLabel,
+  transportFailureLabel,
+  partyLabel,
   deriveStage,
+  formatGps,
 } from "@/lib/transaction";
+import { fill } from "@/lib/trail";
+import { partyName } from "@/lib/user";
+import { formatRatePercent, isCommissionEditable } from "@/lib/commission";
+import type { PickupEvidence } from "@/lib/pickup";
 
 type Row = Record<string, unknown>;
 
@@ -39,17 +43,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   if (children == null || children === "") return null;
   return (
     <div className="flex justify-between gap-3">
-      <dt className="text-text-muted shrink-0">{label}</dt>
+      <dt className="text-slate shrink-0">{label}</dt>
       <dd className="text-right">{children}</dd>
     </div>
   );
 }
-
-const entityIcon: Record<string, ReactNode> = {
-  order: <ShoppingCart size={16} />,
-  delivery: <Truck size={16} />,
-  escrow: <Wallet size={16} />,
-};
 
 export function TransactionDetailPage() {
   const { orderId } = useParams<{ orderId: string }>();
@@ -58,7 +56,7 @@ export function TransactionDetailPage() {
   const { data, isLoading } = useTransactionDetail(orderId || "");
 
   if (isLoading) {
-    return <div className="text-text-muted">{t("common.loading")}</div>;
+    return <div className="text-slate">{t("common.loading")}</div>;
   }
 
   const resp = (data as Row) || {};
@@ -66,28 +64,26 @@ export function TransactionDetailPage() {
   const escrow = resp.escrow as Row | null;
   const delivery = resp.delivery as Row | null;
   const timeline = (resp.timeline as Row[]) || [];
+  // FUP-287: the pickup judgement with its check-ins, admin only; absent for an order never judged by check-ins.
+  const pickupEvidence = resp.pickupEvidence as PickupEvidence | undefined;
 
   const status = s(order.status);
   const stage = deriveStage(status);
 
-  const gps = (v: unknown): string => {
-    const p = v as Row | undefined;
-    if (!p || p.latitude == null || p.longitude == null) return "";
-    return `${Number(p.latitude).toFixed(5)}, ${Number(p.longitude).toFixed(5)}`;
-  };
+  const gps = formatGps;
 
   return (
     <div>
       <button
         onClick={() => navigate("/transactions")}
-        className="mb-4 inline-flex items-center gap-1 text-sm text-text-muted hover:text-text"
+        className="mb-4 inline-flex items-center gap-1 text-sm text-slate hover:text-ink"
       >
         <ArrowLeft size={16} /> {t("common.back")}
       </button>
 
       <div className="mb-6 flex flex-wrap items-center gap-3">
-        <h2 className="text-xl font-bold">{t("transactions.detail")}</h2>
-        <span className="font-mono text-xs text-text-muted">{s(order.orderId)}</span>
+        <h2 className="text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("transactions.detail")}</h2>
+        <span className="font-mono text-xs text-slate">{s(order.orderId)}</span>
         <Badge variant={stageVariant[stage] || "default"}>{stageLabel(stage, t)}</Badge>
         <Badge variant={orderStatusVariant[status] || "default"}>
           {orderStatusLabel(status, t)}
@@ -97,18 +93,18 @@ export function TransactionDetailPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Parties */}
         <Card>
-          <h3 className="mb-4 font-semibold">{t("transactions.parties")}</h3>
+          <h3 className="mb-4 text-[15px] font-extrabold">{t("transactions.parties")}</h3>
           <dl className="space-y-3 text-sm">
             <Field label={t("transactions.buyer")}>
-              {s(order.buyerName) || s(order.buyerId)}
+              {partyName(order.buyerName, order.buyerId, locale)}
             </Field>
             <Field label={t("transactions.buyerPhone")}>{s(delivery?.buyerPhone)}</Field>
             <Field label={t("transactions.seller")}>
-              {s(order.farmerName) || s(order.farmerId)}
+              {partyName(order.farmerName, order.farmerId, locale)}
             </Field>
             <Field label={t("transactions.sellerPhone")}>{s(delivery?.farmerPhone)}</Field>
             <Field label={t("transactions.trucker")}>
-              {s(order.truckerName) || s(order.truckerId) || t("transactions.noTrucker")}
+              {partyName(order.truckerName, order.truckerId, locale) || t("transactions.noTrucker")}
             </Field>
             <Field label={t("transactions.truckerPhone")}>{s(delivery?.truckerPhone)}</Field>
             <Field label={t("transactions.crop")}>{s(order.cropType)}</Field>
@@ -131,12 +127,46 @@ export function TransactionDetailPage() {
                 {order.adminQueuedAt ? formatDateTime(s(order.adminQueuedAt)) : ""}
               </Field>
             ) : null}
+            {/* ESC-15: the farmer is asked first, then the trucker; the deadlines the cron enforces. */}
+            {order.farmerResponse ? (
+              <Field label={t("transactions.farmerResponse")}>
+                {commitmentResponseLabel(s(order.farmerResponse), t)}
+              </Field>
+            ) : null}
+            {order.farmerDeadlineAt ? (
+              <Field label={t("transactions.farmerDeadline")}>
+                {formatDateTime(s(order.farmerDeadlineAt))}
+              </Field>
+            ) : null}
+            {order.truckerResponse ? (
+              <Field label={t("transactions.truckerResponse")}>
+                {commitmentResponseLabel(s(order.truckerResponse), t)}
+              </Field>
+            ) : null}
+            {order.truckerDeadlineAt ? (
+              <Field label={t("transactions.truckerDeadline")}>
+                {formatDateTime(s(order.truckerDeadlineAt))}
+              </Field>
+            ) : null}
+            {order.transportFailure ? (
+              <Field label={t("transactions.transportFailureLabel")}>
+                <Badge variant="warning">{transportFailureLabel(s(order.transportFailure), t)}</Badge>
+              </Field>
+            ) : null}
+            {order.buyerChoiceDeadlineAt ? (
+              <Field label={t("transactions.buyerChoiceDeadline")}>
+                {formatDateTime(s(order.buyerChoiceDeadlineAt))}
+              </Field>
+            ) : null}
+            {order.cancelledBy ? (
+              <Field label={t("transactions.cancelledBy")}>{partyLabel(s(order.cancelledBy), t)}</Field>
+            ) : null}
           </dl>
         </Card>
 
         {/* Payment & Escrow */}
         <Card>
-          <h3 className="mb-4 font-semibold">{t("transactions.payment")}</h3>
+          <h3 className="mb-4 text-[15px] font-extrabold">{t("transactions.payment")}</h3>
           {escrow ? (
             <dl className="space-y-3 text-sm">
               <Field label={t("transactions.escrowStatus")}>
@@ -158,6 +188,9 @@ export function TransactionDetailPage() {
                   {formatETB(Number(escrow.truckerPayout) || 0, locale)}
                 </Field>
               )}
+              {/* ESC-24: where the transport leg stands, and a recorded per-leg verdict. */}
+              <TruckerLegRows escrow={{ ...escrow, truckerId: undefined, truckerName: undefined }} showPayout={false} />
+              <RecordedSplitRow escrow={escrow} />
               <Field label={t("transactions.paymentMethod")}>{s(order.paymentMethod)}</Field>
               <Field label={t("transactions.cbeRef")}>{s(order.cbeTransactionId)}</Field>
               <Field label={t("transactions.telebirrRef")}>{s(escrow.telebirrRef)}</Field>
@@ -180,17 +213,38 @@ export function TransactionDetailPage() {
             <div className="space-y-3 text-sm">
               <Field label={t("transactions.paymentMethod")}>{s(order.paymentMethod)}</Field>
               <Field label={t("transactions.cbeRef")}>{s(order.cbeTransactionId)}</Field>
+              <Field label={t("transactions.commissionRate")}>
+                {order.commissionRate != null ? formatRatePercent(Number(order.commissionRate)) : ""}
+              </Field>
+              <Field label={t("transactions.commission")}>
+                {order.commissionAmount != null ? formatETB(Number(order.commissionAmount) || 0, locale) : ""}
+              </Field>
               <Field label={t("transactions.orderTotal")}>
                 {formatETB(Number(order.orderTotal) || 0, locale)}
               </Field>
-              <p className="text-text-muted">{t("transactions.noEscrow")}</p>
+              <p className="text-slate">{t("transactions.noEscrow")}</p>
+              {/* The negotiated commission: an admin may agree another rate while the order is unpaid. */}
+              {isCommissionEditable(status) && (
+                <ChangeCommission
+                  orderId={s(order.orderId)}
+                  version={Number(order.version) || 0}
+                  cropCost={Number(order.cropCost) || 0}
+                  transportCost={Number(order.transportCost) || 0}
+                  commissionRate={order.commissionRate != null ? Number(order.commissionRate) : null}
+                  commissionAmount={Number(order.commissionAmount) || 0}
+                  orderTotal={Number(order.orderTotal) || 0}
+                />
+              )}
             </div>
           )}
         </Card>
 
+        {/* ESC-24: the ledger of an escrow on the ledger (ESC-20); nothing for the legacy model. */}
+        {escrow && <LedgerCard escrow={escrow} />}
+
         {/* Delivery */}
         <Card>
-          <h3 className="mb-4 font-semibold">{t("transactions.delivery")}</h3>
+          <h3 className="mb-4 text-[15px] font-extrabold">{t("transactions.delivery")}</h3>
           {delivery ? (
             <dl className="space-y-3 text-sm">
               <Field label={t("transactions.deliveryStatus")}>
@@ -206,73 +260,47 @@ export function TransactionDetailPage() {
               <Field label={t("transactions.confirmedAt")}>
                 {delivery.confirmedAt ? formatDateTime(s(delivery.confirmedAt)) : ""}
               </Field>
+              {(["pickup", "dropoff", "arrival"] as const)
+                // ESC-36: the trucker's arrival photo at the drop-off, shown only when the delivery has one.
+                .filter((leg) => leg !== "arrival" || s(delivery.arrivalPhotoUrl) !== "")
+                .map((leg) => {
+                const url = s(delivery[`${leg}PhotoUrl`]);
+                const label = t(`transactions.${leg}Photo`);
+                return (
+                  <Field key={leg} label={label}>
+                    {url ? (
+                      <HandoffPhoto url={url} label={label} openLabel={fill(t("transactions.openPhoto"), { label })} />
+                    ) : (
+                      ""
+                    )}
+                  </Field>
+                );
+              })}
             </dl>
           ) : (
-            <p className="text-sm text-text-muted">{t("transactions.noDelivery")}</p>
+            <p className="text-sm text-slate">{t("transactions.noDelivery")}</p>
+          )}
+          {/* FUP-19: a delivery picked up and never delivered is cancelled here once its money is decided. */}
+          {delivery && (
+            <div className="mt-4">
+              <CancelDelivery
+                deliveryId={s(delivery.deliveryId)}
+                status={s(delivery.status)}
+                version={Number(delivery.version) || 0}
+                escrowStatus={escrow ? s(escrow.status) : null}
+              />
+            </div>
           )}
         </Card>
 
+        {pickupEvidence && (
+          <PickupEvidenceCard orderId={s(order.orderId)} version={Number(order.version) || 0} evidence={pickupEvidence} />
+        )}
+
         {/* Timeline */}
         <Card>
-          <h3 className="mb-4 font-semibold">{t("transactions.timeline")}</h3>
-          {timeline.length === 0 ? (
-            <p className="text-sm text-text-muted">{t("common.noData")}</p>
-          ) : (
-            <ol className="space-y-4">
-              {timeline.map((ev, i) => {
-                const entity = s(ev.entity);
-                const from = s(ev.fromState);
-                const to = s(ev.toState);
-                const loc = gps(ev.location);
-                return (
-                  <li key={i} className="flex gap-3">
-                    <div className="mt-0.5 text-text-muted">
-                      {entityIcon[entity] || <ArrowRight size={16} />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-medium">
-                          {timelineActionLabel(s(ev.action), t)}
-                        </span>
-                        <Badge variant={timelineEntityVariant[entity] || "default"}>
-                          {t(`transactions.entity_${entity}`) === `transactions.entity_${entity}`
-                            ? entity
-                            : t(`transactions.entity_${entity}`)}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-text-muted">
-                        {ev.timestamp ? formatDateTime(s(ev.timestamp)) : ""}
-                        {ev.actor ? ` · ${s(ev.actor)}` : ""}
-                      </p>
-                      {from && to ? (
-                        <p className="text-xs text-text-muted">
-                          {from} <ArrowRight size={10} className="inline" /> {to}
-                        </p>
-                      ) : null}
-                      {loc ? (
-                        <p className="flex items-center gap-1 text-xs text-text-muted">
-                          <MapPin size={10} /> {loc}
-                        </p>
-                      ) : null}
-                      {ev.telebirrRef ? (
-                        <p className="font-mono text-xs text-text-muted">
-                          {s(ev.telebirrRef)}
-                        </p>
-                      ) : null}
-                      {ev.ipAddress ? (
-                        <p className="text-xs text-text-muted">
-                          {t("transactions.ip")} {s(ev.ipAddress)}
-                        </p>
-                      ) : null}
-                      {ev.detail ? (
-                        <p className="text-xs text-text-muted">{s(ev.detail)}</p>
-                      ) : null}
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          )}
+          <h3 className="mb-4 text-[15px] font-extrabold">{t("transactions.timeline")}</h3>
+          <TransactionTimeline timeline={timeline} />
         </Card>
       </div>
     </div>

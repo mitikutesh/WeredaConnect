@@ -16,7 +16,8 @@ internal sealed record RiskScoreSettings(
     int CreditCap,
     int AdvisoryCap,
     int MaxPages,
-    int RejectTypeCap = FraudDetectionService.DefaultRiskRejectTypeCap)
+    int RejectTypeCap = FraudDetectionService.DefaultRiskRejectTypeCap,
+    int PatternTypeCap = FraudDetectionService.DefaultRiskPatternTypeCap)
 {
     public static RiskScoreSettings Default { get; } = new(
         FraudDetectionService.DefaultRiskWindowDays,
@@ -26,7 +27,8 @@ internal sealed record RiskScoreSettings(
         FraudDetectionService.DefaultRiskCreditCap,
         FraudDetectionService.DefaultRiskAdvisoryCap,
         FraudDetectionService.DefaultRiskMaxPages,
-        FraudDetectionService.DefaultRiskRejectTypeCap);
+        FraudDetectionService.DefaultRiskRejectTypeCap,
+        FraudDetectionService.DefaultRiskPatternTypeCap);
 
     public static RiskScoreSettings FromEnvironment() => From(Environment.GetEnvironmentVariable);
 
@@ -56,8 +58,46 @@ internal sealed record RiskScoreSettings(
             Read(env, "RISK_CREDIT_CAP", Default.CreditCap, min: 0),
             Read(env, "RISK_ADVISORY_CAP", Default.AdvisoryCap, min: 0),
             Math.Min(Read(env, "RISK_MAX_PAGES", Default.MaxPages, min: 1), FraudDetectionService.RiskMaxPagesCap),
-            Read(env, "RISK_REJECT_TYPE_CAP", Default.RejectTypeCap, min: 0));
+            Read(env, "RISK_REJECT_TYPE_CAP", Default.RejectTypeCap, min: 0),
+            Read(env, "RISK_PATTERN_TYPE_CAP", Default.PatternTypeCap, min: 0));
     }
+
+    /// <summary>
+    /// FRD-15: the cap group of <c>SHARED_DEVICE_TRADE</c> and <c>REPEATED_PAIR</c>. The two soft relationship
+    /// types share one <c>RISK_PATTERN_TYPE_CAP</c>, so together they stop at MEDIUM: an honest family or
+    /// cooperative phone never reaches CRITICAL on them alone.
+    /// </summary>
+    internal const string SoftRelationshipCapGroup = "group:soft_relationship";
+
+    /// <summary>
+    /// The key a capped type's weight is summed under: its cap group (<see cref="SoftRelationshipCapGroup"/>)
+    /// or the type itself.
+    /// </summary>
+    internal static string CapKeyOf(string signalType) =>
+        FraudDetectionService.IsCappedRelationshipType(signalType) ? SoftRelationshipCapGroup
+        : FraudDetectionService.IsReliabilitySignal(signalType) ? ReliabilityCapGroup
+        : signalType;
+
+    /// <summary>
+    /// ESC-33: the cap group of <c>NO_SHOW</c> and <c>DELIVERY_OVERDUE</c>. The two share one
+    /// <c>RISK_PATTERN_TYPE_CAP</c>, so reliability failures alone stop at MEDIUM.
+    /// </summary>
+    internal const string ReliabilityCapGroup = "group:reliability";
+
+    /// <summary>
+    /// The cap of a capped type (or of a cap group) over the window: <c>RISK_REJECT_TYPE_CAP</c> for the FRD-08
+    /// reject types, <c>RISK_PATTERN_TYPE_CAP</c> for each FRD-09 pattern type and for the FRD-15 soft
+    /// relationship group as a whole, null for every other type.
+    /// </summary>
+    internal int? CapOf(string signalTypeOrGroup) =>
+        FraudDetectionService.IsCappedRejectType(signalTypeOrGroup) ? RejectTypeCap
+        : FraudDetectionService.IsPatternSignal(signalTypeOrGroup)
+          || FraudDetectionService.IsCappedRelationshipType(signalTypeOrGroup)
+          || signalTypeOrGroup == SoftRelationshipCapGroup
+          || FraudDetectionService.IsReliabilitySignal(signalTypeOrGroup)
+          || signalTypeOrGroup == ReliabilityCapGroup
+            ? PatternTypeCap
+        : null;
 
     private static int Read(Func<string, string?> env, string name, int fallback, int min) =>
         int.TryParse(env(name), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value >= min
@@ -80,8 +120,8 @@ internal sealed class RiskScoreCalculator
     private readonly Dictionary<string, (string Type, long Weight)> _entityBuckets = new(StringComparer.Ordinal);
     private readonly HashSet<string> _clearedEntities = new(StringComparer.Ordinal);
 
-    // FRD-08: counted weight of the capped reject types per type, all of it and the part no later
-    // row can clear.
+    // FRD-08: counted weight of the capped types per type (the reject types, and since FRD-09 the
+    // pattern types), all of it and the part no later row can clear.
     private readonly Dictionary<string, long> _cappedWeight = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _cappedFixedWeight = new(StringComparer.Ordinal);
 
@@ -92,6 +132,11 @@ internal sealed class RiskScoreCalculator
     private long _advisoryWeight;
     private long _creditWeight;
     private bool _whitelistActive;
+
+    // FRD-20 P1: the counted units per signal type and the credit rows, for the label's feature snapshot.
+    // The score never reads them.
+    private readonly Dictionary<string, int> _units = new(StringComparer.Ordinal);
+    private int _creditUnits;
 
     public RiskScoreCalculator(RiskScoreSettings settings, DateTime nowUtc)
     {
@@ -140,6 +185,7 @@ internal sealed class RiskScoreCalculator
                 if (InWindow(signalKey))
                 {
                     _creditWeight += Num(row, "weight") ?? 0;
+                    _creditUnits++;
                 }
 
                 return;
@@ -178,6 +224,7 @@ internal sealed class RiskScoreCalculator
                 && _entityBuckets.Remove(entityBucket, out var counted))
             {
                 Count(counted.Type, -counted.Weight, clearable: true);
+                _units[counted.Type] = _units.GetValueOrDefault(counted.Type) - 1;
             }
 
             return;
@@ -200,6 +247,8 @@ internal sealed class RiskScoreCalculator
             return;
         }
 
+        _units[signalType] = _units.GetValueOrDefault(signalType) + 1;
+
         // Only credit rows may lower the score, and only within the cap.
         var weight = Math.Max(0, Num(row, "weight") ?? FraudDetectionService.SignalWeight(signalType));
         if (signalType == FraudDetectionService.AdvisorySignalType)
@@ -218,12 +267,14 @@ internal sealed class RiskScoreCalculator
 
     private void Count(string signalType, long weight, bool clearable)
     {
-        if (FraudDetectionService.IsCappedRejectType(signalType))
+        if (_settings.CapOf(signalType) != null)
         {
-            _cappedWeight[signalType] = _cappedWeight.GetValueOrDefault(signalType) + weight;
+            // Summed per type, or per cap group (FRD-15), and capped in CappedSum.
+            var key = RiskScoreSettings.CapKeyOf(signalType);
+            _cappedWeight[key] = _cappedWeight.GetValueOrDefault(key) + weight;
             if (!clearable)
             {
-                _cappedFixedWeight[signalType] = _cappedFixedWeight.GetValueOrDefault(signalType) + weight;
+                _cappedFixedWeight[key] = _cappedFixedWeight.GetValueOrDefault(key) + weight;
             }
         }
         else if (clearable)
@@ -236,9 +287,12 @@ internal sealed class RiskScoreCalculator
         }
     }
 
-    /// <summary>FRD-08: each capped reject type adds at most <c>RISK_REJECT_TYPE_CAP</c>.</summary>
+    /// <summary>
+    /// FRD-08: each capped reject type adds at most <c>RISK_REJECT_TYPE_CAP</c>; FRD-09: each pattern
+    /// type at most <c>RISK_PATTERN_TYPE_CAP</c>; FRD-15: the soft relationship group at most that too.
+    /// </summary>
     private long CappedSum(Dictionary<string, long> byType) =>
-        byType.Values.Sum(w => Math.Min(w, (long)_settings.RejectTypeCap));
+        byType.Sum(entry => Math.Min(entry.Value, (long)(_settings.CapOf(entry.Key) ?? 0)));
 
     public RiskScoreResult Result(bool truncated)
     {
@@ -257,12 +311,34 @@ internal sealed class RiskScoreCalculator
         };
     }
 
+    /// <summary>
+    /// FRD-20 P1 (section 20.1): what the rows fed so far count as, for the feature snapshot of a fraud label.
+    /// Units per signal type are the rows that count after the hour dedup, the per-entity counting, the
+    /// resolutions and the whitelist, the advisory type included. Uncapped: the caps of section 14.2 are in
+    /// points and stay in <see cref="Result"/>. Credits are the credit rows in the window and their points
+    /// (positive, before the credit cap).
+    /// </summary>
+    public RiskFeatureUnits FeatureUnits(bool truncated) => new(
+        _units.Where(entry => entry.Value > 0).ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal),
+        _creditUnits,
+        (int)Math.Clamp(-_creditWeight, 0, int.MaxValue),
+        truncated,
+        _settings.WindowDays);
+
     /// <summary>Section 16; bounds are inclusive lower bounds.</summary>
     internal static RiskTier TierFor(long score, long enforcementScore, bool truncated, RiskScoreSettings settings) =>
         truncated || enforcementScore >= settings.TierCritical ? RiskTier.Critical
         : score >= settings.TierHigh ? RiskTier.High
         : score >= settings.TierMedium ? RiskTier.Medium
         : RiskTier.Low;
+
+    /// <summary>
+    /// FRD-19: the tier of the rules alone, the enforcement score without any AI advisory weight (section 21).
+    /// Whatever moves or delays money reads this one; only the payment step-up reads the full tier. Without
+    /// advisory rows it is the tier itself.
+    /// </summary>
+    internal static RiskTier RulesTier(RiskScoreResult score, RiskScoreSettings settings) =>
+        TierFor(score.EnforcementScore, score.EnforcementScore, score.Truncated, settings);
 
     // Same comparison as the key condition; repeated here so a row the Query should not have
     // returned never counts.
@@ -296,3 +372,11 @@ internal sealed class RiskScoreCalculator
             ? number
             : null;
 }
+
+/// <summary>
+/// FRD-20 P1: the counted units of one user's window (see <see cref="RiskScoreCalculator.FeatureUnits"/>).
+/// <see cref="Truncated"/> is true when the read stopped at its page cap with rows left, so the counts are
+/// a lower bound.
+/// </summary>
+internal sealed record RiskFeatureUnits(
+    IReadOnlyDictionary<string, int> UnitsByType, int CreditUnits, int CreditPoints, bool Truncated, int WindowDays);

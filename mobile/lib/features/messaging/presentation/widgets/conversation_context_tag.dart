@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/messaging/domain/conversation_context_resolver.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// The human-readable label for what a thread is about: the linked crop
 /// ("Teff • 100 kg"), trip route ("Adama → Bishoftu"), or the crop behind an
@@ -98,8 +99,7 @@ class ConversationContextTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final effectiveColor =
-        color ?? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6);
+    final effectiveColor = color ?? AppTheme.slate;
 
     final tag = FutureBuilder<ConversationContextInfo?>(
       future: resolver?.resolve(contextType, contextId),
@@ -123,7 +123,8 @@ class ConversationContextTag extends StatelessWidget {
                 style: TextStyle(
                   color: effectiveColor,
                   fontSize: fontSize,
-                  fontWeight: FontWeight.w500,
+                  // A tappable tag is a link: bold, in the caller's colour.
+                  fontWeight: onTap == null ? FontWeight.w500 : FontWeight.w700,
                 ),
               ),
             ),

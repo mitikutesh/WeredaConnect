@@ -153,6 +153,7 @@ var config = new MyConfig
 - **AWSSDK.DynamoDBv2** ✅
 - **AWSSDK.S3** ✅
 - **AWSSDK.Lambda** ✅
+- **AWSSDK.SQS** ✅ (ESC-28: the reputation stream parks failed records; the order-cron replays them)
 - **Amazon.Lambda.Core** ✅
 - **Amazon.Lambda.APIGatewayEvents** ✅
 - **Amazon.Lambda.Serialization.SystemTextJson** ✅
@@ -242,4 +243,3 @@ This document must be updated when:
 **Last Updated**: 2026-02-09  
 **Version**: 1.0.0  
 **Next Review**: After .NET 10 GA release
-

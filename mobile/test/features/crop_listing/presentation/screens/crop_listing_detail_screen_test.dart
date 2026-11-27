@@ -6,14 +6,24 @@ import 'package:intl/intl.dart';
 import 'package:wereda_connect/core/database/schemas/crop_listing.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/rating.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
-/// No-op rating repository so the detail screen's farmer-rating row can build
-/// in tests without hitting a backend (returns "no ratings yet").
+/// No-op rating repository so the detail screen's farmer card can build in
+/// tests without hitting a backend ("no ratings yet" unless [summary] says).
 class _FakeRatingRepository implements BaseRatingRepository {
+  _FakeRatingRepository([this.summary = RatingSummary.empty]);
+
+  final RatingSummary summary;
+
+  /// How many times the aggregate was asked for (ESC-31: never for a
+  /// listing that carries the owner's reputation copy).
+  int summaryReads = 0;
+
   @override
   Future<Rating> createRating({
     required String orderId,
@@ -36,8 +46,10 @@ class _FakeRatingRepository implements BaseRatingRepository {
   Future<List<Rating>> getRatingsForRatee(String rateeId) async => const [];
 
   @override
-  Future<RatingSummary> getRatingSummary(String rateeId) async =>
-      RatingSummary.empty;
+  Future<RatingSummary> getRatingSummary(String rateeId) async {
+    summaryReads++;
+    return summary;
+  }
 }
 
 CropListing _makeListing({
@@ -47,8 +59,10 @@ CropListing _makeListing({
   String locationName = 'Bishoftu',
   String description = 'Test description',
   ListingStatus status = ListingStatus.active,
+  String farmerName = '',
 }) {
   return CropListing()
+    ..farmerName = farmerName
     ..listingId = 'test-listing'
     ..farmerId = 'farmer-001'
     ..cropType = cropType
@@ -70,13 +84,17 @@ Widget _buildScreen({
   required CropListing listing,
   String currentUserId = 'user-001',
   UserRole currentUserRole = UserRole.farmer,
+  RatingSummary rating = RatingSummary.empty,
+  _FakeRatingRepository? ratingRepository,
 }) {
   return MaterialApp(
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     locale: const Locale('en'),
     home: BlocProvider<RatingBloc>(
-      create: (_) => RatingBloc(repository: _FakeRatingRepository()),
+      create: (_) => RatingBloc(
+        repository: ratingRepository ?? _FakeRatingRepository(rating),
+      ),
       child: CropListingDetailScreen(
         listing: listing,
         currentUserId: currentUserId,
@@ -94,8 +112,8 @@ void main() {
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
 
-      // Teff uses Icons.grass
-      expect(find.byIcon(Icons.grass), findsOneWidget);
+      // The crop's name is the page title (no icon tile on the board).
+      expect(find.byIcon(Icons.grass), findsNothing);
       expect(find.text('Teff'), findsWidgets);
     });
 
@@ -123,8 +141,13 @@ void main() {
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
 
-      expect(find.text('50.0 quintals'), findsOneWidget);
-      expect(find.text('Quantity'), findsOneWidget);
+      // CropDetailM board: "5,000 kg left (50 quintals) · listed Feb 20"
+      // under the crop, kilograms first, no separate quantity row.
+      expect(
+        find.textContaining('5,000 kg left (50 quintals) · '),
+        findsOneWidget,
+      );
+      expect(find.text('Quantity'), findsNothing);
     });
 
     testWidgets('renders price with ETB/kg', (tester) async {
@@ -133,8 +156,10 @@ void main() {
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
 
-      expect(find.text('85.00 ETB/kg'), findsOneWidget);
-      expect(find.text('Price'), findsOneWidget);
+      // The price large on the right with its unit under it.
+      expect(find.text('85'), findsOneWidget);
+      expect(find.text('ETB/kg'), findsOneWidget);
+      expect(find.text('Price'), findsNothing);
     });
 
     testWidgets('renders location', (tester) async {
@@ -144,19 +169,19 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Bishoftu'), findsOneWidget);
-      expect(find.text('Location'), findsOneWidget);
     });
 
     testWidgets('renders created date', (tester) async {
       final listing = _makeListing();
-      final expectedDate =
-          DateFormat.yMMMd().add_jm().format(DateTime(2026, 2, 20));
+      // The day it was listed sits under the crop ("listed Feb 20").
+      final eat = instantInEthiopia(DateTime(2026, 2, 20));
+      final expectedDate = 'listed ${DateFormat.MMMd().format(eat)}';
 
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
 
-      expect(find.text(expectedDate), findsOneWidget);
-      expect(find.text('Created'), findsOneWidget);
+      expect(find.textContaining(expectedDate), findsOneWidget);
+      expect(find.text('Created'), findsNothing);
     });
 
     testWidgets('hides description row when description is empty',
@@ -177,25 +202,33 @@ void main() {
       await tester.pumpWidget(_buildScreen(listing: listing));
       await tester.pumpAndSettle();
 
-      expect(find.text('Description'), findsOneWidget);
+      // The section label is uppercase (page M).
+      expect(find.text('DESCRIPTION'), findsOneWidget);
       expect(find.text('Premium quality grain'), findsOneWidget);
     });
 
-    testWidgets('trucker role shows Create Delivery button', (tester) async {
-      final listing = _makeListing();
+    // ESC-23: a delivery is created from its order, never from a listing.
+    for (final role in UserRole.values) {
+      testWidgets('${role.name} role has no Create Delivery button',
+          (tester) async {
+        await tester.pumpWidget(
+          _buildScreen(listing: _makeListing(), currentUserRole: role),
+        );
+        await tester.pumpAndSettle();
 
-      await tester.pumpWidget(
-        _buildScreen(
-          listing: listing,
-          currentUserRole: UserRole.trucker,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // ElevatedButton.icon renders the label and icon
-      expect(find.text('Create Delivery'), findsOneWidget);
-      expect(find.byIcon(Icons.local_shipping), findsOneWidget);
-    });
+        for (final locale in AppLocalizations.supportedLocales) {
+          expect(
+            find.text(lookupAppLocalizations(locale).createDelivery),
+            findsNothing,
+            reason: locale.languageCode,
+          );
+        }
+        expect(find.byIcon(Icons.local_shipping), findsNothing);
+        if (role != UserRole.buyer) {
+          expect(find.byType(FwBottomActions), findsNothing);
+        }
+      });
+    }
 
     testWidgets(
         'buyer role gets no contact before an order, only the escrow note '
@@ -235,6 +268,215 @@ void main() {
         find.text('Contact opens after payment is held in escrow.'),
         findsNothing,
       );
+    });
+
+    // Crop detail board: who sells it, with their rating.
+    testWidgets('the farmer card shows initials, name and no ratings yet',
+        (tester) async {
+      await tester.pumpWidget(
+        _buildScreen(
+          listing: _makeListing(farmerName: 'Abebe Kebede'),
+          currentUserRole: UserRole.buyer,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('AK'), findsOneWidget);
+      expect(find.text('Abebe Kebede'), findsOneWidget);
+      expect(find.text('Farmer Rating: No ratings yet'), findsOneWidget);
+    });
+
+    testWidgets('the farmer card shows the rating when there is one',
+        (tester) async {
+      await tester.pumpWidget(
+        _buildScreen(
+          listing: _makeListing(farmerName: 'Abebe Kebede'),
+          currentUserRole: UserRole.buyer,
+          rating: const RatingSummary(average: 4.8, count: 12),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Farmer Rating 4.8 · 12 ratings'), findsOneWidget);
+    });
+
+    group('ESC-31: the owner reputation copy on the farmer card', () {
+      CropListing withCopy({
+        String tier = 'good',
+        double? rating = 4.4,
+        int count = 12,
+        int? reliability = 83,
+      }) =>
+          _makeListing(farmerName: 'Abebe Kebede')
+            ..ownerTier = tier
+            ..ownerEffectiveRating = rating
+            ..ownerRatingCount = count
+            ..ownerReliabilityPct = reliability
+            ..ownerReputationAt = DateTime.utc(2026, 11, 7, 9);
+
+      testWidgets('without the copy the aggregate is read as before',
+          (tester) async {
+        final repository = _FakeRatingRepository(
+          const RatingSummary(average: 4.8, count: 12),
+        );
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: _makeListing(farmerName: 'Abebe Kebede'),
+            currentUserRole: UserRole.buyer,
+            ratingRepository: repository,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(repository.summaryReads, 1);
+        expect(find.text('Farmer Rating 4.8 · 12 ratings'), findsOneWidget);
+        expect(find.text('Low reputation'), findsNothing);
+        expect(find.textContaining('orders completed'), findsNothing);
+        expect(find.textContaining('As of'), findsNothing);
+      });
+
+      testWidgets(
+          'with the copy a buyer sees the effective rating, the '
+          'reliability and the date, with no rating call', (tester) async {
+        final repository = _FakeRatingRepository(
+          const RatingSummary(average: 4.8, count: 12),
+        );
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: withCopy(),
+            currentUserRole: UserRole.buyer,
+            ratingRepository: repository,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(repository.summaryReads, 0);
+        expect(find.text('Farmer Rating 4.4 · 12 ratings'), findsOneWidget);
+        expect(find.text('83% of orders completed'), findsOneWidget);
+        expect(find.text('As of Nov 7, 2026'), findsOneWidget);
+        expect(find.text('Low reputation'), findsNothing);
+      });
+
+      testWidgets('a buyer sees the Low reputation label with its line',
+          (tester) async {
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: withCopy(tier: 'low', rating: 3.8),
+            currentUserRole: UserRole.buyer,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Farmer Rating 3.8 · 12 ratings'), findsOneWidget);
+        expect(find.text('Low reputation'), findsOneWidget);
+        expect(
+          find.text('Recently cancelled or missed several paid orders.'),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('with the copy and no ratings: no ratings yet',
+          (tester) async {
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: withCopy(rating: null, count: 0, reliability: null),
+            currentUserRole: UserRole.buyer,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Farmer Rating: No ratings yet'), findsOneWidget);
+        expect(find.textContaining('orders completed'), findsNothing);
+      });
+
+      testWidgets(
+          'the farmer on their own listing sees their rating, not the '
+          'label', (tester) async {
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: withCopy(tier: 'low', rating: 3.8),
+            currentUserId: 'farmer-001',
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Farmer Rating 3.8 · 12 ratings'), findsOneWidget);
+        expect(find.text('Low reputation'), findsNothing);
+      });
+    });
+
+    testWidgets('no farmer card without a farmer name', (tester) async {
+      await tester.pumpWidget(_buildScreen(listing: _makeListing()));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Farmer Rating'), findsNothing);
+    });
+
+    // SIM-33: a record holding the farmer's id as the name, and a junk
+    // place ("105"), show neither.
+    testWidgets('no farmer card for an id name, no junk place', (tester) async {
+      const id = '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b';
+      await tester.pumpWidget(
+        _buildScreen(
+          listing: _makeListing(farmerName: id, locationName: '105'),
+          currentUserRole: UserRole.buyer,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Farmer Rating'), findsNothing);
+      expect(find.textContaining(id), findsNothing);
+      expect(find.text('105'), findsNothing);
+      expect(find.byIcon(Icons.location_on_outlined), findsNothing);
+    });
+
+    // FUP-67: buyers see every listing and may report one; a farmer sees only
+    // their own and a trucker only uses a listing, so neither gets the button.
+    group('report this listing', () {
+      testWidgets('a buyer sees the report button', (tester) async {
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: _makeListing(),
+            currentUserId: 'buyer-001',
+            currentUserRole: UserRole.buyer,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('report_listing_button')),
+          200,
+        );
+
+        expect(find.text('Report this listing'), findsOneWidget);
+      });
+
+      for (final role in [UserRole.farmer, UserRole.trucker]) {
+        testWidgets('a ${role.name} sees no report button', (tester) async {
+          await tester.pumpWidget(
+            _buildScreen(
+              listing: _makeListing(),
+              currentUserId: '${role.name}-002',
+              currentUserRole: role,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(const Key('report_listing_button')), findsNothing);
+        });
+      }
+
+      testWidgets('the owner never gets a report button', (tester) async {
+        await tester.pumpWidget(
+          _buildScreen(
+            listing: _makeListing(),
+            // The listing's farmer (the default role is farmer).
+            currentUserId: 'farmer-001',
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('report_listing_button')), findsNothing);
+      });
     });
   });
 }

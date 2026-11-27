@@ -46,6 +46,10 @@ public partial class SyncFunction
     private readonly IFraudDetectionService? _fraudService;
     private readonly IUserRepository? _userRepo;
 
+    // ESC-15: trip bookings (reserve, verify, release capacity) and the departure read by the
+    // commitment deadlines. Raw trip reads elsewhere keep using GetTripItemAsync.
+    private readonly ITripRepository _tripRepo;
+
     // auth_time of the current request's token (Lambda handles one request at a
     // time per instance, so a field is safe); consumed by the payment step-up gate.
     private long? _requestAuthTime;
@@ -86,6 +90,13 @@ public partial class SyncFunction
     /// </summary>
     internal PayoutDelayPolicy? PayoutDelay { get; init; }
 
+    /// <summary>
+    /// FRD-09 (fraud-detection-architecture.md 15.1): the transaction pattern rules, run after a payment, a
+    /// committed cancel, a delivery dispute or a delivery confirm succeeded. The Lambda wires it when the
+    /// signals table is set; without one (the test constructor) no rule runs and nothing is read.
+    /// </summary>
+    internal TransactionPatternService? PatternRules { get; init; }
+
     /// <summary>FRD-03: the farmer's accept of an order whose escrow is held for review (order-lifecycle 1.22.0).</summary>
     private const string OrderUnderReviewMessage = "This order is under review and cannot be accepted. Contact support.";
     // Optional: the order-funded escrow leg (escrow record at order funding,
@@ -95,8 +106,29 @@ public partial class SyncFunction
     // (orders still fund; the escrow record simply isn't materialized here).
     private readonly EscrowService? _orderEscrowService;
     // ESC-01: the funding side effects (stock + order escrow) shared with the live
-    // Telebirr webhook, so mock and live funding can never drift apart.
-    private readonly OrderFundingService _orderFunding;
+    // Telebirr webhook, so mock and live funding can never drift apart. Built on first use so
+    // it sees CommitmentsEnabled, which an object initializer may set after the constructor.
+    private OrderFundingService? _orderFundingInstance;
+    private OrderFundingService _orderFunding
+        => _orderFundingInstance ??= new OrderFundingService(
+            _orderRepo, _cropRepo, _orderEscrowService, _tripRepo, CommitmentsEnabled, _transactionAuditRepo);
+
+    /// <summary>
+    /// ESC-15: sequential farmer → trucker commitments, the awaiting_transport status and the trip
+    /// bookings. Defaults to the env flag (<see cref="OrderCommitment.IsEnabled"/>); tests set it.
+    /// Off, the farmer's accept moves a funded order straight to accepted as before.
+    /// </summary>
+    public bool CommitmentsEnabled { get; init; } = OrderCommitment.IsEnabled;
+
+    /// <summary>
+    /// ESC-25: the minimum app build for order operations (<c>MIN_ORDER_APP_BUILD</c>, 0 = off), read
+    /// on its own: the gate does not depend on <see cref="CommitmentsEnabled"/>. Tests set it.
+    /// </summary>
+    public int MinOrderAppBuild { get; init; } = OrderAppBuildGate.FromEnvironment();
+
+    // ESC-25: the caller's X-App-Build (null: none readable), read once per batch at the top of
+    // FunctionHandler, like _batchAudit below.
+    private int? _batchAppBuild;
     // Optional: when the ratings table is provisioned, buyers can rate
     // counterparties after a delivered order. Absent env → null (rating sync
     // simply returns RATING_UNAVAILABLE).
@@ -155,11 +187,16 @@ public partial class SyncFunction
     /// </summary>
     private const decimal MaxOrderKg = MaxListingQuintals * 100m;
 
+    /// <summary>Smallest order, in kilograms (order-lifecycle.md, Order Create Validation).</summary>
+    private const decimal MinOrderKg = 0.01m;
+
     private static readonly HashSet<string> AllowedCropFields = new()
     {
         "farmerId", "farmerName", "farmerPhone", "cropType", "quantity", "pricePerKg",
         "latitude", "longitude", "locationName", "description",
-        "status", "woreda", "listingId", "audioNoteRef", "createdAt"
+        "status", "woreda", "listingId", "audioNoteRef", "createdAt",
+        // crop-listing-api 1.6.0 rule 9: 2 to 4 photo ids, stored as an L of S.
+        "photoIds"
     };
 
     private static readonly HashSet<string> AllowedIntentFields = new()
@@ -247,16 +284,18 @@ public partial class SyncFunction
     private static readonly HashSet<string> AllowedTripFields = new()
     {
         "truckerId", "truckerName", "truckerPhone", "vehiclePlate", "vehicleDescription",
-        "fromWoreda", "toWoreda", "departureDate", "capacity", "pricePerQuintal", "status", "matchedListings"
+        "fromWoreda", "toWoreda", "departureDate", "capacity", "pricePerQuintal", "status", "matchedListings",
+        // trip-listing-api 2.1.0: the destination's point, the live track's drop-off (TripTrack.PlannedDropoff).
+        "destinationLatitude", "destinationLongitude"
     };
 
     /// <summary>
     /// FUP-49: listing text that buyers read before any order. ESC-48 keeps contact closed until
     /// the money is held, so none of it may carry a phone number (crop-listing-api.md 1.4.0,
-    /// trip-listing-api.md 1.5.0). The crop `woreda` is not screened here: clients send it from
-    /// the registration profile, so a refusal would lock the farmer out with nothing to fix.
+    /// trip-listing-api.md 1.5.0). The crop `woreda` joined in crop-listing-api.md 1.8.0 (FUP-98),
+    /// with the profile woreda exempt (<see cref="IsProfileWoreda"/>).
     /// </summary>
-    private static readonly string[] CropContactScreenedFields = { "description", "locationName" };
+    private static readonly string[] CropContactScreenedFields = { "description", "locationName", "woreda" };
 
     private static readonly string[] TripContactScreenedFields =
     {
@@ -266,6 +305,19 @@ public partial class SyncFunction
     /// <summary>FUP-49: the refusal for a phone number in listing text; deterministic for a payload.</summary>
     private static string ContactInTextRefusal(string code, List<string> fields) =>
         $"{code}: Remove the phone number from {string.Join(", ", fields)}. Contact opens after payment is held in escrow.";
+
+    /// <summary>
+    /// FUP-98: a crop <c>woreda</c> equal to the farmer's profile woreda is not refused. Clients
+    /// send that value from the registration profile, so an account registered before the FUP-52
+    /// screen would otherwise have nothing to fix in the form. Trimmed and ordinal, like the other
+    /// profile woreda read (<see cref="StampOrderBuyerNameAsync"/>). Never
+    /// <see cref="WoredaNames.Normalize"/>: it is a matching key that drops everything after a
+    /// comma or bracket, so "Adama, 0911..." would pass as "Adama".
+    /// </summary>
+    private static bool IsProfileWoreda(Dictionary<string, object> data, string? profileWoreda) =>
+        !string.IsNullOrWhiteSpace(profileWoreda)
+        && data.TryGetValue("woreda", out var woreda)
+        && string.Equals(woreda?.ToString()?.Trim(), profileWoreda.Trim(), StringComparison.Ordinal);
 
     private static readonly HashSet<string> AllowedDeliveryFields = new()
     {
@@ -282,7 +334,13 @@ public partial class SyncFunction
         "cropType", "quantity", "pricePerUnit",
         "tripId", "truckerId", "truckerName", "transportCost",
         "paymentMethod", "cbeTransactionId",
-        "status", "rejectionReason", "cancelReason"
+        "status", "rejectionReason", "cancelReason",
+        // ESC-15: the commitment commands (consumed by ProcessCommitmentCommandAsync, never written raw).
+        OrderCommitment.FarmerResponseField, OrderCommitment.TruckerResponseField, OrderCommitment.DeclineReasonField,
+        // LT-12: the buyer's drop-off landmark (CheckDropoffNoteChangeAsync guards an update).
+        OrderDropoffNote.Field,
+        // LT-14: the order's own drop-off point (CheckDeliveryLocationChangeAsync guards an update).
+        OrderDeliveryLocation.LatitudeField, OrderDeliveryLocation.LongitudeField
     };
 
     // Server-calculated fields that clients must not set directly
@@ -290,6 +348,14 @@ public partial class SyncFunction
     {
         "cropCost", "commissionRate", "commissionAmount", "orderTotal",
         "paymentVerifiedAt", "respondedAt", "cancelledAt",
+        // ESC-15: who was asked, when they answered, their deadlines and the failure bookkeeping.
+        OrderCommitment.FulfillmentField, OrderCommitment.PickupDateField,
+        OrderCommitment.FarmerRespondedAtField, OrderCommitment.FarmerDeadlineAtField,
+        OrderCommitment.TruckerAskedAtField, OrderCommitment.TruckerRespondedAtField, OrderCommitment.TruckerDeadlineAtField,
+        OrderCommitment.BuyerChoiceDeadlineAtField, OrderCommitment.TransportFailureField,
+        OrderCommitment.CancelledByField, OrderCommitment.FaultPartyField,
+        OrderCommitment.FarmerReminderAtField, OrderCommitment.TruckerReminderAtField,
+        OrderCommitment.BuyerChoiceReminderAtField, OrderCommitment.PickupOverdueNotifiedAtField,
         // ESC-01: the live Telebirr payment behind a funding; only the webhook writes them.
         // paymentSubmittedAt starts the payment clock and is stamped by the server.
         OrderFundingService.MerchOrderIdField, OrderFundingService.PaymentOrderIdField,
@@ -301,7 +367,30 @@ public partial class SyncFunction
         // ESC-45: the webhook holds an order whose verified payment is still pending in its inbox.
         PaymentHoldFields.HoldUntil,
         // ESC-47: when the order last entered pending_payment; the auto-cancel counts from it.
-        "pendingPaymentAt"
+        "pendingPaymentAt",
+        // Fieldway trip bookings (order-lifecycle 2.2.0): the farm and the drop-off place of the
+        // order, stamped at create from the listing and the buyer's profile.
+        "pickupPlace", "dropoffPlace",
+        // ESC-34: the pickup judgement, the check-ins (written only by handoff_check_in) and the
+        // pickup point stamped when the order became judgeable.
+        PickupJudgement.Field, PickupJudgement.JudgedAtField, PickupJudgement.CheckInsField,
+        PickupJudgement.PickupLatitudeField, PickupJudgement.PickupLongitudeField,
+        // FUP-287: the stamp of an admin's re-open of the judgement (written only by the admin Lambda).
+        PickupReopen.Field,
+        // Order-lifecycle 2.26.0: the stamp of an admin's commission change (written only by the admin Lambda).
+        OrderCommissionChange.Field,
+        // ESC-36: the drop-off judgement, its deadline, the drop-off check-in (written only by
+        // handoff_check_in) and the drop-off points stamped at pickup. The order's disputeReason (written
+        // only by the order cron's T8 and T9; rule R12 reads it) is not in AllowedOrderFields, so a client
+        // that sends it is refused as before.
+        DropoffJudgement.Field, DropoffJudgement.JudgedAtField, DropoffJudgement.DeadlineField, DropoffJudgement.CheckInField,
+        DropoffJudgement.OrderLatitudeField, DropoffJudgement.OrderLongitudeField,
+        DropoffJudgement.TripLatitudeField, DropoffJudgement.TripLongitudeField,
+        DropoffJudgement.AttemptField, DropoffJudgement.TripReadField,
+        // FUP-286 and FUP-338: the order cron's check-in and silent buyer reminder markers.
+        PickupJudgement.ReminderAtField, DropoffJudgement.ReminderAtField,
+        // ESC-16: the order's next deadline (DeadlineIndex); every order write derives it itself.
+        OrderDeadlines.AtField, OrderDeadlines.KindField, OrderDeadlines.ShardField
     };
 
     /// <summary>
@@ -311,7 +400,22 @@ public partial class SyncFunction
     /// </summary>
     private static readonly HashSet<string> UpdatableOrderFields = new()
     {
-        "status", "rejectionReason", "cancelReason", "paymentMethod", "cbeTransactionId"
+        "status", "rejectionReason", "cancelReason", "paymentMethod", "cbeTransactionId",
+        // LT-12: by the buyer only, until pickup (CheckDropoffNoteChangeAsync).
+        OrderDropoffNote.Field,
+        // LT-14: by the buyer only, until pickup (CheckDeliveryLocationChangeAsync).
+        OrderDeliveryLocation.LatitudeField, OrderDeliveryLocation.LongitudeField
+    };
+
+    /// <summary>
+    /// ESC-15: the commitment commands. Allowed on an update only through
+    /// <c>ProcessCommitmentCommandAsync</c> (which validates and never writes them raw); refused on
+    /// create, and treated as immutable by the generic update so no party can rewrite a recorded
+    /// response or decline reason.
+    /// </summary>
+    private static readonly string[] OrderCommandFields =
+    {
+        OrderCommitment.FarmerResponseField, OrderCommitment.TruckerResponseField, OrderCommitment.DeclineReasonField
     };
 
     /// <summary>
@@ -339,10 +443,16 @@ public partial class SyncFunction
         // Farmer responds to a funded order with accept or reject; reject is a
         // terminal state (authorization + respondedAt/audit side-effects already
         // handle "rejected" — only this transition entry was missing).
-        { "funded", new HashSet<string> { "accepted", "rejected", "cancelled" } },
+        // ESC-15: a funded order whose transport failed (trucker declined, expired, trip cancelled
+        // or full) waits for the buyer in awaiting_transport; so does an accepted one whose trucker
+        // dropped out before pickup. Both edges are system-written (OrderCommitment).
+        { "funded", new HashSet<string> { "accepted", "rejected", "cancelled", OrderCommitment.AwaitingTransportStatus } },
         // ESC-06: the buyer may cancel an accepted order only after a transport failure (no
         // pickup by pickupDeadlineAt); ProcessTransportFailureCancelAsync enforces it.
-        { "accepted", new HashSet<string> { "pickup_confirmed", "cancelled" } },
+        { "accepted", new HashSet<string> { "pickup_confirmed", "cancelled", OrderCommitment.AwaitingTransportStatus } },
+        // ESC-15: the buyer cancels for a full refund, the farmer may cancel without penalty, or
+        // the order cron cancels after the buyer's 48 hours (transport_not_arranged).
+        { OrderCommitment.AwaitingTransportStatus, new HashSet<string> { "cancelled" } },
         { "pickup_confirmed", new HashSet<string> { "in_transit" } },
         { "in_transit", new HashSet<string> { "delivered" } },
         { "delivered", new HashSet<string> { "disbursing", "disputed" } },
@@ -360,7 +470,13 @@ public partial class SyncFunction
     // Stripped from client data early in processing; server injects them after fraud checks.
     private static readonly HashSet<string> ServerOnlyFields = new()
     {
-        "isFlagged", "flagReason", "gpsAnomalyFlag"
+        "isFlagged", "flagReason", "gpsAnomalyFlag",
+        // ESC-29 (reputation-api.md section 7): the owner's copied reputation, written by the server only.
+        OwnerReputationFields.TierField, OwnerReputationFields.EffectiveRatingField, OwnerReputationFields.RatingCountField,
+        OwnerReputationFields.ReliabilityPctField, OwnerReputationFields.AtField,
+        // ESC-30: the old listing-conversion reliability is no longer computed or scored; a
+        // client value is never stored.
+        "farmerReliability"
     };
 
     // FIX-007: Identity fields are immutable after delivery creation
@@ -399,9 +515,17 @@ public partial class SyncFunction
 
     // QR handoff freshness / offline-defer windows (days). Generous, because rural
     // handoffs sync late; the point is to stop indefinitely-stale codes and to give up
-    // deferring a money-bearing transition whose nonce is clearly never going to arrive.
+    // deferring a QR-gated handoff (every pickup since FRD-11, a paid drop-off) whose
+    // nonce is clearly never going to arrive. The defer window counts from the later of
+    // the delivery's creation and the scan (AwaitHandoffNonce).
     private const int QrNonceFreshnessDays = 14;
     private const int QrNonceMaxDeferDays = 14;
+
+    // ESC-35: the trucker's drop-off nonce starts with this tag (a farmer's nonce is plain
+    // base64url, which never holds a dot), so a buyer's scan of a drop-off QR whose nonce has not
+    // synced yet waits for it instead of failing as a wrong code. Shared with the apps.
+    private const string DropoffNoncePrefix = "d.";
+    private const int DropoffNonceMaxLength = 100;
 
     /// <summary>
     /// Scrub secret fields from ANY entity item before it is echoed to a client as sync
@@ -417,6 +541,42 @@ public partial class SyncFunction
     }
 
     /// <summary>
+    /// Copies the order's crop type and quantity (kg), the listing's place name and the
+    /// trip's departure date onto a new delivery row (delivery-verification-api 1.21.0), so
+    /// list cards need no order read. A missing source leaves its field off the row.
+    /// </summary>
+    private static void StampDeliveryCargo(
+        Dictionary<string, AttributeValue> item,
+        Dictionary<string, object> order,
+        Dictionary<string, object>? listing,
+        Dictionary<string, AttributeValue>? trip)
+    {
+        var cropType = order.GetValueOrDefault("cropType")?.ToString();
+        if (!string.IsNullOrWhiteSpace(cropType))
+        {
+            item["cropType"] = new AttributeValue { S = cropType };
+        }
+
+        var quantity = ParseDouble(order, "quantity");
+        if (quantity > 0)
+        {
+            item["quantity"] = new AttributeValue { N = quantity.ToString(CultureInfo.InvariantCulture) };
+        }
+
+        var place = listing?.GetValueOrDefault("locationName")?.ToString();
+        if (!string.IsNullOrWhiteSpace(place))
+        {
+            item["pickupPlace"] = new AttributeValue { S = place };
+        }
+
+        if (trip != null && trip.TryGetValue("departureDate", out var departure)
+            && !string.IsNullOrWhiteSpace(departure.S))
+        {
+            item["pickupPlannedAt"] = new AttributeValue { S = departure.S };
+        }
+    }
+
+    /// <summary>
     /// A delivery row as a party gets it back from /sync: no QR secret (<see cref="ScrubSyncSecrets"/>)
     /// and no phone numbers (ESC-48: the parties reach each other from the order, only while its
     /// contact is open). Delivery rows only: owner trip rows keep their own <c>truckerPhone</c>,
@@ -428,6 +588,19 @@ public partial class SyncFunction
         item.Remove("farmerPhone");
         item.Remove("truckerPhone");
         item.Remove("buyerPhone");
+        // FRD-12: the S3 version ids the photo reads sign are server-only (delivery-verification-api 1.25.0);
+        // FUP-140: so are the kept copies they sign since 2.14.0.
+        foreach (var field in DeliveryPhotoKeys.ServerOnlyFields)
+        {
+            item.Remove(field);
+        }
+
+        // FUP-440, GCR-01, GCR-02: the handoff evidence stamps are server-only (delivery-verification-api 2.19.0).
+        foreach (var field in HandoffEvidence.ServerOnlyFields)
+        {
+            item.Remove(field);
+        }
+
         return item;
     }
 
@@ -457,9 +630,6 @@ public partial class SyncFunction
 
     [GeneratedRegex(@"^\+251\d{9}$")]
     private static partial Regex EthiopianPhoneRegex();
-
-    [GeneratedRegex(@"^uploads/photos/[a-zA-Z0-9\-]+/(pickup|dropoff)-\d+\.webp$")]
-    private static partial Regex PhotoRefRegex();
 
     // SIM-60: departureDate is ISO 8601 date and time with Z, an offset or no zone, as clients
     // send it (Dart toIso8601String of a UTC time; builds before 2026-06-18 sent a local time
@@ -502,17 +672,6 @@ public partial class SyncFunction
         }
     }
 
-    // FIX-011: Validate photo ref format and delivery ID ownership to prevent path traversal
-    private static bool IsValidPhotoRef(string photoRef, string deliveryId)
-    {
-        if (!PhotoRefRegex().IsMatch(photoRef))
-        {
-            return false;
-        }
-
-        return photoRef.StartsWith($"uploads/photos/{deliveryId}/", StringComparison.Ordinal);
-    }
-
     /// <summary>
     /// Default constructor for Lambda runtime.
     /// Reads table names from environment variables.
@@ -548,8 +707,12 @@ public partial class SyncFunction
             _dynamoDb,
             cropsTable,
             fraudSignalsTable,
-            new RateLimitRepository(_dynamoDb, rateLimitTable));
-        _userRepo = new UserRepository(_dynamoDb, usersTable);
+            new RateLimitRepository(_dynamoDb, rateLimitTable))
+        {
+            TripsTable = _tripsTable
+        };
+        // FUP-317: a profile edit writes its transaction-audit row in the same transaction.
+        _userRepo = new UserRepository(_dynamoDb, usersTable, Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE"));
 
         // Intents are optional: the buyer_intent sync handler is only reachable once
         // the intents table is provisioned (push-alerts feature). Absent env → null.
@@ -577,6 +740,11 @@ public partial class SyncFunction
             Environment.GetEnvironmentVariable("FRAUD_HOLD_ENABLED"), "true", StringComparison.OrdinalIgnoreCase);
         PayoutDelay = new PayoutDelayPolicy(_fraudService, _userRepo, _escrowRepo);
 
+        // FRD-09: the pattern rules read history only when their signals can be written.
+        PatternRules = string.IsNullOrEmpty(fraudSignalsTable)
+            ? null
+            : new TransactionPatternService(_orderRepo, _escrowRepo);
+
         // Optional: unified transaction-audit trail (order/delivery transitions).
         var txAuditTable = Environment.GetEnvironmentVariable("TRANSACTION_AUDIT_TABLE");
         _transactionAuditRepo = txAuditTable != null
@@ -598,15 +766,26 @@ public partial class SyncFunction
                 orderRepo: _orderRepo,
                 deliveryRepo: _deliveryRepo,
                 transactionAuditRepo: _transactionAuditRepo)
+            {
+                // ESC-20: a mock-funded order's escrow is born on the ledger behind ESCROW_LEDGER_ENABLED.
+                LedgerRepo = EscrowLedgerConfig.FromEnvironment(_dynamoDb, escrowsTable, escrowAuditTable),
+                LedgerBirthEnabled = EscrowLedgerConfig.BirthEnabled
+            }
             : null;
-        _orderFunding = new OrderFundingService(_orderRepo, _cropRepo, _orderEscrowService);
+        _tripRepo = new TripRepository(_dynamoDb, _tripsTable);
 
         // Ratings are optional in the same way: the rating sync handler is only
         // reachable once the ratings table is provisioned.
+        // ESC-28: with the users table the create also keeps the ratee's stored rating sum and count
+        // (rating-api.md 1.2.0); with the reputation-events table it upserts their heal marker.
         var ratingsTable = Environment.GetEnvironmentVariable("RATINGS_TABLE");
+        var reputationEventsTable = Environment.GetEnvironmentVariable("REPUTATION_EVENTS_TABLE");
         _ratingRepo = ratingsTable != null
-            ? new RatingRepository(_dynamoDb, ratingsTable)
+            ? new RatingRepository(_dynamoDb, ratingsTable, usersTable, reputationEventsTable)
             : null;
+        // FUP-162: a rating for a ratee the backfill did not reach stamps their aggregate (not flagged).
+        RatingHeal = ratingsTable != null ? new RatingAggregateHeal(_dynamoDb, usersTable, ratingsTable) : null;
+        Reputation = BuildReputationService(_dynamoDb, reputationEventsTable, usersTable, _fraudService);
 
         // Messages are optional in the same way: the message sync handler is only
         // reachable once the messages table is provisioned.
@@ -621,6 +800,20 @@ public partial class SyncFunction
         _qrSecretRepo = qrSecretsTable != null
             ? new DeliveryQrSecretRepository(_dynamoDb, qrSecretsTable)
             : null;
+
+        // LT-05: the trip-locations table (location_ping check-ins). Absent env → null (a ping answers
+        // an unprefixed error, which clients retry).
+        var tripLocationsTable = Environment.GetEnvironmentVariable("TRIP_LOCATIONS_TABLE");
+        _tripLocationRepo = tripLocationsTable != null
+            ? new TripLocationRepository(_dynamoDb, tripLocationsTable)
+            : null;
+
+        // FRD-12: the uploads bucket a delivery_photo attach checks (its S3 client is made on first
+        // use). Absent env → attaches are deferred.
+        UploadsBucket = Environment.GetEnvironmentVariable("UPLOADS_BUCKET");
+
+        // GCR-03: a late rating or handoff photo re-evaluates the order's conduct stamp once (not flagged).
+        ConductStamps = BuildConductStamps(reputationEventsTable, usersTable, fraudSignalsTable.Length > 0);
     }
 
     /// <summary>
@@ -640,7 +833,9 @@ public partial class SyncFunction
         IDeliveryQrSecretRepository? qrSecretRepo = null,
         IMessageRepository? messageRepo = null,
         EscrowService? orderEscrowService = null,
-        IDeliveryRepository? deliveryRepo = null)
+        IDeliveryRepository? deliveryRepo = null,
+        ITripRepository? tripRepo = null,
+        ITripLocationRepository? tripLocationRepo = null)
     {
         _syncMetadataRepo = syncMetadataRepo ?? throw new ArgumentNullException(nameof(syncMetadataRepo));
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
@@ -660,13 +855,20 @@ public partial class SyncFunction
         _messageRepo = messageRepo;
         _orderEscrowService = orderEscrowService;
         _deliveryRepo = deliveryRepo ?? new DeliveryRepository(_dynamoDb, _deliveriesTable);
-        _orderFunding = new OrderFundingService(_orderRepo, _cropRepo, _orderEscrowService);
+        _tripRepo = tripRepo ?? new TripRepository(_dynamoDb, _tripsTable);
+        _tripLocationRepo = tripLocationRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
         APIGatewayProxyRequest request,
         ILambdaContext context)
     {
+        // SIM-56: GET /user/profile shares this Lambda (it owns the profile write).
+        if (IsProfileRead(request))
+        {
+            return await HandleProfileReadAsync(request, context);
+        }
+
         context.Logger.LogInformation("Sync invoked");
 
         // Parse request
@@ -682,15 +884,40 @@ public partial class SyncFunction
             return LambdaResponse.Error(400, "SYNC_VALIDATION", "Invalid JSON in request body.");
         }
 
-        if (syncRequest == null || syncRequest.Operations == null || syncRequest.Operations.Count == 0)
+        if (syncRequest == null)
         {
             return LambdaResponse.Error(400, "SYNC_VALIDATION", "Request must contain at least one operation.");
+        }
+
+        // FUP-148 (sync-protocol.md 1.64.0): a missing, null or blank batch member is answered with its
+        // own field, right after the body is read. Before, an absent one failed deserialization ("Invalid
+        // JSON in request body.") and a null syncBatchId or clientId was accepted.
+        if (string.IsNullOrWhiteSpace(syncRequest.SyncBatchId))
+        {
+            return LambdaResponse.Error(400, "SYNC_VALIDATION", "syncBatchId is required.", "syncBatchId");
+        }
+
+        if (string.IsNullOrWhiteSpace(syncRequest.ClientId))
+        {
+            return LambdaResponse.Error(400, "SYNC_VALIDATION", "clientId is required.", "clientId");
+        }
+
+        if (syncRequest.Operations == null || syncRequest.Operations.Count == 0)
+        {
+            return LambdaResponse.Error(400, "SYNC_VALIDATION", "Request must contain at least one operation.", "operations");
         }
 
         // Validate batch size limit (prevent abuse)
         if (syncRequest.Operations.Count > 50)
         {
             return LambdaResponse.Error(400, "SYNC_VALIDATION", "Maximum 50 operations per batch.");
+        }
+
+        // FUP-127: a JSON null in the operations array is read as a null element (the reader does
+        // not refuse it); the batch is refused here instead of failing on the first dereference.
+        if (syncRequest.Operations.Contains(null!))
+        {
+            return LambdaResponse.Error(400, "SYNC_VALIDATION", "Operations must not contain null.");
         }
 
         // Extract authenticated user ID from API Gateway authorizer context.
@@ -708,7 +935,12 @@ public partial class SyncFunction
         _batchRiskScores = _fraudService == null ? null : new RiskScoreMemo(_fraudService);
         _batchSignals.Clear();
         _batchStaleConflicts = 0;
+        _batchDeliveryWritten = false;
+        _batchTripRows.Clear();
+        _batchListingPoints.Clear();
+        _batchOrders.Clear();
         _batchPayoutDelays = new PayoutDelayBatch(_batchRiskScores);
+        _batchAppBuild = ClientAppBuild.Read(request);
 
         // Per-user rate limiting (F-11 Finding 3)
         // Record unconditionally to prevent request flooding via invalid operations
@@ -724,13 +956,16 @@ public partial class SyncFunction
         }
 
         // ACC-02: nothing in the batch is applied once the caller's account is being or has been
-        // deleted (410 ACCOUNT_004, terminal for the client).
+        // deleted (410 ACCOUNT_004, terminal for the client). ESC-29 (reputation-api.md 8.4): the
+        // same strongly consistent read refuses a suspended caller (403 AUTH_025, no operation
+        // applied, no idempotency key recorded) and gives the reputation gates and the owner stamps
+        // the caller's row, at no extra read.
+        _batchCaller = null;
         if (_userRepo != null)
         {
-            APIGatewayProxyResponse? gone;
             try
             {
-                gone = await AccountDeletionGuard.RefuseIfDeletingAsync(_userRepo, authenticatedUserId);
+                _batchCaller = await _userRepo.GetUserByIdAsync(authenticatedUserId, consistentRead: true);
             }
             catch (Exception ex)
             {
@@ -738,9 +973,9 @@ public partial class SyncFunction
                 return LambdaResponse.Error(503, "SYNC_SERVER_ERROR", "Sync is temporarily unavailable. Please retry.");
             }
 
-            if (gone != null)
+            if (AccountDeletionGuard.RefusalFor(_batchCaller) is { } refused)
             {
-                return gone;
+                return refused;
             }
         }
 
@@ -761,7 +996,8 @@ public partial class SyncFunction
             var result = await ProcessOperationAsync(operation, authenticatedUserId, authenticatedRole, context);
             context.Logger.LogInformation(
                 $"Op {MoneyAlarmLog.LogId(result.OperationId)}: status={result.Status}, msg={MoneyAlarmLog.LogText(result.Message ?? "none")}");
-            results.Add(result);
+            // SIM-25: numbers and matchedListings in serverData go out typed, as GET returns them.
+            results.Add(SyncServerData.Typed(result, ReputationPublicTags));
         }
 
         var successCount = results.Count(r => r.Status == "SYNC_SUCCESS" || r.Status == "SYNC_DUPLICATE");
@@ -781,6 +1017,43 @@ public partial class SyncFunction
     }
 
     /// <summary>
+    /// SIM-28: the answer to an idempotency key already stored for another payload. Nothing is
+    /// processed or stored. <c>SYNC_VALIDATION</c>, so clients reject it for good (it can never
+    /// pass with this key) and the contract's action applies: send the change with a new key.
+    /// </summary>
+    internal const string IdempotencyKeyReusedMessage =
+        "SYNC_VALIDATION: idempotency key already used for a different operation payload; send this change with a new idempotency key.";
+
+    /// <summary>
+    /// FUP-148: the wire name of the first identifying member an operation lacks (absent, null or
+    /// empty), in the order of the contract, or null when all five are there.
+    /// </summary>
+    private static string? MissingOperationMember(SyncOperationRequest operation)
+    {
+        if (string.IsNullOrEmpty(operation.OperationId))
+        {
+            return "operationId";
+        }
+
+        if (string.IsNullOrEmpty(operation.IdempotencyKey))
+        {
+            return "idempotencyKey";
+        }
+
+        if (string.IsNullOrEmpty(operation.EntityType))
+        {
+            return "entityType";
+        }
+
+        if (string.IsNullOrEmpty(operation.EntityId))
+        {
+            return "entityId";
+        }
+
+        return string.IsNullOrEmpty(operation.Action) ? "action" : null;
+    }
+
+    /// <summary>
     /// Process a single sync operation with idempotency checking and entity routing.
     /// </summary>
     private async Task<SyncOperationResult> ProcessOperationAsync(
@@ -789,18 +1062,17 @@ public partial class SyncFunction
         string? authenticatedRole,
         ILambdaContext context)
     {
-        // Validate required fields
-        if (string.IsNullOrEmpty(operation.OperationId) ||
-            string.IsNullOrEmpty(operation.IdempotencyKey) ||
-            string.IsNullOrEmpty(operation.EntityType) ||
-            string.IsNullOrEmpty(operation.EntityId) ||
-            string.IsNullOrEmpty(operation.Action))
+        // FUP-148 (sync-protocol.md 1.64.0): the first missing, null or empty identifying member is
+        // named under SYNC_VALIDATION, which every client treats as permanent. Before, an absent one
+        // refused the whole batch ("Invalid JSON in request body.") and a null one was answered
+        // "Missing required fields: ..." with no code, which the mobile app retried.
+        if (MissingOperationMember(operation) is { } missingMember)
         {
             return new SyncOperationResult
             {
-                OperationId = operation.OperationId ?? "unknown",
+                OperationId = string.IsNullOrEmpty(operation.OperationId) ? "unknown" : operation.OperationId,
                 Status = "error",
-                Message = "Missing required fields: operationId, idempotencyKey, entityType, entityId, action."
+                Message = $"SYNC_VALIDATION: {missingMember} is required."
             };
         }
 
@@ -812,6 +1084,21 @@ public partial class SyncFunction
                 OperationId = operation.OperationId,
                 Status = "error",
                 Message = $"Invalid action: '{operation.Action}'. Must be create, update, or delete."
+            };
+        }
+
+        // ESC-25 (sync-protocol.md 1.41.0): an order operation from a build below the minimum is
+        // refused before any read, field check or write, so every payload from that build gets the
+        // same answer. No idempotency key is read or stored and no fraud signal is written; the rest
+        // of the batch goes on. Other entities are never gated (a client would only hold them).
+        if (operation.EntityType == "order"
+            && OrderAppBuildGate.Refusal(MinOrderAppBuild, _batchAppBuild) is { } tooOld)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = tooOld
             };
         }
 
@@ -840,10 +1127,31 @@ public partial class SyncFunction
 
         try
         {
+            // SIM-28: what this key is sent with, taken before any handler changes the data.
+            var payloadFingerprint = SyncPayloadFingerprint.Of(operation);
+
             // 1. Check idempotency: did this caller already send this key?
             var isDuplicate = await _syncMetadataRepo.IdempotencyKeyExistsAsync(scopedIdempotencyKey);
             if (isDuplicate)
             {
+                // SIM-28: the same key with another payload is not a retry; answering duplicate
+                // would drop the change as if it had been applied. A record from before the
+                // fingerprint was stored has none and still answers duplicate.
+                var storedFingerprint = await _syncMetadataRepo.GetPayloadFingerprintAsync(scopedIdempotencyKey);
+                if (!string.IsNullOrEmpty(storedFingerprint)
+                    && !string.Equals(storedFingerprint, payloadFingerprint, StringComparison.Ordinal))
+                {
+                    context.Logger.LogWarning(
+                        $"Idempotency key {MoneyAlarmLog.LogId(operation.IdempotencyKey)} reused with another payload for operation {MoneyAlarmLog.LogId(operation.OperationId)}");
+
+                    return new SyncOperationResult
+                    {
+                        OperationId = operation.OperationId,
+                        Status = "error",
+                        Message = IdempotencyKeyReusedMessage
+                    };
+                }
+
                 context.Logger.LogInformation(
                     $"Duplicate idempotency key: {MoneyAlarmLog.LogId(operation.IdempotencyKey)} for operation {MoneyAlarmLog.LogId(operation.OperationId)}");
 
@@ -866,13 +1174,28 @@ public partial class SyncFunction
                 "order" => await ProcessOrderAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "rating" => await ProcessRatingAsync(operation, authenticatedUserId, authenticatedRole, context),
                 "message" => await ProcessMessageAsync(operation, authenticatedUserId, authenticatedRole, context),
+                "user" => await ProcessUserAsync(operation, authenticatedUserId, context),
+                LocationPingRules.EntityType => await ProcessLocationPingAsync(operation, authenticatedUserId, context),
+                DeliveryPhotoKeys.EntityType => await ProcessDeliveryPhotoAsync(operation, authenticatedUserId, context),
+                ListingReportRules.EntityType => await ProcessListingReportAsync(operation, authenticatedUserId, authenticatedRole, context),
+                // ESC-34, ESC-36: with both flags off the entity does not exist (the unsupported answer below).
+                PickupJudgement.EntityType when PickupJudgementOn || DropoffJudgementOn
+                    => await ProcessHandoffCheckInAsync(operation, authenticatedUserId, context),
+                // FUP-74 (sync-protocol.md 1.72.0): SYNC_VALIDATION, which every client since March 2026 treats as
+                // permanent, so a build older than FUP-18 stops resending its `cropListing` operation.
                 _ => new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
                     Status = "error",
-                    Message = $"Unsupported entity type: '{operation.EntityType}'."
+                    Message = $"SYNC_VALIDATION: Unsupported entity type: '{operation.EntityType}'."
                 }
             };
+
+            // LT-05: a later location_ping in this batch may not see this write in the deliveries-by-trip index.
+            if (operation.EntityType == "delivery" && result.Status == "success")
+            {
+                _batchDeliveryWritten = true;
+            }
 
             // 3. Store the caller-scoped idempotency key (for successful or conflict results)
             if (result.Status is "success" or "conflict" or "duplicate")
@@ -881,7 +1204,8 @@ public partial class SyncFunction
                     scopedIdempotencyKey,
                     operation.OperationId,
                     operation.EntityType,
-                    result.Status);
+                    result.Status,
+                    payloadFingerprint);
             }
 
             // FRD-08: an offline client meets version conflicts in normal use, so one never writes a
@@ -1065,7 +1389,34 @@ public partial class SyncFunction
             }
         }
 
+        // crop-listing-api 1.6.0 rule 9: required on create, optional on update, same rule when
+        // present. NormalizeCropPhotoIds writes the parsed list back before the repository write.
+        if (data.TryGetValue("photoIds", out var photoIdsObj))
+        {
+            if (!CropPhotoKeys.TryNormalizePhotoIds(photoIdsObj, out _))
+            {
+                errors.Add(CropPhotoKeys.PhotoIdsRule);
+            }
+        }
+        else if (isCreate)
+        {
+            errors.Add(CropPhotoKeys.PhotoIdsRule);
+        }
+
         return errors;
+    }
+
+    /// <summary>
+    /// Rule 9: replace a validated <c>photoIds</c> (a JSON array on the wire) with its lower-cased
+    /// string list, so the repository stores an L of S rather than the array's raw text.
+    /// </summary>
+    private static void NormalizeCropPhotoIds(Dictionary<string, object> data)
+    {
+        if (data.TryGetValue("photoIds", out var raw)
+            && CropPhotoKeys.TryNormalizePhotoIds(raw, out var photoIds))
+        {
+            data["photoIds"] = photoIds;
+        }
     }
 
     /// <summary>Ethiopia bounding box (contract: 3-15°N, 33-48°E).</summary>
@@ -1073,6 +1424,26 @@ public partial class SyncFunction
     private const double EthiopiaMaxLatitude = 15.0;
     private const double EthiopiaMinLongitude = 33.0;
     private const double EthiopiaMaxLongitude = 48.0;
+
+    /// <summary>
+    /// FUP-444: a <c>gpsPickup</c> or <c>gpsDropoff</c> outside the Ethiopia box (the listing and ping
+    /// bounds) is refused with <c>DELIVERY_VALIDATION</c> by a delivery update (a create drops both fields,
+    /// FUP-246). Before, a handoff point was
+    /// bounded only by the 5 km checks, which run only when a reference point exists, so a crafted client
+    /// could store (0, 0) or a point abroad on a delivery whose listing or drop-off had none.
+    /// </summary>
+    private static SyncOperationResult? HandoffPointOutsideEthiopia(
+        SyncOperationRequest operation, string field, double latitude, double longitude)
+        => latitude < EthiopiaMinLatitude || latitude > EthiopiaMaxLatitude
+           || longitude < EthiopiaMinLongitude || longitude > EthiopiaMaxLongitude
+            ? new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"DELIVERY_VALIDATION: {field} must be inside Ethiopia "
+                    + "(latitude 3 to 15, longitude 33 to 48)."
+            }
+            : null;
 
     /// <summary>
     /// How far ahead of server time a client createdAt may sit before it is a
@@ -1449,6 +1820,14 @@ public partial class SyncFunction
             };
         }
 
+        // A dispute raised while the goods were moving freezes the escrow but may leave the order
+        // reading delivered (rows from before the confirm mirrored it, or a mirror hop that failed).
+        // The money says whether the trade is in dispute: no rating while it is, or after a verdict.
+        if (orderStatus == "delivered" && await RefuseRatingOfDisputedEscrowAsync(operation, order, orderId, context) is { } disputedEscrow)
+        {
+            return disputedEscrow;
+        }
+
         var orderFarmerId = order.TryGetValue("farmerId", out var fObj) ? fObj?.ToString() : null;
         var orderTruckerId = order.TryGetValue("truckerId", out var tObj) ? tObj?.ToString() : null;
         var validRatee = (rateeRole == "farmer" && rateeId == orderFarmerId)
@@ -1477,7 +1856,8 @@ public partial class SyncFunction
 
         // ACC-02: no rating for an account that is being or has been deleted (the deletion erased
         // the comments about it).
-        if (_userRepo != null && !string.IsNullOrEmpty((await _userRepo.GetUserByIdAsync(rateeId))?.DeletionState))
+        var ratee = _userRepo != null ? await _userRepo.GetUserByIdAsync(rateeId) : null;
+        if (!string.IsNullOrEmpty(ratee?.DeletionState))
         {
             return new SyncOperationResult
             {
@@ -1487,7 +1867,28 @@ public partial class SyncFunction
             };
         }
 
-        var createResult = await _ratingRepo.CreateAsync(operation.EntityId, operation.Data);
+        // BUG-3: a rating between linked accounts (one identity, or one install) is stored but never
+        // enters the ratee's aggregate. The answer is the same either way.
+        var linkedReason = await RatingLinkedAccountsReasonAsync(authenticatedUserId!, rateeId, ratee, context);
+        var createResult = linkedReason == null
+            ? await _ratingRepo.CreateAsync(operation.EntityId, operation.Data)
+            : await _ratingRepo.CreateOutsideAggregateAsync(
+                operation.EntityId, operation.Data, RatingRepository.LinkedAccountsExclusion);
+        if (createResult.IsSuccess && linkedReason != null)
+        {
+            context.Logger.LogWarning(
+                $"RATING_OUTSIDE_AGGREGATE orderId={MoneyAlarmLog.LogId(orderId)} reason={linkedReason}");
+        }
+
+        if (createResult.IsSuccess)
+        {
+            // FUP-162: an unstamped ratee gets their full aggregate first, so the refresh reads it.
+            await HealRateeAggregateAsync(rateeId, ratee, rateeRole, context);
+            await RefreshRateeReputationAsync(rateeId, context);
+            // GCR-03: a late rating re-evaluates the settled order's conduct stamp once.
+            await ReevaluateConductAfterRatingAsync(order, orderId, rateeId, context);
+        }
+
         return createResult.IsSuccess
             ? new SyncOperationResult
             {
@@ -1502,6 +1903,64 @@ public partial class SyncFunction
                 Status = "conflict",
                 Message = createResult.Error?.Message ?? "Rating already exists."
             };
+    }
+
+    /// <summary>
+    /// The refusal for a rating of a <c>delivered</c> order whose escrow is <c>disputed</c> or
+    /// <c>dispute_resolved</c>: <c>RATING_FORBIDDEN</c>. The escrow is found as the delivery confirm
+    /// and the QR gate find it: the order's own (<c>escrow-order-{orderId}</c>, strongly consistent),
+    /// else, when the order has none, the one the <c>DeliveryIndex</c> names for the order's active
+    /// delivery (paid through <c>POST /escrow/initiate</c>, which is refused once an order escrow
+    /// exists, so there is never one of each). An escrow <c>held</c> for review counts by the status
+    /// it was held from: a hold on a recorded verdict is still a dispute. An escrow that cannot be
+    /// read refuses for now with an unprefixed, retryable message. Null when the rating may go ahead
+    /// (no escrow repository, no escrow, or one in any other status).
+    /// </summary>
+    private async Task<SyncOperationResult?> RefuseRatingOfDisputedEscrowAsync(
+        SyncOperationRequest operation, Dictionary<string, object> order, string orderId, ILambdaContext context)
+    {
+        if (_escrowRepo == null)
+        {
+            return null;
+        }
+
+        string? escrowStatus;
+        try
+        {
+            var escrow = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true);
+            if (escrow == null
+                && order.TryGetValue("activeDeliveryId", out var activeDelivery)
+                && activeDelivery?.ToString() is { Length: > 0 } activeDeliveryId)
+            {
+                escrow = await _escrowRepo.GetByDeliveryIdAsync(activeDeliveryId);
+            }
+
+            escrowStatus = escrow != null && escrow.TryGetValue("status", out var es) ? es?.ToString() : null;
+            if (escrowStatus == EscrowHoldFields.Status)
+            {
+                escrowStatus = escrow!.TryGetValue(EscrowHoldFields.HeldFromStatus, out var heldFrom) ? heldFrom?.ToString() : null;
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Rating for order {MoneyAlarmLog.LogId(orderId)} not decided: its escrow could not be read: [{ex.GetType().Name}]");
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "The order's payment could not be read. Please try again later."
+            };
+        }
+
+        return escrowStatus is "disputed" or "dispute_resolved"
+            ? new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "RATING_FORBIDDEN: This order is in dispute and cannot be rated."
+            }
+            : null;
     }
 
     /// <summary>
@@ -1680,6 +2139,13 @@ public partial class SyncFunction
         operation.Data["recipientName"] = recipient.DisplayName ?? recipient.FullName ?? "";
 
         var createResult = await _messageRepo.CreateAsync(operation.EntityId, operation.Data);
+        if (createResult.IsSuccess)
+        {
+            // BUG-14: a phone number in the chat before delivery, flagged for review (weight 0).
+            await TryRecordChatContactAsync(
+                contextType, contextId, senderId, operation.Data["body"]?.ToString(), context);
+        }
+
         return createResult.IsSuccess
             ? new SyncOperationResult
             {
@@ -1726,8 +2192,12 @@ public partial class SyncFunction
                     AddIfPresent(participants, ItemString(order, "buyerId"));
                     AddIfPresent(participants, ItemString(order, "farmerId"));
                     AddIfPresent(participants, ItemString(order, "truckerId"));
+                    // ESC-15: contact is per party; a trucker who declined, expired or dropped out
+                    // stays on the row but can no longer be reached (and cannot reach anyone).
                     return VerifyDistinctParticipants(participants, senderId, recipientId)
-                           ?? (ContactReveal.IsOpen(order) ? null : ContactReveal.LockedMessage);
+                           ?? (ContactReveal.IsOpenFor(order, senderId) && ContactReveal.IsOpenFor(order, recipientId)
+                               ? null
+                               : ContactReveal.LockedMessage);
                 }
 
             case "delivery":
@@ -1751,7 +2221,10 @@ public partial class SyncFunction
                     // The delivery's order decides; a delivery without one stays closed.
                     var orderId = AttrString(delivery, "orderId");
                     var order = string.IsNullOrEmpty(orderId) ? null : await _orderRepo.GetByIdAsync(orderId);
-                    return order != null && ContactReveal.IsOpen(order) ? null : ContactReveal.LockedMessage;
+                    return order != null
+                           && ContactReveal.IsOpenFor(order, senderId) && ContactReveal.IsOpenFor(order, recipientId)
+                        ? null
+                        : ContactReveal.LockedMessage;
                 }
 
             default:
@@ -1832,6 +2305,163 @@ public partial class SyncFunction
         }
 
         return errors;
+    }
+
+    /// <summary>
+    /// SIM-37: update the caller's own user profile from a sync `update`. Allow-listed:
+    /// `preferredLanguage` (en, am, om) and, since SIM-56 (sync-protocol.md 1.57.0),
+    /// `displayName`, `woreda` and a company buyer's `companyName` (<see cref="UserProfileEdit"/>).
+    /// Every other key in the payload is ignored, so a client cannot change its role, phone,
+    /// verification or any admin field through this path. The field rules run first, then the
+    /// FUP-52 phone screen with the registration's `AUTH_027` code and text; a refusal writes
+    /// nothing, the language included. Lets the language chosen in Settings follow the user to
+    /// other devices and gives ESC-21 the right language for order notifications. FUP-317: an
+    /// accepted change of the profile text writes one transaction-audit row in the same
+    /// transaction (<see cref="ProfileEditAudit"/>).
+    /// </summary>
+    private async Task<SyncOperationResult> ProcessUserAsync(
+        SyncOperationRequest operation,
+        string? authenticatedUserId,
+        ILambdaContext context)
+    {
+        if (_userRepo == null)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "USER_PROFILE_UNAVAILABLE: Profile sync is not enabled on this environment."
+            };
+        }
+
+        if (operation.Action != "update")
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "USER_PROFILE_VALIDATION: Only profile updates are supported for the user entity."
+            };
+        }
+
+        // A user may only update their own profile.
+        if (string.IsNullOrEmpty(authenticatedUserId) || operation.EntityId != authenticatedUserId)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "USER_PROFILE_UNAUTHORIZED: A user can only update their own profile."
+            };
+        }
+
+        var data = operation.Data ?? new Dictionary<string, object>();
+        var language = data.GetValueOrDefault("preferredLanguage")?.ToString();
+        var payloadErrors = new List<string>();
+        var sentText = UserProfileEdit.ReadText(data, payloadErrors);
+        if (payloadErrors.Count == 0 && string.IsNullOrEmpty(language) && sentText.Count == 0)
+        {
+            payloadErrors.Add("Send preferredLanguage, displayName, woreda or companyName.");
+        }
+
+        if (!string.IsNullOrEmpty(language) && !Validation.RequestValidator.ValidLanguages.Contains(language))
+        {
+            payloadErrors.Add("preferredLanguage must be en, am or om.");
+        }
+
+        if (payloadErrors.Count > 0)
+        {
+            return UserProfileError(operation, "USER_PROFILE_VALIDATION", string.Join(" ", payloadErrors));
+        }
+
+        var user = await _userRepo.GetUserByIdAsync(authenticatedUserId, consistentRead: true);
+        if (user == null)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "USER_PROFILE_NOT_FOUND: No profile exists for the authenticated user."
+            };
+        }
+
+        // SIM-56: only the fields that change are checked and written.
+        var changed = UserProfileEdit.Changed(sentText, user);
+        var ruleErrors = UserProfileEdit.Validate(changed, user);
+        if (ruleErrors.Count > 0)
+        {
+            return UserProfileError(operation, "USER_PROFILE_VALIDATION", string.Join(" ", ruleErrors));
+        }
+
+        // FUP-52: the name goes onto every new listing, trip, order and delivery, and the woreda onto
+        // each new order as its drop-off place, before escrow opens contact.
+        var phoneFields = UserProfileEdit.FieldsWithPhoneNumber(changed);
+        if (phoneFields.Count > 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = ContactInTextRefusal("AUTH_027", phoneFields)
+            };
+        }
+
+        // Store the canonical lowercase code and no-op when nothing changes, so a repeated
+        // choice does not churn the version.
+        var canonical = string.IsNullOrEmpty(language) ? null : language.ToLowerInvariant();
+        var languageChanged = canonical != null
+            && !string.Equals(user.PreferredLanguage, canonical, StringComparison.OrdinalIgnoreCase);
+        if (!languageChanged && changed.Count == 0)
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "success",
+                ServerVersion = user.Version
+            };
+        }
+
+        var edited = UserProfileEdit.Apply(user, changed);
+        if (languageChanged)
+        {
+            edited = edited with { PreferredLanguage = canonical! };
+        }
+
+        // FUP-317: a change of the profile text lands together with its transaction-audit row (who, when, the old and
+        // new values), or not at all. A language-only change is a preference and writes no row.
+        var updated = changed.Count > 0
+            ? await _userRepo.UpdateUserWithAuditAsync(edited, user.Version, ProfileEditAudit.Entry(
+                user, changed,
+                (_batchAudit ?? AuditContext.ForSystem(authenticatedUserId)) with { Actor = authenticatedUserId, ActorRole = user.Role },
+                DateTime.UtcNow.ToString("o")))
+            : await _userRepo.UpdateUserAsync(edited, user.Version);
+        if (!updated.IsSuccess)
+        {
+            // A rare concurrent write bumped the version (or took the audit key); the client retries the op.
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"USER_PROFILE_CONFLICT: {updated.Error?.Message ?? "Could not save the profile."}"
+            };
+        }
+
+        // Field names only: the values are personal data.
+        var fields = changed.Keys.ToList();
+        if (languageChanged)
+        {
+            fields.Add("preferredLanguage");
+        }
+
+        context.Logger.LogInformation(
+            $"SIM-56: profile updated for {MoneyAlarmLog.LogId(authenticatedUserId)}: {string.Join(", ", fields)}.");
+
+        return new SyncOperationResult
+        {
+            OperationId = operation.OperationId,
+            Status = "success",
+            ServerVersion = updated.Value!.Version
+        };
     }
 
     /// <summary>
@@ -2056,6 +2686,149 @@ public partial class SyncFunction
     }
 
     /// <summary>
+    /// FRD-09: run one transaction pattern check and write each hit as a signal on
+    /// <paramref name="userId"/> with the observed entity. Called only after the business write it
+    /// observes succeeded, and never changes the answer: a failed history read is logged (exception type
+    /// only) and writes nothing, a failed signal write is logged by <see cref="TryRecordFraudSignalAsync"/>.
+    /// No rules wired, no fraud service or no subject: nothing runs.
+    /// </summary>
+    private async Task TryRecordPatternSignalsAsync(
+        string? userId, string entityId, string entityType, string rule,
+        Func<TransactionPatternService, Task<IReadOnlyList<PatternHit>>> check, ILambdaContext context)
+    {
+        if (PatternRules == null || _fraudService == null || string.IsNullOrEmpty(userId))
+        {
+            return;
+        }
+
+        IReadOnlyList<PatternHit> hits;
+        try
+        {
+            hits = await check(PatternRules);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Pattern check {rule} skipped for {entityType} {MoneyAlarmLog.LogId(entityId)}: [{ex.GetType().Name}]");
+            return;
+        }
+
+        foreach (var hit in hits)
+        {
+            await TryRecordFraudSignalAsync(userId, hit.SignalType, entityId, entityType, hit.Description, context);
+        }
+    }
+
+    /// <summary>
+    /// FRD-09: the pattern rules a written delivery update feeds. A dispute this update froze the money for,
+    /// sent by the delivery's buyer: the buyer's dispute rate (the escrow as the entity). A confirmed delivery
+    /// with a trucker: the impossible delivery time, written on the delivery's trucker (not the caller, who is
+    /// usually the buyer). The pickup side (point, <c>pickedUpAt</c>, <c>pickupCapturedAt</c>) comes from the row
+    /// as it was before this write, the drop-off side from the written row (FUP-246), so the confirm cannot move
+    /// the pickup. The buyer's drop-off point is bounded by a point the trucker controls before a row is written
+    /// (<see cref="DeliveryTimeHitsAsync"/>, FUP-265). A self-pickup has no trucker and no trip between the scans.
+    /// </summary>
+    private async Task TryRecordDeliveryPatternSignalsAsync(
+        SyncOperationRequest operation, Dictionary<string, AttributeValue> existing,
+        Dictionary<string, AttributeValue> written, DeliveryDisputeFreezeResult? freeze,
+        string? authenticatedUserId, ILambdaContext context)
+    {
+        if (PatternRules == null)
+        {
+            return;
+        }
+
+        if (freeze is { Outcome: DeliveryDisputeFreeze.Frozen, EscrowId: { Length: > 0 } escrowId }
+            && !string.IsNullOrEmpty(authenticatedUserId)
+            && AttrString(existing, "buyerId") == authenticatedUserId)
+        {
+            await TryRecordPatternSignalsAsync(authenticatedUserId, escrowId, "escrow", "dispute_rate",
+                rules => rules.CheckDisputeRateAsync(authenticatedUserId, escrowId, DateTime.UtcNow), context);
+        }
+
+        if (AttrString(written, "status") == "delivered"
+            && AttrString(written, "deliveryType") != SelfPickupDeliveryType
+            && AttrString(written, "truckerId") is { Length: > 0 } truckerId)
+        {
+            await TryRecordPatternSignalsAsync(truckerId, operation.EntityId, "delivery", "delivery_time",
+                rules => DeliveryTimeHitsAsync(rules, existing, written, truckerId), context);
+        }
+    }
+
+    /// <summary>
+    /// FUP-265 (fraud-detection-architecture.md 15.1): the impossible delivery time on the trucker, never from a
+    /// drop-off point the buyer alone controls. The buyer's <c>gpsDropoff</c> is judged first, with no read: the
+    /// bound below only ever shortens the distance, so a trip it does not flag is never flagged. When it does,
+    /// the drop-off side is bounded by a point the trucker controls (<see cref="TransactionPatternRules.BoundedDropoff"/>):
+    /// with <c>dropoffClassification</c> on, the trucker's own drop-off check-in of this delivery (ESC-36, one
+    /// strongly consistent order read, as FUP-245 reads it), else the trip's destination point, which the trucker
+    /// set. Neither (a trip without a destination point and no check-in): no row. A failed read throws to
+    /// <see cref="TryRecordPatternSignalsAsync"/>, which logs it and writes nothing.
+    /// </summary>
+    private async Task<IReadOnlyList<PatternHit>> DeliveryTimeHitsAsync(
+        TransactionPatternService rules, Dictionary<string, AttributeValue> existing,
+        Dictionary<string, AttributeValue> written, string truckerId)
+    {
+        var facts = TransactionPatternRules.DeliveryTimeFactsFrom(existing, written);
+        if (rules.CheckDeliveryTime(facts).Count == 0)
+        {
+            return Array.Empty<PatternHit>();
+        }
+
+        TrackPoint? bound = null;
+        var source = DeliveryDropoffSource.TripDestination;
+        if (DropoffJudgementOn
+            && AttrString(existing, "orderId") is { Length: > 0 } orderId
+            && facts is { PickedUpAtUtc: { } pickedUpAt, ConfirmedAtUtc: { } confirmedAt })
+        {
+            var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+            bound = TruckerGpsEvidence.DropoffCheckInPoint(
+                order, AttrString(existing, "deliveryId") ?? "", truckerId, pickedUpAt, confirmedAt);
+            source = DeliveryDropoffSource.TruckerCheckIn;
+        }
+
+        if (bound == null && AttrString(existing, "tripId") is { Length: > 0 } tripId)
+        {
+            var trip = await GetTripItemAsync(tripId);
+            bound = TripTrack.PointOf(trip == null ? null : CropRepository.FromItem(trip),
+                "destinationLatitude", "destinationLongitude");
+            source = DeliveryDropoffSource.TripDestination;
+        }
+
+        return TransactionPatternRules.BoundedDropoff(facts, bound, source) is { } bounded
+            ? rules.CheckDeliveryTime(bounded)
+            : Array.Empty<PatternHit>();
+    }
+
+    /// <summary>
+    /// ESC-33 and FUP-203: whether a confirmed delivery's trucker can get a <c>GPS_ANOMALY</c> row, judged
+    /// from the trucker's own check-ins (<see cref="TryRecordTruckerGpsAnomalyAsync"/>). It follows
+    /// <c>reputationPenalties</c> (off in every environment): with the evidence the trucker's own phone, the
+    /// row needs no flag of its own (fraud-detection-architecture.md 15.3).
+    /// </summary>
+    internal bool GpsAnomalyOnTrucker { get; init; } = ReputationFlags.PenaltiesEnabled;
+
+    /// <summary>
+    /// The <c>GPS_ANOMALY</c> signal of the confirming buyer (fraud-detection-architecture.md Rule 4 and section
+    /// 15.3), written after the delivery write succeeded: the caller, whose phone sent the drop-off coordinates,
+    /// exactly as before ESC-33, so a buyer and a trucker who fake deliveries together keep adding to the
+    /// buyer's score. The buyer's coordinates feed this row only; the trucker's row is judged from the trucker's
+    /// own check-ins (FUP-203). Best effort like every signal.
+    /// </summary>
+    private async Task TryRecordGpsAnomalySignalAsync(
+        SyncOperationRequest operation, FraudCheckResult gpsCheck, string? authenticatedUserId, ILambdaContext context)
+    {
+        if (_fraudService == null || string.IsNullOrEmpty(authenticatedUserId))
+        {
+            return;
+        }
+
+        var signalType = gpsCheck.FlagReason ?? FraudDetectionService.GpsAnomalySignal;
+        await TryRecordFraudSignalAsync(
+            authenticatedUserId, signalType, operation.EntityId, "delivery", gpsCheck.Message, context);
+    }
+
+    /// <summary>
     /// FRD-08: record a typed fraud signal on the caller for a refusal, then return the refusal as
     /// built. Best-effort like every signal: the answer is the same whether the write works or not.
     /// A null <paramref name="signalType"/> records nothing.
@@ -2096,70 +2869,6 @@ public partial class SyncFunction
         Status = "error",
         Message = RiskGatePolicy.SyncMessage
     };
-
-    /// <summary>Minimum resolved listings before a farmer gets a computed reliability.</summary>
-    private const int MinListingsForReliability = 3;
-
-    /// <summary>Candidate pages walked when computing farmer reliability.</summary>
-    private const int ReliabilityMaxPages = 3;
-
-    /// <summary>
-    /// Farmer reliability = fraction of the farmer's prior listings that reached
-    /// <c>sold</c>, over all resolved listings (sold or expired). Returns null
-    /// when the farmer has fewer than <see cref="MinListingsForReliability"/>
-    /// resolved listings (→ neutral default in scoring) or on any read failure
-    /// (best-effort: reliability must never block crop creation).
-    ///
-    /// Escrow-free and cheap: one bounded query over the farmer's own crops at
-    /// create time, no per-match reads and no order/escrow coupling.
-    /// </summary>
-    private async Task<double?> ComputeFarmerReliabilityAsync(
-        string farmerId, ILambdaContext context)
-    {
-        try
-        {
-            var sold = 0;
-            var resolved = 0;
-            Dictionary<string, AttributeValue>? startKey = null;
-            var pages = 0;
-
-            do
-            {
-                var (items, lastKey) = await _cropRepo.QueryCropsAsync(
-                    farmerId: farmerId, limit: 100, exclusiveStartKey: startKey);
-
-                foreach (var item in items)
-                {
-                    var status = (item.TryGetValue("status", out var s) ? s?.ToString() : null)
-                        ?? "";
-                    if (string.Equals(status, "sold", StringComparison.OrdinalIgnoreCase))
-                    {
-                        sold++;
-                        resolved++;
-                    }
-                    else if (string.Equals(status, "expired", StringComparison.OrdinalIgnoreCase))
-                    {
-                        resolved++;
-                    }
-                }
-
-                startKey = lastKey;
-            }
-            while (startKey != null && ++pages < ReliabilityMaxPages);
-
-            if (resolved < MinListingsForReliability)
-            {
-                return null;
-            }
-
-            return Math.Clamp((double)sold / resolved, 0.0, 1.0);
-        }
-        catch (Exception ex)
-        {
-            context.Logger.LogWarning($"Reliability compute skipped: [{ex.GetType().Name}]");
-            return null;
-        }
-    }
 
     /// <summary>
     /// Process a crop_listing sync operation (create, update, delete).
@@ -2208,15 +2917,24 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "crop", authenticatedUserId, context);
                     }
 
+                    // ESC-29 (reputation-api.md 8.1): a restricted farmer lists nothing new.
+                    if (RefuseIfRestricted(operation) is { } cropRestricted)
+                    {
+                        return cropRestricted;
+                    }
+
+                    // FUP-98: the same profile read gives the woreda the screen below exempts.
+                    string? farmerProfileWoreda = null;
                     var cropContactError = await StampOwnerContactAsync(
-                        operation.Data, authenticatedUserId!, "farmerName", "farmerPhone", context);
+                        operation.Data, authenticatedUserId!, "farmerName", "farmerPhone", "CROP", context,
+                        owner => farmerProfileWoreda = owner.Woreda);
                     if (cropContactError != null)
                     {
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = $"CROP_VALIDATION: {cropContactError}"
+                            Message = cropContactError
                         };
                     }
 
@@ -2246,9 +2964,15 @@ public partial class SyncFunction
                         };
                     }
 
-                    // FUP-49: no phone number in text every buyer reads.
+                    // FUP-49: no phone number in text every buyer reads (FUP-98: the woreda too,
+                    // unless it is the profile woreda).
                     var createContactFields = Validation.ContactInText.FieldsWithPhoneNumber(
                         operation.Data, CropContactScreenedFields);
+                    if (IsProfileWoreda(operation.Data, farmerProfileWoreda))
+                    {
+                        createContactFields.Remove("woreda");
+                    }
+
                     if (createContactFields.Count > 0)
                     {
                         return new SyncOperationResult
@@ -2266,8 +2990,14 @@ public partial class SyncFunction
                         return AccountHeldResult(operation);
                     }
 
+                    // A create for an id that already exists (an honest re-queued create under a new
+                    // idempotency key) is answered by the create-conflict echo below: the listing rules
+                    // would call it a duplicate of itself and record a fraud signal.
+                    // Strongly consistent: the re-queued create may come right after the first one.
+                    var createIdExists = await _cropRepo.GetByIdConsistentAsync(operation.EntityId) != null;
+
                     // ── Fraud detection (F-14) ──
-                    if (_fraudService != null)
+                    if (_fraudService != null && !createIdExists)
                     {
                         var cropType = operation.Data.GetValueOrDefault("cropType")?.ToString() ?? "";
                         var pricePerKg = 0m;
@@ -2277,12 +3007,14 @@ public partial class SyncFunction
                         }
 
                         var fraudCheck = await _fraudService.CheckListingCreationAsync(
-                            authenticatedUserId!, cropType, pricePerKg);
+                            authenticatedUserId!, cropType, pricePerKg, ListingLotOf(operation));
 
                         if (!fraudCheck.IsAllowed)
                         {
+                            // A refusal honest farmers also meet names its own signal type (the
+                            // duplicate lot, weight 0); the others are recorded under their code.
                             await TryRecordFraudSignalAsync(
-                                authenticatedUserId!, fraudCheck.ErrorCode ?? "FRAUD_REJECTED",
+                                authenticatedUserId!, fraudCheck.FlagReason ?? fraudCheck.ErrorCode ?? "FRAUD_REJECTED",
                                 operation.EntityId, "crop", fraudCheck.Message, context);
 
                             return new SyncOperationResult
@@ -2308,16 +3040,8 @@ public partial class SyncFunction
                     // FIX-010: Force initial status to "available" on create
                     operation.Data["status"] = "available";
 
-                    // Denormalize the farmer's reliability (listing-conversion
-                    // track record) onto the new listing so the matcher can
-                    // fold it into ranking without a per-candidate read.
-                    // Best-effort: a failure just leaves it unset (neutral).
-                    var reliability = await ComputeFarmerReliabilityAsync(
-                        authenticatedUserId!, context);
-                    if (reliability is double rel)
-                    {
-                        operation.Data["farmerReliability"] = rel;
-                    }
+                    NormalizeCropPhotoIds(operation.Data);
+                    StampOwnerReputation(operation.Data);
 
                     var createResult = await _cropRepo.CreateAsync(operation.EntityId, operation.Data);
 
@@ -2401,6 +3125,19 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "crop", authenticatedUserId, context);
                     }
 
+                    // FUP-152: a deleted listing never changes again, with or without a status. The
+                    // write's own condition covers a delete that lands after this read.
+                    if (CropRepository.IsDeleted(existingForUpdate))
+                    {
+                        return DeletedListingConflict(operation, existingForUpdate);
+                    }
+
+                    // FUP-495: nor does a sold listing (terminal), with or without a status.
+                    if (CropRepository.IsSold(existingForUpdate))
+                    {
+                        return SoldListingConflict(operation, existingForUpdate);
+                    }
+
                     // Field whitelist — reject unknown fields
                     var unknownUpdateFields = operation.Data.Keys
                         .Where(k => !AllowedCropFields.Contains(k) && k != "version")
@@ -2447,6 +3184,15 @@ public partial class SyncFunction
                     var updateContactFields = Validation.ContactInText.FieldsWithPhoneNumber(
                         operation.Data, CropContactScreenedFields,
                         key => existingForUpdate.TryGetValue(key, out var stored) ? stored?.ToString() : null);
+
+                    // FUP-98: the update path has not read the profile, so it is read only for a
+                    // woreda that would otherwise be refused (one read, rare).
+                    if (updateContactFields.Contains("woreda") && _userRepo != null
+                        && IsProfileWoreda(operation.Data, (await _userRepo.GetUserByIdAsync(authenticatedUserId!))?.Woreda))
+                    {
+                        updateContactFields.Remove("woreda");
+                    }
+
                     if (updateContactFields.Count > 0)
                     {
                         return new SyncOperationResult
@@ -2468,6 +3214,15 @@ public partial class SyncFunction
                         if (!CropTransitions.TryGetValue(currentCropStatus, out var allowedCropStatuses)
                             || newCropStatus == null || !allowedCropStatuses.Contains(newCropStatus))
                         {
+                            // SIM-28: the loser of a status race is behind, not wrong.
+                            var storedCropVersion = existingForUpdate.TryGetValue("version", out var scv)
+                                && int.TryParse(scv?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var scvn)
+                                ? scvn : 0;
+                            if (StaleClientVersion(operation, storedCropVersion) is int cropRaceVersion)
+                            {
+                                return StaleVersionConflict(operation, storedCropVersion, cropRaceVersion, existingForUpdate);
+                            }
+
                             return new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
@@ -2475,10 +3230,22 @@ public partial class SyncFunction
                                 Message = $"CROP_INVALID_TRANSITION: Cannot transition from '{currentCropStatus}' to '{newCropStatus}'."
                             };
                         }
+
+                        // ESC-18: an update to 'deleted' is a delete, with the same guard.
+                        if (newCropStatus == "deleted")
+                        {
+                            var removalRefusal = await CheckListingRemovalAllowedAsync(operation, context);
+                            if (removalRefusal != null)
+                            {
+                                return removalRefusal;
+                            }
+                        }
                     }
 
                     // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
                     TryGetClientVersion(operation, out var clientVersion);
+
+                    NormalizeCropPhotoIds(operation.Data);
 
                     var updateResult = await _cropRepo.UpdateAsync(
                         operation.EntityId, operation.Data, clientVersion);
@@ -2500,7 +3267,14 @@ public partial class SyncFunction
                     }
 
                     // Conflict — return server's current data
-                    var serverData = await _cropRepo.GetByIdAsync(operation.EntityId);
+                    // FUP-152: a delete that beat this write is read back consistently, so the phone
+                    // gets the deleted row, not the live one an eventually consistent read may return.
+                    // FUP-495: the same for a "mark sold" that beat it.
+                    var refusedByState = updateResult.Error?.Code
+                        is CropRepository.AlreadyDeletedCode or CropRepository.SoldCode;
+                    var serverData = refusedByState
+                        ? await _cropRepo.GetByIdConsistentAsync(operation.EntityId)
+                        : await _cropRepo.GetByIdAsync(operation.EntityId);
                     var serverVer = serverData != null && serverData.TryGetValue("version", out var sv2)
                         ? int.TryParse(sv2.ToString(), out var svn) ? svn : 0
                         : 0;
@@ -2511,7 +3285,13 @@ public partial class SyncFunction
                         Status = "conflict",
                         ServerVersion = serverVer,
                         ServerData = serverData,
-                        Message = updateResult.Error?.Message ?? "Version conflict."
+                        // FUP-152, FUP-495: deleted or sold between the read above and the write.
+                        Message = updateResult.Error?.Code switch
+                        {
+                            CropRepository.AlreadyDeletedCode => CropAlreadyDeletedMessage,
+                            CropRepository.SoldCode => CropSoldMessage,
+                            _ => updateResult.Error?.Message ?? "Version conflict."
+                        }
                     };
                 }
 
@@ -2543,6 +3323,20 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "crop", authenticatedUserId, context);
                     }
 
+                    // FUP-494: already deleted, so there is nothing to write. The write's own
+                    // condition covers a delete that lands after this read.
+                    if (CropRepository.IsDeleted(existingForDelete))
+                    {
+                        return AlreadyDeletedSuccess(operation, existingForDelete);
+                    }
+
+                    // ESC-18: not while orders still depend on the listing.
+                    var removalRefusal = await CheckListingRemovalAllowedAsync(operation, context);
+                    if (removalRefusal != null)
+                    {
+                        return removalRefusal;
+                    }
+
                     var deleteResult = await _cropRepo.DeleteAsync(operation.EntityId, clientVersion);
 
                     if (deleteResult.IsSuccess)
@@ -2568,6 +3362,13 @@ public partial class SyncFunction
                             Status = "error",
                             Message = "Crop listing not found."
                         };
+                    }
+
+                    // FUP-494: another delete landed between the read above and the write.
+                    if (deleteResult.Error?.Code == CropRepository.AlreadyDeletedCode)
+                    {
+                        return AlreadyDeletedSuccess(
+                            operation, await _cropRepo.GetByIdConsistentAsync(operation.EntityId));
                     }
 
                     // Conflict
@@ -2644,15 +3445,21 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "trip", authenticatedUserId, context);
                     }
 
+                    // ESC-29 (reputation-api.md 8.1): a restricted trucker posts no new trip.
+                    if (RefuseIfRestricted(operation) is { } tripRestricted)
+                    {
+                        return tripRestricted;
+                    }
+
                     var tripContactError = await StampOwnerContactAsync(
-                        operation.Data, authenticatedUserId!, "truckerName", "truckerPhone", context);
+                        operation.Data, authenticatedUserId!, "truckerName", "truckerPhone", "TRIP", context);
                     if (tripContactError != null)
                     {
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = $"TRIP_VALIDATION: {tripContactError}"
+                            Message = tripContactError
                         };
                     }
 
@@ -2703,6 +3510,15 @@ public partial class SyncFunction
 
                     NormalizeDepartureDate(operation.Data);
 
+                    // Rule 6 (fraud-detection-architecture.md): a duplicate trip is refused, another
+                    // trip of the same day is flagged once this one is written.
+                    var (duplicateTrip, sameDayTrip) = await CheckTripCreationFraudAsync(
+                        operation, authenticatedUserId!, context);
+                    if (duplicateTrip != null)
+                    {
+                        return duplicateTrip;
+                    }
+
                     var now = DateTime.UtcNow.ToString("o");
 
                     var item = new Dictionary<string, AttributeValue>
@@ -2737,6 +3553,14 @@ public partial class SyncFunction
                     // Force status to "open" for create (C3)
                     item["status"] = new AttributeValue { S = "open" };
 
+                    // ESC-29 (reputation-api.md section 7): the owner's reputation at create.
+                    var tripOwnerFields = new Dictionary<string, object>();
+                    StampOwnerReputation(tripOwnerFields);
+                    foreach (var (ownerField, ownerValue) in tripOwnerFields)
+                    {
+                        item[ownerField] = CropRepository.ToAttributeValue(ownerValue);
+                    }
+
                     // Handle matchedListings
                     if (operation.Data.TryGetValue("matchedListings", out var ml))
                     {
@@ -2768,6 +3592,13 @@ public partial class SyncFunction
                         }
 
                         await _dynamoDb.PutItemAsync(request);
+
+                        if (sameDayTrip != null)
+                        {
+                            await TryRecordFraudSignalAsync(
+                                authenticatedUserId!, sameDayTrip.FlagReason ?? FraudDetectionService.TripSameDaySignal,
+                                operation.EntityId, "trip", sameDayTrip.Message, context);
+                        }
 
                         var result = CropRepository.FromItem(item);
                         return new SyncOperationResult
@@ -2845,28 +3676,34 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "trip", authenticatedUserId, context);
                     }
 
-                    // H3: Block updates to terminal-state or deleted trips
+                    // H3: Block updates to terminal-state or deleted trips. ESC-17: a client that
+                    // asks for what already holds, or is behind the stored version (the server
+                    // closed or completed the trip meanwhile), gets the stored row as a conflict.
                     var currentStatus = existing.TryGetValue("status", out var existingStatusAttr)
                         ? existingStatusAttr.S : "open";
+                    var requestedTripStatus = operation.Data.TryGetValue("status", out var requestedStatusObj)
+                        ? requestedStatusObj?.ToString() : null;
                     if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
                         && !string.IsNullOrEmpty(deletedAtAttr.S))
                     {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "TRIP_ALREADY_CANCELLED: Cannot update a deleted trip."
-                        };
+                        return TerminalTripConflict(operation, existing, requestedTripStatus)
+                            ?? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "TRIP_ALREADY_CANCELLED: Cannot update a deleted trip."
+                            };
                     }
                     // F-SEC-06: Block updates to both cancelled and delivered (terminal states)
                     if (currentStatus is "cancelled" or "delivered")
                     {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "TRIP_TERMINAL_STATE: Cannot update a terminal-state trip."
-                        };
+                        return TerminalTripConflict(operation, existing, requestedTripStatus)
+                            ?? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "TRIP_TERMINAL_STATE: Cannot update a terminal-state trip."
+                            };
                     }
 
                     // C3: Field whitelist — reject unknown fields
@@ -2930,19 +3767,70 @@ public partial class SyncFunction
 
                     NormalizeDepartureDate(operation.Data);
 
+                    // ESC-17: a booked trip is frozen (date, price, route; capacity never below
+                    // the bookings), `matched` is written by the server when the trip fills, and
+                    // a trip with bookings may start from `open`. FUP-241: an app without
+                    // X-App-Build gets TRIP_HAS_BOOKINGS as SYNC_VALIDATION; the signal keeps the code.
+                    var bookingError = CheckBookedTripUpdate(operation.Data, existing);
+                    if (bookingError != null)
+                    {
+                        return bookingError.Value.Code == "TRIP_HAS_BOOKINGS"
+                            ? (await RefuseWithSignalAsync(new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = bookingError.Value.Message
+                            }, FraudDetectionService.ImmutableFieldChangeSignal, operation, "trip", authenticatedUserId, context)) with
+                            {
+                                Message = OldClientRefusal.ForClient(
+                                    bookingError.Value.Message, _batchAppBuild, "TRIP_HAS_BOOKINGS", operation.EntityType)
+                            }
+                            : new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = bookingError.Value.Message
+                            };
+                    }
+
                     // H1: Validate status transition if status is being changed
+                    var tripIsCancelling = false;
                     if (operation.Data.TryGetValue("status", out var newStatusObj))
                     {
                         var newStatus = newStatusObj?.ToString();
-                        if (!ValidTransitions.TryGetValue(currentStatus, out var allowed)
-                            || newStatus == null || !allowed.Contains(newStatus))
+                        var startsWithBookings = CommitmentsEnabled
+                            && currentStatus == "open" && newStatus == "inTransit" && BookedQuintalsOf(existing) > 0;
+                        if (!startsWithBookings
+                            && (!ValidTransitions.TryGetValue(currentStatus, out var allowed)
+                                || newStatus == null || !allowed.Contains(newStatus)))
                         {
+                            // SIM-28: the loser of a status race is behind, not wrong.
+                            var storedTripVersion = ItemVersion(existing);
+                            if (StaleClientVersion(operation, storedTripVersion) is int tripRaceVersion)
+                            {
+                                return StaleVersionConflict(operation, storedTripVersion, tripRaceVersion,
+                                    ScrubSyncSecrets(CropRepository.FromItem(existing)));
+                            }
+
                             return new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
                                 Status = "error",
                                 Message = $"TRIP_INVALID_TRANSITION: Cannot transition from '{currentStatus}' to '{newStatus}'."
                             };
+                        }
+
+                        tripIsCancelling = newStatus == "cancelled";
+                    }
+
+                    // ESC-17: no cancelling a trip whose crops are already on the road; the other
+                    // orders on it are moved after the write (CascadeTripCancelAsync).
+                    if (tripIsCancelling)
+                    {
+                        var cascadeStop = await CheckTripCancelAllowedAsync(operation, existing, context);
+                        if (cascadeStop != null)
+                        {
+                            return cascadeStop;
                         }
                     }
 
@@ -2988,6 +3876,23 @@ public partial class SyncFunction
                         i++;
                     }
 
+                    // ESC-17: a capacity change keeps remainingQuintals = capacity - bookedQuintals. DynamoDB
+                    // does the subtraction, so a reservation landing between this read and the write (the
+                    // booking writes never bump the trip version) is still counted.
+                    if (operation.Data.TryGetValue("capacity", out var newCapacityObj)
+                        && double.TryParse(newCapacityObj?.ToString(), System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out var newCapacity))
+                    {
+                        attrNames["#remaining"] = "remainingQuintals";
+                        attrNames["#booked"] = "bookedQuintals";
+                        attrValues[":newCapacity"] = new AttributeValue
+                        {
+                            N = newCapacity.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        };
+                        attrValues[":zeroBooked"] = new AttributeValue { N = "0" };
+                        updateParts.Add("#remaining = :newCapacity - if_not_exists(#booked, :zeroBooked)");
+                    }
+
                     var updateRequest = new UpdateItemRequest
                     {
                         TableName = _tripsTable,
@@ -3007,6 +3912,11 @@ public partial class SyncFunction
                     {
                         var response = await _dynamoDb.UpdateItemAsync(updateRequest);
                         var result = ScrubSyncSecrets(CropRepository.FromItem(response.Attributes));
+                        if (tripIsCancelling)
+                        {
+                            await CascadeTripCancelAsync(existing, context);
+                        }
+
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -3061,26 +3971,38 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "trip", authenticatedUserId, context);
                     }
 
-                    // H3: Block deletion of terminal-state or deleted trips
+                    // H3: Block deletion of terminal-state or deleted trips. ESC-17: the delete of
+                    // builds before the single cancel path is a cancel, so a trip already cancelled
+                    // (or a stale version) answers the stored row as a conflict, like the update.
                     if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
                         && !string.IsNullOrEmpty(deletedAtAttr.S))
                     {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "TRIP_ALREADY_CANCELLED: Trip is already deleted."
-                        };
+                        return TerminalTripConflict(operation, existing, "cancelled")
+                            ?? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "TRIP_ALREADY_CANCELLED: Trip is already deleted."
+                            };
                     }
                     if (existing.TryGetValue("status", out var existingStatusAttr)
                         && existingStatusAttr.S is "cancelled" or "delivered")
                     {
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "TRIP_TERMINAL_STATE: Cannot delete a terminal-state trip."
-                        };
+                        return TerminalTripConflict(operation, existing, "cancelled")
+                            ?? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "TRIP_TERMINAL_STATE: Cannot delete a terminal-state trip."
+                            };
+                    }
+
+                    // ESC-17: a delete is a cancel; crops already on the road block it, and the
+                    // other orders on the trip are moved after the write.
+                    var deleteCascadeStop = await CheckTripCancelAllowedAsync(operation, existing, context);
+                    if (deleteCascadeStop != null)
+                    {
+                        return deleteCascadeStop;
                     }
 
                     var createdAt = existing["createdAt"].S;
@@ -3119,6 +4041,7 @@ public partial class SyncFunction
                     try
                     {
                         var response = await _dynamoDb.UpdateItemAsync(deleteRequest);
+                        await CascadeTripCancelAsync(existing, context);
                         return new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
@@ -3259,6 +4182,29 @@ public partial class SyncFunction
             && from?.ToString() == to?.ToString())
         {
             errors.Add("fromWoreda and toWoreda must be different.");
+        }
+
+        // trip-listing-api 2.1.0: the destination point, optional, both or neither, inside Ethiopia's
+        // box (the same bounds as a location_ping).
+        var hasDestLat = data.TryGetValue("destinationLatitude", out var destLatObj);
+        var hasDestLng = data.TryGetValue("destinationLongitude", out var destLngObj);
+        if (hasDestLat != hasDestLng)
+        {
+            errors.Add("destinationLatitude and destinationLongitude must be sent together.");
+        }
+        else if (hasDestLat)
+        {
+            if (!double.TryParse(destLatObj?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var destLat)
+                || destLat < 3 || destLat > 15)
+            {
+                errors.Add("destinationLatitude must be a number between 3 and 15.");
+            }
+
+            if (!double.TryParse(destLngObj?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var destLng)
+                || destLng < 32.5 || destLng > 48.5)
+            {
+                errors.Add("destinationLongitude must be a number between 32.5 and 48.5.");
+            }
         }
 
         // departureDate: required on create, valid ISO 8601, future and max 30 days ahead
@@ -3584,10 +4530,12 @@ public partial class SyncFunction
             return $"The {partyLabel} profile could not be read. Please try again later.";
         }
 
-        var orderName = order.TryGetValue(nameKey, out var on) ? on?.ToString() : null;
+        // FUP-130: an order written before the fix may hold the party's id where the name
+        // belongs; that is no name.
+        var orderName = PartyName.OrEmpty(order.TryGetValue(nameKey, out var on) ? on?.ToString() : null, partyId);
         var name = !string.IsNullOrWhiteSpace(party.DisplayName) ? party.DisplayName
             : !string.IsNullOrWhiteSpace(party.FullName) ? party.FullName
-            : !string.IsNullOrWhiteSpace(orderName) ? orderName
+            : orderName.Length > 0 ? orderName
             : null;
         if (name == null)
         {
@@ -3684,6 +4632,11 @@ public partial class SyncFunction
                         }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
                     }
 
+                    // The listing and (trucker flow) the trip read below are kept: the row
+                    // takes its pickup place and planned pickup from them.
+                    Dictionary<string, object>? createListing = null;
+                    Dictionary<string, AttributeValue>? createTrip = null;
+
                     // SEC-VULN-002: Validate farmerId matches listing owner
                     if (operation.Data.TryGetValue("listingId", out var lidVal))
                     {
@@ -3701,10 +4654,8 @@ public partial class SyncFunction
                                 };
                             }
 
-                            // Check if listing is deleted
-                            if (listing.TryGetValue("deletedAt", out var deletedAt)
-                                && deletedAt != null
-                                && !string.IsNullOrEmpty(deletedAt.ToString()))
+                            // Check if listing is deleted (FUP-132: by the stamp or by the status)
+                            if (CropRepository.IsDeleted(listing))
                             {
                                 return new SyncOperationResult
                                 {
@@ -3728,6 +4679,8 @@ public partial class SyncFunction
                                     Message = "DELIVERY_PARTICIPANT_MISMATCH: farmerId does not match listing owner."
                                 };
                             }
+
+                            createListing = listing;
                         }
                     }
 
@@ -4000,7 +4953,7 @@ public partial class SyncFunction
                             };
                         }
 
-                        var createTrip = await GetTripItemAsync(coTripId);
+                        createTrip = await GetTripItemAsync(coTripId);
                         if (createTrip == null)
                         {
                             return new SyncOperationResult
@@ -4087,23 +5040,21 @@ public partial class SyncFunction
                         };
                     }
 
-                    // FIX-011: Validate photo reference format and delivery ownership (prevent S3 path traversal)
-                    foreach (var photoField in new[] { "pickupPhotoRef", "dropoffPhotoRef" })
+                    // FIX-011 (path traversal) and FRD-12: a photo ref on a delivery op is checked,
+                    // then dropped; photos are attached only through delivery_photo.
+                    var photoRefError = DropDeliveryOpPhotoRefs(operation);
+                    if (photoRefError != null)
                     {
-                        if (operation.Data.TryGetValue(photoField, out var photoObj) && photoObj != null)
+                        return new SyncOperationResult
                         {
-                            var photoRef = photoObj.ToString() ?? "";
-                            if (!string.IsNullOrEmpty(photoRef) && !IsValidPhotoRef(photoRef, operation.EntityId))
-                            {
-                                return new SyncOperationResult
-                                {
-                                    OperationId = operation.OperationId,
-                                    Status = "error",
-                                    Message = $"DELIVERY_INVALID_FIELD: {photoField} has invalid format."
-                                };
-                            }
-                        }
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = photoRefError
+                        };
                     }
+
+                    // FUP-246: a create is always pending, so it carries no handoff field.
+                    DropOtherHandoffFields(operation, "pending", context);
 
                     var now = DateTime.UtcNow.ToString("o");
 
@@ -4179,6 +5130,12 @@ public partial class SyncFunction
 
                     // Force status to "pending" for create
                     item["status"] = new AttributeValue { S = "pending" };
+
+                    // The deliveries list titles each card by crop and quantity and names
+                    // the pickup place and day without one order read per row (3G): the
+                    // row carries them from the order, listing and trip read above. They
+                    // are not client fields (the whitelist refuses them).
+                    StampDeliveryCargo(item, createOrder, createListing, createTrip);
 
                     // Participant index key: the buyer is the party that must receive
                     // status updates (pull-based), so ParticipantIndex is keyed on buyerId.
@@ -4337,28 +5294,54 @@ public partial class SyncFunction
                         return await CancelDeliveryAsync(operation, existing, authenticatedUserId, "update", context);
                     }
 
-                    // Block updates to cancelled/deleted deliveries
-                    var currentStatus = existing.TryGetValue("status", out var existingStatusAttr)
-                        ? existingStatusAttr.S : "pending";
-                    if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
-                        && !string.IsNullOrEmpty(deletedAtAttr.S))
+                    // The party check comes before every rule that reads the row, so a caller who is
+                    // no party to the delivery never learns its status from a refusal (an invalid
+                    // transition, a cancelled delivery, an expired dispute window).
+                    if (!IsParty(existing, authenticatedUserId, "buyerId", "farmerId", "truckerId"))
                     {
-                        return new SyncOperationResult
+                        return await RefuseWithSignalAsync(new SyncOperationResult
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a deleted delivery."
-                        };
+                            Message = NonPartyDeliveryRefusal(
+                                operation.Data.TryGetValue("status", out var strangerStatusObj) ? strangerStatusObj?.ToString() : null)
+                        }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
+                    }
+
+                    // Block updates to cancelled/deleted deliveries. FUP-128: a party who is behind
+                    // the stored version (the delivery was cancelled under it) gets the stored row
+                    // as a conflict, like the loser of any status race (SIM-28).
+                    var currentStatus = existing.TryGetValue("status", out var existingStatusAttr)
+                        ? existingStatusAttr.S : "pending";
+
+                    // ESC-34: a pickup scan after the order's pickup was judged is late evidence,
+                    // whether the judgement cancelled the delivery or left it pending.
+                    if (await RefuseLatePickupAsync(operation, existing, currentStatus, authenticatedUserId, context) is { } latePickup)
+                    {
+                        return latePickup;
+                    }
+
+                    if (existing.TryGetValue("deletedAt", out var deletedAtAttr)
+                        && !string.IsNullOrEmpty(deletedAtAttr.S))
+                    {
+                        return CancelledDeliveryConflict(operation, existing, authenticatedUserId)
+                            ?? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a deleted delivery."
+                            };
                     }
                     if (currentStatus == "cancelled")
                     {
                         await AlarmPickupOnTransportCancelledDeliveryAsync(operation, existing, authenticatedUserId, context);
-                        return new SyncOperationResult
-                        {
-                            OperationId = operation.OperationId,
-                            Status = "error",
-                            Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery."
-                        };
+                        return CancelledDeliveryConflict(operation, existing, authenticatedUserId)
+                            ?? new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "error",
+                                Message = "DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery."
+                            };
                     }
 
                     // SIM-41: the pickup nonce proves the farmer handed over the goods, so
@@ -4366,9 +5349,23 @@ public partial class SyncFunction
                     // confirm pickup with a QR code he made himself.
                     var deliveryFarmerId = existing.TryGetValue("farmerId", out var nonceFarmerAttr)
                         ? nonceFarmerAttr.S : null;
-                    if (authenticatedUserId != deliveryFarmerId)
+                    var droppedPickupNonce = authenticatedUserId != deliveryFarmerId
+                        && operation.Data.Remove("qrNonce");
+
+                    // ESC-35: the drop-off nonce proves the trucker handed over the goods, so only
+                    // the delivery's trucker may author it, on an update without a status. Anyone
+                    // else's, or one riding on a status change, is dropped as qrNonce is above.
+                    // dropoffQrRenew (true) marks the trucker's New drop-off code, the only way a
+                    // stored drop-off code is replaced.
+                    string? dropoffNonce = null;
+                    var dropoffRenew = operation.Data.Remove("dropoffQrRenew", out var dropoffRenewObj)
+                        && dropoffRenewObj is System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.True };
+                    if (operation.Data.Remove("dropoffQrNonce", out var dropoffNonceObj)
+                        && !operation.Data.ContainsKey("status")
+                        && authenticatedUserId == (existing.TryGetValue("truckerId", out var dropoffTruckerAttr)
+                            ? dropoffTruckerAttr.S : null))
                     {
-                        operation.Data.Remove("qrNonce");
+                        dropoffNonce = dropoffNonceObj?.ToString() ?? string.Empty;
                     }
 
                     // Role-based authorization for status transitions
@@ -4397,11 +5394,38 @@ public partial class SyncFunction
                             return await RepeatDeliveryDisputeAsync(operation, existing, authenticatedUserId, context);
                         }
 
+                        // LT-07: a check-in may have moved the delivery to inTransit before the
+                        // trucker's own tap reached the server. The trucker is answered with the row
+                        // (server wins, nothing written), not a failed change that retries.
+                        if (newStatus == "inTransit" && currentStatus == "inTransit"
+                            && authenticatedUserId == (existing.TryGetValue("truckerId", out var transitTruckerAttr) ? transitTruckerAttr.S : null))
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "conflict",
+                                ServerVersion = existing.TryGetValue("version", out var transitVersionAttr)
+                                    && int.TryParse(transitVersionAttr.N, out var transitVersion) ? transitVersion : 0,
+                                ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing)),
+                                Message = "The delivery is already in transit."
+                            };
+                        }
+
                         // Validate status transition
                         if (!selfPickupDirectDeliver
                             && (!DeliveryTransitions.TryGetValue(currentStatus, out var allowed)
                                 || newStatus == null || !allowed.Contains(newStatus)))
                         {
+                            // SIM-28: the loser of a status race is behind, not wrong: a party who may
+                            // ask for this status gets the row. Anyone else keeps the error.
+                            var storedDeliveryVersion = ItemVersion(existing);
+                            if (StaleClientVersion(operation, storedDeliveryVersion) is int deliveryRaceVersion
+                                && MayRequestDeliveryStatus(existing, authenticatedUserId, newStatus))
+                            {
+                                return StaleVersionConflict(operation, storedDeliveryVersion, deliveryRaceVersion,
+                                    ScrubDeliveryForClient(CropRepository.FromItem(existing)));
+                            }
+
                             return new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
@@ -4517,12 +5541,33 @@ public partial class SyncFunction
                             && authenticatedUserId == existingFarmerIdForNonce;
                         if (authenticatedUserId != existingTruckerId && !isFarmerNoncePersist)
                         {
+                            // A party (the buyer) who sent the pickup code is told whose it is.
                             return await RefuseWithSignalAsync(new SyncOperationResult
                             {
                                 OperationId = operation.OperationId,
                                 Status = "error",
-                                Message = "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
+                                Message = droppedPickupNonce
+                                    ? "DELIVERY_UNAUTHORIZED: Only the farmer sets the pickup code."
+                                    : "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
                             }, FraudDetectionService.RoleForbiddenSignal, operation, "delivery", authenticatedUserId, context);
+                        }
+
+                        // T-1 review: once the delivery left pending, its nonce was used for the
+                        // pickup and is the drop-off's secret too (the trucker's phone shows it
+                        // to the buyer). A farmer's later nonce (a QR reopened on a phone whose
+                        // copy still said pending) must not replace it, nor clear the typed-code
+                        // misses: nothing is written, success at the current version.
+                        var farmerNonceOnly = isFarmerNoncePersist && authenticatedUserId != existingTruckerId;
+                        if (farmerNonceOnly && currentStatus != "pending")
+                        {
+                            return new SyncOperationResult
+                            {
+                                OperationId = operation.OperationId,
+                                Status = "success",
+                                ServerVersion = existing.TryGetValue("version", out var lateNonceVer)
+                                    && int.TryParse(lateNonceVer.N, out var lateNonceVerN) ? lateNonceVerN : 0,
+                                ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing))
+                            };
                         }
 
                         // Route the farmer-authored pickup nonce to the SEPARATE secret
@@ -4546,7 +5591,9 @@ public partial class SyncFunction
                             // write and keep the version. Bumping it made the scanner's
                             // queued confirm (sent at the version it last pulled) conflict,
                             // and server-wins silently undid the pickup or collection.
-                            if (operation.Data.Keys.All(k => k is "version" or "updatedAt"))
+                            // The farmer may store the nonce and nothing else: other fields
+                            // riding along are ignored, never written by the farmer.
+                            if (farmerNonceOnly || operation.Data.Keys.All(k => k is "version" or "updatedAt"))
                             {
                                 return new SyncOperationResult
                                 {
@@ -4558,6 +5605,13 @@ public partial class SyncFunction
                                 };
                             }
                         }
+
+                        // ESC-35: the trucker's drop-off nonce goes to the secret store too. The
+                        // operation stores it and nothing else, never moving the delivery's version.
+                        if (dropoffNonce != null)
+                        {
+                            return await StoreDropoffNonceAsync(operation, existing, currentStatus, dropoffNonce, dropoffRenew, context);
+                        }
                     }
 
                     // QR nonce cross-validation for pickedUp/delivered transitions.
@@ -4566,6 +5620,9 @@ public partial class SyncFunction
                     // on-record qrNonce. When set after a successful CAS, this holds the status
                     // whose single-use marker should be recorded (consume-after-commit).
                     string? nonceToConsumeStatus = null;
+                    // T-1: how the handoff was proven ("qr" scanned, "code" typed), recorded with
+                    // the transition's audit entry as dispute and fraud evidence.
+                    string? handoffMethod = null;
                     if (operation.Data.TryGetValue("status", out var statusForNonce))
                     {
                         var nStatus = statusForNonce?.ToString();
@@ -4579,17 +5636,29 @@ public partial class SyncFunction
                             var legacyNonce = _qrSecretRepo == null
                                 && existing.TryGetValue("qrNonce", out var qnAttr)
                                 ? qnAttr.S : null;
-                            var effectiveNonce = secret?.Nonce ?? legacyNonce;
+                            // ESC-35: a trucker delivery's drop-off is checked against the trucker's own
+                            // nonce once one is stored, else against the farmer's (1.22.0: the farmer's
+                            // token kept on the trucker's phone, for apps that issue none).
+                            var truckerDropoff = nStatus == "delivered" && !string.Equals(
+                                existing.TryGetValue("deliveryType", out var dropoffTypeAttr) ? dropoffTypeAttr.S : null,
+                                SelfPickupDeliveryType, StringComparison.Ordinal);
+                            var useDropoffNonce = truckerDropoff && !string.IsNullOrEmpty(secret?.DropoffNonce);
+                            var effectiveNonce = useDropoffNonce ? secret!.DropoffNonce : secret?.Nonce ?? legacyNonce;
+                            var effectiveIssuedAt = useDropoffNonce ? secret!.DropoffIssuedAt : secret?.IssuedAt;
 
                             if (!string.IsNullOrEmpty(effectiveNonce))
                             {
                                 var scannedNonce = operation.Data.TryGetValue("scannedQrNonce", out var snObj)
                                     ? snObj?.ToString() : null;
+                                // T-1: the typed fallback. A scanned nonce wins when both are sent.
+                                var typedCode = string.IsNullOrEmpty(scannedNonce)
+                                    && operation.Data.TryGetValue("scannedQrCode", out var scObj)
+                                    ? scObj?.ToString() : null;
 
                                 // FRD-08: QR failures are soft. A code regenerated offline and scanned
                                 // before it synced fails too; the score counts it once per delivery
                                 // however often the queue retries it.
-                                if (string.IsNullOrEmpty(scannedNonce))
+                                if (string.IsNullOrEmpty(scannedNonce) && string.IsNullOrEmpty(typedCode))
                                 {
                                     return await RefuseWithSignalAsync(new SyncOperationResult
                                     {
@@ -4599,7 +5668,39 @@ public partial class SyncFunction
                                     }, FraudDetectionService.QrHandoffFailureSignal, operation, "delivery", authenticatedUserId, context);
                                 }
 
-                                if (!NonceEquals(scannedNonce, effectiveNonce))
+                                // ESC-35: a scan of the trucker's drop-off QR whose nonce has not reached
+                                // the server yet (the trucker's phone was offline) waits for it, as a
+                                // pickup waits for the farmer's nonce, and is refused once it is clearly
+                                // never coming. Its tag says whose it is; a typed code carries none, so a
+                                // typed code is always compared (and a wrong one counted). With a code
+                                // stored, a tagged scan that differs and was taken after that code was
+                                // stored may be the trucker's renewal made offline: it waits too, with no
+                                // signal on an honest buyer. One taken before is a replaced code.
+                                if (truckerDropoff
+                                    && scannedNonce != null
+                                    && scannedNonce.StartsWith(DropoffNoncePrefix, StringComparison.Ordinal)
+                                    && (!useDropoffNonce
+                                        || (!NonceEquals(scannedNonce, effectiveNonce)
+                                            && ScannedAfter(operation, effectiveIssuedAt))))
+                                {
+                                    return AwaitHandoffNonce(operation, existing,
+                                        "DELIVERY_NONCE_MISSING: The trucker's drop-off QR code never reached the server. Ask the trucker for a new drop-off code, or contact support.",
+                                        "DELIVERY_NONCE_PENDING: Waiting for the trucker's drop-off QR code to sync. Will retry automatically.");
+                                }
+
+                                if (!string.IsNullOrEmpty(typedCode))
+                                {
+                                    var codeRefusal = await CheckTypedHandoffCodeAsync(
+                                        operation, existing, secret, effectiveNonce, typedCode, nStatus,
+                                        authenticatedUserId, context, useDropoffNonce);
+                                    if (codeRefusal != null)
+                                    {
+                                        return codeRefusal;
+                                    }
+
+                                    handoffMethod = "code";
+                                }
+                                else if (!NonceEquals(scannedNonce!, effectiveNonce))
                                 {
                                     return await RefuseWithSignalAsync(new SyncOperationResult
                                     {
@@ -4608,13 +5709,17 @@ public partial class SyncFunction
                                         Message = "DELIVERY_NONCE_MISMATCH: Scanned QR nonce does not match generator's nonce."
                                     }, FraudDetectionService.QrHandoffFailureSignal, operation, "delivery", authenticatedUserId, context);
                                 }
+                                else
+                                {
+                                    handoffMethod = "qr";
+                                }
 
                                 // Secret-store path adds freshness + single-use replay protection
                                 // (legacy on-record nonces lack issuance/consumption metadata).
                                 if (secret != null)
                                 {
-                                    if (!string.IsNullOrEmpty(secret.IssuedAt)
-                                        && DateTime.TryParse(secret.IssuedAt, CultureInfo.InvariantCulture,
+                                    if (!string.IsNullOrEmpty(effectiveIssuedAt)
+                                        && DateTime.TryParse(effectiveIssuedAt, CultureInfo.InvariantCulture,
                                             DateTimeStyles.RoundtripKind, out var issuedAt)
                                         && DateTime.UtcNow - issuedAt.ToUniversalTime()
                                             > TimeSpan.FromDays(QrNonceFreshnessDays))
@@ -4623,7 +5728,9 @@ public partial class SyncFunction
                                         {
                                             OperationId = operation.OperationId,
                                             Status = "error",
-                                            Message = "DELIVERY_NONCE_EXPIRED: QR code has expired. Ask the farmer to show a fresh code."
+                                            Message = useDropoffNonce
+                                                ? "DELIVERY_NONCE_EXPIRED: QR code has expired. Ask the trucker for a new drop-off code."
+                                                : "DELIVERY_NONCE_EXPIRED: QR code has expired. Ask the farmer to show a fresh code."
                                         };
                                     }
 
@@ -4647,13 +5754,25 @@ public partial class SyncFunction
                                     }
                                 }
                             }
+                            else if (nStatus == "pickedUp" || string.Equals(
+                                existing.TryGetValue("deliveryType", out var gateTypeAttr) ? gateTypeAttr.S : null,
+                                SelfPickupDeliveryType, StringComparison.Ordinal))
+                            {
+                                // FRD-11: a pickup at the farm (the trucker's pickedUp, a self-pickup
+                                // buyer's delivered) is proven only by the farmer's QR, whatever the
+                                // money, so no escrow is read. Without the farmer's nonce it waits for
+                                // it to sync (offline first: the op stays queued) and is refused once
+                                // it is clearly never coming.
+                                return AwaitHandoffNonce(operation, existing,
+                                    "DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server for this pickup. Contact support.");
+                            }
                             else
                             {
-                                // No nonce on either source. Money-bearing deliveries must NOT
-                                // fail open: DEFER (offline-first — the op stays queued and retries)
-                                // until the farmer's nonce syncs, then hard-fail once it's clearly
-                                // never coming. Cash (no-escrow) deliveries keep the legacy
-                                // allow-through so a missing QR doesn't block them.
+                                // No nonce on either source for a trucker's drop-off. Money-bearing
+                                // deliveries must NOT fail open: DEFER (offline-first, the op stays
+                                // queued and retries) until the farmer's nonce syncs, then hard-fail
+                                // once it's clearly never coming. A cash (no-escrow) delivery picked
+                                // up without a QR before FRD-11 keeps the allow-through.
                                 bool hasEscrow;
                                 try
                                 {
@@ -4681,38 +5800,20 @@ public partial class SyncFunction
 
                                 if (hasEscrow)
                                 {
-                                    var createdAtStr = existing.TryGetValue("createdAt", out var caAttr)
-                                        ? caAttr.S : null;
-                                    var tooOld = createdAtStr != null
-                                        && DateTime.TryParse(createdAtStr, CultureInfo.InvariantCulture,
-                                            DateTimeStyles.RoundtripKind, out var deliveryCreatedAt)
-                                        && DateTime.UtcNow - deliveryCreatedAt.ToUniversalTime()
-                                            > TimeSpan.FromDays(QrNonceMaxDeferDays);
-                                    if (tooOld)
-                                    {
-                                        return new SyncOperationResult
-                                        {
-                                            OperationId = operation.OperationId,
-                                            Status = "error",
-                                            Message = "DELIVERY_NONCE_MISSING: QR verification could not be completed for this payment. Contact support."
-                                        };
-                                    }
-
-                                    return new SyncOperationResult
-                                    {
-                                        OperationId = operation.OperationId,
-                                        Status = "deferred",
-                                        Message = "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. Will retry automatically."
-                                    };
+                                    return AwaitHandoffNonce(operation, existing,
+                                        "DELIVERY_NONCE_MISSING: QR verification could not be completed for this payment. Contact support.");
                                 }
                             }
                         }
                     }
 
                     // Field whitelist — reject unknown fields
-                    // FIX-005: scannedQrNonce is allowed in data for validation but not persisted
+                    // FIX-005: scannedQrNonce is allowed in data for validation but not persisted;
+                    // so is its typed fallback scannedQrCode (T-1), and the handoff's gpsStatus (FUP-440),
+                    // read only by the evidence stamp below.
                     var unknownFields = operation.Data.Keys
-                        .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version" && k != "scannedQrNonce")
+                        .Where(k => !AllowedDeliveryFields.Contains(k) && k != "version"
+                            && k != "scannedQrNonce" && k != "scannedQrCode" && k != HandoffEvidence.GpsStatusInput)
                         .ToList();
                     if (unknownFields.Count > 0)
                     {
@@ -4755,27 +5856,26 @@ public partial class SyncFunction
                         }
                     }
 
-                    // FIX-011: Validate photo reference format and delivery ownership (prevent S3 path traversal)
-                    foreach (var photoField in new[] { "pickupPhotoRef", "dropoffPhotoRef" })
+                    // FIX-011 (path traversal) and FRD-12: a photo ref on a delivery op is checked,
+                    // then dropped; photos are attached only through delivery_photo.
+                    var photoRefError = DropDeliveryOpPhotoRefs(operation);
+                    if (photoRefError != null)
                     {
-                        if (operation.Data.TryGetValue(photoField, out var photoObj) && photoObj != null)
+                        return new SyncOperationResult
                         {
-                            var photoRef = photoObj.ToString() ?? "";
-                            if (!string.IsNullOrEmpty(photoRef) && !IsValidPhotoRef(photoRef, operation.EntityId))
-                            {
-                                return new SyncOperationResult
-                                {
-                                    OperationId = operation.OperationId,
-                                    Status = "error",
-                                    Message = $"DELIVERY_INVALID_FIELD: {photoField} has invalid format."
-                                };
-                            }
-                        }
+                            OperationId = operation.OperationId,
+                            Status = "error",
+                            Message = photoRefError
+                        };
                     }
 
-                    // F12-SEC-05: GPS proximity validation for pickup/delivery
+                    // F12-SEC-05: GPS proximity validation for pickup/delivery. FUP-439: each refusal
+                    // carries its own reason token, which the clients key on (GpsProximityRefusal).
                     var resolvedNewStatus = operation.Data.TryGetValue("status", out var statusForGps)
                         ? statusForGps?.ToString() : null;
+
+                    // FUP-246: each handoff field only with its own status, so no later step rewrites it.
+                    DropOtherHandoffFields(operation, resolvedNewStatus, context);
 
                     if (resolvedNewStatus == "pickedUp"
                         && operation.Data.TryGetValue("gpsPickup", out var gpsPickupObj)
@@ -4815,7 +5915,8 @@ public partial class SyncFunction
                                     {
                                         OperationId = operation.OperationId,
                                         Status = "error",
-                                        Message = $"DELIVERY_GPS_PROXIMITY: Pickup GPS is {distance:F1}km from listing location (max 5km)."
+                                        Message = GpsProximityRefusal.Message(GpsProximityRefusal.ReasonPickupFar,
+                                            $"Pickup GPS is {distance.ToString("F1", CultureInfo.InvariantCulture)}km from listing location (max 5km).")
                                     };
                                 }
                             }
@@ -4837,7 +5938,8 @@ public partial class SyncFunction
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = "DELIVERY_GPS_PROXIMITY: Location is required to confirm self-pickup at the farm."
+                            Message = GpsProximityRefusal.Message(GpsProximityRefusal.ReasonSelfPickupNoFix,
+                                "Location is required to confirm self-pickup at the farm.")
                         };
                     }
 
@@ -4883,7 +5985,8 @@ public partial class SyncFunction
                                 {
                                     OperationId = operation.OperationId,
                                     Status = "error",
-                                    Message = "DELIVERY_GPS_PROXIMITY: This listing has no registered location, so self-pickup cannot be verified."
+                                    Message = GpsProximityRefusal.Message(GpsProximityRefusal.ReasonSelfPickupNoFarmPoint,
+                                        "This listing has no registered location, so self-pickup cannot be verified.")
                                 };
                             }
 
@@ -4895,41 +5998,35 @@ public partial class SyncFunction
                                 {
                                     OperationId = operation.OperationId,
                                     Status = "error",
-                                    Message = $"DELIVERY_GPS_PROXIMITY: You are {spDistance:F1}km from the farm location (max 5km)."
+                                    Message = GpsProximityRefusal.Message(GpsProximityRefusal.ReasonSelfPickupFar,
+                                        $"You are {spDistance.ToString("F1", CultureInfo.InvariantCulture)}km from the farm location (max 5km).")
                                 };
                             }
                         }
                         else
                         {
-                            var tripId = existing.TryGetValue("tripId", out var tripIdAttr) ? tripIdAttr.S : null;
-                            if (tripId != null)
+                            // LT-14: within 5 km of EITHER the order's own drop-off point OR the trip's
+                            // destination point. The order's point defaults to the buyer's registered
+                            // or intent place, so a buyer who meets the truck at its destination still
+                            // passes; a failed order read throws and answers the retryable internal
+                            // error, never a refusal judged without it.
+                            var distance = await DropoffDistanceForConfirmAsync(existing, dropoffLat, dropoffLng);
+                            if (distance is { } km && km > 5.0)
                             {
-                                var trip = await GetTripItemAsync(tripId);
-                                if (trip != null
-                                    && trip.TryGetValue("destinationLatitude", out var destLatAttr)
-                                    && trip.TryGetValue("destinationLongitude", out var destLonAttr))
+                                return new SyncOperationResult
                                 {
-                                    if (double.TryParse(destLatAttr.N, out var destLat)
-                                        && double.TryParse(destLonAttr.N, out var destLon))
-                                    {
-                                        var distance = GpsValidator.HaversineDistance(
-                                            dropoffLat, dropoffLng, destLat, destLon);
-                                        if (distance > 5.0)
-                                        {
-                                            return new SyncOperationResult
-                                            {
-                                                OperationId = operation.OperationId,
-                                                Status = "error",
-                                                Message = $"DELIVERY_GPS_PROXIMITY: Dropoff GPS is {distance:F1}km from trip destination (max 5km)."
-                                            };
-                                        }
-                                    }
-                                }
+                                    OperationId = operation.OperationId,
+                                    Status = "error",
+                                    Message = GpsProximityRefusal.Message(GpsProximityRefusal.ReasonDropoffFar,
+                                        $"Dropoff GPS is {km.ToString("F1", CultureInfo.InvariantCulture)}km from the drop-off point (max 5km).")
+                                };
                             }
                         }
                     }
 
                     // ── GPS fraud detection (F-14) ──
+                    // ESC-33: the flag is set here, the signal is written after the delivery write succeeded.
+                    FraudCheckResult? gpsAnomaly = null;
                     if (_fraudService != null && resolvedNewStatus == "delivered" && operation.Data != null)
                     {
                         double? fraudPickupLat = null, fraudPickupLng = null, fraudDropoffLat = null, fraudDropoffLng = null;
@@ -4984,10 +6081,31 @@ public partial class SyncFunction
                             operation.Data["gpsAnomalyFlag"] = true;
                             context.Logger.LogWarning(
                                 $"GPS anomaly on delivery {MoneyAlarmLog.LogId(operation.EntityId)}: {MoneyAlarmLog.LogText(gpsCheck.Message)}");
-                            await TryRecordFraudSignalAsync(
-                                authenticatedUserId ?? "", gpsCheck.FlagReason ?? "GPS_ANOMALY",
-                                operation.EntityId, "delivery", gpsCheck.Message, context);
+                            gpsAnomaly = gpsCheck;
                         }
+                    }
+
+                    // An update without a status that holds nothing the write below would store (only
+                    // dropped or echoed fields, such as a trucker's qrNonce) writes nothing and keeps
+                    // the version; the caller passed the role checks above and gets the stored row.
+                    // Only at the stored version: any other gets the conflict the write's version
+                    // condition gave, so a phone that is behind still takes the row.
+                    if (resolvedNewStatus == null && !HasStorableDeliveryField(operation.Data))
+                    {
+                        TryGetClientVersion(operation, out var noWriteVersion);
+                        if (noWriteVersion != ItemVersion(existing))
+                        {
+                            return StaleVersionConflict(operation, ItemVersion(existing), noWriteVersion,
+                                ScrubDeliveryForClient(CropRepository.FromItem(existing)));
+                        }
+
+                        return new SyncOperationResult
+                        {
+                            OperationId = operation.OperationId,
+                            Status = "success",
+                            ServerVersion = ItemVersion(existing),
+                            ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing))
+                        };
                     }
 
                     // SIM-08: op-level clientVersion (contract) or data.version (shipped clients).
@@ -5062,6 +6180,14 @@ public partial class SyncFunction
                                     };
                                 }
 
+                                // FUP-444: a handoff point is a fix in Ethiopia, as a listing's point and a
+                                // live ping are. Checked after the 5 km rules, so where a reference point
+                                // exists their refusal still answers first.
+                                if (HandoffPointOutsideEthiopia(operation, kvp.Key, lat, lng) is { } outside)
+                                {
+                                    return outside;
+                                }
+
                                 var nameAlias = $"#f{i}";
                                 var valueAlias = $":f{i}";
                                 attrNames[nameAlias] = kvp.Key;
@@ -5099,6 +6225,21 @@ public partial class SyncFunction
                             attrValues[tsValAlias] = new AttributeValue { S = now };
                             updateParts.Add($"{tsAlias} = {tsValAlias}");
                             i++;
+
+                            // FRD-09: when the phone made the pickup scan (the operation's timestamp), which
+                            // differs from pickedUpAt when it synced late; the impossible delivery time rule
+                            // reads it at the confirm. Server-only; an implausible value is not stored.
+                            if (TransactionPatternRules.PlausibleCaptureTime(
+                                    operation.Timestamp, TransactionPatternRules.ParseUtc(now) ?? DateTime.UtcNow) is { } pickupCaptured)
+                            {
+                                attrNames[$"#f{i}"] = TransactionPatternRules.PickupCapturedAtField;
+                                attrValues[$":f{i}"] = new AttributeValue
+                                {
+                                    S = pickupCaptured.ToString("o", CultureInfo.InvariantCulture)
+                                };
+                                updateParts.Add($"#f{i} = :f{i}");
+                                i++;
+                            }
                         }
                         else if (tsStatus == "delivered")
                         {
@@ -5107,6 +6248,22 @@ public partial class SyncFunction
                             attrNames[tsAlias] = "confirmedAt";
                             attrValues[tsValAlias] = new AttributeValue { S = now };
                             updateParts.Add($"{tsAlias} = {tsValAlias}");
+                            i++;
+                        }
+                    }
+
+                    // FUP-440, GCR-01, GCR-02: the handoff's evidence (why no fix or what kind, the fix's time and
+                    // accuracy, QR or code, the app, the drop-off's phone time), server-only, in this same write.
+                    // A value that does not pass is left out, never refused (HandoffEvidence.Stamps).
+                    if (HandoffEvidence.LegOf(resolvedNewStatus) is { } evidenceLeg)
+                    {
+                        var evidenceStamps = HandoffEvidence.Stamps(evidenceLeg, operation.Data, handoffMethod,
+                            operation.Platform, operation.Timestamp, TransactionPatternRules.ParseUtc(now) ?? DateTime.UtcNow);
+                        foreach (var (stampName, stampValue) in evidenceStamps)
+                        {
+                            attrNames[$"#f{i}"] = stampName;
+                            attrValues[$":f{i}"] = stampValue;
+                            updateParts.Add($"#f{i} = :f{i}");
                             i++;
                         }
                     }
@@ -5157,6 +6314,25 @@ public partial class SyncFunction
                         var response = await _dynamoDb.UpdateItemAsync(updateRequest);
                         var result = ScrubDeliveryForClient(CropRepository.FromItem(response.Attributes));
 
+                        // Right after the write, before the steps below that can fail: main wrote this
+                        // signal before the delivery write, so a confirmed delivery must not lose it.
+                        if (gpsAnomaly != null)
+                        {
+                            await TryRecordGpsAnomalySignalAsync(operation, gpsAnomaly, authenticatedUserId, context);
+                        }
+
+                        // FUP-203: the trucker's row, judged from the trucker's own check-ins, whatever the
+                        // buyer's coordinates said. `now` is the confirmedAt just written.
+                        if (resolvedNewStatus == "delivered")
+                        {
+                            await TryRecordTruckerGpsAnomalyAsync(operation, existing, now, authenticatedUserId, context);
+                        }
+                        else if (resolvedNewStatus == "pickedUp")
+                        {
+                            // BUG-5: accepted without a fix, flagged for review (weight 0).
+                            await TryRecordPickupWithoutFixAsync(operation, existing, handoffMethod, authenticatedUserId, context);
+                        }
+
                         // Audit the delivery transition (who/when; GPS is joined at
                         // read time from the delivery record) for the monitor.
                         if (operation.Data != null
@@ -5169,7 +6345,8 @@ public partial class SyncFunction
                                 && !string.IsNullOrEmpty(exOid.S)
                                 ? exOid.S : operation.EntityId;
                             await EmitTxAuditAsync(context, deliveryTxId, "delivery", operation.EntityId,
-                                DeliveryActionFor(toStatus), fromStatus, toStatus);
+                                DeliveryActionFor(toStatus), fromStatus, toStatus,
+                                metadata: handoffMethod != null ? $"handoff={handoffMethod}" : null);
                         }
 
                         // SIM-11: the order follows its delivery (pickedUp -> pickup_confirmed,
@@ -5212,9 +6389,29 @@ public partial class SyncFunction
                             && operation.Data.TryGetValue("status", out var confirmedStatusObj)
                             && confirmedStatusObj?.ToString() == "delivered")
                         {
-                            await StampEscrowDeliveryConfirmedAsync(operation.EntityId, now,
+                            var disputeMirrored = await StampEscrowDeliveryConfirmedAsync(operation.EntityId, now,
                                 existing.TryGetValue("truckerId", out var stampTruckerAttr) ? stampTruckerAttr.S : null,
-                                context);
+                                context, deliveryOrderId);
+
+                            // The escrow was disputed while the goods were moving: the delivery and the
+                            // order followed it to disputed, so the answer carries the row as it is now.
+                            if (disputeMirrored
+                                && await GetDeliveryItemAsync(operation.EntityId, consistentRead: true) is { } mirroredRow)
+                            {
+                                result = ScrubDeliveryForClient(CropRepository.FromItem(mirroredRow));
+                                newVersion = ItemVersion(mirroredRow);
+                            }
+                        }
+
+                        await TryRecordDeliveryPatternSignalsAsync(
+                            operation, existing, response.Attributes, freeze, authenticatedUserId, context);
+
+                        // ESC-17: the last delivery done (delivered or disputed) finishes its trip.
+                        if (operation.Data != null
+                            && operation.Data.TryGetValue("status", out var tripFollowStatusObj)
+                            && tripFollowStatusObj?.ToString() is string tripFollowStatus)
+                        {
+                            await TryCompleteTripAsync(existing, operation.EntityId, tripFollowStatus, context);
                         }
 
                         return new SyncOperationResult
@@ -5409,6 +6606,9 @@ public partial class SyncFunction
             }
         }
 
+        // ESC-17: the cancel may close the last open delivery of a trip already on the road.
+        await TryCompleteTripAsync(existing, operation.EntityId, "cancelled", context);
+
         return new SyncOperationResult
         {
             OperationId = operation.OperationId,
@@ -5456,6 +6656,39 @@ public partial class SyncFunction
 
             return null;
         }
+    }
+
+    /// <summary>
+    /// LT-14: how far a trucker delivery's <c>gpsDropoff</c> is from its drop-off
+    /// (delivery-verification-api.md 2.1.0, GPS Validation): the great circle km to the nearer of the
+    /// trip's destination point and the order's own drop-off point (read strongly consistent). The
+    /// trip is read first, and a fix within 5 km of it answers without the order read. Null when
+    /// neither point exists: not checked.
+    /// </summary>
+    private async Task<double?> DropoffDistanceForConfirmAsync(
+        Dictionary<string, AttributeValue> delivery, double latitude, double longitude)
+    {
+        double? nearest = null;
+        var tripId = delivery.TryGetValue("tripId", out var tripIdAttr) ? tripIdAttr.S : null;
+        var trip = string.IsNullOrEmpty(tripId) ? null : await GetTripItemAsync(tripId);
+        if (TripTrack.PlannedDropoff(trip == null ? null : CropRepository.FromItem(trip), order: null) is { } tripPoint)
+        {
+            nearest = GpsValidator.HaversineDistance(latitude, longitude, tripPoint.Latitude, tripPoint.Longitude);
+            if (nearest <= 5.0)
+            {
+                return nearest;
+            }
+        }
+
+        var orderId = delivery.TryGetValue("orderId", out var orderIdAttr) ? orderIdAttr.S : null;
+        var order = string.IsNullOrEmpty(orderId) ? null : await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+        if (OrderDeliveryLocation.Of(order) is { } orderPoint)
+        {
+            var toOrder = GpsValidator.HaversineDistance(latitude, longitude, orderPoint.Latitude, orderPoint.Longitude);
+            nearest = nearest is { } toTrip ? Math.Min(toTrip, toOrder) : toOrder;
+        }
+
+        return nearest;
     }
 
     /// <summary>
@@ -5536,7 +6769,9 @@ public partial class SyncFunction
     /// cancelled (a slot release after the cancel did not land), or it has no row and its claim
     /// carries no time (a claim left by a create from before ESC-08, which wrote the claim and the
     /// row separately). Since ESC-08 a claim is always timed and written with its row, so a timed
-    /// claim without a row is never taken over.
+    /// claim without a row is never taken over. FUP-19: a delivery an admin cancelled after pickup
+    /// keeps the slot, so its order takes no new delivery (the goods left the farm under it and the
+    /// money behind it is already decided).
     /// </summary>
     private async Task<DeliverySlotHolder?> FindStaleDeliverySlotAsync(string orderId)
     {
@@ -5553,7 +6788,8 @@ public partial class SyncFunction
         var holder = await GetDeliveryItemAsync(holderId, consistentRead: true);
         var dead = holder == null
             ? claimedAt == null
-            : holder.TryGetValue("status", out var holderStatus) && holderStatus.S == "cancelled";
+            : holder.TryGetValue("status", out var holderStatus) && holderStatus.S == "cancelled"
+              && !AdminDeliveryCancel.IsAdminCancelled(holderStatus.S, AttrString(holder, "cancelReason"));
         return dead ? new DeliverySlotHolder(holderId, claimedAt) : null;
     }
 
@@ -5565,21 +6801,30 @@ public partial class SyncFunction
     /// escrow has none yet). Idempotent: only stamps an
     /// "escrowed" escrow that has not already been confirmed. Best-effort — errors
     /// are logged, never thrown, so a confirmed delivery is never rolled back.
+    /// FUP-66: when the <c>DeliveryIndex</c> names no escrow, the order's own escrow
+    /// (<c>escrow-order-{orderId}</c>) is stamped if its link to the delivery never landed
+    /// (<see cref="FindUnlinkedOrderEscrowAsync"/>).
+    /// An escrow already <c>disputed</c> (a party's dispute raised between pickup and this confirm)
+    /// is not stamped: the delivery and the order follow it to <c>disputed</c> through the dispute
+    /// mirror, as after a dispute raised once delivered, so the order never reads <c>delivered</c>
+    /// over frozen money. True when that mirror ran.
     /// </summary>
-    private async Task StampEscrowDeliveryConfirmedAsync(
-        string deliveryId, string confirmedAt, string? deliveryTruckerId, ILambdaContext context)
+    private async Task<bool> StampEscrowDeliveryConfirmedAsync(
+        string deliveryId, string confirmedAt, string? deliveryTruckerId, ILambdaContext context,
+        string? deliveryOrderId = null)
     {
         if (_escrowRepo == null)
         {
-            return;
+            return false;
         }
 
         try
         {
-            var escrow = await _escrowRepo.GetByDeliveryIdAsync(deliveryId);
+            var escrow = await _escrowRepo.GetByDeliveryIdAsync(deliveryId)
+                ?? await FindUnlinkedOrderEscrowAsync(deliveryOrderId, deliveryId);
             if (escrow == null)
             {
-                return; // no escrow linked to this delivery (e.g. cash order)
+                return false; // no escrow pays for this delivery (e.g. cash order)
             }
 
             var status = escrow.TryGetValue("status", out var st) ? st?.ToString() : null;
@@ -5587,14 +6832,17 @@ public partial class SyncFunction
                 && !string.IsNullOrEmpty(dc?.ToString());
             if (status != "escrowed" || alreadyConfirmed)
             {
-                return; // not settleable, or already stamped (idempotent replay)
+                // Not settleable, or already stamped (idempotent replay). A disputed escrow takes
+                // the confirmed delivery and its order with it.
+                return status == "disputed"
+                    && await MirrorOpenDisputeOnConfirmAsync(escrow, deliveryOrderId, deliveryId, context);
             }
 
             var escrowId = escrow.TryGetValue("escrowId", out var eid) ? eid?.ToString() ?? "" : "";
             var createdAt = escrow.TryGetValue("createdAt", out var ca) ? ca?.ToString() ?? "" : "";
             if (string.IsNullOrEmpty(escrowId) || string.IsNullOrEmpty(createdAt))
             {
-                return;
+                return false;
             }
 
             // Base the dispute window on the same confirmation timestamp so the two
@@ -5637,20 +6885,91 @@ public partial class SyncFunction
         }
         catch (Exception ex)
         {
-            // A confirmed delivery must not be rolled back. Log loudly: until the
-            // escrow is stamped, the 7-day auto-refund is NOT blocked, so this needs
-            // an ops alert / reconciliation follow-up.
+            // A confirmed delivery must not be rolled back. Until the escrow is stamped the
+            // auto-release never pays it: alarmed (ESC-16, escrow-delivery-stamp-failures), and the
+            // escrow cron's hourly order-money sweep stamps it for a delivered order.
             context.Logger.LogError(
-                $"Delivery {MoneyAlarmLog.LogId(deliveryId)} confirmed but escrow stamp FAILED: [{ex.GetType().Name}]. "
-                + "Escrow not yet marked delivery-confirmed — requires reconciliation.");
+                $"{MoneyAlarmLog.EscrowDeliveryStampFailedToken} deliveryId={MoneyAlarmLog.LogId(deliveryId)} source=sync "
+                + $"reason=[{ex.GetType().Name}]: delivery confirmed but its escrow is not marked delivery-confirmed; "
+                + "the hourly order-money sweep retries the stamp.");
         }
+
+        return false;
+    }
+
+    /// <summary>
+    /// A delivery confirmed while its escrow is already <c>disputed</c>: the delivery
+    /// (<c>delivered</c> to <c>disputed</c>) and the order (to <c>delivered</c>, then
+    /// <c>disputed</c>) follow through <see cref="EscrowService.MirrorDisputeAsync"/>, with the
+    /// escrow's own <c>disputedBy</c> and reason. Best-effort like every dispute mirror: the money
+    /// is frozen already, the verdict mirror repairs a failed hop, and a failure never fails the
+    /// confirm. False when no escrow service is configured or the mirror threw.
+    /// </summary>
+    private async Task<bool> MirrorOpenDisputeOnConfirmAsync(
+        Dictionary<string, object> escrow, string? orderId, string deliveryId, ILambdaContext context)
+    {
+        string? Field(string name) => escrow.TryGetValue(name, out var value) ? value?.ToString() : null;
+        var escrowId = Field("escrowId");
+        if (_orderEscrowService == null || string.IsNullOrEmpty(escrowId))
+        {
+            return false;
+        }
+
+        try
+        {
+            var disputedBy = Field("disputedBy");
+            await _orderEscrowService.MirrorDisputeAsync(
+                escrowId, orderId ?? Field("orderId"), deliveryId,
+                string.IsNullOrEmpty(disputedBy) ? EscrowService.SystemActor : disputedBy,
+                Field("disputeReason"), markDelivery: true);
+            context.Logger.LogInformation(
+                $"Delivery {MoneyAlarmLog.LogId(deliveryId)} confirmed under disputed escrow {MoneyAlarmLog.LogId(escrowId)}: delivery and order follow to disputed.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Dispute mirror for confirmed delivery {MoneyAlarmLog.LogId(deliveryId)} failed: [{ex.GetType().Name}] {MoneyAlarmLog.LogText(ex.Message)}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// FUP-66: the order's own escrow (<c>escrow-order-{orderId}</c>, strongly consistent) for a
+    /// delivery the <c>DeliveryIndex</c> does not know: the link write failed
+    /// (<c>ORDER_ESCROW_LINK_FAILED</c>) or the index lags. Only an escrow that names this order and
+    /// no other delivery: one linked to a different delivery is left to that delivery. Null when the
+    /// delivery has no order or the order has no such escrow. One read, only on the unlinked path.
+    /// </summary>
+    private async Task<Dictionary<string, object>?> FindUnlinkedOrderEscrowAsync(string? orderId, string deliveryId)
+    {
+        if (_escrowRepo == null || string.IsNullOrEmpty(orderId))
+        {
+            return null;
+        }
+
+        var escrow = await _escrowRepo.GetByIdAsync($"escrow-order-{orderId}", consistentRead: true);
+        if (escrow == null)
+        {
+            return null;
+        }
+
+        var escrowOrderId = escrow.TryGetValue("orderId", out var eo) ? eo?.ToString() : null;
+        var linkedDeliveryId = escrow.TryGetValue("deliveryId", out var ld) ? ld?.ToString() : null;
+        var ownsDelivery = string.IsNullOrEmpty(linkedDeliveryId)
+            || string.Equals(linkedDeliveryId, deliveryId, StringComparison.Ordinal);
+        return string.Equals(escrowOrderId, orderId, StringComparison.Ordinal) && ownsDelivery ? escrow : null;
     }
 
     // ─── Order Processing ─────────────────────────────────────────────────
 
     /// <summary>
     /// Process an order sync operation (create, update).
-    /// Uses server-authoritative state machine and commission calculation.
+    /// Uses server-authoritative state machine and commission calculation. LT-12: the order row a
+    /// result carries back leaves out the drop-off note when the caller may not read it
+    /// (<see cref="OrderDropoffNote.ForCaller"/>); LT-14: the same for the order's drop-off point, by
+    /// its own rule (<see cref="OrderDeliveryLocation.ForCaller"/>). FUP-370: a party's row of an order waiting
+    /// for T9 carries <c>dropoffConfirmAt</c> (<see cref="DropoffJudgement.WithConfirmAt"/>).
     /// </summary>
     private async Task<SyncOperationResult> ProcessOrderAsync(
         SyncOperationRequest operation,
@@ -5658,21 +6977,26 @@ public partial class SyncFunction
         string? authenticatedRole,
         ILambdaContext context)
     {
-        switch (operation.Action)
+        var result = operation.Action switch
         {
-            case "create":
-                return await ProcessOrderCreateAsync(operation, authenticatedUserId, authenticatedRole, context);
-            case "update":
-                return await ProcessOrderUpdateAsync(operation, authenticatedUserId, context);
-            default:
-                return new SyncOperationResult
-                {
-                    OperationId = operation.OperationId,
-                    Status = "error",
-                    Message = $"ORDER_VALIDATION: Invalid action '{operation.Action}' for orders. Allowed: create, update."
-                };
-        }
+            "create" => await ProcessOrderCreateAsync(operation, authenticatedUserId, authenticatedRole, context),
+            "update" => await ProcessOrderUpdateAsync(operation, authenticatedUserId, context),
+            _ => new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"ORDER_VALIDATION: Invalid action '{operation.Action}' for orders. Allowed: create, update."
+            }
+        };
+        // ESC-34: the check-ins as the parties read them, without the stamped pickup point. FUP-370: T9 is read
+        // from the stored check-in, so before that.
+        return PickupJudgement.ForClient(DropoffJudgement.WithConfirmAt(
+            OrderDeliveryLocation.ForCaller(OrderDropoffNote.ForCaller(result, authenticatedUserId), authenticatedUserId),
+            authenticatedUserId, DropoffJudgementOn ? OrderTimingsSource : null));
     }
+
+    /// <summary>FUP-370: the order timings T9 is computed with; this container's SSM values (tests set others).</summary>
+    internal Func<OrderTimings> OrderTimingsSource { get; init; } = static () => OrderTimings.Current;
 
     /// <summary>
     /// Best-effort emit to the unified transaction-audit trail using the current
@@ -5771,6 +7095,16 @@ public partial class SyncFunction
             operation.Data.Remove(field);
         }
 
+        // ESC-15: the commitment commands are update-only. A create carrying a response would
+        // plant "accepted" on the row and open the parties' phones before anyone agreed.
+        var plantedCommands = OrderCommandFields.Where(operation.Data.ContainsKey).ToList();
+        if (plantedCommands.Count > 0)
+        {
+            return await RefuseWithSignalAsync(
+                OrderValidationError(operation, $"{string.Join(", ", plantedCommands)} cannot be set when creating an order."),
+                FraudDetectionService.ImmutableFieldChangeSignal, operation, "order", authenticatedUserId, context);
+        }
+
         // Field whitelist
         var unknownFields = operation.Data.Keys
             .Where(k => !AllowedOrderFields.Contains(k) && k != "version")
@@ -5785,6 +7119,9 @@ public partial class SyncFunction
             };
         }
 
+        // LT-14: an order without a trip (self-pickup) has no drop-off; its point is ignored, never refused.
+        IgnoreCreateDeliveryLocationWithoutTrip(operation);
+
         // Validate required fields
         var validationErrors = ValidateOrderFields(operation.Data, isCreate: true);
         if (validationErrors.Count > 0)
@@ -5797,6 +7134,19 @@ public partial class SyncFunction
             };
         }
 
+        // LT-12: the drop-off note is stored trimmed, and not at all when empty. Like listing text it
+        // may not carry a phone number (the farmer reads it before contact opens); checked after the
+        // field rules, so one payload always gets the same answer.
+        var dropoffNoteRefusal = ApplyCreateDropoffNote(operation);
+        if (dropoffNoteRefusal != null)
+        {
+            return dropoffNoteRefusal;
+        }
+
+        // LT-14: the order's own drop-off point, checked with the field rules above; a pair of
+        // nulls is no point and is not stored.
+        ApplyCreateDeliveryLocation(operation);
+
         KeepServerCancelCodesReserved(operation.Data);
 
         // FRD-04 (fraud-detection-architecture.md 17.1): after the field rules, before the listing and
@@ -5804,6 +7154,16 @@ public partial class SyncFunction
         if (await CallerRiskTierAsync(authenticatedUserId!) == RiskTier.Critical)
         {
             return AccountHeldResult(operation);
+        }
+
+        // FUP-99: buyerName is shown to the farmer before escrow, so it comes from the
+        // buyer's profile, never the client, which inherits the FUP-52 phone screen on the
+        // profile fields. farmerName is stamped from the listing (BindOrderToListing) and
+        // truckerName from the trip (BindOrderToTrip).
+        var buyerNameError = await StampOrderBuyerNameAsync(operation.Data, authenticatedUserId!, context);
+        if (buyerNameError != null)
+        {
+            return OrderValidationError(operation, buyerNameError);
         }
 
         // SIM-05: the client's copy of the listing and trip is not trusted. Load both,
@@ -5824,9 +7184,7 @@ public partial class SyncFunction
 
         var quantityKg = ParseDouble(operation.Data, "quantity");
         var pricePerUnit = ParseDouble(operation.Data, "pricePerUnit");
-        var cropCost = quantityKg * pricePerUnit;
         var commissionRate = GetCommissionRate(context);
-        var commissionAmount = cropCost * commissionRate;
 
         var tripId = operation.Data.TryGetValue("tripId", out var tripIdObj) ? tripIdObj?.ToString() : null;
         var truckerId = operation.Data.TryGetValue("truckerId", out var truckerIdObj) ? truckerIdObj?.ToString() : null;
@@ -5837,6 +7195,7 @@ public partial class SyncFunction
 
         var clientTransportCost = ParseDoubleOrNull(operation.Data, "transportCost");
         var transportCost = 0.0;
+        Dictionary<string, AttributeValue>? orderTrip = null;
         if (!string.IsNullOrEmpty(tripId))
         {
             var trip = await GetTripItemAsync(tripId);
@@ -5845,11 +7204,17 @@ public partial class SyncFunction
                 return OrderValidationError(operation, "Trip not found.");
             }
 
+            orderTrip = trip;
+
             var tripError = BindOrderToTrip(
-                operation.Data, trip, truckerId!, quantityKg, clientTransportCost, out transportCost);
+                operation.Data, trip, truckerId!, quantityKg, clientTransportCost, DateTime.UtcNow,
+                enforceBookings: CommitmentsEnabled, out transportCost);
             if (tripError != null)
             {
-                return OrderValidationError(operation, tripError);
+                return tripError.StartsWith("TRIP_CAPACITY_EXCEEDED", StringComparison.Ordinal)
+                    || tripError.StartsWith(OrderCommitment.TripNotEligibleCode, StringComparison.Ordinal)
+                    ? new SyncOperationResult { OperationId = operation.OperationId, Status = "error", Message = tripError }
+                    : OrderValidationError(operation, tripError);
             }
         }
         else if (clientTransportCost is double sentWithoutTrip && sentWithoutTrip != 0.0)
@@ -5857,16 +7222,31 @@ public partial class SyncFunction
             return OrderValidationError(operation, "transportCost requires a tripId.");
         }
 
-        operation.Data["transportCost"] = transportCost;
-        var orderTotal = cropCost + transportCost + commissionAmount;
+        // SIM-30: each money field in ETB to the santim (2 dp, halves away from zero, as the escrow
+        // rounds), computed in decimals so float noise never moves a santim (170 kg x 18.99 ETB x 0.05
+        // is 161.41499... in doubles, 161.415 exactly, so 161.42). The commission is 5 % of the rounded
+        // crop cost, and crop + transport + commission is exactly the orderTotal the buyer pays and the
+        // order escrow holds (farmerPayout + truckerPayout + commission).
+        var cropCost = RoundEtb((decimal)quantityKg * (decimal)pricePerUnit);
+        var transportCostEtb = RoundEtb((decimal)transportCost);
+        var commissionAmount = RoundEtb(cropCost * (decimal)commissionRate);
+        var orderTotal = cropCost + transportCostEtb + commissionAmount;
 
-        operation.Data["cropCost"] = cropCost;
+        operation.Data["transportCost"] = (double)transportCostEtb;
+        operation.Data["cropCost"] = (double)cropCost;
         operation.Data["commissionRate"] = commissionRate;
-        operation.Data["commissionAmount"] = commissionAmount;
-        operation.Data["orderTotal"] = orderTotal;
+        operation.Data["commissionAmount"] = (double)commissionAmount;
+        operation.Data["orderTotal"] = (double)orderTotal;
 
         // Force initial status
         operation.Data["status"] = "created";
+
+        // ESC-29 (reputation-api.md 8.2): no new order with a restricted or suspended farmer or trucker.
+        if (await RefuseRestrictedCounterpartyAsync(
+                operation, context, ItemString(listing, "farmerId"), truckerId) is { } counterpartyRestricted)
+        {
+            return counterpartyRestricted;
+        }
 
         var createResult = await _orderRepo.CreateAsync(operation.EntityId, operation.Data);
 
@@ -5874,6 +7254,9 @@ public partial class SyncFunction
         {
             await EmitTxAuditAsync(context, operation.EntityId, "order", operation.EntityId,
                 "order_created", null, "created");
+
+            // BUG-7: a trip that does not start where the listing is, flagged for review (weight 0).
+            await TryRecordOrderRouteMismatchAsync(operation, listing, orderTrip, authenticatedUserId, context);
             return new SyncOperationResult
             {
                 OperationId = operation.OperationId,
@@ -5961,8 +7344,46 @@ public partial class SyncFunction
             }, FraudDetectionService.RoleForbiddenSignal, operation, "order", authenticatedUserId, context);
         }
 
+        // LT-12: the drop-off note before any other rule, so a command or a status write never
+        // carries a note change past the buyer-only, phone and pickup checks.
+        if (operation.Data.ContainsKey(OrderDropoffNote.Field))
+        {
+            var noteRefusal = await CheckDropoffNoteChangeAsync(
+                operation, existingOrder, authenticatedUserId, orderBuyerId, context);
+            if (noteRefusal != null)
+            {
+                return noteRefusal;
+            }
+        }
+
+        // LT-14: the order's own drop-off point, by the same rules and at the same place.
+        if (OrderDeliveryLocation.Sent(operation.Data))
+        {
+            var locationRefusal = await CheckDeliveryLocationChangeAsync(
+                operation, existingOrder, authenticatedUserId, orderBuyerId, context);
+            if (locationRefusal != null)
+            {
+                return locationRefusal;
+            }
+        }
+
         if (isTruckerOnly)
         {
+            // ESC-15: the trucker answers the transport request (accept or decline) once the
+            // farmer accepted; before that, and for anything but the logistics catch-ups, the
+            // trucker may not touch the order.
+            var truckerCommand = CommitmentCommandOf(operation.Data, OrderCommitment.TruckerResponseField);
+            if (truckerCommand != null)
+            {
+                if (!CommitmentsEnabled)
+                {
+                    return OrderValidationError(operation, "Transport requests are not enabled on this server yet.");
+                }
+
+                return await ProcessCommitmentCommandAsync(
+                    operation, existingOrder, CommitmentActor.Trucker, truckerCommand, authenticatedUserId!, context);
+            }
+
             var truckerStatus = operation.Data.TryGetValue("status", out var tsObj) ? tsObj?.ToString() : null;
             if (truckerStatus is not ("pickup_confirmed" or "in_transit" or "delivered"))
             {
@@ -5973,6 +7394,54 @@ public partial class SyncFunction
                     Message = "ORDER_UNAUTHORIZED: The trucker may only set pickup_confirmed, in_transit or delivered."
                 }, FraudDetectionService.RoleForbiddenSignal, operation, "order", authenticatedUserId, context);
             }
+        }
+        else if (operation.Data.ContainsKey(OrderCommitment.TruckerResponseField))
+        {
+            return await RefuseWithSignalAsync(new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "ORDER_UNAUTHORIZED: Only the order's trucker can answer a transport request."
+            }, FraudDetectionService.RoleForbiddenSignal, operation, "order", authenticatedUserId, context);
+        }
+
+        // ESC-15: the farmer's answer. The command shape (farmerResponse: accept|decline) and the
+        // legacy status write (accepted|rejected) mean the same thing; with the feature on both go
+        // through the commitment rules, with it off the command is translated to the old write.
+        var farmerCommand = CommitmentCommandOf(operation.Data, OrderCommitment.FarmerResponseField);
+        if (farmerCommand != null && authenticatedUserId != orderFarmerId)
+        {
+            return await RefuseWithSignalAsync(new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = "ORDER_UNAUTHORIZED: Only the farmer can accept or decline the order."
+            }, FraudDetectionService.RoleForbiddenSignal, operation, "order", authenticatedUserId, context);
+        }
+
+        if (CommitmentsEnabled && authenticatedUserId == orderFarmerId)
+        {
+            if (farmerCommand == null
+                && operation.Data.TryGetValue("status", out var legacyFarmerStatus)
+                && legacyFarmerStatus?.ToString() is "accepted" or "rejected"
+                && ItemString(existingOrder, "status") == "funded")
+            {
+                farmerCommand = legacyFarmerStatus.ToString() == "accepted"
+                    ? OrderCommitment.AcceptCommand
+                    : OrderCommitment.DeclineCommand;
+            }
+
+            if (farmerCommand != null)
+            {
+                return await ProcessCommitmentCommandAsync(
+                    operation, existingOrder, CommitmentActor.Farmer, farmerCommand, authenticatedUserId!, context);
+            }
+        }
+        else if (farmerCommand != null)
+        {
+            operation.Data.Remove(OrderCommitment.FarmerResponseField);
+            operation.Data.Remove(OrderCommitment.DeclineReasonField);
+            operation.Data["status"] = farmerCommand == OrderCommitment.AcceptCommand ? "accepted" : "rejected";
         }
 
         // Strip server-controlled fields
@@ -6028,6 +7497,10 @@ public partial class SyncFunction
         // FRD-03: set by the accept below when its write must check the escrow in the same transaction.
         EscrowRowKey? acceptFence = null;
 
+        // FRD-09: the payment the pattern rules observe once the payment_submitted write succeeded (the
+        // amount and the buyer's row the KYC gate read).
+        (decimal Total, UserDto? Buyer)? submittedPayment = null;
+
         // Validate status transition
         if (operation.Data.TryGetValue("status", out var newStatusObj))
         {
@@ -6037,12 +7510,34 @@ public partial class SyncFunction
             if (!OrderTransitions.TryGetValue(currentStatus, out var allowedTransitions)
                 || !allowedTransitions.Contains(newStatus))
             {
+                // SIM-28: the loser of a status race is behind, not wrong, when it may ask for this
+                // status at all (a system-managed one, or another party's, keeps the error).
+                if (StaleClientVersion(operation, OrderVersionOf(existingOrder)) is int orderRaceVersion
+                    && ValidateOrderTransitionAuth(currentStatus, newStatus, authenticatedUserId, orderBuyerId, orderFarmerId) == null)
+                {
+                    return OrderConflict(operation, existingOrder, orderRaceVersion);
+                }
+
                 return new SyncOperationResult
                 {
                     OperationId = operation.OperationId,
                     Status = "error",
                     Message = $"ORDER_VALIDATION: Invalid status transition from '{currentStatus}' to '{newStatus}'."
                 };
+            }
+
+            // ESC-15: cancel rules of a paid order. While the farmer and the trucker decide
+            // (funded) nobody cancels; in awaiting_transport the buyer (full refund) or the
+            // farmer (no penalty) may; an accepted order may be cancelled by its farmer before
+            // pickup with a fresh sign-in. Each runs its own transactional path.
+            if (newStatus == "cancelled")
+            {
+                var committedCancel = await RouteCommittedCancelAsync(
+                    operation, existingOrder, currentStatus, authenticatedUserId, orderBuyerId, orderFarmerId, context);
+                if (committedCancel != null)
+                {
+                    return committedCancel;
+                }
             }
 
             // Authorization for specific transitions
@@ -6074,6 +7569,23 @@ public partial class SyncFunction
             // add proofs to the step-up.
             if (newStatus == "payment_submitted")
             {
+                // ESC-15: no money for a trip that can no longer carry the order (cancelled,
+                // full, or leaving within 12 hours): the buyer places a new order instead.
+                var tripGate = await CheckTripBookableForPaymentAsync(existingOrder, context);
+                if (tripGate != null)
+                {
+                    return OrderValidationError(operation, tripGate);
+                }
+
+                // No money for an order the listing can no longer fill: the funding would end it
+                // and send the money back (ESC-18), which with the live gateway is a real payment
+                // and a real refund. The funding's own conditional write stays the race guard.
+                var stockGate = await CheckListingStockForPaymentAsync(existingOrder, context);
+                if (stockGate != null)
+                {
+                    return OrderValidationError(operation, stockGate);
+                }
+
                 var riskTier = await CallerRiskTierAsync(authenticatedUserId!);
                 if (riskTier == RiskTier.Critical)
                 {
@@ -6102,6 +7614,7 @@ public partial class SyncFunction
                     };
                 }
 
+                submittedPayment = (orderTotal, buyer);
                 var stepUpError = StepUpPolicy.CheckPayment(
                     _requestAuthTime, buyer?.FaydaAuthenticatedAt, orderTotal, tier: riskTier);
                 if (stepUpError != null)
@@ -6189,34 +7702,15 @@ public partial class SyncFunction
             // FRD-03: a funded order whose escrow is held for review cannot be accepted: a delivery
             // created after it could never link to the held escrow. Reject and cancel stay allowed. An
             // escrow that cannot be read refuses the accept for now (transient, the client retries).
-            if (newStatus == "accepted" && _escrowRepo != null)
+            if (newStatus == "accepted")
             {
-                Dictionary<string, object>? orderEscrow;
-                try
+                var (escrowStop, fence) = await CheckAcceptEscrowAsync(operation, context);
+                if (escrowStop != null)
                 {
-                    orderEscrow = await _escrowRepo.GetByIdAsync($"escrow-order-{operation.EntityId}", consistentRead: true);
-                }
-                catch (Exception ex)
-                {
-                    context.Logger.LogWarning(
-                        $"ORDER_ACCEPT_ESCROW_UNREAD orderId={MoneyAlarmLog.LogId(operation.EntityId)} error={ex.GetType().Name}");
-                    return TransientOrderError(operation, "The order's payment could not be checked. Please try again later.");
+                    return escrowStop;
                 }
 
-                if (orderEscrow != null && orderEscrow.TryGetValue("status", out var orderEscrowStatus)
-                    && orderEscrowStatus?.ToString() == EscrowHoldFields.Status)
-                {
-                    return OrderValidationError(operation, OrderUnderReviewMessage);
-                }
-
-                // With the hold on, a sweep may hold the escrow between this read and the write: the
-                // write checks it again in the same transaction.
-                if (FraudHoldEnabled && orderEscrow != null && !string.IsNullOrEmpty(EscrowsTableName)
-                    && orderEscrow.TryGetValue("createdAt", out var escrowCreatedAt)
-                    && escrowCreatedAt?.ToString() is { Length: > 0 } escrowCreated)
-                {
-                    acceptFence = new EscrowRowKey(EscrowsTableName, $"escrow-order-{operation.EntityId}", escrowCreated);
-                }
+                acceptFence = fence;
             }
 
             // ESC-06: the farmer's accept starts the pickup clock in the same write. A trip that
@@ -6271,9 +7765,47 @@ public partial class SyncFunction
 
         operation.Data.Remove("version"); // consumed here; the repository handles the check
 
-        var updateResult = acceptFence != null
-            ? await _orderRepo.UpdateUnlessEscrowHeldAsync(operation.EntityId, operation.Data, version, acceptFence)
-            : await _orderRepo.UpdateAsync(operation.EntityId, operation.Data, version);
+        // Nothing is left to write: the payload held only fields the server owns (stripped above)
+        // or unchanged echoes. No write and no version move; the caller, a party, gets the stored row.
+        // Only at the stored version: any other version gets the conflict the write's own version
+        // check gave, so a phone that is behind still takes the row (it ignores it on a success).
+        if (operation.Data.Count == 0)
+        {
+            if (version != OrderVersionOf(existingOrder))
+            {
+                return OrderConflict(operation, existingOrder, version);
+            }
+
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "success",
+                ServerVersion = OrderVersionOf(existingOrder),
+                ServerData = existingOrder
+            };
+        }
+
+        // FUP-53: a funded order's reject or cancel and its refund arm are one transaction.
+        var storedStatus = existingOrder.TryGetValue("status", out var storedStatusObj) ? storedStatusObj?.ToString() : null;
+        var closingStatus = operation.Data.TryGetValue("status", out var closingStatusObj) ? closingStatusObj?.ToString() : null;
+        Dictionary<string, object>? closedWithRefund = null;
+        if (storedStatus == "funded" && closingStatus is "rejected" or "cancelled")
+        {
+            var close = await TryCloseOrderWithRefundAsync(
+                operation, operation.Data, version, "funded", $"order_{closingStatus}", context);
+            if (close.Stop != null)
+            {
+                return close.Stop;
+            }
+
+            closedWithRefund = close.Written;
+        }
+
+        var updateResult = closedWithRefund != null
+            ? AuthResult<Dictionary<string, object>>.Success(closedWithRefund)
+            : acceptFence != null
+                ? await _orderRepo.UpdateUnlessEscrowHeldAsync(operation.EntityId, operation.Data, version, acceptFence)
+                : await _orderRepo.UpdateAsync(operation.EntityId, operation.Data, version);
 
         // FRD-03: a sweep held the escrow between the check and the write; nothing was written.
         if (!updateResult.IsSuccess && updateResult.Error?.Code == OrderRepository.EscrowHeldCode)
@@ -6304,8 +7836,12 @@ public partial class SyncFunction
                 // delivery-confirm/dispute machinery.
                 if (priorStatus == "funded" && appliedStatus is "rejected" or "cancelled")
                 {
-                    await TryScheduleOrderEscrowRefundAsync(
-                        operation.EntityId, $"order_{appliedStatus}", context);
+                    // FUP-53: already armed with the order write, unless no record held the money then.
+                    if (closedWithRefund == null)
+                    {
+                        await TryScheduleOrderEscrowRefundAsync(
+                            operation.EntityId, $"order_{appliedStatus}", context);
+                    }
 
                     // SIM-13: the goods go back on the market with the money going back
                     // to the buyer.
@@ -6313,13 +7849,26 @@ public partial class SyncFunction
                 }
             }
 
-            // 6D: When order transitions to "funded", decrease listing quantity
+            // 6D: an order that becomes "funded" takes its stock. Clients cannot set the
+            // system-managed status, so this is a backstop on the shared funding path: a funding
+            // that lost the listing's stock is ended there with a full refund (ESC-18).
             if (appliedStatus == "funded")
             {
-                await TryDecreaseListingQuantityAsync(existingOrder, context);
+                await _orderFunding.EnsureFundedSideEffectsAsync(updateResult.Value ?? existingOrder, "system", _batchAudit, context);
             }
 
             var newVersion = version + 1;
+
+            // FRD-09 (fraud-detection-architecture.md 15.1): the buyer payment rules, on the payment the
+            // gates above let through. Flag-only and best effort: the answer below is the same either way.
+            if (appliedStatus == "payment_submitted" && submittedPayment is { } payment)
+            {
+                await TryRecordPatternSignalsAsync(authenticatedUserId, operation.EntityId, "order", "payment",
+                    rules => rules.CheckPaymentAsync(
+                        authenticatedUserId!, operation.EntityId, payment.Total, payment.Buyer?.CreatedAt,
+                        payment.Buyer?.FaydaVerified == true, DateTime.UtcNow),
+                    context);
+            }
 
             // Mock/demo payments have no real gateway to verify the transfer, so a
             // submitted payment is auto-verified server-side: advance
@@ -6333,15 +7882,14 @@ public partial class SyncFunction
                     operation.EntityId, newVersion, existingOrder, context);
                 if (fundedData != null)
                 {
-                    // System-driven follow-on transition — record it as a system actor.
-                    await EmitTxAuditAsync(context, operation.EntityId, "order", operation.EntityId,
-                        "payment_verified", "payment_submitted", "funded",
-                        ctxOverride: AuditContext.ForSystem());
+                    // The funding is audited inside; a row ended for lack of stock (ESC-18) is one
+                    // version further on.
+                    var fundedVersion = OrderVersionOf(fundedData);
                     return new SyncOperationResult
                     {
                         OperationId = operation.OperationId,
                         Status = "success",
-                        ServerVersion = newVersion + 1,
+                        ServerVersion = fundedVersion > 0 ? fundedVersion : newVersion + 1,
                         ServerData = fundedData
                     };
                 }
@@ -6640,7 +8188,9 @@ public partial class SyncFunction
     /// a self-pickup handoff or a pickedUp -> delivered confirmation jumps straight to
     /// delivered. Best-effort: a failure is logged and never fails the delivery update.
     /// Audited as a system actor so the monitor shows who really moved the order. A disputed
-    /// delivery's order follows the escrow's dispute mirror instead (ESC-07).
+    /// delivery's order follows the escrow's dispute mirror instead (ESC-07). ESC-36: with
+    /// <c>dropoffClassification</c> on, a trucked order's first move out of <c>accepted</c> also stamps
+    /// the drop-off judgement (<see cref="DropoffStampAsync"/>) in the same write.
     /// </summary>
     private async Task TryAdvanceOrderForDeliveryAsync(
         string orderId, string deliveryStatus, ILambdaContext context)
@@ -6681,8 +8231,16 @@ public partial class SyncFunction
                 int.TryParse(v?.ToString(), out version);
             }
 
-            var result = await _orderRepo.UpdateAsync(
-                orderId, new Dictionary<string, object> { { "status", target } }, version);
+            var fields = new Dictionary<string, object> { { "status", target } };
+            if (DropoffJudgementOn && DropoffJudgement.TakesPickupStamp(order, current, target))
+            {
+                foreach (var (key, value) in await DropoffStampAsync(order, context))
+                {
+                    fields[key] = value;
+                }
+            }
+
+            var result = await _orderRepo.UpdateAsync(orderId, fields, version);
             if (!result.IsSuccess)
             {
                 context.Logger.LogWarning(
@@ -6732,16 +8290,6 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// When an order becomes "funded", take the ordered quantity off the crop listing
-    /// (the listing becomes "reserved" at 0). Idempotent per order and best-effort: a
-    /// failure logs the alarmable ORDER_STOCK_DECREMENT_FAILED token and never blocks
-    /// the order update (ESC-01, <see cref="OrderFundingService.DecrementStockAsync"/>).
-    /// </summary>
-    private Task TryDecreaseListingQuantityAsync(
-        Dictionary<string, object> order, ILambdaContext context)
-        => _orderFunding.DecrementStockAsync(order, context);
-
-    /// <summary>
     /// Whether the environment runs mocked payments (no real Telebirr gateway).
     /// Set by infra for dev/staging (TELEBIRR_MOCK=true); never set in prod or
     /// when the live gateway is enabled.
@@ -6765,11 +8313,19 @@ public partial class SyncFunction
     {
         try
         {
+            var fundedAt = DateTime.UtcNow;
             var fundData = new Dictionary<string, object>
             {
                 { "status", "funded" },
-                { "paymentVerifiedAt", DateTime.UtcNow.ToString("o") }
+                { "paymentVerifiedAt", fundedAt.ToString("o") }
             };
+
+            // ESC-15: the farmer's request and its deadline ride on the funding write (empty
+            // when the feature is off), exactly as on the live webhook path.
+            foreach (var (key, value) in await _orderFunding.FundingStampsAsync(existingOrder, fundedAt))
+            {
+                fundData[key] = value;
+            }
 
             var result = await _orderRepo.UpdateAsync(orderId, fundData, expectedVersion);
             if (!result.IsSuccess)
@@ -6779,11 +8335,18 @@ public partial class SyncFunction
                 return null;
             }
 
+            // System-driven follow-on transition, recorded as a system actor before its side
+            // effects, so an out-of-stock end (ESC-18) follows it in the order's trail.
+            await EmitTxAuditAsync(context, orderId, "order", orderId,
+                "payment_verified", "payment_submitted", "funded",
+                ctxOverride: AuditContext.ForSystem());
+
             // Same side effects as a live Telebirr payment (ESC-01): stock off the listing
-            // and the order escrow, both idempotent per order.
-            await _orderFunding.EnsureFundedSideEffectsAsync(result.Value!, "system", _batchAudit, context);
+            // and the order escrow, both idempotent per order. ESC-18: a funding that lost the
+            // listing's stock ends the order with a full refund; the buyer gets that row back.
+            var effects = await _orderFunding.EnsureFundedSideEffectsAsync(result.Value!, "system", _batchAudit, context);
             context.Logger.LogInformation($"Order {MoneyAlarmLog.LogId(orderId)} auto-funded (mock payments).");
-            return result.Value;
+            return effects.OutOfStockOrder ?? result.Value;
         }
         catch (Exception ex)
         {
@@ -6822,24 +8385,107 @@ public partial class SyncFunction
         }
     }
 
-    /// <summary>
-    /// ESC-06: codes the server writes into <c>cancelReason</c> (order-lifecycle.md 1.15.0; the rest are
-    /// reserved for ESC-15, spec 4.6). A client text equal to one is kept in <c>cancelNote</c> instead,
-    /// so no cancel can pass for a server decision.
-    /// </summary>
-    private static readonly HashSet<string> ServerCancelReasonCodes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        PickupDeadline.CancelReason, "escrow_refunded", "buyer_withdrew", "unpaid_expired",
-        "farmer_response_expired", "farmer_cancelled", "farmer_no_show", "transport_not_arranged",
-        "listing_out_of_stock", "buyer_no_show"
-    };
+    /// <summary>FUP-53: plans per funded order close (an escrow can change between the plan and the write).</summary>
+    private const int FundedCloseAttempts = 3;
 
-    /// <summary>ESC-06: moves a client <c>cancelReason</c> that spells a server code to <c>cancelNote</c>.</summary>
+    /// <summary>
+    /// FUP-53: the reject or cancel of a funded order, written in one transaction with the refund arm
+    /// on its escrow (<see cref="EscrowService.PlanOrderRefundAsync"/>,
+    /// <see cref="EscrowService.CloseOrderWithRefundAsync"/>), so no dispute can freeze the money
+    /// between the order write and the arm. Returns the order as written, or the answer to stop with:
+    /// <c>ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.</c> when a dispute froze
+    /// the money or a settlement owns it (nothing written), a conflict when the order moved, a
+    /// transient error when a read or the write failed or the escrow kept changing. Both null when no
+    /// record holds the money (or no escrow service is wired): the caller writes the order as before
+    /// and schedules the refund after, best-effort.
+    /// </summary>
+    private async Task<(SyncOperationResult? Stop, Dictionary<string, object>? Written)> TryCloseOrderWithRefundAsync(
+        SyncOperationRequest operation, Dictionary<string, object> fields, int version, string expectedStatus,
+        string reason, ILambdaContext context)
+    {
+        if (_orderEscrowService == null)
+        {
+            return (null, null);
+        }
+
+        var orderId = operation.EntityId;
+        for (var attempt = 1; attempt <= FundedCloseAttempts; attempt++)
+        {
+            OrderRefundPlan plan;
+            try
+            {
+                plan = await _orderEscrowService.PlanOrderRefundAsync(orderId);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning(
+                    $"Close of funded order {MoneyAlarmLog.LogId(orderId)}: its escrow could not be read: [{ex.GetType().Name}]");
+                return (TransientOrderError(operation, "The order's payment could not be read. Please try again later."), null);
+            }
+
+            if (plan.Readiness == OrderRefundReadiness.Busy)
+            {
+                context.Logger.LogInformation(
+                    $"Close of funded order {MoneyAlarmLog.LogId(orderId)} refused ({reason}): its escrow is disputed or being settled.");
+                return (CancelNotAllowed(operation, "The payment is being settled or reviewed."), null);
+            }
+
+            if (plan.Readiness == OrderRefundReadiness.Nothing)
+            {
+                return (null, null);
+            }
+
+            OrderLinkedWriteResult write;
+            try
+            {
+                write = await _orderEscrowService.CloseOrderWithRefundAsync(
+                    orderId, fields, version, expectedStatus, plan, reason, "system", _batchAudit);
+            }
+            catch (Exception ex)
+            {
+                // Nothing was written (a conflicting transaction, throttling): the client sends it again.
+                context.Logger.LogWarning(
+                    $"Close of funded order {MoneyAlarmLog.LogId(orderId)}: the write failed: [{ex.GetType().Name}]");
+                return (TransientOrderError(operation, "The order could not be updated right now. Please try again later."), null);
+            }
+
+            switch (write.Outcome)
+            {
+                case OrderLinkedWriteOutcome.Written:
+                    context.Logger.LogInformation(plan.Held.Count > 0
+                        ? $"Order escrow refund scheduled: orderId={MoneyAlarmLog.LogId(orderId)} reason={reason}"
+                        : $"No refundable order escrow for orderId={MoneyAlarmLog.LogId(orderId)} ({reason}): held for review.");
+                    return (null, write.Order);
+
+                case OrderLinkedWriteOutcome.OrderNotFound:
+                    return (TransientOrderError(operation, "Order not found."), null);
+
+                case OrderLinkedWriteOutcome.OrderChanged:
+                    {
+                        var latest = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+                        return (latest == null
+                            ? TransientOrderError(operation, "Order not found.")
+                            : OrderConflict(operation, latest, version), null);
+                    }
+            }
+
+            // LinkedItemRefused: an escrow changed after the plan (a dispute, a hold, a hold released). Plan again.
+        }
+
+        return (TransientOrderError(operation, "The order's payment changed while the order was updated. Please try again later."), null);
+    }
+
+    /// <summary>
+    /// ESC-06: moves a client <c>cancelReason</c> that spells a server code
+    /// (<see cref="OrderCommitment.ServerCancelReasons"/>) or the unpaid cron's sentence to
+    /// <c>cancelNote</c>, so no cancel can pass for a server decision.
+    /// </summary>
     private static void KeepServerCancelCodesReserved(Dictionary<string, object> data)
     {
         if (data.TryGetValue("cancelReason", out var raw)
             && raw?.ToString()?.Trim() is { Length: > 0 } text
-            && ServerCancelReasonCodes.Contains(text))
+            && (OrderCommitment.ServerCancelReasons.Contains(text)
+                || text.StartsWith(OrderCommitment.LegacyAutoCancelPrefix, StringComparison.OrdinalIgnoreCase)))
         {
             data.Remove("cancelReason");
             data["cancelNote"] = text;
@@ -6871,8 +8517,13 @@ public partial class SyncFunction
     /// released and the listing stock restored.
     /// </summary>
     private async Task<SyncOperationResult> ProcessTransportFailureCancelAsync(
-        SyncOperationRequest operation, ILambdaContext context)
+        SyncOperationRequest operation, ILambdaContext context, CommittedCancelSpec? spec = null)
     {
+        // ESC-15: the same transactional path serves the buyer's or farmer's cancel in
+        // awaiting_transport and the farmer's cancel of a committed order; only the expected
+        // status, the reason codes and the deadline check differ.
+        spec ??= CommittedCancelSpec.BuyerAfterPickupDeadline;
+
         if (!TryGetClientVersion(operation, out var clientVersion))
         {
             return OrderValidationError(operation,
@@ -6895,30 +8546,42 @@ public partial class SyncFunction
             return TransientOrderError(operation, "Order not found.");
         }
 
-        if (OrderVersionOf(order) != clientVersion || ItemString(order, "status") != "accepted")
+        if (OrderVersionOf(order) != clientVersion || ItemString(order, "status") != spec.ExpectedStatus)
         {
             return OrderConflict(operation, order, clientVersion);
         }
 
         var nowUtc = DateTime.UtcNow;
-        DateTime? deadline = PickupDeadline.TryParse(ItemString(order, PickupDeadline.Field), out var stamped)
-            ? stamped
-            : null;
-        if (deadline == null)
+        if (spec.CheckPickupDeadline)
         {
-            // Accepted before ESC-06: the same rule, from the live trip and the acceptance time.
-            var acceptedAt = PickupDeadline.AcceptedAt(order);
-            deadline = acceptedAt == null ? null : await ComputePickupDeadlineAsync(order, acceptedAt.Value, context);
+            DateTime? deadline = PickupDeadline.TryParse(ItemString(order, PickupDeadline.Field), out var stamped)
+                ? stamped
+                : null;
             if (deadline == null)
             {
-                return TransientOrderError(operation, "The order's trip could not be read. Please try again later.");
+                // Accepted before ESC-06: the same rule, from the live trip and the acceptance time.
+                var acceptedAt = PickupDeadline.AcceptedAt(order);
+                deadline = acceptedAt == null ? null : await ComputePickupDeadlineAsync(order, acceptedAt.Value, context);
+                if (deadline == null)
+                {
+                    return TransientOrderError(operation, "The order's trip could not be read. Please try again later.");
+                }
             }
-        }
 
-        if (nowUtc < deadline.Value)
-        {
-            return CancelNotAllowed(operation,
-                $"The crops can still be collected until {PickupDeadline.Format(deadline.Value)}.");
+            if (nowUtc < deadline.Value)
+            {
+                return CancelNotAllowed(operation,
+                    $"The crops can still be collected until {PickupDeadline.Format(deadline.Value)}.");
+            }
+
+            // ESC-34: with pickupClassification on, the pickup judgement decides an order accepted under
+            // it (a trucker no-show reaches awaiting_transport, where the buyer cancels; a farmer no-show
+            // is refunded; the admin queue holds the money), so the buyer's deadline cancel is not taken.
+            if (PickupJudgementOn && PickupJudgement.IsStamped(order))
+            {
+                return CancelNotAllowed(operation,
+                    "The pickup is judged from the arrival check-ins; you will be told the outcome.");
+            }
         }
 
         // The order's deliveries decide whether anything was picked up (the order can lag them).
@@ -6972,7 +8635,7 @@ public partial class SyncFunction
                 if (await _deliveryRepo.TryCancelPendingAsync(pendingId))
                 {
                     await EmitTxAuditAsync(context, orderId, "delivery", pendingId,
-                        "delivery_cancelled", "pending", "cancelled", metadata: $"reason={PickupDeadline.CancelReason}");
+                        "delivery_cancelled", "pending", "cancelled", metadata: $"reason={spec.CancelReason}");
                 }
                 else
                 {
@@ -7005,7 +8668,15 @@ public partial class SyncFunction
         {
             { "status", "cancelled" },
             { "cancelledAt", nowUtc.ToString("o") },
-            { "cancelReason", PickupDeadline.CancelReason }
+            { "cancelReason", spec.CancelReason },
+            { OrderCommitment.CancelledByField, spec.CancelledBy },
+            // A null spec fault keeps what the transport failure recorded (trucker, or none for a full trip).
+            {
+                OrderCommitment.FaultPartyField,
+                spec.FaultParty ?? (ItemString(order, OrderCommitment.FaultPartyField) is { Length: > 0 } recorded
+                    ? recorded
+                    : OrderCommitment.Party.None)
+            }
         };
         var note = operation.Data!.TryGetValue("cancelReason", out var noteObj) ? noteObj?.ToString()?.Trim() : null;
         if (!string.IsNullOrEmpty(note))
@@ -7023,7 +8694,7 @@ public partial class SyncFunction
                 // FUP-32: the order cancel and the refund arm are one transaction, so a dispute that
                 // froze the money after the check above can never leave a cancelled order over it.
                 var write = await _orderEscrowService.CancelOrderWithRefundAsync(
-                    orderId, cancelFields, version, "accepted", plan.Held, TransportCancelRefundReason, "system", _batchAudit);
+                    orderId, cancelFields, version, spec.ExpectedStatus, plan.Held, spec.RefundReason, "system", _batchAudit);
                 if (write.Outcome == OrderLinkedWriteOutcome.Written)
                 {
                     cancelled = write.Order;
@@ -7059,7 +8730,7 @@ public partial class SyncFunction
                 return TransientOrderError(operation, "Order not found.");
             }
 
-            if (ItemString(latest, "status") != "accepted")
+            if (ItemString(latest, "status") != spec.ExpectedStatus)
             {
                 return OrderConflict(operation, latest, clientVersion);
             }
@@ -7090,21 +8761,34 @@ public partial class SyncFunction
             version = OrderVersionOf(latest);
         }
 
-        await EmitTxAuditAsync(context, orderId, "order", orderId, "order_cancelled", "accepted", "cancelled",
-            metadata: $"cancelReason={PickupDeadline.CancelReason}");
+        await EmitTxAuditAsync(context, orderId, "order", orderId, "order_cancelled", spec.ExpectedStatus, "cancelled",
+            metadata: $"cancelReason={spec.CancelReason};cancelledBy={spec.CancelledBy}");
         context.Logger.LogInformation(
-            $"Order escrow refund scheduled: orderId={MoneyAlarmLog.LogId(orderId)} reason={TransportCancelRefundReason}");
+            $"Order escrow refund scheduled: orderId={MoneyAlarmLog.LogId(orderId)} reason={spec.RefundReason}");
         await ReleaseTransportCancelSlotAsync(orderId, cancelledDeliveryId, context);
         await TryRestoreListingStockAsync(order, context);
+        await TryReleaseBookingAsync(order, context);
 
         // ESC-48: the parties could reach each other since the farmer accepted, and this cancel
         // refunds the buyer in full, which is also how a trade agreed off the platform would end.
-        // Best-effort signal for the admin fraud review; never a phone number in it.
-        if (ContactReveal.IsOpen(order))
+        // Best-effort signal for the admin fraud review; never a phone number in it. Only the
+        // buyer's cancel is a signal: a farmer backing out costs the farmer, not the buyer.
+        if (spec.CancelledBy == OrderCommitment.Party.Buyer && ContactReveal.IsOpen(order))
         {
             await TryRecordFraudSignalAsync(
                 ItemString(order, "buyerId"), ContactReveal.TransportCancelSignal, orderId, "order",
                 $"Buyer cancelled after a transport failure while contact with farmer {ItemString(order, "farmerId")} was open.",
+                context);
+        }
+
+        // FRD-09: the farmer backed out of a funded order they had accepted (at fault). The other committed
+        // cancels follow a transport failure the canceller did not cause, so they are not this rule's.
+        if (spec.CancelledBy == OrderCommitment.Party.Farmer && spec.FaultParty == OrderCommitment.Party.Farmer)
+        {
+            var farmerId = ItemString(order, "farmerId");
+            await TryRecordPatternSignalsAsync(farmerId, orderId, "order", "cancel_after_fund",
+                rules => rules.CheckCancelAfterFundAsync(
+                    farmerId, TransactionPatternService.Farmer, new[] { orderId }, DateTime.UtcNow),
                 context);
         }
 
@@ -7425,23 +9109,31 @@ public partial class SyncFunction
     /// <summary>
     /// SIM-40: a new listing shows buyers the owner's name and phone, so they come
     /// from the users table, never from the client (a spoofed phone redirected buyers).
-    /// Returns an error message when the profile cannot be read or has no name.
+    /// Returns the refusal message when the profile cannot be read
+    /// (<c>{codePrefix}_PROFILE_UNAVAILABLE</c>) or has no name (<c>{codePrefix}_PROFILE_INCOMPLETE</c>),
+    /// <paramref name="codePrefix"/> being <c>CROP</c> or <c>TRIP</c>. FUP-74 (sync-protocol.md 1.72.0):
+    /// the profile decides these, not the operation, so they are not <c>CROP_VALIDATION</c> or
+    /// <c>TRIP_VALIDATION</c>, which clients treat as permanent.
+    /// <paramref name="onProfileRead"/> gets the profile once it is read, so a caller that needs
+    /// more of it (FUP-98: the crop create's profile woreda) does not read it again.
     /// </summary>
     private async Task<string?> StampOwnerContactAsync(
-        Dictionary<string, object> data, string ownerId, string nameKey, string phoneKey,
-        ILambdaContext context)
+        Dictionary<string, object> data, string ownerId, string nameKey, string phoneKey, string codePrefix,
+        ILambdaContext context, Action<UserDto>? onProfileRead = null)
     {
         if (_userRepo == null)
         {
             context.Logger.LogError($"Cannot stamp {phoneKey}: user repository not configured.");
-            return "Your profile could not be read. Please try again later.";
+            return $"{codePrefix}_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.";
         }
 
         var owner = await _userRepo.GetUserByIdAsync(ownerId);
         if (owner == null)
         {
-            return "Your profile could not be read. Please try again later.";
+            return $"{codePrefix}_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.";
         }
+
+        onProfileRead?.Invoke(owner);
 
         // Display name first, else the legal name received from Fayda. The client
         // value is never kept: with no name on the profile the create is refused.
@@ -7450,11 +9142,52 @@ public partial class SyncFunction
             : null;
         if (name == null)
         {
-            return "Add your name to your profile before creating a listing.";
+            return $"{codePrefix}_PROFILE_INCOMPLETE: Add your name to your profile before creating a listing.";
         }
 
         data[nameKey] = name.Trim();
         data[phoneKey] = owner.PhoneNumber;
+        return null;
+    }
+
+    /// <summary>
+    /// FUP-99: the order's buyerName is shown to the farmer before escrow, so it is stamped
+    /// from the buyer's profile (display name, else the Fayda legal name), never kept from
+    /// the client. This inherits the FUP-52 phone screen applied to the profile fields.
+    /// Orders carry no buyerPhone, so only the name is set, plus the buyer's registered
+    /// woreda as the order's drop-off place (order-lifecycle 2.2.0) from the same read.
+    /// Returns null when stamped, else a validation message. Mirrors
+    /// <see cref="StampOwnerContactAsync"/> for listings.
+    /// </summary>
+    private async Task<string?> StampOrderBuyerNameAsync(
+        Dictionary<string, object> data, string buyerId, ILambdaContext context)
+    {
+        if (_userRepo == null)
+        {
+            context.Logger.LogError("Cannot stamp buyerName: user repository not configured.");
+            return "Your profile could not be read. Please try again later.";
+        }
+
+        var buyer = await _userRepo.GetUserByIdAsync(buyerId);
+        if (buyer == null)
+        {
+            return "Your profile could not be read. Please try again later.";
+        }
+
+        var name = !string.IsNullOrWhiteSpace(buyer.DisplayName) ? buyer.DisplayName
+            : !string.IsNullOrWhiteSpace(buyer.FullName) ? buyer.FullName
+            : null;
+        if (name == null)
+        {
+            return "Add your name to your profile before placing an order.";
+        }
+
+        data["buyerName"] = name.Trim();
+        if (!string.IsNullOrWhiteSpace(buyer.Woreda))
+        {
+            data["dropoffPlace"] = buyer.Woreda.Trim();
+        }
+
         return null;
     }
 
@@ -7527,13 +9260,141 @@ public partial class SyncFunction
     }
 
     /// <summary>
-    /// FUP-42: whether a delivery carries money, so its <c>pickedUp</c> and <c>delivered</c> need the QR.
-    /// The order's own escrow (<c>escrow-order-{orderId}</c>, strongly consistent, any status) decides
+    /// A QR-gated handoff with no farmer's nonce on record (ESC-35: also a scanned drop-off QR whose
+    /// trucker's nonce is not on record yet, and the trucker's drop-off nonce sent before the pickup
+    /// synced): <c>deferred</c> with <paramref name="pending"/> while it may still sync (nothing
+    /// written, the op stays queued without using a retry), <paramref name="refusal"/> once
+    /// <see cref="QrNonceMaxDeferDays"/> have passed since the later of the delivery's creation and the
+    /// scan (the operation's <c>timestamp</c>, when plausible). From creation alone, a delivery made
+    /// weeks before its trip was refused at the first sync of an honest offline scan.
+    /// </summary>
+    private static SyncOperationResult AwaitHandoffNonce(
+        SyncOperationRequest operation, Dictionary<string, AttributeValue> delivery, string refusal,
+        string pending = "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code to sync. Will retry automatically.")
+    {
+        var now = DateTime.UtcNow;
+        var createdAt = TransactionPatternRules.ParseUtc(
+            delivery.TryGetValue("createdAt", out var caAttr) ? caAttr.S : null);
+        var scannedAt = TransactionPatternRules.PlausibleCaptureTime(operation.Timestamp, now);
+        var windowStart = createdAt is { } created && scannedAt is { } scanned
+            ? (created > scanned ? created : scanned)
+            : createdAt ?? scannedAt;
+        var tooOld = windowStart is { } start && now - start > TimeSpan.FromDays(QrNonceMaxDeferDays);
+        return tooOld
+            ? new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = refusal
+            }
+            : new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "deferred",
+                Message = pending
+            };
+    }
+
+    /// <summary>
+    /// ESC-35: the trucker's update storing its drop-off nonce (<c>dropoffQrNonce</c>) in the secret
+    /// store. It stores the nonce and nothing else: the delivery is not written and its version does
+    /// not move, so the trucker's queued operations behind it never conflict (as the farmer's nonce,
+    /// 1.6.0). Stored only while the delivery is <c>pickedUp</c> or <c>inTransit</c>; before the pickup
+    /// reached the server it waits for it (the same batch can carry a pickup that is deferred for the
+    /// farmer's nonce); once delivered or disputed nothing is stored. A registration never replaces a
+    /// stored code (a stale or second device); only <paramref name="renew"/> (New drop-off code) does.
+    /// A nonce that is not stored still answers <c>success</c> (nothing to retry), with a message that
+    /// says so, which web shows. The nonce is never logged.
+    /// </summary>
+    private async Task<SyncOperationResult> StoreDropoffNonceAsync(
+        SyncOperationRequest operation,
+        Dictionary<string, AttributeValue> existing,
+        string currentStatus,
+        string nonce,
+        bool renew,
+        ILambdaContext context)
+    {
+        if (nonce.Length > DropoffNonceMaxLength
+            || nonce.Length <= DropoffNoncePrefix.Length
+            || !nonce.StartsWith(DropoffNoncePrefix, StringComparison.Ordinal))
+        {
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = $"DELIVERY_VALIDATION: dropoffQrNonce must start with '{DropoffNoncePrefix}' and be at most {DropoffNonceMaxLength} characters."
+            };
+        }
+
+        if (currentStatus == "pending")
+        {
+            return AwaitHandoffNonce(operation, existing,
+                "DELIVERY_VALIDATION: The drop-off QR code can only be registered after the pickup.",
+                "DELIVERY_NONCE_PENDING: Waiting for the pickup to sync. Will retry automatically.");
+        }
+
+        string? notStored = null;
+        if (currentStatus is "pickedUp" or "inTransit")
+        {
+            var outcome = _qrSecretRepo != null
+                ? await _qrSecretRepo.PutDropoffNonceAsync(operation.EntityId, nonce, renew)
+                : DropoffNonceOutcome.NoPickupNonce;
+            notStored = outcome switch
+            {
+                // Another device's code, or a renewal, stands: this phone's code does not work.
+                DropoffNonceOutcome.OtherCodeStored =>
+                    DropoffCodeSupersededMessage,
+                // No farmer's nonce to stand next to (a delivery picked up before FRD-11, or no secret
+                // store): the drop-off keeps its old rule.
+                DropoffNonceOutcome.NoPickupNonce =>
+                    "DROPOFF_CODE_NOT_STORED: This delivery has no pickup code on the server, so its drop-off code is not kept.",
+                _ => null
+            };
+            if (notStored != null)
+            {
+                context.Logger.LogWarning(
+                    $"DROPOFF_NONCE_NOT_STORED deliveryId={MoneyAlarmLog.LogId(operation.EntityId)} reason={outcome}");
+            }
+        }
+
+        return new SyncOperationResult
+        {
+            OperationId = operation.OperationId,
+            Status = "success",
+            ServerVersion = ItemVersion(existing),
+            ServerData = ScrubDeliveryForClient(CropRepository.FromItem(existing)),
+            Message = notStored
+        };
+    }
+
+    private const string DropoffCodeSupersededMessage =
+        "DROPOFF_CODE_SUPERSEDED: Another drop-off code is on record for this delivery. Show that one, or make a new code.";
+
+    /// <summary>
+    /// ESC-35: whether a scan was taken after <paramref name="issuedAt"/> (the stored drop-off code's
+    /// time): the operation's <c>timestamp</c> when plausible, else the time it reached the server.
+    /// A time that cannot be read counts as after (the scan then waits rather than fails).
+    /// </summary>
+    private static bool ScannedAfter(SyncOperationRequest operation, string? issuedAt)
+    {
+        var now = DateTime.UtcNow;
+        var scannedAt = TransactionPatternRules.PlausibleCaptureTime(operation.Timestamp, now) ?? now;
+        var stored = TransactionPatternRules.ParseUtc(issuedAt);
+        return stored is not { } storedAt || scannedAt > storedAt;
+    }
+
+    /// <summary>
+    /// FUP-42: whether a delivery carries money, so a trucker's drop-off <c>delivered</c> needs the QR
+    /// (a pickup needs it whatever the money since FRD-11) and a typed code needs the leg's GPS. The
+    /// order's own escrow (<c>escrow-order-{orderId}</c>, strongly consistent, any status) decides
     /// first, found as the dispute freeze finds it (ESC-07): its link to the delivery can fail
     /// (<c>ORDER_ESCROW_LINK_FAILED</c>) or lag, and the <c>DeliveryIndex</c> alone then called the
     /// delivery cash. Otherwise the <c>DeliveryIndex</c> finds an escrow paid through
-    /// <c>POST /escrow/initiate</c>, or one of a legacy delivery without an order. Throws when a read
-    /// fails; the caller defers.
+    /// <c>POST /escrow/initiate</c>, or one of a legacy delivery without an order. FUP-66: when no
+    /// escrow row exists at all, the order's funding decides (<c>paymentVerifiedAt</c>, stamped by every
+    /// funding write and never by a client): a funded order whose escrow could not be created (the
+    /// create and its self-heal both failed) still holds the buyer's money, so it is never cash. One
+    /// more read, only on the path that used to answer cash. Throws when a read fails; the caller defers.
     /// </summary>
     private async Task<bool> HasDeliveryEscrowAsync(Dictionary<string, AttributeValue> delivery, string deliveryId)
     {
@@ -7549,7 +9410,154 @@ public partial class SyncFunction
             return true;
         }
 
-        return await _escrowRepo.GetByDeliveryIdAsync(deliveryId) != null;
+        if (await _escrowRepo.GetByDeliveryIdAsync(deliveryId) != null)
+        {
+            return true;
+        }
+
+        if (string.IsNullOrEmpty(orderId))
+        {
+            return false;
+        }
+
+        var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+        return order != null
+            && order.TryGetValue("paymentVerifiedAt", out var verifiedAt)
+            && !string.IsNullOrEmpty(verifiedAt?.ToString());
+    }
+
+    /// <summary>
+    /// T-1: a typed handoff code (<c>scannedQrCode</c>) in place of the scanned nonce for a
+    /// <c>pickedUp</c> or <c>delivered</c>. Returns the refusal, or null when the code stands in for
+    /// the scan; the caller then applies the same freshness and single-use rules as for a scan.
+    /// A code that is not nine digits with a valid Damm digit can never match, so it is a validation
+    /// error and no miss. Each attempt of a leg is taken in the secret store before the comparison
+    /// (once per operation and code, atomic, so parallel guesses cannot pass the cap and a reused
+    /// operation id with a new code still counts) and a right code gives it back; at <see cref="HandoffCode.MaxMisses"/> wrong codes typed codes are locked for that
+    /// leg until the farmer's Regenerate stores a new nonce, while a scanned QR still works.
+    /// Without the secret store (legacy rows) nothing can be counted, so typed codes are not taken.
+    /// On a delivery that carries money a typed code needs the leg's GPS, as the scan screen always
+    /// captures it. ESC-35: with <paramref name="dropoffNonce"/> the code is the trucker's drop-off
+    /// code, whose lock the trucker's new code clears.
+    /// </summary>
+    private async Task<SyncOperationResult?> CheckTypedHandoffCodeAsync(
+        SyncOperationRequest operation,
+        Dictionary<string, AttributeValue> existing,
+        DeliveryQrSecret? secret,
+        string nonce,
+        string code,
+        string targetStatus,
+        string? callerId,
+        ILambdaContext context,
+        bool dropoffNonce = false)
+    {
+        SyncOperationResult Error(string message) => new()
+        {
+            OperationId = operation.OperationId,
+            Status = "error",
+            Message = message
+        };
+
+        if (!HandoffCode.IsWellFormed(code))
+        {
+            return Error("DELIVERY_VALIDATION: scannedQrCode must be 9 digits with a valid check digit.");
+        }
+
+        if (secret == null || _qrSecretRepo == null)
+        {
+            return Error("DELIVERY_CODE_LOCKED: Typed codes cannot be checked for this delivery. Scan the QR code.");
+        }
+
+        // The farmer's code cannot be renewed after pickup (the farmer's Regenerate only works before
+        // it), so a locked drop-off of a trucker delivery checked against it has its own code and way
+        // out. ESC-35: the trucker's own drop-off code is renewed by the trucker's new code.
+        var lockedDropoff = targetStatus == "delivered"
+            && !string.Equals(
+                existing.TryGetValue("deliveryType", out var lockTypeAttr) ? lockTypeAttr.S : null,
+                SelfPickupDeliveryType, StringComparison.Ordinal);
+        var locked = dropoffNonce
+            ? "DELIVERY_CODE_LOCKED: Too many wrong codes for this drop-off. Scan the trucker's drop-off QR, or ask the trucker for a new code."
+            : lockedDropoff
+                ? "DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this drop-off. Scan the trucker's drop-off QR, or contact support."
+                : "DELIVERY_CODE_LOCKED: Too many wrong codes for this delivery. Scan the QR code, or ask the farmer for a new code.";
+        const string mismatch = "DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.";
+        // One attempt per operation AND code: a true retry is free, a new code under the same
+        // operation id (which errors never store) always counts.
+        var attemptId = HandoffCode.AttemptId(operation.OperationId, code);
+        Task<SyncOperationResult> Refuse(string message) => RefuseWithSignalAsync(
+            Error(message), FraudDetectionService.QrHandoffFailureSignal, operation, "delivery", callerId, context);
+
+        if (secret.CodeMissesFor(targetStatus) >= HandoffCode.MaxMisses)
+        {
+            return await Refuse(locked);
+        }
+
+        // The attempt is taken before the comparison, in one conditional write, so guesses sent in
+        // parallel cannot get past the cap; a right code gives it back below.
+        var attempt = await _qrSecretRepo.TryTakeCodeAttemptAsync(
+            operation.EntityId, targetStatus, attemptId, nonce, HandoffCode.MaxMisses, dropoffNonce);
+        if (attempt.Outcome == CodeAttemptOutcome.Locked)
+        {
+            return await Refuse(locked);
+        }
+
+        if (attempt.Outcome == CodeAttemptOutcome.NonceChanged)
+        {
+            // Regenerated meanwhile: the code was typed for a nonce that is gone.
+            return await Refuse(mismatch);
+        }
+
+        if (!HandoffCode.Matches(code, nonce, operation.EntityId))
+        {
+            return await Refuse(attempt.Count >= HandoffCode.MaxMisses ? locked : mismatch);
+        }
+
+        try
+        {
+            await _qrSecretRepo.ReturnCodeAttemptAsync(operation.EntityId, targetStatus, attemptId);
+        }
+        catch (Exception ex)
+        {
+            // Best effort: a right code left counted costs its leg one try, nothing more.
+            context.Logger.LogWarning(
+                $"Typed code attempt not given back for delivery {MoneyAlarmLog.LogId(operation.EntityId)}: [{ex.GetType().Name}]");
+        }
+
+        var gpsField = targetStatus == "pickedUp" ? "gpsPickup" : "gpsDropoff";
+        var hasGps = operation.Data != null
+            && operation.Data.TryGetValue(gpsField, out var gpsObj)
+            && gpsObj is System.Text.Json.JsonElement gpsJe
+            && gpsJe.ValueKind == System.Text.Json.JsonValueKind.Object;
+        if (hasGps)
+        {
+            return null;
+        }
+
+        bool carriesMoney;
+        try
+        {
+            carriesMoney = await HasDeliveryEscrowAsync(existing, operation.EntityId);
+        }
+        catch (Exception ex)
+        {
+            // As the QR gate (FUP-42): an unknown answer is never cash, nothing is written and the
+            // op stays queued; the same alarmed token.
+            var gateOrderId = existing.TryGetValue("orderId", out var gateOrderAttr) ? gateOrderAttr.S : null;
+            context.Logger.LogError(
+                $"QR_GATE_UNDECIDED deliveryId={MoneyAlarmLog.LogId(operation.EntityId)} "
+                + $"orderId={MoneyAlarmLog.LogId(gateOrderId)} reason={ex.GetType().Name} "
+                + $"detail={MoneyAlarmLog.LogText(ex.Message)}");
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "deferred",
+                Message = "DELIVERY_NONCE_PENDING: The payment check could not be completed. Will retry automatically."
+            };
+        }
+
+        return carriesMoney
+            ? Error("DELIVERY_CODE_GPS_REQUIRED: Location is required to confirm a paid delivery with a typed code.")
+            : null;
     }
 
     /// <summary>True when the caller's id equals any of the named id fields.</summary>
@@ -7617,7 +9625,9 @@ public partial class SyncFunction
         // ESC-07: disputed too. A client order dispute froze no money (the 48-hour release
         // still paid out); disputes come from the delivery or POST /escrow/dispute, which
         // freeze the escrow first and move the order after.
-        if (newStatus is "funded" or "disbursing" or "settled" or "dispute_resolved" or "payment_failed" or "disputed")
+        // ESC-15: awaiting_transport too; only a failed transport (OrderCommitment) parks an order there.
+        if (newStatus is "funded" or "disbursing" or "settled" or "dispute_resolved" or "payment_failed" or "disputed"
+            or OrderCommitment.AwaitingTransportStatus)
         {
             return $"ORDER_UNAUTHORIZED: '{newStatus}' is a system-managed transition.";
         }
@@ -7676,6 +9686,38 @@ public partial class SyncFunction
     }
 
     /// <summary>
+    /// FUP-246: the delivery fields that belong to one handoff, with the status that handoff writes
+    /// (sync-protocol.md 1.54.0). The role check pins each status to its party: <c>pickedUp</c> to the
+    /// trucker, <c>delivered</c> to the buyer, <c>disputed</c> to the party who disputes. Before, a
+    /// buyer's confirm or any party's dispute could rewrite the other party's GPS point, which feeds
+    /// <c>IMPOSSIBLE_DELIVERY_TIME</c> on the trucker and the admin dispute evidence.
+    /// </summary>
+    private static readonly (string Field, string Status)[] DeliveryHandoffFields =
+    {
+        ("gpsPickup", "pickedUp"),
+        ("gpsDropoff", "delivered"),
+        ("disputeReason", "disputed")
+    };
+
+    /// <summary>
+    /// FUP-246: drops, not refuses, each handoff field the operation's status does not write (a create
+    /// is <c>pending</c>, an update without a status is null), so every shipped client, which sends each
+    /// field only with its own status, is answered as before. Each drop is logged with no personal data.
+    /// </summary>
+    private static void DropOtherHandoffFields(SyncOperationRequest operation, string? status, ILambdaContext context)
+    {
+        foreach (var (field, handoffStatus) in DeliveryHandoffFields)
+        {
+            if (status != handoffStatus && operation.Data!.Remove(field))
+            {
+                context.Logger.LogInformation(
+                    $"DELIVERY_FIELD_DROPPED field={field} status={MoneyAlarmLog.LogId(status ?? "none")} "
+                    + $"deliveryId={MoneyAlarmLog.LogId(operation.EntityId)}");
+            }
+        }
+    }
+
+    /// <summary>
     /// SIM-08: the client's optimistic-concurrency version. The contract carries it as
     /// the op-level clientVersion; the shipped clients send data.version. Both are
     /// honoured, op-level first. Returns false (version 0) when neither is present.
@@ -7700,6 +9742,109 @@ public partial class SyncFunction
         return false;
     }
 
+    /// <summary>
+    /// SIM-28: the version the client sent when the stored row has moved past it (another device
+    /// or party changed the entity first), else null. A status change that is invalid against the
+    /// stored row then comes from the loser of a race: it is answered <c>conflict</c> with the row,
+    /// like any version conflict. With a current, newer or missing version the invalid-transition
+    /// error stands.
+    /// </summary>
+    private static int? StaleClientVersion(SyncOperationRequest operation, int storedVersion)
+        => TryGetClientVersion(operation, out var sent) && sent < storedVersion ? sent : null;
+
+    /// <summary>A version conflict answered with the stored row (server wins).</summary>
+    private static SyncOperationResult StaleVersionConflict(
+        SyncOperationRequest operation, int serverVersion, int clientVersion, Dictionary<string, object> serverData) => new()
+        {
+            OperationId = operation.OperationId,
+            Status = "conflict",
+            ServerVersion = serverVersion,
+            ServerData = serverData,
+            Message = $"Version conflict: server has version {serverVersion}, client expected {clientVersion}."
+        };
+
+    /// <summary>
+    /// True when a delivery update's payload holds a field the update write stores: an allowed,
+    /// mutable field that is not an echo (the write loop's own skip rules).
+    /// </summary>
+    private static bool HasStorableDeliveryField(Dictionary<string, object>? data)
+        => data != null && data.Keys.Any(k =>
+            k is not ("deliveryId" or "version" or "createdAt" or "updatedAt" or "qrToken")
+            && AllowedDeliveryFields.Contains(k)
+            && !ImmutableDeliveryFields.Contains(k));
+
+    /// <summary>
+    /// The refusal for a delivery update from a caller who is no party to the delivery: always
+    /// <c>DELIVERY_UNAUTHORIZED</c>, with the role sentence of the requested status and nothing
+    /// about the delivery itself.
+    /// </summary>
+    private static string NonPartyDeliveryRefusal(string? requestedStatus) => requestedStatus switch
+    {
+        "pickedUp" or "inTransit" => $"DELIVERY_UNAUTHORIZED: Only the trucker can mark as {requestedStatus}.",
+        "delivered" => "DELIVERY_UNAUTHORIZED: Only the buyer can confirm delivery.",
+        "disputed" => "DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery.",
+        _ => "DELIVERY_UNAUTHORIZED: You can only update your own deliveries."
+    };
+
+    /// <summary>
+    /// SIM-28: whether <paramref name="userId"/> may ask for <paramref name="status"/> on this delivery
+    /// (the role rules of the delivery update): the trucker picks up and drives, the buyer confirms,
+    /// any party disputes.
+    /// </summary>
+    private static bool MayRequestDeliveryStatus(Dictionary<string, AttributeValue> delivery, string? userId, string? status)
+        => status switch
+        {
+            "pickedUp" or "inTransit" => IsParty(delivery, userId, "truckerId"),
+            "delivered" => IsParty(delivery, userId, "buyerId"),
+            "disputed" => IsParty(delivery, userId, "buyerId", "farmerId", "truckerId"),
+            _ => false
+        };
+
+    /// <summary>
+    /// FUP-128: an update that reaches a delivery already cancelled (or soft-deleted before 1.9.0).
+    /// When the client is behind the stored version (another party or the system cancelled the
+    /// delivery while it was offline) and may make this change (the SIM-28 rule for a status; the
+    /// trucker, or the farmer storing the pickup nonce, for any other field), the answer is a
+    /// conflict with the stored row, so the client takes the cancelled delivery (server wins)
+    /// instead of retrying an error. Null otherwise: the caller keeps its refusal, so anyone else
+    /// never gets the row, and a current, newer or missing version is still an error.
+    /// </summary>
+    private static SyncOperationResult? CancelledDeliveryConflict(
+        SyncOperationRequest operation, Dictionary<string, AttributeValue> delivery, string? userId)
+    {
+        var storedVersion = ItemVersion(delivery);
+        if (StaleClientVersion(operation, storedVersion) is null)
+        {
+            return null;
+        }
+
+        var data = operation.Data!;
+        var mayAsk = data.TryGetValue("status", out var requestedStatus)
+            ? MayRequestDeliveryStatus(delivery, userId, requestedStatus?.ToString())
+            : IsParty(delivery, userId, "truckerId")
+                || (data.ContainsKey("qrNonce") && IsParty(delivery, userId, "farmerId"));
+        if (!mayAsk)
+        {
+            return null;
+        }
+
+        return new SyncOperationResult
+        {
+            OperationId = operation.OperationId,
+            Status = "conflict",
+            ServerVersion = storedVersion,
+            ServerData = ScrubDeliveryForClient(CropRepository.FromItem(delivery)),
+            Message = "DELIVERY_ALREADY_CANCELLED: The delivery is already cancelled."
+        };
+    }
+
+    /// <summary>The <c>version</c> of a raw DynamoDB row, 0 when it has none.</summary>
+    private static int ItemVersion(Dictionary<string, AttributeValue> row)
+        => row.TryGetValue("version", out var versionAttr)
+           && int.TryParse(versionAttr.N, NumberStyles.Integer, CultureInfo.InvariantCulture, out var version)
+            ? version
+            : 0;
+
     private static SyncOperationResult OrderValidationError(SyncOperationRequest operation, string message) => new()
     {
         OperationId = operation.OperationId,
@@ -7722,7 +9867,8 @@ public partial class SyncFunction
     /// <summary>
     /// SIM-05: bind an order create to the listing it references (existence is checked
     /// by the caller). Returns an error message without the code prefix, or null when
-    /// clean. Overwrites farmerName from the listing so the client cannot spoof it.
+    /// clean. Overwrites farmerName from the listing so the client cannot spoof it
+    /// (empty when the listing has no real name, FUP-130).
     /// </summary>
     private static string? BindOrderToListing(
         Dictionary<string, object> data, Dictionary<string, object> listing, string? buyerId)
@@ -7769,9 +9915,18 @@ public partial class SyncFunction
                 + $"the listing stock ({stockKg.ToString("0.##", CultureInfo.InvariantCulture)} kg).";
         }
 
-        if (listing.TryGetValue("farmerName", out var lfn) && !string.IsNullOrWhiteSpace(lfn?.ToString()))
+        // FUP-130: always the listing's name, never the client's copy (apps used to send the
+        // farmer's id when the listing had no name). A listing without a real name leaves the
+        // field empty and the apps show their own label; the field stays on the row because
+        // released apps read it as a string.
+        data["farmerName"] = PartyName.OrEmpty(listing.GetValueOrDefault("farmerName")?.ToString(), listingFarmerId);
+
+        // The farm's place for the trip bookings row (order-lifecycle 2.2.0), from the read this
+        // bind already makes; a listing without one leaves the field off the row.
+        var pickupPlace = listing.GetValueOrDefault("locationName")?.ToString();
+        if (!string.IsNullOrWhiteSpace(pickupPlace))
         {
-            data["farmerName"] = lfn.ToString()!;
+            data["pickupPlace"] = pickupPlace.Trim();
         }
 
         return null;
@@ -7788,6 +9943,8 @@ public partial class SyncFunction
         string truckerId,
         double quantityKg,
         double? clientTransportCost,
+        DateTime nowUtc,
+        bool enforceBookings,
         out double transportCost)
     {
         transportCost = 0.0;
@@ -7803,6 +9960,37 @@ public partial class SyncFunction
             || !string.Equals(tripTruckerId, truckerId, StringComparison.Ordinal))
         {
             return "truckerId must be the trucker on the trip.";
+        }
+
+        // L-7: a trip whose Ethiopia day is over has left, whatever the flag. A buyer's phone
+        // may still list it from an old cache, offline, and queue an order on it. The trip's
+        // own code, which clients treat as permanent and explain ("choose again").
+        if (TryParseDepartureDateUtc(AttrString(trip, "departureDate"), requireIsoShape: false, out var leftUtc)
+            && TripDeparture.HasDeparted(leftUtc, nowUtc))
+        {
+            return $"{OrderCommitment.TripNotEligibleCode}: This trip has already left; choose another trip.";
+        }
+
+        // ESC-15/17: the farmer and the trucker each get a window to answer before the truck
+        // leaves, so a trip departing within 24 hours takes no new order; and the order must
+        // fit in what the trip still has free (the atomic hold happens at funding). GET /trips
+        // tells the apps this lead (OrderCommitment.OrderLeadHours, FUP-122) so their match
+        // suggestions drop the same trips with the same comparison.
+        if (enforceBookings)
+        {
+            if (TryParseDepartureDateUtc(AttrString(trip, "departureDate"), requireIsoShape: false, out var departureUtc)
+                && departureUtc < nowUtc + OrderCommitment.ResponseWindow)
+            {
+                // ESC-16: the lead is the response window read from SSM (24 hours by default).
+                return $"This trip leaves within {OrderTimings.HoursText(OrderCommitment.ResponseWindow)} hours; choose a later trip.";
+            }
+
+            var remaining = RemainingQuintalsOf(trip);
+            if (remaining < quantityKg / KgPerQuintal - MoneyTolerance)
+            {
+                return "TRIP_CAPACITY_EXCEEDED: The trip has only "
+                    + $"{remaining.ToString("0.##", CultureInfo.InvariantCulture)} quintals free.";
+            }
         }
 
         var pricePerQuintal = trip.TryGetValue("pricePerQuintal", out var pq)
@@ -7821,9 +10009,16 @@ public partial class SyncFunction
                 + $"({transportCost.ToString("0.00", CultureInfo.InvariantCulture)} ETB).";
         }
 
-        if (trip.TryGetValue("truckerName", out var tn) && !string.IsNullOrEmpty(tn.S))
+        // FUP-130: always the trip's name, never the client's copy. truckerName is optional on
+        // an order, so a trip without a real name leaves it off the row.
+        var tripTruckerName = PartyName.OrEmpty(AttrString(trip, "truckerName"), tripTruckerId);
+        if (tripTruckerName.Length > 0)
         {
-            data["truckerName"] = tn.S;
+            data["truckerName"] = tripTruckerName;
+        }
+        else
+        {
+            data.Remove("truckerName");
         }
 
         return null;
@@ -7870,7 +10065,7 @@ public partial class SyncFunction
         if (data.TryGetValue("quantity", out var qObj))
         {
             if (!decimal.TryParse(qObj?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var qty)
-                || qty <= 0 || qty > MaxOrderKg)
+                || qty < MinOrderKg || qty > MaxOrderKg)
             {
                 errors.Add("quantity must be between 0.01 and 1000000 kg.");
             }
@@ -7950,8 +10145,27 @@ public partial class SyncFunction
             }
         }
 
+        // LT-12: one line of at most 80 user-visible characters (OrderDropoffNote.Length).
+        if (data.TryGetValue(OrderDropoffNote.Field, out var noteObj)
+            && OrderDropoffNote.ValidationError(noteObj) is { } noteError)
+        {
+            errors.Add(noteError);
+        }
+
+        // LT-14: the drop-off point, both or neither, inside Ethiopia's box.
+        if (OrderDeliveryLocation.ValidationError(data) is { } locationError)
+        {
+            errors.Add(locationError);
+        }
+
         return errors;
     }
+
+    /// <summary>
+    /// SIM-30: an ETB amount to the santim (2 dp), halves away from zero, the rounding of the escrow
+    /// money (<c>EscrowService.RoundMoney</c>) and of the apps' order preview (<c>roundEtb</c>).
+    /// </summary>
+    private static decimal RoundEtb(decimal amount) => Math.Round(amount, 2, MidpointRounding.AwayFromZero);
 
     /// <summary>
     /// Get the platform commission rate from SSM with 15-minute cache.

@@ -43,12 +43,31 @@ internal static class DynamoDbHelper
     /// <summary>
     /// Convert an object value to a DynamoDB AttributeValue.
     /// Handles string, number, boolean types (AOT-safe, no reflection).
+    /// A string sequence becomes an L of S (crop <c>photoIds</c>, crop-listing-api 1.6.0); a
+    /// JsonElement array still becomes an S of its raw text, as other entities rely on that.
     /// </summary>
     internal static AttributeValue ToAttributeValue(object value)
     {
         return value switch
         {
             string s => new AttributeValue { S = s },
+            // ESC-20: a map (the escrow's legStatus, a split verdict's amounts) becomes an M.
+            // FUP-144: IsMSet, so an empty map is sent as an empty M. Without it the SDK sends an attribute
+            // with no type and DynamoDB refuses the whole write.
+            IDictionary<string, object> map => new AttributeValue
+            {
+                M = map.Where(kv => kv.Value != null).ToDictionary(kv => kv.Key, kv => ToAttributeValue(kv.Value)),
+                IsMSet = true
+            },
+            IDictionary<string, string> map => new AttributeValue
+            {
+                M = map.ToDictionary(kv => kv.Key, kv => new AttributeValue { S = kv.Value }),
+                IsMSet = true
+            },
+            IEnumerable<string> list => new AttributeValue
+            {
+                L = list.Select(item => new AttributeValue { S = item }).ToList()
+            },
             int n => new AttributeValue { N = n.ToString(CultureInfo.InvariantCulture) },
             long n => new AttributeValue { N = n.ToString(CultureInfo.InvariantCulture) },
             double d => new AttributeValue { N = d.ToString(CultureInfo.InvariantCulture) },

@@ -154,11 +154,15 @@ public sealed class OrderMoneyMirror
         var status = Str(escrow, "status");
         var queued = string.Equals(Str(escrow, ManualPayoutFields.Marker), ManualPayoutFields.MarkerOpen, StringComparison.Ordinal);
         var queuedRelease = queued && Str(escrow, ManualPayoutFields.Op) == ManualPayoutFields.OpRelease;
+        // ESC-20: a ledger escrow whose crop leg is released has its release decided: its rows are open
+        // (the gateway, the sweep or the manual queue), so the order is disbursing (escrow-protocol.md P.5).
+        var ledgerReleaseDecided = LedgerEscrowFields.IsLedger(escrow)
+                                   && LedgerEscrow.From(escrow).LegState(LedgerEscrowFields.LegCrop) == LedgerEscrowFields.Released;
         return status switch
         {
             "completed" when !Flag(escrow, TruckerPayoutFields.Pending) && !queued => OrderMoneyTarget.Settled,
             "completed" or "released" => OrderMoneyTarget.Disbursing,
-            "escrowed" when queuedRelease => OrderMoneyTarget.Disbursing,
+            "escrowed" when queuedRelease || ledgerReleaseDecided => OrderMoneyTarget.Disbursing,
             "refunded" => OrderMoneyTarget.Refunded,
             _ => OrderMoneyTarget.None
         };
@@ -226,7 +230,10 @@ public sealed class OrderMoneyMirror
 
     private async Task<OrderMoneyResult> FollowVerdictAsync(Dictionary<string, object> escrow, ILambdaContext? context)
     {
-        var resolution = Str(escrow, "disputeResolution") ?? "";
+        // ESC-20: a ledger split (partial_refund) needs the goods delivered, so the order follows it as farmer_wins.
+        var resolution = LedgerEscrowFields.IsLedger(escrow)
+            ? DisputeVerdicts.MirrorDirection(Str(escrow, "disputeResolution"))
+            : Str(escrow, "disputeResolution") ?? "";
         if (resolution is not ("farmer_wins" or "buyer_wins")
             || Str(escrow, "status") is not ("released" or "completed" or "refunded"))
         {
@@ -256,10 +263,25 @@ public sealed class OrderMoneyMirror
             _ => OrderMoneyOutcome.Failed
         };
 
+        // FUP-64: the admin settled this verdict as it is because its order cannot follow it (missing, closed, or
+        // behind a delivery that cannot): the order agrees with money that moved the verdict's way.
+        if (outcome == OrderMoneyOutcome.Mismatch && SettledAsIs(escrow, resolution))
+        {
+            return new(OrderMoneyOutcome.Consistent, OrderMoneyTarget.Verdict, result.OrderId, orderStatus);
+        }
+
         // The delivery leg alone may still be missing the verdict; that is the verdict's repair, not a mismatch here.
         return new(outcome, OrderMoneyTarget.Verdict, result.OrderId, orderStatus,
             outcome is OrderMoneyOutcome.Mismatch or OrderMoneyOutcome.Failed ? $"verdict:{result.FailedLegs ?? result.Order.ToString()}" : null);
     }
+
+    /// <summary>
+    /// FUP-64: the escrow carries the admin's <c>settle_as_is</c> and its money moved the verdict's way
+    /// (<c>buyer_wins</c> refunded, <c>farmer_wins</c> released or completed).
+    /// </summary>
+    private static bool SettledAsIs(Dictionary<string, object> escrow, string resolution)
+        => Str(escrow, DisputeDispositionFields.Disposition) == DisputeDisposition.SettleAsIs
+           && (resolution, Str(escrow, "status")) is ("buyer_wins", "refunded") or ("farmer_wins", "released" or "completed");
 
     private static OrderMoneyResult Ahead(Dictionary<string, object> order, string orderId, OrderMoneyTarget target)
     {

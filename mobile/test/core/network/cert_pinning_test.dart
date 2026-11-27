@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:wereda_connect/core/auth/token_refresh.dart';
 import 'package:wereda_connect/core/network/amazon_trust_roots.dart';
 import 'package:wereda_connect/core/network/cert_pinning_io.dart';
 
@@ -71,6 +72,55 @@ void main() {
       final client = adapter.createHttpClient!();
       expect(client, isA<HttpClient>());
       client.close(force: true);
+    });
+  });
+
+  // MOB-02: the refresh token used to go out on a separate plain Dio that
+  // trusted the system roots.
+  group('buildRefreshDio', () {
+    Dio pinnedApiDio() {
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: 'https://api.test',
+          connectTimeout: const Duration(seconds: 7),
+          receiveTimeout: const Duration(seconds: 9),
+          headers: {'X-App-Build': '42'},
+        ),
+      );
+      applyCertPinning(dio);
+      return dio;
+    }
+
+    test('sends the refresh call through the API client\'s pinned adapter', () {
+      final apiDio = pinnedApiDio();
+
+      final refreshDio = buildRefreshDio(apiDio);
+
+      expect(refreshDio.httpClientAdapter, isA<IOHttpClientAdapter>());
+      expect(
+        refreshDio.httpClientAdapter,
+        same(apiDio.httpClientAdapter),
+        reason: 'a separate adapter would fall back to the system trust store',
+      );
+      final adapter = refreshDio.httpClientAdapter as IOHttpClientAdapter;
+      expect(adapter.createHttpClient, isNotNull);
+    });
+
+    test('copies the base configuration and adds only the given interceptors',
+        () {
+      final apiDio = pinnedApiDio();
+      final apiOnly = InterceptorsWrapper();
+      apiDio.interceptors.add(apiOnly);
+      final extra = InterceptorsWrapper();
+
+      final refreshDio = buildRefreshDio(apiDio, interceptors: [extra]);
+
+      expect(refreshDio.options.baseUrl, 'https://api.test');
+      expect(refreshDio.options.connectTimeout, const Duration(seconds: 7));
+      expect(refreshDio.options.receiveTimeout, const Duration(seconds: 9));
+      expect(refreshDio.options.headers['X-App-Build'], '42');
+      expect(refreshDio.interceptors, contains(extra));
+      expect(refreshDio.interceptors, isNot(contains(apiOnly)));
     });
   });
 

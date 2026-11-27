@@ -18,9 +18,12 @@ export 'package:wereda_connect/features/order/presentation/bloc/order_checkout_s
 /// errors propagate.
 typedef OrderReader = Future<Order?> Function(String orderId);
 
-/// Statuses that mean the order is paid: funded, or further along.
+/// Statuses that mean the order is paid: funded, or further along. ESC-15:
+/// a paid trip order whose trip was full or gone at funding goes straight to
+/// `awaitingTransport`, with the money held.
 const Set<OrderStatus> paidOrderStatuses = {
   OrderStatus.funded,
+  OrderStatus.awaitingTransport,
   OrderStatus.accepted,
   OrderStatus.pickupConfirmed,
   OrderStatus.inTransit,

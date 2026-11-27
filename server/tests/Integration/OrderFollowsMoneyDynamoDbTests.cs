@@ -6,6 +6,7 @@ using FluentAssertions;
 using NSubstitute;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
 using Xunit;
@@ -228,11 +229,13 @@ public sealed class OrderFollowsMoneyDynamoDbTests
             .Select(r => $"{Str(r, "fromState")}>{Str(r, "toState")}")
             .ToList();
 
-    private static ReleaseEscrowRequest Release(string escrowId, string trigger = "delivery_confirmed") => new()
+    // FUP-147 (ESC-20): a release naming a delivery that is not the escrow's linked one is refused,
+    // so a test whose escrow is linked passes its delivery id.
+    private static ReleaseEscrowRequest Release(string escrowId, string trigger = "delivery_confirmed", string deliveryId = "-") => new()
     {
         EscrowId = escrowId,
         Trigger = trigger,
-        DeliveryId = "-",
+        DeliveryId = deliveryId,
         IdempotencyKey = $"system:{escrowId}:release:{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}"
     };
 
@@ -656,7 +659,7 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         refund.IsSuccess.Should().BeFalse();
         Str(await OrderAsync(orderId), OrderMoneyFields.RefundOverrideBy).Should().Be(AdminId);
 
-        (await Service().ReleaseAsync(Release(escrowId), "system")).IsSuccess.Should().BeTrue();
+        (await Service().ReleaseAsync(Release(escrowId, deliveryId: deliveryId), "system")).IsSuccess.Should().BeTrue();
 
         (await OrderStatusAsync(orderId)).Should().Be("settled");
     }
@@ -679,15 +682,27 @@ public sealed class OrderFollowsMoneyDynamoDbTests
     {
         private int _failures = failures;
 
-        public Task<Dictionary<string, object>?> TryAdvanceStatusAsync(string orderId, string fromStatus, string toStatus)
+        public Task<Dictionary<string, object>?> TryAdvanceStatusAsync(string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields = null)
             => Interlocked.Decrement(ref _failures) >= 0
                 ? throw new ProvisionedThroughputExceededException("throttled")
-                : inner.TryAdvanceStatusAsync(orderId, fromStatus, toStatus);
+                : inner.TryAdvanceStatusAsync(orderId, fromStatus, toStatus, extraFields);
+
+        public Task<List<Dictionary<string, object>>> QueryByTripAsync(string tripId) => inner.QueryByTripAsync(tripId);
+        public Task<List<Dictionary<string, object>>> QueryByListingAsync(string listingId) => inner.QueryByListingAsync(listingId);
+        public Task<Dictionary<string, object>?> TryAdvanceStatusUnlessAsync(string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields, string unlessField, string unlessValue) => inner.TryAdvanceStatusUnlessAsync(orderId, fromStatus, toStatus, extraFields, unlessField, unlessValue);
+        public Task<bool> TryStampAsync(string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expectedStrings) => inner.TryStampAsync(orderId, fields, expectedStrings);
+        public Task<bool> TryRecordCheckInAsync(string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen) => inner.TryRecordCheckInAsync(orderId, createdAt, kind, entry, whileOpen);
+        public Task<bool> TryRecordDropoffCheckInAsync(string orderId, Dictionary<string, object> entry, bool whileOpen) => inner.TryRecordDropoffCheckInAsync(orderId, entry, whileOpen);
+        public Task<bool> TryRecordDropoffAttemptAsync(string orderId, Dictionary<string, object> entry) => inner.TryRecordDropoffAttemptAsync(orderId, entry);
+        public Task<bool> TryRecordLateDropoffAttemptAsync(string orderId, Dictionary<string, object> entry) => inner.TryRecordLateDropoffAttemptAsync(orderId, entry);
 
         public Task<AuthResult<Dictionary<string, object>>> CreateAsync(string orderId, Dictionary<string, object> data) => inner.CreateAsync(orderId, data);
         public Task<AuthResult<Dictionary<string, object>>> UpdateAsync(string orderId, Dictionary<string, object> data, int expectedVersion) => inner.UpdateAsync(orderId, data, expectedVersion);
         public Task<OrderLinkedWriteResult> TryUpdateWithAsync(string orderId, Dictionary<string, object> data, int expectedVersion, string expectedStatus, IReadOnlyList<TransactWriteItem> linkedItems) => inner.TryUpdateWithAsync(orderId, data, expectedVersion, expectedStatus, linkedItems);
+        public Task<OrderLinkedWriteResult> TryUpdateGuardedAsync(string orderId, Dictionary<string, object> set, IReadOnlyCollection<string> remove, int expectedVersion, IReadOnlyDictionary<string, string> expectedStrings, IReadOnlyCollection<string> expectedAbsent, IReadOnlyList<TransactWriteItem> linkedItems) => inner.TryUpdateGuardedAsync(orderId, set, remove, expectedVersion, expectedStrings, expectedAbsent, linkedItems);
         public Task<AuthResult<Dictionary<string, object>>> UpdateUnlessEscrowHeldAsync(string orderId, Dictionary<string, object> data, int expectedVersion, EscrowRowKey escrow) => inner.UpdateUnlessEscrowHeldAsync(orderId, data, expectedVersion, escrow);
+        public TransactWriteItem BuildNotClosedCheck(string orderId, string createdAt) => inner.BuildNotClosedCheck(orderId, createdAt);
+        public TransactWriteItem BuildAdminQueueEntryCheck(string orderId, string createdAt, string queuedAt, string? escrowId) => inner.BuildAdminQueueEntryCheck(orderId, createdAt, queuedAt, escrowId);
         public Task<Dictionary<string, object>?> GetByIdAsync(string orderId) => inner.GetByIdAsync(orderId);
         public Task<Dictionary<string, object>?> GetByIdAsync(string orderId, bool consistentRead) => inner.GetByIdAsync(orderId, consistentRead);
         public Task<Dictionary<string, object>?> TryMarkFundedAsync(string orderId, Dictionary<string, object> fields) => inner.TryMarkFundedAsync(orderId, fields);
@@ -695,11 +710,15 @@ public sealed class OrderFollowsMoneyDynamoDbTests
         public Task ReleaseDeliverySlotAsync(string orderId, string deliveryId) => inner.ReleaseDeliverySlotAsync(orderId, deliveryId);
         public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryOrdersAsync(string? buyerId = null, string? farmerId = null, string? truckerId = null, string? status = null, string? listingId = null, int limit = 20, Dictionary<string, AttributeValue>? exclusiveStartKey = null) => inner.QueryOrdersAsync(buyerId, farmerId, truckerId, status, listingId, limit, exclusiveStartKey);
         public Task<List<Dictionary<string, object>>> QueryByStatusForCronAsync(string status, string? createdBefore = null) => inner.QueryByStatusForCronAsync(status, createdBefore);
+        public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByStatusCreatedSinceAsync(string status, string createdSince, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => inner.QueryByStatusCreatedSinceAsync(status, createdSince, limit, exclusiveStartKey);
         public Task<bool> TryEnterAdminQueueAsync(string orderId, string reason, string escrowId, string queuedAt, string expectedStatus) => inner.TryEnterAdminQueueAsync(orderId, reason, escrowId, queuedAt, expectedStatus);
         public Task<bool> TryLeaveAdminQueueAsync(string orderId, string seenQueuedAt) => inner.TryLeaveAdminQueueAsync(orderId, seenQueuedAt);
         public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryAdminQueueAsync(int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => inner.QueryAdminQueueAsync(limit, exclusiveStartKey);
         public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryMoneySweepPageAsync(string status, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => inner.QueryMoneySweepPageAsync(status, limit, exclusiveStartKey);
         public Task<bool> TryMarkMoneySweepSkipAsync(string orderId, string status, string markedAt) => inner.TryMarkMoneySweepSkipAsync(orderId, status, markedAt);
+        public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDueDeadlinesAsync(string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => inner.QueryDueDeadlinesAsync(dueBefore, limit, exclusiveStartKey);
+        public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDeadlinePartitionAsync(string shard, string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => inner.QueryDeadlinePartitionAsync(shard, dueBefore, limit, exclusiveStartKey);
+        public Task<bool> TrySetDeadlineAsync(string orderId, string createdAt, int expectedVersion, OrderDeadline? deadline) => inner.TrySetDeadlineAsync(orderId, createdAt, expectedVersion, deadline);
         public Task<bool> TryHoldForPaymentAsync(string orderId, string holdUntil, string? paymentSubmittedAt) => inner.TryHoldForPaymentAsync(orderId, holdUntil, paymentSubmittedAt);
         public Task<bool> TryMarkPaymentFailedAsync(string orderId, int expectedVersion, string nowIso) => inner.TryMarkPaymentFailedAsync(orderId, expectedVersion, nowIso);
     }

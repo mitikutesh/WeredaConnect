@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+
+import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
 
 /// Visual timeline of escrow state transitions.
 ///
@@ -156,9 +158,7 @@ class _TimelineStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isReached
-        ? theme.colorScheme.primary
-        : theme.colorScheme.outline.withValues(alpha: 0.3);
+    final color = isReached ? theme.colorScheme.primary : AppTheme.track;
 
     return IntrinsicHeight(
       child: Row(
@@ -204,12 +204,12 @@ class _TimelineStep extends StatelessWidget {
                           isCurrent ? FontWeight.bold : FontWeight.normal,
                       color: isReached
                           ? theme.colorScheme.onSurface
-                          : theme.colorScheme.outline,
+                          : AppTheme.inkSoft,
                     ),
                   ),
                   if (timestamp != null)
                     Text(
-                      _formatTimestamp(timestamp!),
+                      clockFormatOf(context).dateTime(timestamp!),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color:
                             theme.colorScheme.onSurface.withValues(alpha: 0.6),
@@ -222,9 +222,5 @@ class _TimelineStep extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  String _formatTimestamp(DateTime dt) {
-    return DateFormat.yMMMd().add_jm().format(dt);
   }
 }

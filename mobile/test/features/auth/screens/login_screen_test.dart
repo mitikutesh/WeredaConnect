@@ -6,6 +6,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -15,6 +17,7 @@ import 'package:wereda_connect/features/auth/screens/login_screen.dart';
 import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
+import 'package:wereda_connect/shared/providers/language_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -27,6 +30,7 @@ class FakeAuthState extends Fake implements AuthState {}
 
 void main() {
   late MockAuthBloc authBloc;
+  late LanguageProvider languageProvider;
 
   setUpAll(() {
     registerFallbackValue(FakeAuthEvent());
@@ -34,6 +38,8 @@ void main() {
   });
 
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    languageProvider = LanguageProvider();
     authBloc = MockAuthBloc();
 
     // Default: unauthenticated, no loading
@@ -49,20 +55,27 @@ void main() {
       when(() => authBloc.stream).thenAnswer((_) => stream);
     }
 
-    return BlocProvider<AuthBloc>.value(
-      value: authBloc,
-      child: MaterialApp(
-        locale: locale,
-        // Same delegates as main.dart / main_web.dart, so Afan Oromo (no
-        // Material localizations of its own) renders too.
-        localizationsDelegates: const [
-          AppLocalizations.delegate,
-          FallbackMaterialLocalizationsDelegate(),
-          GlobalWidgetsLocalizations.delegate,
-          FallbackCupertinoLocalizationsDelegate(),
-        ],
-        supportedLocales: AppLocalizations.supportedLocales,
-        home: const LoginScreen(),
+    // As in main.dart: the app locale follows LanguageProvider, so the
+    // login screen's language switch changes the whole screen.
+    return ChangeNotifierProvider<LanguageProvider>.value(
+      value: languageProvider,
+      child: BlocProvider<AuthBloc>.value(
+        value: authBloc,
+        child: Consumer<LanguageProvider>(
+          builder: (context, language, _) => MaterialApp(
+            locale: locale ?? language.locale,
+            // Same delegates as main.dart / main_web.dart, so Afan Oromo (no
+            // Material localizations of its own) renders too.
+            localizationsDelegates: const [
+              AppLocalizations.delegate,
+              FallbackMaterialLocalizationsDelegate(),
+              GlobalWidgetsLocalizations.delegate,
+              FallbackCupertinoLocalizationsDelegate(),
+            ],
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const LoginScreen(),
+          ),
+        ),
       ),
     );
   }
@@ -107,17 +120,120 @@ void main() {
       // Password field
       expect(find.text('Password'), findsWidgets);
 
-      // Login button
-      expect(find.text('Login'), findsWidgets);
+      // Login button: the first run opens in the Farmer look
+      expect(find.text('Login as Farmer'), findsOneWidget);
 
       // Register link
-      expect(find.text('Register'), findsOneWidget);
+      expect(find.text("Don't have an account? Register"), findsOneWidget);
 
       // Forgot password
       expect(find.text('Forgot Password?'), findsOneWidget);
 
-      // Language selector icon
-      expect(find.byIcon(Icons.language), findsOneWidget);
+      // Inline language switch, each language in its own script
+      expect(find.text('LANGUAGE'), findsOneWidget);
+      expect(find.text('English'), findsOneWidget);
+      expect(find.text('አማርኛ'), findsOneWidget);
+      expect(find.text('Afaan Oromoo'), findsOneWidget);
+
+      // Branding copy comes from l10n, not hardcoded English
+      expect(find.text('Works without network'), findsOneWidget);
+      expect(
+        find.text('Sell your harvest and follow every order'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Payments held safely in escrow · Telebirr Payment'),
+        findsOneWidget,
+      );
+    });
+
+    for (final size in const [
+      Size(500, 900),
+      Size(800, 1000),
+      Size(1280, 900),
+    ]) {
+      testWidgets('language switch shows on a ${size.width.toInt()} px layout',
+          (tester) async {
+        setMobileSize(tester, size: size);
+        await tester.pumpWidget(buildTestWidget());
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const ValueKey('language-am')), findsOneWidget);
+        expect(find.byKey(const ValueKey('language-om')), findsOneWidget);
+      });
+    }
+
+    testWidgets('tapping Amharic switches and persists the language',
+        (tester) async {
+      setMobileSize(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('language-am')));
+      await tester.pumpAndSettle();
+
+      expect(languageProvider.locale, const Locale('am'));
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('selected_language'), 'am');
+      // The screen re-renders in Amharic.
+      final am = await AppLocalizations.delegate.load(const Locale('am'));
+      expect(find.text(am.offlineReady), findsOneWidget);
+      expect(find.text(am.loginNoAccountRegister), findsOneWidget);
+      // The selected segment reports itself to screen readers. Read the
+      // Semantics widget, not a matcher: CI's Flutter 3.38 lacks
+      // isSemantics and 3.40 deprecates containsSemantics.
+      Semantics segment(String code) => tester.widget<Semantics>(
+            find
+                .descendant(
+                  of: find.byKey(ValueKey('language-$code')),
+                  matching: find.byType(Semantics),
+                )
+                .first,
+          );
+      expect(segment('am').properties.selected, isTrue);
+      expect(segment('am').properties.button, isTrue);
+      expect(segment('en').properties.selected, isFalse);
+    });
+
+    testWidgets('tapping Afaan Oromoo switches the language', (tester) async {
+      setMobileSize(tester);
+      await tester.pumpWidget(buildTestWidget());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('language-om')));
+      await tester.pumpAndSettle();
+
+      expect(languageProvider.locale, const Locale('om'));
+      final om = await AppLocalizations.delegate.load(const Locale('om'));
+      expect(
+        find.text('${om.loginEscrowFooter} · ${om.telebirrPayment}'),
+        findsOneWidget,
+      );
+    });
+
+    for (final locale in const [Locale('en'), Locale('am'), Locale('om')]) {
+      testWidgets(
+          'opened after a suspension sign-out, says the account is disabled '
+          '(${locale.languageCode})', (tester) async {
+        setMobileSize(tester);
+        when(() => authBloc.state).thenReturn(const AuthSuspendedSignedOut());
+
+        await tester.pumpWidget(buildTestWidget(locale: locale));
+        await tester.pumpAndSettle();
+
+        final l10n = lookupAppLocalizations(locale);
+        expect(find.text(l10n.authAccountDisabled), findsOneWidget);
+      });
+    }
+
+    testWidgets('a plain sign-out shows no error', (tester) async {
+      setMobileSize(tester);
+
+      await tester.pumpWidget(buildTestWidget(locale: const Locale('en')));
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('en'));
+      expect(find.text(l10n.authAccountDisabled), findsNothing);
     });
 
     testWidgets('phone field starts empty (no pre-fill)', (tester) async {
@@ -245,6 +361,8 @@ void main() {
       // Initially password is obscured (visibility_off icon shown)
       expect(find.byIcon(Icons.visibility_off), findsOneWidget);
       expect(find.byIcon(Icons.visibility), findsNothing);
+      // BUG-L16: the eye says what a tap does.
+      expect(find.byTooltip('Show password'), findsOneWidget);
 
       // Tap the visibility toggle
       await tester.tap(find.byIcon(Icons.visibility_off));
@@ -253,6 +371,8 @@ void main() {
       // Now should show visibility icon (password visible)
       expect(find.byIcon(Icons.visibility), findsOneWidget);
       expect(find.byIcon(Icons.visibility_off), findsNothing);
+      expect(find.byTooltip('Hide password'), findsOneWidget);
+      expect(find.byTooltip('Show password'), findsNothing);
 
       // Tap again to hide
       await tester.tap(find.byIcon(Icons.visibility));
@@ -415,7 +535,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Scroll to make register link visible
-      final registerLink = find.text('Register');
+      final registerLink = find.text("Don't have an account? Register");
       await tester.ensureVisible(registerLink);
       await tester.pumpAndSettle();
 
@@ -464,7 +584,10 @@ void main() {
 
       expect(find.byType(OtpVerificationScreen), findsOneWidget);
       expect(
-        find.text('We sent a 6-digit code by SMS to +251911234567.'),
+        find.text(
+          'We sent a 6-digit code by SMS to '
+          '+251\u00A0911\u00A0234\u00A0567.',
+        ),
         findsOneWidget,
       );
 

@@ -6,16 +6,31 @@ namespace WeredaConnect.Server.Models;
 /// through Fayda. Nullable so a missing token is reported as AUTH_021 by the
 /// validator rather than as a JSON error. The SMS code is still asked for when
 /// Fayda's phone differs from the registration phone.
+///
+/// The auth request bodies mark no member <c>required</c> (auth-api 2.13.0, SIM-27): a
+/// missing field must reach the validator and get its own code (AUTH_001 phone, AUTH_002
+/// password, ...). With <c>required</c> the deserializer threw and the caller got
+/// <c>AUTH_007 Invalid JSON</c>. The source-generated reader does not run the initializers
+/// of init properties: a missing field arrives as null, which the validators treat like a
+/// blank one. The initializers only serve code that builds a request itself.
 /// </summary>
 public sealed record RegisterRequest
 {
-    public required string PhoneNumber { get; init; }
-    public required string Password { get; init; }
-    public required string Role { get; init; }
-    public required string Woreda { get; init; }
+    /// <summary>The language of a registration that names none (auth-api: optional, default am).</summary>
+    public const string DefaultLanguage = "am";
+
+    public string PhoneNumber { get; init; } = "";
+    public string Password { get; init; } = "";
+    public string Role { get; init; } = "";
+    public string Woreda { get; init; } = "";
     public string? FaydaVerificationToken { get; init; }
     public string? DisplayName { get; init; }
-    public string PreferredLanguage { get; init; } = "am";
+
+    /// <summary>
+    /// The initializer does not apply to a parsed body: the source-generated reader leaves an absent
+    /// field null, so RegisterFunction falls back to <see cref="DefaultLanguage"/>.
+    /// </summary>
+    public string PreferredLanguage { get; init; } = DefaultLanguage;
 
     // Buyer-only identity fields (F-32). buyerType is "private" or "company";
     // companyName is required when buyerType is "company". Both must be absent
@@ -43,21 +58,18 @@ public sealed record RegisterResponse
     public string? Message { get; init; }
 }
 
-/// <summary>
-/// POST /auth/login request body.
-/// </summary>
-/// <summary>POST /auth/verify-otp request body.</summary>
+/// <summary>POST /auth/verify-otp request body. No member is <c>required</c> (SIM-27, see <see cref="RegisterRequest"/>).</summary>
 public sealed record VerifyOtpRequest
 {
-    public required string PhoneNumber { get; init; }
-    public required string OtpCode { get; init; }
-    public required string Password { get; init; }
+    public string PhoneNumber { get; init; } = "";
+    public string OtpCode { get; init; } = "";
+    public string Password { get; init; } = "";
 }
 
-/// <summary>POST /auth/resend-otp request body.</summary>
+/// <summary>POST /auth/resend-otp request body. No member is <c>required</c> (SIM-27).</summary>
 public sealed record ResendOtpRequest
 {
-    public required string PhoneNumber { get; init; }
+    public string PhoneNumber { get; init; } = "";
 }
 
 /// <summary>POST /auth/resend-otp response (always 200 for a well-formed phone).</summary>
@@ -67,10 +79,11 @@ public sealed record ResendOtpResponse
     public string? OtpExpiresAt { get; init; }
 }
 
+/// <summary>POST /auth/login request body. No member is <c>required</c> (SIM-27, see <see cref="RegisterRequest"/>).</summary>
 public sealed record LoginRequest
 {
-    public required string PhoneNumber { get; init; }
-    public required string Password { get; init; }
+    public string PhoneNumber { get; init; } = "";
+    public string Password { get; init; } = "";
     public string? DeviceFingerprint { get; init; }
 }
 
@@ -86,6 +99,47 @@ public sealed record LoginResponse
 }
 
 /// <summary>
+/// GET /user/profile success response (200 OK, SIM-56, user-entity.md 2.2.0): the caller's own
+/// profile, as <see cref="UserProfileDto"/>.
+/// </summary>
+public sealed record UserProfileResponse
+{
+    public required UserProfileDto User { get; init; }
+}
+
+/// <summary>
+/// The profile view GET /user/profile returns (user-entity.md 2.2.0 section 14): what the app's
+/// profile and edit screens read, nothing more. Not the sign-in <see cref="UserDto"/>: the Fayda ID
+/// (the FaydaIdIndex key), the install ids, the phone and the verification and suspension flags stay
+/// off this read, so a leaked ID token learns no more than the profile text.
+/// </summary>
+public sealed record UserProfileDto
+{
+    public required string UserId { get; init; }
+    public string? DisplayName { get; init; }
+    public string? FullName { get; init; }
+    public required string Role { get; init; }
+    public required string Woreda { get; init; }
+    public required string PreferredLanguage { get; init; }
+    public string? BuyerType { get; init; }
+    public string? CompanyName { get; init; }
+    public required int Version { get; init; }
+
+    public static UserProfileDto From(UserDto user) => new()
+    {
+        UserId = user.UserId,
+        DisplayName = user.DisplayName,
+        FullName = user.FullName,
+        Role = user.Role,
+        Woreda = user.Woreda,
+        PreferredLanguage = user.PreferredLanguage,
+        BuyerType = user.BuyerType,
+        CompanyName = user.CompanyName,
+        Version = user.Version
+    };
+}
+
+/// <summary>
 /// Token set returned by auth endpoints.
 /// </summary>
 public sealed record TokenResponse
@@ -98,11 +152,11 @@ public sealed record TokenResponse
 }
 
 /// <summary>
-/// POST /auth/refresh request body.
+/// POST /auth/refresh request body. Not <c>required</c>: a missing token is AUTH_017 (SIM-27).
 /// </summary>
 public sealed record RefreshRequest
 {
-    public required string RefreshToken { get; init; }
+    public string RefreshToken { get; init; } = "";
 }
 
 /// <summary>
@@ -115,11 +169,11 @@ public sealed record RefreshResponse
 }
 
 /// <summary>
-/// POST /auth/logout request body.
+/// POST /auth/logout request body. Not <c>required</c>: a missing token is AUTH_017 (SIM-27).
 /// </summary>
 public sealed record LogoutRequest
 {
-    public required string RefreshToken { get; init; }
+    public string RefreshToken { get; init; } = "";
 }
 
 /// <summary>
@@ -151,11 +205,11 @@ public sealed record AuthError
 }
 
 /// <summary>
-/// POST /auth/forgot-password request body.
+/// POST /auth/forgot-password request body. Not <c>required</c>: a missing phone is AUTH_001 (SIM-27).
 /// </summary>
 public sealed record ForgotPasswordRequest
 {
-    public required string PhoneNumber { get; init; }
+    public string PhoneNumber { get; init; } = "";
 }
 
 /// <summary>
@@ -168,13 +222,14 @@ public sealed record ForgotPasswordResponse
 }
 
 /// <summary>
-/// POST /auth/reset-password request body.
+/// POST /auth/reset-password request body. No member is <c>required</c>: a missing field gets
+/// its own code (SIM-27, see <see cref="RegisterRequest"/>).
 /// </summary>
 public sealed record ResetPasswordRequest
 {
-    public required string PhoneNumber { get; init; }
-    public required string ConfirmationCode { get; init; }
-    public required string NewPassword { get; init; }
+    public string PhoneNumber { get; init; } = "";
+    public string ConfirmationCode { get; init; } = "";
+    public string NewPassword { get; init; } = "";
 }
 
 /// <summary>

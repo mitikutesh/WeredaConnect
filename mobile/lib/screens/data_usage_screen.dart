@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// Screen that shows how much data the app has sent and received,
-/// with an option to reset the counters.
+/// with an option to reset the counters. Drawn in the boards' language: the
+/// round back button, a 32 px detail title, the total as the raised card
+/// with its amount in the role's colour, the two counters as sand tiles,
+/// the notes, and the reset button.
 class DataUsageScreen extends StatelessWidget {
   const DataUsageScreen({super.key});
 
@@ -17,62 +22,91 @@ class DataUsageScreen extends StatelessWidget {
     final tracker = Provider.of<DataUsageTracker>(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.dataUsage),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          _StatCard(
-            icon: Icons.download_rounded,
-            label: l10n.dataUsageDownloaded,
-            value: DataUsageTracker.formatBytes(tracker.bytesDownloaded),
-            color: AppTheme.statusInfo,
-          ),
-          const SizedBox(height: 12),
-          _StatCard(
-            icon: Icons.upload_rounded,
-            label: l10n.dataUsageUploaded,
-            value: DataUsageTracker.formatBytes(tracker.bytesUploaded),
-            color: AppTheme.accentGold,
-          ),
-          const SizedBox(height: 12),
-          _StatCard(
-            icon: Icons.data_usage,
-            label: l10n.dataUsageTotal,
-            value: DataUsageTracker.formatBytes(tracker.totalBytes),
-            color: AppTheme.statusSuccess,
-          ),
-          if (tracker.trackingSince != null) ...[
-            const SizedBox(height: 16),
-            Text(
-              '${l10n.dataUsageTrackingSince} '
-              '${DateFormat.yMMMd().format(tracker.trackingSince!)}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.textMuted,
-                  ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-          const SizedBox(height: 8),
-          Text(
-            l10n.dataUsageScopeNote,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppTheme.textMuted,
+      body: SafeArea(
+        child: FwContentWidth(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+            children: [
+              FwStackedHeader(
+                eyebrow: l10n.settings,
+                title: l10n.dataUsage,
+              ),
+              const SizedBox(height: 16),
+              FwCard(
+                raised: true,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    FwSectionLabel(l10n.dataUsageTotal),
+                    const SizedBox(height: 6),
+                    Text(
+                      DataUsageTracker.formatBytes(tracker.totalBytes),
+                      key: const Key('data_usage_total'),
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.9,
+                        height: 1.1,
+                        color: context.roleColors.primary,
+                      ),
+                    ),
+                  ],
                 ),
-            textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(
+                      child: _StatTile(
+                        icon: Icons.download_rounded,
+                        label: l10n.dataUsageDownloaded,
+                        value: DataUsageTracker.formatBytes(
+                          tracker.bytesDownloaded,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _StatTile(
+                        icon: Icons.upload_rounded,
+                        label: l10n.dataUsageUploaded,
+                        value: DataUsageTracker.formatBytes(
+                          tracker.bytesUploaded,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (tracker.trackingSince != null) ...[
+                Text(
+                  '${l10n.dataUsageTrackingSince} '
+                  '${formatDate(tracker.trackingSince!)}',
+                  style: FwText.body,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+              ],
+              Text(
+                l10n.dataUsageScopeNote,
+                style: FwText.body,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.restart_alt),
+                label: Text(l10n.dataUsageReset),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.statusError,
+                ),
+                onPressed: () => _confirmReset(context, l10n, tracker),
+              ),
+            ],
           ),
-          const SizedBox(height: 32),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.restart_alt),
-            label: Text(l10n.dataUsageReset),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.statusError,
-              side: const BorderSide(color: AppTheme.statusError),
-            ),
-            onPressed: () => _confirmReset(context, l10n, tracker),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -92,15 +126,17 @@ class DataUsageScreen extends StatelessWidget {
             onPressed: () => Navigator.of(ctx).pop(),
             child: Text(l10n.cancel),
           ),
-          TextButton(
+          FilledButton(
             onPressed: () {
               tracker.reset();
               Navigator.of(ctx).pop();
             },
-            child: Text(
-              l10n.dataUsageReset,
-              style: const TextStyle(color: AppTheme.statusError),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTheme.statusError,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, 48),
             ),
+            child: Text(l10n.dataUsageReset),
           ),
         ],
       ),
@@ -108,35 +144,52 @@ class DataUsageScreen extends StatelessWidget {
   }
 }
 
-class _StatCard extends StatelessWidget {
+/// One counter on a flat sand tile: the label over the amount.
+class _StatTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
-  final Color color;
 
-  const _StatCard({
+  const _StatTile({
     required this.icon,
     required this.label,
     required this.value,
-    required this.color,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withAlpha(38),
-          child: Icon(icon, color: color),
-        ),
-        title: Text(label),
-        trailing: Text(
-          value,
-          style: Theme.of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(fontWeight: FontWeight.bold),
-        ),
+    return FwCard.sand(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: AppTheme.inkSoft),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.inkSoft,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.4,
+              color: AppTheme.ink,
+            ),
+          ),
+        ],
       ),
     );
   }

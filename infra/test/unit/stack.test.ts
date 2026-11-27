@@ -4,6 +4,8 @@ import { DatabaseStack } from '../../lib/stacks/database-stack';
 import { ApiStack } from '../../lib/stacks/api-stack';
 import { MonitoringStack } from '../../lib/stacks/monitoring-stack';
 import { GithubActionsStack } from '../../lib/stacks/github-actions-stack';
+import { WebStack } from '../../lib/stacks/web-stack';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import { environments, EnvironmentConfig } from '../../lib/config/environments';
 
 const devConfig = environments['dev'];
@@ -21,10 +23,15 @@ describe('DatabaseStack', () => {
     template = Template.fromStack(stack);
   });
 
-  test('creates nineteen DynamoDB tables with PAY_PER_REQUEST billing', () => {
+  test('creates twenty-two DynamoDB tables with PAY_PER_REQUEST billing', () => {
     // 12 core + intents + device_tokens + match_events + ratings + transaction-audit
-    // + delivery-qr-secrets + messages (in-app chat) = 19.
-    template.resourceCountIs('AWS::DynamoDB::Table', 19);
+    // + delivery-qr-secrets + messages (in-app chat) = 19,
+    // + notifications (order notification inbox, ESC-21) = 20,
+    // + trip-locations (live trip check-ins, LT-05) = 21,
+    // + escrow-ledger (per-leg money movements, ESC-20) = 22,
+    // + listing-reports (buyers' reports, FUP-67) = 23,
+    // + reputation-events (ESC-28) = 24.
+    template.resourceCountIs('AWS::DynamoDB::Table', 24);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
@@ -63,6 +70,37 @@ describe('DatabaseStack', () => {
     });
   });
 
+  test('FRD-07: fraud-signals carries one sparse StatusCreatedAtIndex and keeps its keys and TTL', () => {
+    const tables = template.findResources('AWS::DynamoDB::Table', {
+      Properties: { TableName: 'wereda-connect-dev-fraud-signals' },
+    });
+    const ids = Object.keys(tables);
+    expect(ids).toHaveLength(1);
+    const props = tables[ids[0]].Properties;
+    expect(props.KeySchema).toEqual([
+      { AttributeName: 'userId', KeyType: 'HASH' },
+      { AttributeName: 'signalKey', KeyType: 'RANGE' },
+    ]);
+    // A live table's TTL attribute can never be renamed.
+    expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
+    // Exactly one index: CloudFormation adds one GSI per table per update, and credit and
+    // whitelist rows carry no status, so they stay out of the Fraud Review queue.
+    expect(props.GlobalSecondaryIndexes).toEqual([
+      {
+        IndexName: 'StatusCreatedAtIndex',
+        KeySchema: [
+          { AttributeName: 'status', KeyType: 'HASH' },
+          { AttributeName: 'createdAt', KeyType: 'RANGE' },
+        ],
+        Projection: { ProjectionType: 'ALL' },
+      },
+    ]);
+    expect(props.AttributeDefinitions).toEqual(expect.arrayContaining([
+      { AttributeName: 'status', AttributeType: 'S' },
+      { AttributeName: 'createdAt', AttributeType: 'S' },
+    ]));
+  });
+
   test('orders table carries the sparse AdminQueueIndex (ESC-06)', () => {
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       TableName: 'wereda-connect-dev-orders',
@@ -79,6 +117,139 @@ describe('DatabaseStack', () => {
     });
   });
 
+  test('orders table carries the sparse, keys-only DeadlineIndex (ESC-16)', () => {
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      TableName: 'wereda-connect-dev-orders',
+      GlobalSecondaryIndexes: Match.arrayWith([
+        Match.objectLike({
+          IndexName: 'DeadlineIndex',
+          KeySchema: [
+            { AttributeName: 'deadlineShard', KeyType: 'HASH' },
+            { AttributeName: 'nextDeadlineAt', KeyType: 'RANGE' },
+          ],
+          Projection: { ProjectionType: 'KEYS_ONLY' },
+        }),
+      ]),
+    });
+  });
+
+  test('ESC-21: orders, deliveries and escrows stream old and new images to the notifier', () => {
+    // The notification rules compare the old and new status, so NEW_IMAGE is not enough.
+    for (const table of ['orders', 'deliveries', 'escrows']) {
+      template.hasResourceProperties('AWS::DynamoDB::Table', {
+        TableName: `wereda-connect-dev-${table}`,
+        StreamSpecification: { StreamViewType: 'NEW_AND_OLD_IMAGES' },
+      });
+    }
+  });
+
+  test('ESC-21: the notifications inbox is keyed by recipient and sort key, expires on expiresAt, one LSI on write time', () => {
+    const tables = template.findResources('AWS::DynamoDB::Table', {
+      Properties: { TableName: 'wereda-connect-dev-notifications' },
+    });
+    const ids = Object.keys(tables);
+    expect(ids).toHaveLength(1);
+    const props = tables[ids[0]].Properties;
+    expect(props.KeySchema).toEqual([
+      { AttributeName: 'userId', KeyType: 'HASH' },
+      { AttributeName: 'sortKey', KeyType: 'RANGE' },
+    ]);
+    expect(props.AttributeDefinitions).toEqual(expect.arrayContaining([
+      { AttributeName: 'userId', AttributeType: 'S' },
+      { AttributeName: 'sortKey', AttributeType: 'S' },
+      { AttributeName: 'writtenAt', AttributeType: 'S' },
+    ]));
+    expect(props.AttributeDefinitions).toHaveLength(3);
+    // The server writes expiresAt in epoch seconds (90 days after the row is created).
+    expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
+    expect(props.GlobalSecondaryIndexes).toBeUndefined();
+    // The incremental pull reads by write time, strongly consistent (only a local index can).
+    expect(props.LocalSecondaryIndexes).toEqual([
+      {
+        IndexName: 'WrittenAtIndex',
+        KeySchema: [
+          { AttributeName: 'userId', KeyType: 'HASH' },
+          { AttributeName: 'writtenAt', KeyType: 'RANGE' },
+        ],
+        Projection: { ProjectionType: 'ALL' },
+      },
+    ]);
+    // Nothing consumes the inbox as a stream.
+    expect(props.StreamSpecification).toBeUndefined();
+    expect(props.BillingMode).toBe('PAY_PER_REQUEST');
+  });
+
+  test('ESC-21: the notifications table name is a stack output', () => {
+    template.hasOutput('NotificationsTableName', {
+      Value: { Ref: Match.stringLikeRegexp('^NotificationsTable') },
+    });
+  });
+
+  test('LT-05: trip-locations is keyed by trip and sort key, expires on expiresAt, no index and no stream', () => {
+    const tables = template.findResources('AWS::DynamoDB::Table', {
+      Properties: { TableName: 'wereda-connect-dev-trip-locations' },
+    });
+    const ids = Object.keys(tables);
+    expect(ids).toHaveLength(1);
+    const props = tables[ids[0]].Properties;
+    // The sort key is `{capturedAt}#{kind}`: a trip's rows in capture order, a resent ping on the same key.
+    expect(props.KeySchema).toEqual([
+      { AttributeName: 'tripId', KeyType: 'HASH' },
+      { AttributeName: 'sortKey', KeyType: 'RANGE' },
+    ]);
+    expect(props.AttributeDefinitions).toEqual([
+      { AttributeName: 'tripId', AttributeType: 'S' },
+      { AttributeName: 'sortKey', AttributeType: 'S' },
+    ]);
+    // capturedAt + 60 days in epoch seconds. A live table's TTL attribute can never be renamed,
+    // so it is the same name as on the rate-limits, notifications and fraud-signals tables.
+    expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
+    expect(props.GlobalSecondaryIndexes).toBeUndefined();
+    expect(props.LocalSecondaryIndexes).toBeUndefined();
+    expect(props.StreamSpecification).toBeUndefined();
+    expect(props.BillingMode).toBe('PAY_PER_REQUEST');
+    expect(props.PointInTimeRecoverySpecification).toEqual({ PointInTimeRecoveryEnabled: true });
+    // Dev tables are destroyed with the stack; prod retains them (WeredaDynamoTable).
+    expect(tables[ids[0]].DeletionPolicy).toBe('Delete');
+  });
+
+  test('LT-05: the trip-locations table name is a stack output', () => {
+    template.hasOutput('TripLocationsTableName', {
+      Value: { Ref: Match.stringLikeRegexp('^TripLocationsTable') },
+    });
+  });
+
+  test('FUP-67: listing-reports is keyed by listing and reporter, expires on expiresAt, with the status queue index', () => {
+    const tables = template.findResources('AWS::DynamoDB::Table', {
+      Properties: { TableName: 'wereda-connect-dev-listing-reports' },
+    });
+    const ids = Object.keys(tables);
+    expect(ids).toHaveLength(1);
+    const props = tables[ids[0]].Properties;
+    // One report per buyer and listing: the conditional put is on this key.
+    expect(props.KeySchema).toEqual([
+      { AttributeName: 'listingId', KeyType: 'HASH' },
+      { AttributeName: 'reporterId', KeyType: 'RANGE' },
+    ]);
+    expect(props.TimeToLiveSpecification).toEqual({ AttributeName: 'expiresAt', Enabled: true });
+    expect(props.GlobalSecondaryIndexes).toEqual([
+      {
+        IndexName: 'StatusCreatedAtIndex',
+        KeySchema: [
+          { AttributeName: 'status', KeyType: 'HASH' },
+          { AttributeName: 'createdAt', KeyType: 'RANGE' },
+        ],
+        Projection: { ProjectionType: 'ALL' },
+      },
+    ]);
+    expect(props.StreamSpecification).toBeUndefined();
+    expect(props.BillingMode).toBe('PAY_PER_REQUEST');
+    expect(props.PointInTimeRecoverySpecification).toEqual({ PointInTimeRecoveryEnabled: true });
+    template.hasOutput('ListingReportsTableName', {
+      Value: { Ref: Match.stringLikeRegexp('^ListingReportsTable') },
+    });
+  });
+
   test('creates S3 buckets with encryption (uploads + access logs)', () => {
     template.resourceCountIs('AWS::S3::Bucket', 2);
     template.hasResourceProperties('AWS::S3::Bucket', {
@@ -88,6 +259,72 @@ describe('DatabaseStack', () => {
         ],
       },
     });
+  });
+
+  test('FRD-12: the web app may PUT and read delivery photos in the uploads bucket', () => {
+    const uploads = Object.values(
+      template.findResources('AWS::S3::Bucket', {
+        Properties: { VersioningConfiguration: { Status: 'Enabled' } },
+      }),
+    ) as Array<Record<string, any>>;
+    expect(uploads).toHaveLength(1);
+    const rules = uploads[0].Properties.CorsConfiguration.CorsRules;
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toMatchObject({
+      AllowedMethods: ['PUT', 'GET', 'HEAD'],
+      AllowedHeaders: ['Content-Type'],
+    });
+    // The web app and the admin only, never a wildcard.
+    expect(rules[0].AllowedOrigins).toEqual(
+      expect.arrayContaining(['https://dev-app.weredaconnect.com', 'https://dev-admin.weredaconnect.com']),
+    );
+    expect(rules[0].AllowedOrigins).not.toContain('*');
+  });
+
+  // ─── FUP-140: the uploads/photos/ expiry, the kept copies untouched ───
+
+  /** The lifecycle rules of the (versioned) uploads bucket. */
+  function uploadsLifecycle(t: Template): Array<Record<string, any>> {
+    const uploads = Object.values(
+      t.findResources('AWS::S3::Bucket', {
+        Properties: { VersioningConfiguration: { Status: 'Enabled' } },
+      }),
+    ) as Array<Record<string, any>>;
+    expect(uploads).toHaveLength(1);
+    return uploads[0].Properties.LifecycleConfiguration.Rules;
+  }
+
+  test('FUP-140: the uploads/photos/ expiry ships disabled, and no rule reaches the kept copies or archives a photo', () => {
+    const rules = uploadsLifecycle(template);
+    const expiry = rules.find((r) => r.Id === 'DeliveryPhotoUploadsExpiry');
+    expect(expiry).toMatchObject({
+      Prefix: 'uploads/photos/',
+      Status: 'Disabled',
+      ExpirationInDays: 30,
+      NoncurrentVersionExpiration: { NoncurrentDays: 1 },
+    });
+    // The temp/ rule stays; the old Glacier rule (prefix photos/, which matched no key) is gone.
+    expect(rules.map((r) => r.Prefix).sort()).toEqual(['temp/', 'uploads/photos/']);
+    expect(JSON.stringify(rules)).not.toContain('GLACIER');
+    expect(rules.some((r) => (r.Transitions ?? []).length > 0)).toBe(false);
+    // Nothing may ever expire or move the evidence the reads sign.
+    for (const rule of rules) {
+      expect(['evidence/photos/'.startsWith(rule.Prefix ?? ''), rule.Prefix]).toEqual([false, rule.Prefix]);
+    }
+  });
+
+  test.each(['dev', 'staging', 'prod'])('FUP-140: %s keeps the expiry off until its backfill ran', (env) => {
+    expect(environments[env].deliveryPhotoUploadExpiry).toBe(false);
+  });
+
+  test('FUP-140: with deliveryPhotoUploadExpiry on, the rule is enabled', () => {
+    const app = new cdk.App();
+    const stack = new DatabaseStack(app, 'ExpiryOnDatabaseStack', {
+      env: { account: '123456789012', region: devConfig.region },
+      envConfig: { ...devConfig, deliveryPhotoUploadExpiry: true },
+    });
+    const expiry = uploadsLifecycle(Template.fromStack(stack)).find((r) => r.Id === 'DeliveryPhotoUploadsExpiry');
+    expect(expiry?.Status).toBe('Enabled');
   });
 });
 
@@ -112,6 +349,7 @@ describe('ApiStack', () => {
       paymentsTable: dbStack.paymentsTable,
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
@@ -121,6 +359,10 @@ describe('ApiStack', () => {
       matchEventsTable: dbStack.matchEventsTable,
       ratingsTable: dbStack.ratingsTable,
       messagesTable: dbStack.messagesTable,
+      notificationsTable: dbStack.notificationsTable,
+      tripLocationsTable: dbStack.tripLocationsTable,
+      listingReportsTable: dbStack.listingReportsTable,
+      reputationEventsTable: dbStack.reputationEventsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -149,8 +391,14 @@ describe('ApiStack', () => {
     // Prior 20 (core + match + device-token + crop-match-stream + ratings, plus
     // the delivery-qr-secrets work) + messages (read) + message-stream (push) = 22,
     // + auth-verify-otp (SMS phone proof) + the dev-only mock Fayda provider = 24,
-    // + account deletion and its sweep (ACC-02) = 26.
-    template.resourceCountIs('AWS::Lambda::Function', 26);
+    // + account deletion and its sweep (ACC-02) = 26,
+    // + order-notify-stream and the notifications inbox read (ESC-21) = 28,
+    // + the crop photo processor and the two CDK helpers its buckets bring
+    // (bucket notifications, dev auto-delete) (crop-listing-api 1.6.0) = 31,
+    // + the AI advisory cron and its Bedrock reviewer (FRD-19) = 33,
+    // + reputation-stream (ESC-28) = 34,
+    // + reputation, the GET /reputation/* reads and the appeal (ESC-29) = 35.
+    template.resourceCountIs('AWS::Lambda::Function', 35);
     template.hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'provided.al2023',
       Architectures: ['arm64'],
@@ -176,16 +424,556 @@ describe('ApiStack', () => {
     // (ESC-02, manual payout queue) → 58,
     // plus GET /admin/payments/unapplied and POST /admin/payments/{orderId}/refund-manual
     // (FUP-02, manual refund of an unapplied payment) → 60,
-    // plus DELETE /user/account (ACC-02) → 61 total.
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 61);
+    // plus DELETE /user/account (ACC-02) → 61,
+    // plus GET /notifications (ESC-21, order notification inbox) → 62,
+    // plus GET /deliveries/{id}/track (LT-06, live trip) → 63,
+    // plus GET /admin/deliveries/{id}/trail (LT-13, dispute evidence) → 64,
+    // plus POST /crops/{id}/photos (crop-listing-api 1.6.0) → 65,
+    // plus GET /admin/escrows/held (FRD-07, the held queue) → 66,
+    // plus GET /admin/disputes/{id}/evidence (FRD-14, the dispute evidence package) → 67,
+    // plus GET /admin/listing-reports and POST /admin/listing-reports/{listingId}/review (FUP-67) → 69,
+    // plus GET /reputation/me, /reputation/me/events and /reputation/{userId}, POST
+    // /reputation/appeals/photo-url and /reputation/events/{eventId}/appeal (ESC-29),
+    // plus GET /admin/escrows/{id}/ledger and GET /admin/orders/queue (ESC-24) → 76,
+    // plus GET and POST /admin/users/{id}/reputation, GET /admin/reputation/appeals and POST
+    // /admin/users/{id}/reputation/events/{eventId}/decision (ESC-32) → 80. FUP-05: the claim and
+    // unclaim actions share POST /admin/payouts/{escrowId}/{ref}/{action} with complete (no new route),
+    // and so does FUP-218's correct. Plus GET /intents (SIM-56, the buyer's own requests) → 81,
+    // plus GET /user/profile (SIM-56) → 82,
+    // plus POST /admin/orders/{orderId}/{action} (FUP-287, reopen-pickup) → 83,
+    // plus POST /admin/deliveries/{id}/{action} (FUP-19, the admin's delivery cancel after pickup) → 84 total.
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 84);
   });
 
-  test('manual payout queue routes sit on the admin authorizer (ESC-02)', () => {
+  test('GET /user/profile is a JWT route on the sync Lambda\'s integration (SIM-56)', () => {
+    const routes = template.findResources('AWS::ApiGatewayV2::Route');
+    const props = (key: string) =>
+      (Object.values(routes).find((r) => (r as { Properties: { RouteKey: string } }).Properties.RouteKey === key) as
+        { Properties: { AuthorizationType: string; Target: unknown } } | undefined)?.Properties;
+    const profile = props('GET /user/profile');
+    expect(profile).toBeDefined();
+    expect(profile!.AuthorizationType).toBe('JWT');
+    // The same integration as POST /sync: the sync Lambda serves the read, no new integration.
+    expect(profile!.Target).toEqual(props('POST /sync')!.Target);
+  });
+
+  test('the order action route sits on the admin authorizer and the shared admin integration (FUP-287)', () => {
+    const routes = template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'POST /admin/orders/{orderId}/{action}' },
+    });
+    const route = Object.values(routes);
+    expect(route).toHaveLength(1);
+    const props = (route[0] as { Properties: Record<string, unknown> }).Properties;
+    expect(props.AuthorizationType).toBe('JWT');
+
+    const statsRoute = Object.values(template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'GET /admin/dashboard/stats' },
+    }))[0] as { Properties: Record<string, unknown> };
+    expect(props.Target).toEqual(statsRoute.Properties.Target);
+    expect(props.AuthorizerId).toEqual(statsRoute.Properties.AuthorizerId);
+  });
+
+  test('the ledger view and the stuck orders sit on the admin authorizer, on grants the admin Lambda already has (ESC-24)', () => {
     const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
     const adminAuthorizerId = Object.entries(authorizers)
       .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
     expect(adminAuthorizerId).toBeDefined();
-    for (const routeKey of ['GET /admin/payouts/manual', 'POST /admin/payouts/{escrowId}/{ref}/complete']) {
+    for (const routeKey of ['GET /admin/escrows/{id}/ledger', 'GET /admin/orders/queue']) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: routeKey,
+        AuthorizationType: 'JWT',
+        AuthorizerId: { Ref: adminAuthorizerId },
+      });
+    }
+
+    // The admin Lambda knows the ledger table and may Query it and the indexes of the orders table.
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-admin',
+      Environment: { Variables: Match.objectLike({ ESCROW_LEDGER_TABLE: Match.anyValue(), ORDERS_TABLE: Match.anyValue() }) },
+    });
+    // A role whose inline policy is full spills into CDK overflow managed policies; both carry Roles.
+    const fns = template.findResources('AWS::Lambda::Function');
+    const adminFn = Object.values(fns).find((f) => (f as { Properties: { FunctionName?: string } }).Properties.FunctionName === 'wereda-connect-dev-admin') as
+      { Properties: { Role: { 'Fn::GetAtt': [string, string] } } };
+    const roleId = adminFn.Properties.Role['Fn::GetAtt'][0];
+    type Statement = { Action: string | string[]; Resource: unknown };
+    const adminStatements = [
+      ...Object.values(template.findResources('AWS::IAM::Policy')),
+      ...Object.values(template.findResources('AWS::IAM::ManagedPolicy')),
+    ]
+      .filter((p) => JSON.stringify((p as { Properties: { Roles: unknown } }).Properties.Roles).includes(`"${roleId}"`))
+      .flatMap((p) => (p as { Properties: { PolicyDocument: { Statement: Statement[] } } }).Properties.PolicyDocument.Statement);
+    const actionsOn = (table: string) => adminStatements
+      .filter((s) => JSON.stringify(s.Resource).includes(table))
+      .flatMap((s) => ([] as string[]).concat(s.Action));
+    // AdminQueueIndex and DeadlineIndex are read with a Query on the orders table's indexes.
+    expect(actionsOn('OrdersTable')).toContain('dynamodb:Query');
+    // Read only: the ledger view adds nothing to ESC-20's grant (escrow-ledger.test.ts pins the exact list).
+    expect(actionsOn('EscrowLedgerTable')).toContain('dynamodb:Query');
+    expect(actionsOn('EscrowLedgerTable')).not.toContain('dynamodb:PutItem');
+    expect(actionsOn('EscrowLedgerTable')).not.toContain('dynamodb:DeleteItem');
+  });
+
+  // ─── Crop photos (crop-listing-api 1.6.0) ───
+  const PROCESSOR_FN = 'wereda-connect-dev-crop-photo-processor';
+
+  /** The API stack's buckets by the S3 methods their CORS allows. */
+  function photoBucket(method: string): Record<string, any> {
+    const buckets = Object.values(template.findResources('AWS::S3::Bucket')).filter((b: any) =>
+      (b.Properties?.CorsConfiguration?.CorsRules ?? []).some((rule: any) =>
+        rule.AllowedMethods.includes(method),
+      ),
+    );
+    expect(buckets).toHaveLength(1);
+    return buckets[0] as Record<string, any>;
+  }
+
+  test('crop photos: two private, encrypted buckets with short lifecycles', () => {
+    template.resourceCountIs('AWS::S3::Bucket', 2);
+    for (const method of ['PUT', 'GET']) {
+      const bucket = photoBucket(method);
+      expect(bucket.Properties.PublicAccessBlockConfiguration).toEqual({
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      });
+      expect(bucket.Properties.BucketEncryption.ServerSideEncryptionConfiguration[0]
+        .ServerSideEncryptionByDefault.SSEAlgorithm).toBe('AES256');
+      // No versioning: an overwritten or expired photo leaves no paid copy behind.
+      expect(bucket.Properties.VersioningConfiguration).toBeUndefined();
+    }
+    // Originals are gone within a day; renditions after a year.
+    expect(photoBucket('PUT').Properties.LifecycleConfiguration.Rules[0].ExpirationInDays).toBe(1);
+    expect(photoBucket('GET').Properties.LifecycleConfiguration.Rules[0].ExpirationInDays).toBe(365);
+    // The web app may PUT with Content-Type only, and read renditions.
+    expect(photoBucket('PUT').Properties.CorsConfiguration.CorsRules[0]).toMatchObject({
+      AllowedMethods: ['PUT'],
+      AllowedHeaders: ['Content-Type'],
+    });
+    expect(photoBucket('GET').Properties.CorsConfiguration.CorsRules[0].AllowedMethods).toEqual(
+      ['GET', 'HEAD'],
+    );
+  });
+
+  test('crop photos: the processor runs on every new original', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: PROCESSOR_FN,
+      MemorySize: 1024,
+      Timeout: 30,
+      Environment: {
+        Variables: Match.objectLike({
+          FUNCTION_HANDLER: 'CropPhotoProcessorFunction',
+          CROP_PHOTO_INCOMING_BUCKET: Match.anyValue(),
+          CROP_PHOTOS_BUCKET: Match.anyValue(),
+        }),
+      },
+    });
+    template.hasResourceProperties('Custom::S3BucketNotifications', {
+      NotificationConfiguration: {
+        LambdaFunctionConfigurations: [
+          Match.objectLike({
+            Events: ['s3:ObjectCreated:*'],
+            LambdaFunctionArn: { 'Fn::GetAtt': [lambdaId(PROCESSOR_FN), 'Arn'] },
+          }),
+        ],
+      },
+    });
+  });
+
+  test('crop photos: the crop function signs uploads and reads, the route is authorized', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-crops',
+      Environment: {
+        Variables: Match.objectLike({
+          CROP_PHOTO_INCOMING_BUCKET: Match.anyValue(),
+          CROP_PHOTOS_BUCKET: Match.anyValue(),
+        }),
+      },
+    });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'POST /crops/{id}/photos',
+      AuthorizationType: 'JWT',
+    });
+  });
+
+  test('crop photos: the crop function cannot delete photos', () => {
+    // Its role may sign PUTs of originals and GETs of renditions, nothing more.
+    const cropRole = (
+      template.findResources('AWS::Lambda::Function', {
+        Properties: { FunctionName: 'wereda-connect-dev-crops' },
+      }) as Record<string, any>
+    )[lambdaId('wereda-connect-dev-crops')].Properties.Role['Fn::GetAtt'][0];
+    const actions = Object.values(template.findResources('AWS::IAM::Policy'))
+      .filter((p: any) => p.Properties.Roles.some((r: any) => r.Ref === cropRole))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement)
+      .flatMap((st: any) => (Array.isArray(st.Action) ? st.Action : [st.Action]));
+    expect(actions).toContain('s3:PutObject');
+    expect(actions.some((a: string) => a.startsWith('s3:GetObject'))).toBe(true);
+    expect(actions.filter((a: string) => a.startsWith('s3:DeleteObject'))).toEqual([]);
+  });
+
+  // ─── FRD-12: delivery handoff photos ───
+
+  /** Every S3 statement of the role of the Lambda with this function name. */
+  function s3Statements(functionName: string): Array<{ Action: string | string[]; Resource: unknown }> {
+    const role = (
+      template.findResources('AWS::Lambda::Function', {
+        Properties: { FunctionName: functionName },
+      }) as Record<string, any>
+    )[lambdaId(functionName)].Properties.Role['Fn::GetAtt'][0];
+    // A role with many grants spills into overflow managed policies, so read both kinds.
+    return [
+      ...Object.values(template.findResources('AWS::IAM::Policy')),
+      ...Object.values(template.findResources('AWS::IAM::ManagedPolicy')),
+    ]
+      .filter((p: any) => (p.Properties.Roles ?? []).some((r: any) => r.Ref === role))
+      .flatMap((p: any) => p.Properties.PolicyDocument.Statement)
+      .filter((st: any) => (Array.isArray(st.Action) ? st.Action : [st.Action]).some((a: string) => a.startsWith('s3:')));
+  }
+
+  /** The S3 actions of these statements. */
+  function s3Actions(statements: Array<{ Action: string | string[] }>): string[] {
+    return statements.flatMap((st) => (Array.isArray(st.Action) ? st.Action : [st.Action]));
+  }
+
+  /** The statements whose actions include one starting with this prefix. */
+  function statementsWith(statements: Array<{ Action: string | string[]; Resource: unknown }>, actionPrefix: string) {
+    return statements.filter((st) => (Array.isArray(st.Action) ? st.Action : [st.Action]).some((a) => a.startsWith(actionPrefix)));
+  }
+
+  /** Every statement's resources are under one of these key prefixes (or the bucket itself, for List). */
+  function expectScopedTo(statements: Array<{ Resource: unknown }>, prefixes: string[]): void {
+    for (const st of statements) {
+      const resource = JSON.stringify(st.Resource);
+      expect([resource, prefixes.some((prefix) => resource.includes(prefix))]).toEqual([resource, true]);
+    }
+  }
+
+  test.each([
+    ['wereda-connect-dev-sync', 'the delivery_photo attach HEADs the photo'],
+    ['wereda-connect-dev-admin', 'the transaction view signs photo GETs'],
+  ])('FRD-12: %s reads the uploaded photos only (%s)', (functionName) => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: functionName,
+      Environment: { Variables: Match.objectLike({ UPLOADS_BUCKET: Match.anyValue() }) },
+    });
+    const statements = s3Statements(functionName);
+    const actions = s3Actions(statements);
+    expect(actions.some((a) => a.startsWith('s3:GetObject'))).toBe(true);
+    // Never a delete on the uploads bucket.
+    expect(actions.filter((a) => a.startsWith('s3:Delete'))).toEqual([]);
+    // Object reads are scoped to the photo keys. ESC-32: the admin Lambda also signs GETs of appeal
+    // photos (the reputation panel and queue); FUP-140: and of the photos' kept copies.
+    const prefixes =
+      functionName === 'wereda-connect-dev-admin'
+        ? ['/uploads/photos/*', '/uploads/appeals/*', '/evidence/photos/*']
+        : ['/uploads/photos/*'];
+    expectScopedTo(statementsWith(statements, 's3:GetObject'), prefixes);
+    // FUP-140: the sync Lambda's only write is the kept copy (CopyObject's put), under evidence/photos/;
+    // the admin Lambda writes nothing.
+    const puts = statementsWith(statements, 's3:Put');
+    if (functionName === 'wereda-connect-dev-sync') {
+      expect(s3Actions(puts)).toContain('s3:PutObject');
+      expectScopedTo(puts, ['/evidence/photos/*']);
+    } else {
+      expect(puts).toEqual([]);
+    }
+  });
+
+  test('FUP-140: the order cron copies photos for the backfill: reads uploads, puts kept copies, deletes nothing', () => {
+    const functionName = 'wereda-connect-dev-order-cron';
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: functionName,
+      Environment: { Variables: Match.objectLike({ UPLOADS_BUCKET: Match.anyValue(), DELIVERIES_TABLE: Match.anyValue() }) },
+    });
+    const statements = s3Statements(functionName);
+    expect(s3Actions(statements).filter((a) => a.startsWith('s3:Delete'))).toEqual([]);
+    expectScopedTo(statementsWith(statements, 's3:GetObject'), ['/uploads/photos/*']);
+    const puts = statementsWith(statements, 's3:Put');
+    expect(s3Actions(puts)).toContain('s3:PutObject');
+    expectScopedTo(puts, ['/evidence/photos/*']);
+  });
+
+  // ─── ESC-21: order notifications (stream consumer + inbox read) ───
+  const NOTIFY_STREAM_FN = 'wereda-connect-dev-order-notify-stream';
+  const NOTIFICATIONS_FN = 'wereda-connect-dev-notifications';
+
+  /** Logical id of the Lambda with this function name. */
+  function lambdaId(functionName: string): string {
+    const fns = template.findResources('AWS::Lambda::Function', {
+      Properties: { FunctionName: functionName },
+    });
+    const ids = Object.keys(fns);
+    expect([functionName, ids.length]).toEqual([functionName, 1]);
+    return ids[0];
+  }
+
+  /** Every IAM action the role with this prefix holds on resources whose JSON matches. */
+  function roleActions(rolePrefix: string, resourceMatch: (resource: string) => boolean): string[] {
+    return [
+      ...Object.entries(template.findResources('AWS::IAM::Policy')),
+      ...Object.entries(template.findResources('AWS::IAM::ManagedPolicy')),
+    ]
+      .filter(([id]) => id.startsWith(rolePrefix))
+      .flatMap(
+        ([, policy]) =>
+          policy.Properties.PolicyDocument.Statement as Array<{ Action: string | string[]; Resource: unknown }>,
+      )
+      .filter((s) => resourceMatch(JSON.stringify(s.Resource)))
+      .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
+  }
+
+  test('ESC-21, LT-07: seven stream mappings; the notifier reads orders and escrows on MODIFY, deliveries on INSERT and the nearby stamp', () => {
+    // crop-match-stream + message-stream + the four order notifier sources (ESC-28 added the
+    // reputation-events stream) + reputation-stream on the orders stream (ESC-28, reputation.test.ts).
+    template.resourceCountIs('AWS::Lambda::EventSourceMapping', 7);
+
+    const dlqs = template.findResources('AWS::SQS::Queue', {
+      Properties: { QueueName: 'wereda-connect-dev-notify-dlq' },
+    });
+    expect(Object.keys(dlqs)).toHaveLength(1);
+    const dlqId = Object.keys(dlqs)[0];
+    const fnId = lambdaId(NOTIFY_STREAM_FN);
+
+    const mappings = Object.values(
+      template.findResources('AWS::Lambda::EventSourceMapping', {
+        Properties: { FunctionName: { Ref: fnId } },
+      }),
+    ).map((m) => m.Properties);
+    // The reputation-events source is checked in reputation.test.ts.
+    expect(mappings).toHaveLength(4);
+
+    // LT-07: on the deliveries stream, only the MODIFY that stamps nearbyNotifiedAt (absent before,
+    // present after) reaches the notifier; every other delivery update is filtered out.
+    const nearbyStamped = {
+      eventName: ['MODIFY'],
+      dynamodb: {
+        NewImage: { nearbyNotifiedAt: { S: [{ exists: true }] } },
+        OldImage: { nearbyNotifiedAt: { S: [{ exists: false }] } },
+      },
+    };
+    for (const [tableLogicalPrefix, patterns] of [
+      ['OrdersTable', [{ eventName: ['MODIFY'] }]],
+      ['DeliveriesTable', [{ eventName: ['INSERT'] }, nearbyStamped]],
+      ['EscrowsTable', [{ eventName: ['MODIFY'] }]],
+    ] as const) {
+      const onTable = mappings.filter((m) =>
+        JSON.stringify(m.EventSourceArn).includes(`FnGetAtt${tableLogicalPrefix}`),
+      );
+      expect([tableLogicalPrefix, onTable.length]).toEqual([tableLogicalPrefix, 1]);
+      const m = onTable[0];
+      // The stream ARN, not the table ARN.
+      expect(JSON.stringify(m.EventSourceArn)).toContain('StreamArn');
+      expect([tableLogicalPrefix, m.FilterCriteria]).toEqual([
+        tableLogicalPrefix,
+        { Filters: patterns.map((p) => ({ Pattern: JSON.stringify(p) })) },
+      ]);
+      expect(m).toMatchObject({
+        StartingPosition: 'LATEST',
+        BatchSize: 10,
+        MaximumRetryAttempts: 3,
+        BisectBatchOnFunctionError: true,
+        FunctionResponseTypes: ['ReportBatchItemFailures'],
+        MaximumRecordAgeInSeconds: 86400,
+        DestinationConfig: { OnFailure: { Destination: { 'Fn::GetAtt': [dlqId, 'Arn'] } } },
+      });
+    }
+  });
+
+  test('ESC-21: the notify DLQ keeps failed batch records for 14 days, SQS-managed encryption', () => {
+    template.hasResourceProperties('AWS::SQS::Queue', {
+      QueueName: 'wereda-connect-dev-notify-dlq',
+      MessageRetentionPeriod: 14 * 24 * 3600,
+      SqsManagedSseEnabled: true,
+    });
+    // TLS only: the queue policy denies any request without SecureTransport.
+    template.hasResourceProperties('AWS::SQS::QueuePolicy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({ Effect: 'Deny', Condition: { Bool: { 'aws:SecureTransport': 'false' } } }),
+        ]),
+      }),
+    });
+    // With the reputation DLQ, parked queue and parked DLQ (ESC-28), four queues in the stack.
+    template.resourceCountIs('AWS::SQS::Queue', 4);
+  });
+
+  test('ESC-21: order-notify-stream has its tables in env and only the grants it uses', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: NOTIFY_STREAM_FN,
+      Timeout: 30,
+      MemorySize: 256,
+      Environment: {
+        Variables: Match.objectLike({
+          FUNCTION_HANDLER: 'OrderNotifyStreamFunction',
+          DEVICE_TOKENS_TABLE: Match.anyValue(),
+          USERS_TABLE: Match.anyValue(),
+          NOTIFICATIONS_TABLE: Match.anyValue(),
+          // FUP-338: delivery_arrived tells the buyer T9 by the order cron's rule (silent-buyer-hours).
+          ORDER_TIMINGS_PARAM_PATH: '/wereda-connect-dev/orders/',
+        }),
+      },
+    });
+
+    const role = 'OrderNotifyStreamFunctionServiceRole';
+    expect(roleActions(role, (r) => r.includes('parameter/wereda-connect-dev/orders/*'))).toEqual(['ssm:GetParameters']);
+    // Exactly the calls it makes: the conditional inbox PutItem, the recipients' languages
+    // (BatchGetItem, no Scan or Query of the users table), the endpoint lookup and the prune.
+    expect(roleActions(role, (r) => r.includes('NotificationsTable')).sort()).toEqual(['dynamodb:PutItem']);
+    expect(roleActions(role, (r) => r.includes('UsersTable')).sort()).toEqual(['dynamodb:BatchGetItem']);
+    expect(roleActions(role, (r) => r.includes('DeviceTokensTable')).sort()).toEqual(['dynamodb:DeleteItem', 'dynamodb:Query']);
+    // Push through SNS to the FCM endpoints only.
+    expect(roleActions(role, (r) => r.includes('endpoint/GCM/wereda-connect-dev-fcm/*'))).toEqual(['sns:Publish']);
+    // The event source mappings deliver failed batch metadata to the DLQ.
+    expect(roleActions(role, (r) => r.includes('OrderNotifyDlq'))).toContain('sqs:SendMessage');
+    // Stream reads on the four source streams.
+    for (const table of ['OrdersTable', 'DeliveriesTable', 'EscrowsTable', 'ReputationEventsTable']) {
+      const stream = roleActions(role, (r) => r.includes(`FnGetAtt${table}`) && r.includes('StreamArn'));
+      expect([table, stream]).toEqual([table, expect.arrayContaining(['dynamodb:GetRecords', 'dynamodb:GetShardIterator'])]);
+    }
+  });
+
+  test('ESC-21: GET /notifications sits on the mobile JWT authorizer and only reads the inbox', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const mobileAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'CognitoAuthorizer')?.[0];
+    expect(mobileAuthorizerId).toBeDefined();
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'GET /notifications',
+      AuthorizationType: 'JWT',
+      AuthorizerId: { Ref: mobileAuthorizerId },
+    });
+
+    // The integration targets the inbox Lambda with the 1.0 payload, like /messages.
+    const fnId = lambdaId(NOTIFICATIONS_FN);
+    const integrations = Object.values(template.findResources('AWS::ApiGatewayV2::Integration')).filter((i) =>
+      JSON.stringify(i.Properties.IntegrationUri).includes(fnId),
+    );
+    expect(integrations).toHaveLength(1);
+    expect(integrations[0].Properties.PayloadFormatVersion).toBe('1.0');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: NOTIFICATIONS_FN,
+      Timeout: 10,
+      MemorySize: 256,
+      Environment: {
+        Variables: Match.objectLike({
+          FUNCTION_HANDLER: 'NotificationFunction',
+          NOTIFICATIONS_TABLE: Match.anyValue(),
+          PAGINATION_SECRET_ARN: '/wereda-connect-dev/pagination-secret',
+        }),
+      },
+    });
+
+    const role = 'NotificationFunctionServiceRole';
+    const inbox = roleActions(role, (r) => r.includes('NotificationsTable'));
+    expect(inbox).toContain('dynamodb:Query');
+    // The since pull queries WrittenAtIndex.
+    expect(roleActions(role, (r) => r.includes('NotificationsTable') && r.includes('/index/*'))).toContain('dynamodb:Query');
+    for (const write of ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem']) {
+      expect([write, inbox.includes(write)]).toEqual([write, false]);
+    }
+    expect(roleActions(role, (r) => r.includes('parameter/wereda-connect-dev/pagination-secret'))).toContain(
+      'ssm:GetParameter',
+    );
+  });
+
+  test('SIM-56: GET /intents sits on the mobile JWT authorizer, on the match Lambda, which only queries intents', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const mobileAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'CognitoAuthorizer')?.[0];
+    expect(mobileAuthorizerId).toBeDefined();
+    const routes = Object.values(template.findResources('AWS::ApiGatewayV2::Route'));
+    const intents = routes.filter((r) => r.Properties.RouteKey === 'GET /intents');
+    expect(intents).toHaveLength(1);
+    expect([intents[0].Properties.AuthorizationType, intents[0].Properties.AuthorizerId]).toEqual([
+      'JWT',
+      { Ref: mobileAuthorizerId },
+    ]);
+
+    // The same integration as GET /match (FUP-217: one per Lambda), payload 1.0.
+    const match = routes.find((r) => r.Properties.RouteKey === 'GET /match');
+    expect(intents[0].Properties.Target).toEqual(match!.Properties.Target);
+    const fnId = lambdaId('wereda-connect-dev-match');
+    const integrations = Object.values(template.findResources('AWS::ApiGatewayV2::Integration')).filter((i) =>
+      JSON.stringify(i.Properties.IntegrationUri).includes(fnId),
+    );
+    expect(integrations).toHaveLength(1);
+    expect(integrations[0].Properties.PayloadFormatVersion).toBe('1.0');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-match',
+      Environment: {
+        Variables: Match.objectLike({ FUNCTION_HANDLER: 'MatchFunction', INTENTS_TABLE: Match.anyValue() }),
+      },
+    });
+    // One Query of the caller's partition; no write, no Scan, no other read.
+    expect(roleActions('MatchFunctionServiceRole', (r) => r.includes('IntentsTable'))).toEqual(['dynamodb:Query']);
+  });
+
+  test('FUP-124: the messages Lambda has the orders and deliveries tables and only Query on them', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-messages',
+      Environment: {
+        Variables: Match.objectLike({
+          FUNCTION_HANDLER: 'MessageFunction',
+          MESSAGES_TABLE: Match.anyValue(),
+          ORDERS_TABLE: Match.anyValue(),
+          DELIVERIES_TABLE: Match.anyValue(),
+        }),
+      },
+    });
+
+    // The trucker read rule reads an order, and a delivery thread's delivery, by key (a Query).
+    const role = 'MessageFunctionServiceRole';
+    for (const table of ['OrdersTable', 'DeliveriesTable']) {
+      const actions = [...new Set(roleActions(role, (r) => r.includes(table)))];
+      expect([table, actions]).toEqual([table, ['dynamodb:Query']]);
+    }
+  });
+
+  test('LT-05: the sync Lambda has the trip-locations table and only PutItem and Query on it', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-sync',
+      Environment: { Variables: Match.objectLike({ TRIP_LOCATIONS_TABLE: Match.anyValue() }) },
+    });
+    // A ping is one conditional PutItem; a fix first reads its clock hour of the trip (Query).
+    const onTable = roleActions('SyncFunctionServiceRole', (r) => r.includes('TripLocationsTable'));
+    expect([...new Set(onTable)].sort()).toEqual(['dynamodb:PutItem', 'dynamodb:Query']);
+    // Only two other Lambdas touch the table: the delivery Lambda's track read (LT-06) and the
+    // admin Lambda's trail read (LT-13).
+    const deliveryReads = roleActions('DeliveryFunctionServiceRole', (r) => r.includes('TripLocationsTable'));
+    const adminReads = roleActions('AdminFunctionServiceRole', (r) => r.includes('TripLocationsTable'));
+    const everyRole = roleActions('', (r) => r.includes('TripLocationsTable'));
+    expect(everyRole.length).toBe(onTable.length + deliveryReads.length + adminReads.length);
+  });
+
+  test('FUP-67: only the sync and admin Lambdas touch listing-reports, sync writes and admin reviews', () => {
+    for (const fn of ['wereda-connect-dev-sync', 'wereda-connect-dev-admin']) {
+      template.hasResourceProperties('AWS::Lambda::Function', {
+        FunctionName: fn,
+        Environment: { Variables: Match.objectLike({ LISTING_REPORTS_TABLE: Match.anyValue() }) },
+      });
+    }
+    // A report is a GetItem (the repeat check) and one conditional PutItem.
+    const syncActions = roleActions('SyncFunctionServiceRole', (r) => r.includes('ListingReportsTable'));
+    expect([...new Set(syncActions)].sort()).toEqual(['dynamodb:GetItem', 'dynamodb:PutItem']);
+    // The queue reads the status index and a listing's reports; a review is a conditional UpdateItem.
+    const adminActions = roleActions('AdminFunctionServiceRole', (r) => r.includes('ListingReportsTable'));
+    expect([...new Set(adminActions)].sort()).toEqual(['dynamodb:Query', 'dynamodb:UpdateItem']);
+    expect(roleActions('AdminFunctionServiceRole', (r) => r.includes('ListingReportsTable') && r.includes('/index/*')))
+      .toContain('dynamodb:Query');
+    const everyRole = roleActions('', (r) => r.includes('ListingReportsTable'));
+    expect(everyRole.length).toBe(syncActions.length + adminActions.length);
+  });
+
+  test('FUP-67: the listing report queue routes sit on the admin authorizer', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    for (const routeKey of ['GET /admin/listing-reports', 'POST /admin/listing-reports/{listingId}/review']) {
       template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
         RouteKey: routeKey,
         AuthorizationType: 'JWT',
@@ -194,8 +982,168 @@ describe('ApiStack', () => {
     }
   });
 
-  test('admin Lambda can put the refund claim row and nothing else on escrow-idempotency (FUP-02)', () => {
-    const policies = template.findResources('AWS::IAM::Policy');
+  test('LT-06: GET /deliveries/{id}/track reaches the delivery Lambda on the mobile authorizer, which only reads', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const mobileAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'CognitoAuthorizer')?.[0];
+    expect(mobileAuthorizerId).toBeDefined();
+    const routes = template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'GET /deliveries/{id}/track' },
+    });
+    expect(Object.keys(routes)).toHaveLength(1);
+    const route = Object.values(routes)[0].Properties;
+    expect(route.AuthorizationType).toBe('JWT');
+    expect(route.AuthorizerId).toEqual({ Ref: mobileAuthorizerId });
+
+    // The route's integration targets the deliveries Lambda with the 1.0 payload.
+    const integrationId = JSON.stringify(route.Target).match(/"Ref":"([^"]+)"/)?.[1];
+    expect(integrationId).toBeDefined();
+    const integration = template.findResources('AWS::ApiGatewayV2::Integration')[integrationId!];
+    expect(JSON.stringify(integration.Properties.IntegrationUri)).toContain(lambdaId('wereda-connect-dev-deliveries'));
+    expect(integration.Properties.PayloadFormatVersion).toBe('1.0');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-deliveries',
+      Environment: {
+        Variables: Match.objectLike({ TRIP_LOCATIONS_TABLE: Match.anyValue(), CROPS_TABLE: Match.anyValue() }),
+      },
+    });
+    // Query only: the trip's check-ins, and a listing by its id. Never a write.
+    const role = 'DeliveryFunctionServiceRole';
+    expect([...new Set(roleActions(role, (r) => r.includes('TripLocationsTable')))]).toEqual(['dynamodb:Query']);
+    expect([...new Set(roleActions(role, (r) => r.includes('CropsTable')))]).toEqual(['dynamodb:Query']);
+  });
+
+  test('LT-12: the delivery Lambda reads the order of a track (its drop-off note) with Query only', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-deliveries',
+      Environment: { Variables: Match.objectLike({ ORDERS_TABLE: Match.anyValue() }) },
+    });
+    // An order by its id is a Query (the orders table is keyed orderId + createdAt); the note is
+    // written through /sync, never here.
+    const actions = [...new Set(roleActions('DeliveryFunctionServiceRole', (r) => r.includes('OrdersTable')))];
+    expect(actions).toEqual(['dynamodb:Query']);
+  });
+
+  test('LT-13: GET /admin/deliveries/{id}/trail reaches the admin Lambda on the admin authorizer, which only reads the check-ins', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    const routes = template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'GET /admin/deliveries/{id}/trail' },
+    });
+    expect(Object.keys(routes)).toHaveLength(1);
+    const route = Object.values(routes)[0].Properties;
+    expect(route.AuthorizationType).toBe('JWT');
+    expect(route.AuthorizerId).toEqual({ Ref: adminAuthorizerId });
+
+    // The route's integration targets the admin Lambda with the 1.0 payload.
+    const integrationId = JSON.stringify(route.Target).match(/"Ref":"([^"]+)"/)?.[1];
+    expect(integrationId).toBeDefined();
+    const integration = template.findResources('AWS::ApiGatewayV2::Integration')[integrationId!];
+    expect(JSON.stringify(integration.Properties.IntegrationUri)).toContain(lambdaId('wereda-connect-dev-admin'));
+    expect(integration.Properties.PayloadFormatVersion).toBe('1.0');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-admin',
+      Environment: {
+        Variables: Match.objectLike({ TRIP_LOCATIONS_TABLE: Match.anyValue(), DELIVERIES_TABLE: Match.anyValue() }),
+      },
+    });
+    // Query only on the check-ins: the trail never writes them. The delivery is a key read.
+    const role = 'AdminFunctionServiceRole';
+    expect([...new Set(roleActions(role, (r) => r.includes('TripLocationsTable')))]).toEqual(['dynamodb:Query']);
+    const deliveries = roleActions(role, (r) => r.includes('DeliveriesTable'));
+    expect(deliveries).toEqual(expect.arrayContaining(['dynamodb:Query', 'dynamodb:GetItem']));
+  });
+
+  test('FUP-19: POST /admin/deliveries/{id}/{action} reaches the admin Lambda on the admin authorizer, whose existing grants cover the cancel transaction', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    const routes = template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'POST /admin/deliveries/{id}/{action}' },
+    });
+    expect(Object.keys(routes)).toHaveLength(1);
+    const route = Object.values(routes)[0].Properties;
+    expect(route.AuthorizationType).toBe('JWT');
+    expect(route.AuthorizerId).toEqual({ Ref: adminAuthorizerId });
+
+    // The shared admin integration (FUP-217): the same target as the trail route, no new integration.
+    const trail = Object.values(template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'GET /admin/deliveries/{id}/trail' },
+    }))[0].Properties;
+    expect(route.Target).toEqual(trail.Target);
+
+    // One transaction: the delivery update, the audit row put, and condition checks on the order and escrows.
+    const role = 'AdminFunctionServiceRole';
+    expect(roleActions(role, (r) => r.includes('DeliveriesTable'))).toEqual(expect.arrayContaining(['dynamodb:UpdateItem']));
+    expect(roleActions(role, (r) => r.includes('TransactionAuditTable'))).toEqual(expect.arrayContaining(['dynamodb:PutItem']));
+    expect(roleActions(role, (r) => r.includes('OrdersTable'))).toEqual(expect.arrayContaining(['dynamodb:ConditionCheckItem']));
+    expect(roleActions(role, (r) => r.includes('EscrowsTable'))).toEqual(expect.arrayContaining(['dynamodb:ConditionCheckItem']));
+  });
+
+  test('FRD-14: GET /admin/disputes/{id}/evidence reaches the admin Lambda on the admin authorizer, which may only Query message threads by conversation', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    const routes = template.findResources('AWS::ApiGatewayV2::Route', {
+      Properties: { RouteKey: 'GET /admin/disputes/{id}/evidence' },
+    });
+    expect(Object.keys(routes)).toHaveLength(1);
+    const route = Object.values(routes)[0].Properties;
+    expect(route.AuthorizationType).toBe('JWT');
+    expect(route.AuthorizerId).toEqual({ Ref: adminAuthorizerId });
+    const integrationId = JSON.stringify(route.Target).match(/"Ref":"([^"]+)"/)?.[1];
+    expect(integrationId).toBeDefined();
+    const integration = template.findResources('AWS::ApiGatewayV2::Integration')[integrationId!];
+    expect(JSON.stringify(integration.Properties.IntegrationUri)).toContain(lambdaId('wereda-connect-dev-admin'));
+    expect(integration.Properties.PayloadFormatVersion).toBe('1.0');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-admin',
+      Environment: { Variables: Match.objectLike({ MESSAGES_TABLE: Match.anyValue() }) },
+    });
+    // Query on the conversation index only: no item read, no other index, no write.
+    const role = 'AdminFunctionServiceRole';
+    const statements = [
+      ...Object.entries(template.findResources('AWS::IAM::Policy')),
+      ...Object.entries(template.findResources('AWS::IAM::ManagedPolicy')),
+    ]
+      .filter(([id]) => id.startsWith(role))
+      .flatMap(([, p]) => p.Properties.PolicyDocument.Statement as Array<{ Action: string | string[]; Resource: unknown }>)
+      .filter((s) => JSON.stringify(s.Resource).includes('MessagesTable'));
+    expect(statements).toHaveLength(1);
+    expect(statements[0].Action).toBe('dynamodb:Query');
+    const resources = JSON.stringify(statements[0].Resource);
+    expect(resources).toContain('/index/ConversationIdCreatedAtIndex');
+    expect(resources).not.toContain('index/*');
+  });
+
+  test('manual payout queue routes sit on the admin authorizer (ESC-02)', () => {
+    const authorizers = template.findResources('AWS::ApiGatewayV2::Authorizer');
+    const adminAuthorizerId = Object.entries(authorizers)
+      .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
+    expect(adminAuthorizerId).toBeDefined();
+    // FUP-05: complete, claim and unclaim share one route ({action}).
+    for (const routeKey of ['GET /admin/payouts/manual', 'POST /admin/payouts/{escrowId}/{ref}/{action}']) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        RouteKey: routeKey,
+        AuthorizationType: 'JWT',
+        AuthorizerId: { Ref: adminAuthorizerId },
+      });
+    }
+  });
+
+  test('admin Lambda can put its claim and reference rows, read them and delete a corrected reference, nothing else, on escrow-idempotency (FUP-02, FUP-05, FUP-218)', () => {
+    // The role's statements overflow into a managed policy, so read both kinds.
+    const policies = {
+      ...template.findResources('AWS::IAM::Policy'),
+      ...template.findResources('AWS::IAM::ManagedPolicy'),
+    };
     const actions = Object.keys(policies)
       .filter((key) => key.startsWith('AdminFunctionServiceRole'))
       .flatMap(
@@ -207,8 +1155,10 @@ describe('ApiStack', () => {
       )
       .filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'))
       .flatMap((s) => (Array.isArray(s.Action) ? s.Action : [s.Action]));
-    // TransactWriteItems is authorized per item: a conditional Put needs PutItem only.
-    expect(actions).toEqual(['dynamodb:PutItem']);
+    // TransactWriteItems is authorized per item: a conditional Put needs PutItem only. FUP-05: a refused
+    // duplicate payout reference reads its item to name where the reference is used. FUP-218: a correction's
+    // transaction deletes the old reference item (a conditional Delete needs DeleteItem only).
+    expect([...actions].sort()).toEqual(['dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:PutItem']);
 
     const admin = Object.values(template.findResources('AWS::Lambda::Function')).find(
       (fn) => fn.Properties?.FunctionName === 'wereda-connect-dev-admin',
@@ -240,10 +1190,14 @@ describe('ApiStack', () => {
 
     // reject: the open escrows come from the buyer, farmer and trucker indexes.
     expect(actionsOf((r) => r.includes('EscrowsTable') && r.includes('/index/*'))).toContain('dynamodb:Query');
-    // The signal-row read, the review stamp, the whitelist row, and the list and count scans.
+    // The signal-row read, the review stamp and the whitelist row.
     expect(actionsOf((r) => r.includes('FraudSignalsTable'))).toEqual(
-      expect.arrayContaining(['dynamodb:GetItem', 'dynamodb:UpdateItem', 'dynamodb:PutItem', 'dynamodb:Scan']),
+      expect.arrayContaining(['dynamodb:GetItem', 'dynamodb:UpdateItem', 'dynamodb:PutItem']),
     );
+    // FRD-07: the list and the dashboard count Query the sparse status index; the risk score per
+    // user Queries the table's own keys. The held queue Queries StatusExpiresIndex (escrows, above).
+    expect(actionsOf((r) => r.includes('FraudSignalsTable') && r.includes('/index/*'))).toContain('dynamodb:Query');
+    expect(actionsOf((r) => r.includes('FraudSignalsTable'))).toContain('dynamodb:Query');
     // reject suspends through the user action path: the profile row, then Cognito on the mobile pool.
     expect(actionsOf((r) => r.includes('UsersTable'))).toEqual(
       expect.arrayContaining(['dynamodb:GetItem', 'dynamodb:UpdateItem']),
@@ -260,7 +1214,12 @@ describe('ApiStack', () => {
     const adminAuthorizerId = Object.entries(authorizers)
       .find(([, r]) => (r as Record<string, Record<string, unknown>>).Properties?.Name === 'AdminCognitoAuthorizer')?.[0];
     expect(adminAuthorizerId).toBeDefined();
-    for (const routeKey of ['GET /admin/payments/unapplied', 'POST /admin/payments/{orderId}/refund-manual']) {
+    // FRD-07: the held queue, next to /admin/escrows/{id}.
+    for (const routeKey of [
+      'GET /admin/payments/unapplied',
+      'POST /admin/payments/{orderId}/refund-manual',
+      'GET /admin/escrows/held',
+    ]) {
       template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
         RouteKey: routeKey,
         AuthorizationType: 'JWT',
@@ -451,7 +1410,12 @@ describe('ApiStack', () => {
   test('a dispute verdict can move its order and delivery (ESC-03)', () => {
     // The admin verdict, and the escrow and escrow-cron settlement of it, move the order
     // and delivery to the verdict and audit each hop in transaction-audit.
-    const policies = template.findResources('AWS::IAM::Policy');
+    // The admin role's statements pass the inline policy size in this unminimized test app, so CDK
+    // moves the rest to an overflow managed policy (same id prefix): both kinds are read.
+    const policies = {
+      ...template.findResources('AWS::IAM::Policy'),
+      ...template.findResources('AWS::IAM::ManagedPolicy'),
+    };
     const actionsOn = (rolePrefix: string, tableId: string) => {
       const ids = Object.keys(policies).filter((key) => key.startsWith(rolePrefix));
       expect(ids.length).toBeGreaterThan(0);
@@ -487,8 +1451,9 @@ describe('ApiStack', () => {
     expect(cronDeliveries).not.toContain('dynamodb:DeleteItem');
 
     for (const rolePrefix of ['EscrowFunctionServiceRole', 'EscrowCronFunctionServiceRole']) {
-      // Append-only: PutItem and nothing else.
-      expect(actionsOn(rolePrefix, 'TransactionAuditTable')).toEqual(['dynamodb:PutItem']);
+      // Append-only: PutItem and no other write. The Query is the BUG-6 dispute evidence read, on the
+      // EntityIndex only (dispute-evidence-iam.test.ts).
+      expect([...actionsOn(rolePrefix, 'TransactionAuditTable')].sort()).toEqual(['dynamodb:PutItem', 'dynamodb:Query']);
     }
 
     for (const functionName of ['wereda-connect-dev-escrow', 'wereda-connect-dev-escrow-cron']) {
@@ -545,7 +1510,7 @@ describe('ApiStack', () => {
     });
   });
 
-  test('FRD-04: escrow-cron reads the fraud-signals table for the settlement risk tier, and writes none of it', () => {
+  test('FRD-04, FRD-10: escrow-cron reads the fraud-signals table for the risk tier and only appends credit rows', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
       FunctionName: 'wereda-connect-dev-escrow-cron',
       Environment: {
@@ -568,7 +1533,10 @@ describe('ApiStack', () => {
 
     // The score is one Query of the party's partition (FraudDetectionService.GetUserRiskScoreAsync).
     expect(cronSignalActions).toContain('dynamodb:Query');
-    for (const write of ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem']) {
+    // FRD-10: the clean-delivery credit is one conditional PutItem per party (CleanDeliveryCreditService).
+    expect(cronSignalActions).toContain('dynamodb:PutItem');
+    // No other write: a reviewed signal is never changed, no row is deleted.
+    for (const write of ['dynamodb:UpdateItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem']) {
       expect([write, cronSignalActions.includes(write)]).toEqual([write, false]);
     }
   });
@@ -688,6 +1656,7 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       paymentsTable: dbStack.paymentsTable,
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
@@ -697,6 +1666,10 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
       matchEventsTable: dbStack.matchEventsTable,
       ratingsTable: dbStack.ratingsTable,
       messagesTable: dbStack.messagesTable,
+      notificationsTable: dbStack.notificationsTable,
+      tripLocationsTable: dbStack.tripLocationsTable,
+      listingReportsTable: dbStack.listingReportsTable,
+      reputationEventsTable: dbStack.reputationEventsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -824,6 +1797,33 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     expect(JSON.stringify(rules)).not.toContain('telebirr-inbox-replay');
   });
 
+  test('ON: the queryOrder reconciliation runs on escrow-cron every 15 minutes (FUP-37)', () => {
+    buildTemplate(true).hasResourceProperties('AWS::Events::Rule', {
+      Name: 'wereda-connect-dev-escrow-cron-payment-reconcile',
+      ScheduleExpression: 'rate(15 minutes)',
+      Targets: [
+        Match.objectLike({
+          Arn: { 'Fn::GetAtt': [Match.stringLikeRegexp('^EscrowCronFunction'), 'Arn'] },
+          Input: JSON.stringify({ body: JSON.stringify({ action: 'order_payment_reconcile' }) }),
+        }),
+      ],
+    });
+  });
+
+  test('OFF: no queryOrder reconciliation rule (the mock opens no checkout)', () => {
+    const rules = buildTemplate(false).findResources('AWS::Events::Rule');
+    expect(JSON.stringify(rules)).not.toContain('payment-reconcile');
+  });
+
+  // FUP-37: the order cron waits for the queryOrder verdict on a live deployment only (its slot read
+  // is checked with the other idempotency grants below).
+  test.each([false, true])('the order cron waits for the queryOrder verdict only when live (live=%s, FUP-37)', (live) => {
+    const fn = Object.values(buildTemplate(live).findResources('AWS::Lambda::Function')).find(
+      (f) => (f as { Properties: { FunctionName?: string } }).Properties.FunctionName === 'wereda-connect-dev-order-cron',
+    ) as { Properties: { Environment: { Variables: Record<string, string> } } };
+    expect(fn.Properties.Environment.Variables.TELEBIRR_QUERY_ORDER_ENABLED).toBe(live ? 'true' : undefined);
+  });
+
   type StageResource = {
     DependsOn?: string[];
     Properties: { DefaultRouteSettings?: unknown; RouteSettings?: unknown };
@@ -887,23 +1887,290 @@ describe('ApiStack (Telebirr live gateway, gated)', () => {
     expect(JSON.stringify(onAudit)).toContain('dynamodb:PutItem');
   });
 
+  // The order cron role's statements, from its inline policy and (a large role spills over) any
+  // managed policy.
+  function orderCronStatements(t: Template): Array<{ Action: unknown; Resource: unknown }> {
+    type PolicyResource = { Properties: { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } } };
+    const policies = [
+      ...Object.entries(t.findResources('AWS::IAM::Policy')),
+      ...Object.entries(t.findResources('AWS::IAM::ManagedPolicy')),
+    ];
+    return policies
+      .filter(([id]) => id.startsWith('OrderCronFunction'))
+      .flatMap(([, p]) => (p as PolicyResource).Properties.PolicyDocument.Statement);
+  }
+
   test.each([false, true])(
-    'order cron reads only the InboxReplayIndex of the idempotency table (live=%s, ESC-45)',
+    'order cron reads only the InboxReplayIndex of the idempotency table, and live the slot by key (live=%s, ESC-45, FUP-37)',
     (live) => {
       const t = buildTemplate(live);
       t.hasResourceProperties('AWS::Lambda::Function', {
         FunctionName: 'wereda-connect-dev-order-cron',
         Environment: { Variables: Match.objectLike({ ESCROW_IDEMPOTENCY_TABLE: Match.anyValue() }) },
       });
-      const policies = t.findResources('AWS::IAM::Policy');
-      const cron = Object.entries(policies).filter(([id]) => id.startsWith('OrderCronFunction'));
-      const statements = cron.flatMap(([, p]) =>
-        (p as { Properties: { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } } })
-          .Properties.PolicyDocument.Statement);
-      const onIdempotency = statements.filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'));
-      expect(onIdempotency).toHaveLength(1);
-      expect(onIdempotency[0].Action).toBe('dynamodb:Query');
-      expect(JSON.stringify(onIdempotency[0].Resource)).toContain('/index/InboxReplayIndex');
+      const onIdempotency = orderCronStatements(t).filter((s) => JSON.stringify(s.Resource).includes('EscrowIdempotencyTable'));
+      const onIndex = onIdempotency.filter((s) => JSON.stringify(s.Resource).includes('/index/'));
+      expect(onIndex).toHaveLength(1);
+      expect(onIndex[0].Action).toBe('dynamodb:Query');
+      expect(JSON.stringify(onIndex[0].Resource)).toContain('/index/InboxReplayIndex');
+      // FUP-37: live, the payment-failed step reads the order's checkout slot (GetItem only).
+      const onTable = onIdempotency.filter((s) => !JSON.stringify(s.Resource).includes('/index/'));
+      expect(onTable.map((s) => s.Action)).toEqual(live ? ['dynamodb:GetItem'] : []);
+    },
+  );
+
+  test('order cron gets the commitment walk tables, grants and the flag, on in dev (ESC-15)', () => {
+    const t = buildTemplate(false);
+    t.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-order-cron',
+      Environment: {
+        Variables: Match.objectLike({
+          ESCROWS_TABLE: Match.anyValue(),
+          ESCROW_AUDIT_TABLE: Match.anyValue(),
+          CROPS_TABLE: Match.anyValue(),
+          TRIPS_TABLE: Match.anyValue(),
+          DELIVERIES_TABLE: Match.anyValue(),
+          USERS_TABLE: Match.anyValue(),
+          COMMITMENTS_ENABLED: 'true',
+        }),
+      },
+    });
+    const statements = orderCronStatements(t);
+    const actionsOn = (tableId: string) =>
+      statements
+        .filter((s) => JSON.stringify(s.Resource).includes(tableId))
+        .flatMap((s) => ([] as unknown[]).concat(s.Action) as string[]);
+    // The trip takes a conditional update when capacity is released; the listing when stock is
+    // restored; the escrow is read through its OrderIndex and expired; the delivery is cancelled.
+    for (const tableId of ['TripsTable', 'CropsTable', 'EscrowsTable', 'DeliveriesTable']) {
+      const actions = actionsOn(tableId);
+      expect([tableId, actions]).toEqual([tableId, expect.arrayContaining(['dynamodb:Query', 'dynamodb:UpdateItem'])]);
+    }
+    // Every escrow mutation is ledgered (write grant, no read). Profiles are read, and since ESC-28
+    // the reputation actions update them (reputation.test.ts), but never put a whole row.
+    expect(actionsOn('EscrowAuditTable')).toEqual(expect.arrayContaining(['dynamodb:PutItem']));
+    expect(actionsOn('EscrowAuditTable')).not.toEqual(expect.arrayContaining(['dynamodb:Query']));
+    expect(actionsOn('UsersTable')).toEqual(expect.arrayContaining(['dynamodb:GetItem']));
+    expect(actionsOn('UsersTable')).not.toContain('dynamodb:PutItem');
+  });
+
+  test('a second rule invokes the order cron with the commitment_deadlines body every 15 minutes (ESC-15, ESC-16)', () => {
+    const t = buildTemplate(false);
+    t.hasResourceProperties('AWS::Events::Rule', {
+      Name: 'wereda-connect-dev-order-cron-commitments',
+      ScheduleExpression: 'rate(15 minutes)',
+      Targets: [
+        Match.objectLike({
+          Arn: { 'Fn::GetAtt': [Match.stringLikeRegexp('^OrderCronFunction'), 'Arn'] },
+          Input: JSON.stringify({ body: JSON.stringify({ action: 'commitment_deadlines' }) }),
+        }),
+      ],
+    });
+    // The auto-cancel rule is untouched.
+    t.hasResourceProperties('AWS::Events::Rule', {
+      Name: 'wereda-connect-dev-order-cron-hourly',
+      Targets: [
+        Match.objectLike({
+          Input: JSON.stringify({ body: JSON.stringify({ action: 'auto_cancel_expired' }) }),
+        }),
+      ],
+    });
+  });
+
+  test('a daily rule invokes the order cron with the deadline_repair body (ESC-16)', () => {
+    const t = buildTemplate(false);
+    t.hasResourceProperties('AWS::Events::Rule', {
+      Name: 'wereda-connect-dev-order-cron-deadline-repair',
+      ScheduleExpression: 'rate(1 day)',
+      Targets: [
+        Match.objectLike({
+          Arn: { 'Fn::GetAtt': [Match.stringLikeRegexp('^OrderCronFunction'), 'Arn'] },
+          Input: JSON.stringify({ body: JSON.stringify({ action: 'deadline_repair' }) }),
+        }),
+      ],
+    });
+  });
+
+  test('the order deadline timings live in SSM with the old defaults (ESC-16, F9)', () => {
+    const t = buildTemplate(false);
+    const expected: Record<string, string> = {
+      'unpaid-expiry-hours': '24',
+      'payment-verification-hours': '24',
+      'response-window-hours': '24',
+      'departure-margin-hours': '12',
+      'buyer-choice-window-hours': '48',
+      'reminder-lead-hours': '6',
+      'pickup-grace-hours': '48',
+      'self-pickup-window-hours': '168',
+      // ESC-36: T8 and T9.
+      'delivery-overdue-hours': '72',
+      'silent-buyer-hours': '48',
+    };
+    for (const [name, value] of Object.entries(expected)) {
+      t.hasResourceProperties('AWS::SSM::Parameter', {
+        Name: `/wereda-connect-dev/orders/${name}`,
+        Type: 'String',
+        Value: value,
+      });
+    }
+  });
+
+  test.each([false, true])(
+    'every Lambda that writes orders reads the order timings, GetParameters on the path only (live=%s, ESC-16)',
+    (live) => {
+      const t = buildTemplate(live);
+      const functions = t.findResources('AWS::Lambda::Function');
+      const withOrders = Object.entries(functions).filter(([, f]) => {
+        const vars = (f as { Properties: { Environment?: { Variables?: Record<string, unknown> } } })
+          .Properties.Environment?.Variables ?? {};
+        // reputation-stream (ESC-33) only Queries the buyer index for the decline pattern: it writes no order.
+        const name = String((f as { Properties: { FunctionName?: string } }).Properties.FunctionName);
+        return 'ORDERS_TABLE' in vars && !name.includes('account-deletion') && !name.includes('reputation-stream');
+      });
+      const names = withOrders.map(([, f]) => (f as { Properties: { FunctionName: string } }).Properties.FunctionName);
+      const writers = ['sync', 'deliveries', 'escrow', 'escrow-cron', 'orders', 'messages', 'order-cron', 'admin'];
+      expect(names).toEqual(expect.arrayContaining(
+        [...writers, ...(live ? ['telebirr-webhook'] : [])].map((fn) => `wereda-connect-dev-${fn}`)));
+      // The trips Lambda reports the order lead (FUP-122), the same response window.
+      const trips = Object.values(functions).filter(
+        (f) => (f as { Properties: { FunctionName?: string } }).Properties.FunctionName === 'wereda-connect-dev-trips');
+      expect(trips).toHaveLength(1);
+      for (const [, f] of [...withOrders, ['trips', trips[0]] as [string, unknown]]) {
+        const props = (f as { Properties: { FunctionName: string; Environment: { Variables: Record<string, unknown> } } }).Properties;
+        expect([props.FunctionName, props.Environment.Variables.ORDER_TIMINGS_PARAM_PATH])
+          .toEqual([props.FunctionName, '/wereda-connect-dev/orders/']);
+      }
+      type Statement = { Action: unknown; Resource: unknown };
+      type PolicyResource = { Properties: { PolicyDocument: { Statement: Statement[] } } };
+      const ssmStatements = [
+        ...Object.values(t.findResources('AWS::IAM::Policy')),
+        ...Object.values(t.findResources('AWS::IAM::ManagedPolicy')),
+      ]
+        .flatMap((p) => (p as PolicyResource).Properties.PolicyDocument.Statement)
+        .filter((s) => JSON.stringify(s.Resource).includes('/orders/*'));
+      expect(ssmStatements.length).toBeGreaterThanOrEqual(withOrders.length + 1);
+      for (const s of ssmStatements) {
+        expect(s.Action).toBe('ssm:GetParameters');
+        expect(JSON.stringify(s.Resource)).toContain(':parameter/wereda-connect-dev/orders/*');
+      }
+    },
+  );
+
+  test('a third hourly rule invokes the order cron with the relationship_patterns body (FRD-15)', () => {
+    const t = buildTemplate(false);
+    t.hasResourceProperties('AWS::Events::Rule', {
+      Name: 'wereda-connect-dev-order-cron-relationship-patterns',
+      ScheduleExpression: 'rate(1 hour)',
+      Targets: [
+        Match.objectLike({
+          Arn: { 'Fn::GetAtt': [Match.stringLikeRegexp('^OrderCronFunction'), 'Arn'] },
+          Input: JSON.stringify({ body: JSON.stringify({ action: 'relationship_patterns' }) }),
+        }),
+      ],
+    });
+  });
+
+  test.each([false, true])(
+    'order cron writes fraud signals with a base-table Query and PutItem only (live=%s, FRD-15)',
+    (live) => {
+      const t = buildTemplate(live);
+      t.hasResourceProperties('AWS::Lambda::Function', {
+        FunctionName: 'wereda-connect-dev-order-cron',
+        Environment: {
+          Variables: Match.objectLike({ FRAUD_SIGNALS_TABLE: Match.anyValue(), USERS_TABLE: Match.anyValue() }),
+        },
+      });
+      const onSignals = orderCronStatements(t).filter((s) => JSON.stringify(s.Resource).includes('FraudSignalsTable'));
+      expect(onSignals).toHaveLength(1);
+      expect([...([] as unknown[]).concat(onSignals[0].Action)].sort()).toEqual(['dynamodb:PutItem', 'dynamodb:Query']);
+      // The table itself: neither the Fraud Review status index nor any update or delete.
+      expect(JSON.stringify(onSignals[0].Resource)).not.toContain('/index/');
+    },
+  );
+
+  test.each([false, true])('sync carries COMMITMENTS_ENABLED, on in dev (live=%s, ESC-15)', (live) => {
+    buildTemplate(live).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-sync',
+      Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'true' }) },
+    });
+  });
+
+  test.each([false, true])('sync carries MIN_ORDER_APP_BUILD 3 in dev (live=%s, ESC-25)', (live) => {
+    buildTemplate(live).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-sync',
+      Environment: { Variables: Match.objectLike({ MIN_ORDER_APP_BUILD: '3' }) },
+    });
+  });
+
+  test('FUP-122: the trips browse carries COMMITMENTS_ENABLED (its orderLeadHours), on in dev', () => {
+    buildTemplate(false).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-trips',
+      Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'true' }) },
+    });
+  });
+
+  test('FUP-370: the orders browse carries both drop-off judgement flags (dropoffConfirmAt) and reads the order timings', () => {
+    buildTemplate(false).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-orders',
+      Environment: {
+        Variables: Match.objectLike({
+          COMMITMENTS_ENABLED: 'true',
+          DROPOFF_CLASSIFICATION_ENABLED: 'false',
+          ORDER_TIMINGS_PARAM_PATH: Match.anyValue(),
+        }),
+      },
+    });
+  });
+
+  test('ON: the webhook reads and updates trips to reserve a funded order\'s capacity (ESC-15)', () => {
+    const t = buildTemplate(true);
+    t.hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-dev-telebirr-webhook',
+      Environment: { Variables: Match.objectLike({ TRIPS_TABLE: Match.anyValue(), COMMITMENTS_ENABLED: 'true' }) },
+    });
+    const onTrips = Object.entries(t.findResources('AWS::IAM::Policy'))
+      .filter(([id]) => id.startsWith('TelebirrWebhookFunction'))
+      .flatMap(
+        ([, policy]) =>
+          (policy as { Properties: { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } } })
+            .Properties.PolicyDocument.Statement,
+      )
+      .filter((s) => JSON.stringify(s.Resource).includes('TripsTable'));
+    // The only public route gets the minimum on trips: one statement, read + conditional update,
+    // base table only (no put, delete, scan or index).
+    expect(onTrips).toHaveLength(1);
+    expect(([] as unknown[]).concat(onTrips[0].Action).sort()).toEqual(
+      ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:UpdateItem'],
+    );
+    expect(JSON.stringify(onTrips[0].Resource)).not.toContain('/index/');
+  });
+
+  test.each([false, true])(
+    'escrow and escrow-cron query and update trips to release a cancelled order\'s booking (live=%s, FUP-123)',
+    (live) => {
+      const t = buildTemplate(live);
+      type PolicyResource = { Properties: { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } } };
+      const policies = [
+        ...Object.entries(t.findResources('AWS::IAM::Policy')),
+        ...Object.entries(t.findResources('AWS::IAM::ManagedPolicy')),
+      ];
+      for (const [functionName, rolePrefix] of [
+        ['wereda-connect-dev-escrow', 'EscrowFunctionServiceRole'],
+        ['wereda-connect-dev-escrow-cron', 'EscrowCronFunctionServiceRole'],
+      ]) {
+        t.hasResourceProperties('AWS::Lambda::Function', {
+          FunctionName: functionName,
+          Environment: { Variables: Match.objectLike({ TRIPS_TABLE: Match.anyValue(), COMMITMENTS_ENABLED: 'true' }) },
+        });
+        const onTrips = policies
+          .filter(([id]) => id.startsWith(rolePrefix))
+          .flatMap(([, p]) => (p as PolicyResource).Properties.PolicyDocument.Statement)
+          .filter((s) => JSON.stringify(s.Resource).includes('TripsTable'));
+        // One statement: read the trip and the conditional release, base table only.
+        expect(onTrips).toHaveLength(1);
+        expect(([] as unknown[]).concat(onTrips[0].Action).sort()).toEqual(['dynamodb:Query', 'dynamodb:UpdateItem']);
+        expect(JSON.stringify(onTrips[0].Resource)).not.toContain('/index/');
+      }
     },
   );
 
@@ -942,6 +2209,7 @@ describe('ApiStack (prod security)', () => {
       paymentsTable: dbStack.paymentsTable,
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
@@ -951,6 +2219,10 @@ describe('ApiStack (prod security)', () => {
       matchEventsTable: dbStack.matchEventsTable,
       ratingsTable: dbStack.ratingsTable,
       messagesTable: dbStack.messagesTable,
+      notificationsTable: dbStack.notificationsTable,
+      tripLocationsTable: dbStack.tripLocationsTable,
+      listingReportsTable: dbStack.listingReportsTable,
+      reputationEventsTable: dbStack.reputationEventsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -1018,6 +2290,8 @@ describe('ApiStack (prod security)', () => {
       // The mock Fayda provider (faydaMode 'mock') must never be deployed beside prod.
       expect(env).not.toHaveProperty('FAYDA_MOCK');
       expect(env).not.toHaveProperty('FAYDA_MOCK_WEB_REDIRECT_URIS');
+      expect(env).not.toHaveProperty('FAYDA_SANDBOX');
+      expect(env).not.toHaveProperty('FAYDA_SANDBOX_REDIRECT_URI');
     }
   });
 
@@ -1045,6 +2319,106 @@ describe('ApiStack (prod security)', () => {
   });
 });
 
+describe('ApiStack resource limit (FUP-217)', () => {
+  // CloudFormation refuses a stack of more than 500 resources, and the live Telebirr gateway (VPC, NAT
+  // instance, webhook Lambda and route) makes the API stack its largest. Fail well before the limit,
+  // so a stage deploy never finds it first.
+  const MAX_RESOURCES = 470;
+
+  function buildTemplate(envConfig: EnvironmentConfig): Template {
+    // analyticsReporting: a CLI synth adds the CDKMetadata resource, and it counts too. This app does
+    // not read cdk.json, so without `@aws-cdk/aws-iam:minimizePolicies` the admin role spills into a
+    // few more managed policies: the count here is 2 to 5 above `cdk synth`'s, on the safe side.
+    const app = new cdk.App({ analyticsReporting: true });
+    const env = { account: '123456789012', region: envConfig.region };
+    const dbStack = new DatabaseStack(app, 'LimitDbStack', { env, envConfig });
+    const apiStack = new ApiStack(app, 'LimitApiStack', {
+      env,
+      envConfig,
+      usersTable: dbStack.usersTable,
+      cropsTable: dbStack.cropsTable,
+      tripsTable: dbStack.tripsTable,
+      rateLimitsTable: dbStack.rateLimitsTable,
+      syncMetadataTable: dbStack.syncMetadataTable,
+      deliveriesTable: dbStack.deliveriesTable,
+      paymentsTable: dbStack.paymentsTable,
+      escrowsTable: dbStack.escrowsTable,
+      escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
+      escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
+      deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
+      ordersTable: dbStack.ordersTable,
+      fraudSignalsTable: dbStack.fraudSignalsTable,
+      intentsTable: dbStack.intentsTable,
+      deviceTokensTable: dbStack.deviceTokensTable,
+      matchEventsTable: dbStack.matchEventsTable,
+      ratingsTable: dbStack.ratingsTable,
+      messagesTable: dbStack.messagesTable,
+      notificationsTable: dbStack.notificationsTable,
+      tripLocationsTable: dbStack.tripLocationsTable,
+      listingReportsTable: dbStack.listingReportsTable,
+      reputationEventsTable: dbStack.reputationEventsTable,
+      transactionAuditTable: dbStack.transactionAuditTable,
+      uploadsBucket: dbStack.uploadsBucket,
+    });
+    return Template.fromStack(apiStack);
+  }
+
+  // Staging and prod turn the live gateway on at deploy (`-c enableTelebirrLive=true`).
+  const cases: Array<[string, EnvironmentConfig]> = [
+    ['dev', devConfig],
+    ['dev, Telebirr live', { ...devConfig, enableTelebirrLive: true }],
+    ['staging, Telebirr live', { ...environments['staging'], enableTelebirrLive: true }],
+    ['prod, Telebirr live', { ...prodConfig, enableTelebirrLive: true }],
+  ];
+  // One synth per case, shared by both tests.
+  const templates = new Map<string, Template>();
+  const templateFor = (name: string, envConfig: EnvironmentConfig): Template => {
+    if (!templates.has(name)) {
+      templates.set(name, buildTemplate(envConfig));
+    }
+    return templates.get(name)!;
+  };
+
+  test.each(cases)('%s: at most 470 resources', (name, envConfig) => {
+    const resources = Object.keys(templateFor(name, envConfig).toJSON().Resources);
+    expect(resources.length).toBeLessThanOrEqual(MAX_RESOURCES);
+  });
+
+  test.each(cases)('%s: one integration and one invoke permission, scoped to this API, per Lambda', (name, envConfig) => {
+    // A route on a Lambda that is already behind the API then costs one resource, not three.
+    const template = templateFor(name, envConfig);
+    const lambdaOf = (value: unknown) => JSON.stringify(value).match(/"Fn::GetAtt":\["([^"]+)","Arn"\]/)?.[1];
+
+    const integrated = Object.values(template.findResources('AWS::ApiGatewayV2::Integration'))
+      .map((i) => lambdaOf(i.Properties.IntegrationUri));
+    expect(integrated.length).toBeGreaterThan(20);
+    expect(integrated.every((id) => id !== undefined)).toBe(true);
+    expect(new Set(integrated).size).toBe(integrated.length);
+
+    // Every route reaches one of those integrations.
+    const integrationIds = Object.keys(template.findResources('AWS::ApiGatewayV2::Integration'));
+    for (const route of Object.values(template.findResources('AWS::ApiGatewayV2::Route'))) {
+      const target = JSON.stringify(route.Properties.Target).match(/"Ref":"([^"]+)"/)?.[1];
+      expect([route.Properties.RouteKey, integrationIds.includes(target ?? '')]).toEqual([route.Properties.RouteKey, true]);
+    }
+
+    // One API Gateway permission per integrated Lambda. Its source ARN names this API and no other;
+    // any stage, method and path of it (the routes pick the Lambda).
+    const apiIds = Object.keys(template.findResources('AWS::ApiGatewayV2::Api'));
+    expect(apiIds).toHaveLength(1);
+    const permissions = Object.values(
+      template.findResources('AWS::Lambda::Permission', { Properties: { Principal: 'apigateway.amazonaws.com' } }),
+    );
+    expect(permissions.map((p) => lambdaOf(p.Properties.FunctionName)).sort()).toEqual([...integrated].sort());
+    for (const p of permissions) {
+      const parts = p.Properties.SourceArn['Fn::Join'][1] as unknown[];
+      expect(JSON.stringify(parts)).toContain(':execute-api:');
+      expect(parts.slice(-2)).toEqual([{ Ref: apiIds[0] }, '/*/*/*']);
+    }
+  });
+});
+
 describe('ApiStack (staging uses the live Fayda provider)', () => {
   const liveTemplate = (stagingConfig: EnvironmentConfig): Template => {
     const app = new cdk.App();
@@ -1064,6 +2438,7 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
       paymentsTable: dbStack.paymentsTable,
       escrowsTable: dbStack.escrowsTable,
       escrowAuditTable: dbStack.escrowAuditTable,
+      escrowLedgerTable: dbStack.escrowLedgerTable,
       escrowIdempotencyTable: dbStack.escrowIdempotencyTable,
       deliveryQrSecretsTable: dbStack.deliveryQrSecretsTable,
       ordersTable: dbStack.ordersTable,
@@ -1073,6 +2448,10 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
       matchEventsTable: dbStack.matchEventsTable,
       ratingsTable: dbStack.ratingsTable,
       messagesTable: dbStack.messagesTable,
+      notificationsTable: dbStack.notificationsTable,
+      tripLocationsTable: dbStack.tripLocationsTable,
+      listingReportsTable: dbStack.listingReportsTable,
+      reputationEventsTable: dbStack.reputationEventsTable,
       transactionAuditTable: dbStack.transactionAuditTable,
       uploadsBucket: dbStack.uploadsBucket,
     });
@@ -1091,6 +2470,8 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
         .Properties?.Environment?.Variables ?? {};
       expect(env).not.toHaveProperty('FAYDA_MOCK');
       expect(env).not.toHaveProperty('FAYDA_MOCK_WEB_REDIRECT_URIS');
+      expect(env).not.toHaveProperty('FAYDA_SANDBOX');
+      expect(env).not.toHaveProperty('FAYDA_SANDBOX_REDIRECT_URI');
     }
   });
 
@@ -1101,6 +2482,82 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
         FunctionName: functionName,
         Environment: { Variables: Match.objectLike({ FRAUD_HOLD_ENABLED: 'false' }) },
       });
+    }
+  });
+
+  test('ESC-15: staging and prod keep the commitments off on sync, order-cron, escrow, escrow-cron and trips', () => {
+    // The owner turns them on after the ESC-25 gate is deployed there; the test below then holds.
+    for (const envName of ['staging', 'prod']) {
+      const template = liveTemplate(environments[envName]);
+      for (const fn of ['sync', 'order-cron', 'escrow', 'escrow-cron', 'trips']) {
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          FunctionName: `wereda-connect-${envName}-${fn}`,
+          Environment: { Variables: Match.objectLike({ COMMITMENTS_ENABLED: 'false' }) },
+        });
+      }
+    }
+  });
+
+  test('ESC-34: every environment keeps the pickup judgement off on sync and order-cron', () => {
+    const templates: [string, ReturnType<typeof liveTemplate>][] = [
+      ['dev', liveTemplate(environments['dev'])],
+      ['staging', liveTemplate(environments['staging'])],
+      ['prod', liveTemplate(environments['prod'])],
+    ];
+    for (const [envName, template] of templates) {
+      for (const fn of ['sync', 'order-cron']) {
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          FunctionName: `wereda-connect-${envName}-${fn}`,
+          Environment: { Variables: Match.objectLike({ PICKUP_CLASSIFICATION_ENABLED: 'false' }) },
+        });
+      }
+    }
+  });
+
+  test('ESC-36: every environment keeps the drop-off judgement off on sync, deliveries, order-cron, admin and orders', () => {
+    const templates: [string, ReturnType<typeof liveTemplate>][] = [
+      ['dev', liveTemplate(environments['dev'])],
+      ['staging', liveTemplate(environments['staging'])],
+      ['prod', liveTemplate(environments['prod'])],
+    ];
+    for (const [envName, template] of templates) {
+      for (const fn of ['sync', 'deliveries', 'order-cron', 'admin', 'orders']) {
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          FunctionName: `wereda-connect-${envName}-${fn}`,
+          Environment: { Variables: Match.objectLike({ DROPOFF_CLASSIFICATION_ENABLED: 'false' }) },
+        });
+      }
+    }
+  });
+
+  test.each(['staging', 'prod'])('ESC-25: %s sync refuses order operations from apps before build 3', (envName) => {
+    liveTemplate(environments[envName]).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: `wereda-connect-${envName}-sync`,
+      Environment: { Variables: Match.objectLike({ MIN_ORDER_APP_BUILD: '3' }) },
+    });
+  });
+
+  test('ESC-25: MIN_ORDER_APP_BUILD is only on sync, the one Lambda that takes order commands', () => {
+    const functions = liveTemplate(environments['staging']).findResources('AWS::Lambda::Function');
+    const carriers = Object.values(functions)
+      .filter((fn) => (fn as { Properties?: { Environment?: { Variables?: Record<string, unknown> } } })
+        .Properties?.Environment?.Variables?.MIN_ORDER_APP_BUILD !== undefined)
+      .map((fn) => (fn as { Properties: { FunctionName: string } }).Properties.FunctionName);
+    expect(carriers).toEqual(['wereda-connect-staging-sync']);
+  });
+
+  test('ESC-25: without minOrderAppBuild in the config the gate is off (0)', () => {
+    liveTemplate({ ...environments['staging'], minOrderAppBuild: undefined }).hasResourceProperties('AWS::Lambda::Function', {
+      FunctionName: 'wereda-connect-staging-sync',
+      Environment: { Variables: Match.objectLike({ MIN_ORDER_APP_BUILD: '0' }) },
+    });
+  });
+
+  test('ESC-25: every environment with the commitments on gates order operations at build 3 or later', () => {
+    const on = Object.values(environments).filter((env) => env.commitmentsEnabled);
+    expect(on.map((env) => env.name)).toContain('dev');
+    for (const env of on) {
+      expect(env.minOrderAppBuild ?? 0).toBeGreaterThanOrEqual(3);
     }
   });
 
@@ -1148,6 +2605,12 @@ describe('ApiStack (staging uses the live Fayda provider)', () => {
 });
 
 describe('MonitoringStack', () => {
+  test('monitoring is off in dev only: staging and prod keep their alarms', () => {
+    expect(environments['dev'].monitoringEnabled).toBe(false);
+    expect(environments['staging'].monitoringEnabled).not.toBe(false);
+    expect(environments['prod'].monitoringEnabled).not.toBe(false);
+  });
+
   test('creates CloudWatch dashboard', () => {
     const app = new cdk.App();
     const stack = new MonitoringStack(app, 'TestMonitoringStack', {
@@ -1205,6 +2668,22 @@ describe('MonitoringStack', () => {
     const template = monitoringTemplate(false);
     const filters = template.findResources('AWS::Logs::MetricFilter');
     expect(JSON.stringify(filters)).not.toContain('telebirr-webhook');
+  });
+
+  test.each([
+    ['/aws/lambda/wereda-connect-dev-escrow-cron', 'ORDER_PAYMENT_QUERY_UNRESOLVED'],
+    ['/aws/lambda/wereda-connect-dev-order-cron', 'ORDER_PAYMENT_QUERY_OVERDUE'],
+  ])('ON: %s feeds the order-payment-problems alarm with %s (FUP-37)', (logGroup, token) => {
+    monitoringTemplate(true).hasResourceProperties('AWS::Logs::MetricFilter', {
+      LogGroupName: logGroup,
+      FilterPattern: `"${token}"`,
+      MetricTransformations: [Match.objectLike({ MetricName: 'OrderPaymentProblems', MetricValue: '1', DefaultValue: 0 })],
+    });
+  });
+
+  test('OFF: no queryOrder filters (no reconciliation runs)', () => {
+    const filters = JSON.stringify(monitoringTemplate(false).findResources('AWS::Logs::MetricFilter'));
+    expect(filters).not.toContain('ORDER_PAYMENT_QUERY_');
   });
 
   // ─── FUP-39: the webhook's deliberate 500s stay out of the API-wide 5xx rate ─────────
@@ -1413,6 +2892,7 @@ describe('MonitoringStack', () => {
   const ESCROW_LG = '/aws/lambda/wereda-connect-dev-escrow';
   const ESCROW_CRON_LG = '/aws/lambda/wereda-connect-dev-escrow-cron';
   const SYNC_LG = '/aws/lambda/wereda-connect-dev-sync';
+  const ORDER_CRON_LG = '/aws/lambda/wereda-connect-dev-order-cron';
   const MONEY_ALARMS = [
     'wereda-connect-dev-escrow-settlement-failures',
     'wereda-connect-dev-escrow-settlement-unknown-outcomes',
@@ -1424,6 +2904,29 @@ describe('MonitoringStack', () => {
     'wereda-connect-dev-dispute-verdict-order-mismatch',
     'wereda-connect-dev-dispute-verdict-settlement-blocked',
     'wereda-connect-dev-risk-settlement-skipped',
+    // FUP-81: ESC-09's order-money sweep and FUP-27's dispute mirror.
+    'wereda-connect-dev-order-money-mismatch',
+    'wereda-connect-dev-dispute-propagation-failed',
+    // ESC-16: a confirmed delivery whose escrow stamp failed.
+    'wereda-connect-dev-escrow-delivery-stamp-failures',
+    // ESC-20: escrow ledger rows open for a day, and a ledger money check that failed.
+    'wereda-connect-dev-ledger-rows-overdue',
+    'wereda-connect-dev-escrow-ledger-invariant',
+    // FUP-231: an order cancel or refund the crons keep retrying (obs-alarms.test.ts).
+    'wereda-connect-dev-order-deadline-refund-stalled',
+    // FUP-41: a release the payout identity gate has blocked for a day (release-blocked-alarm.test.ts).
+    'wereda-connect-dev-releases-blocked-overdue',
+    // FUP-64: a recorded wait_for_delivery a week old (dispute-alarms.test.ts).
+    'wereda-connect-dev-dispute-verdict-wait-overdue',
+    // FUP-06: a manual payout leg overdue for the first time (newly-overdue-alarm.test.ts).
+    'wereda-connect-dev-manual-payouts-newly-overdue',
+    // FUP-436: the edge twins of the trucker, release-blocked and ledger row overdue alarms (edge-overdue-alarms.test.ts).
+    'wereda-connect-dev-trucker-payouts-newly-overdue',
+    'wereda-connect-dev-releases-blocked-newly-overdue',
+    'wereda-connect-dev-ledger-rows-newly-overdue',
+    // FUP-255: an order deadline no sweep will act on, or one the sweep keeps finding due (obs-alarms.test.ts).
+    'wereda-connect-dev-order-deadline-unstamped',
+    'wereda-connect-dev-order-deadline-stuck',
   ];
 
   // The exact lines the server writes (server/src/Helpers/MoneyAlarmLog.cs and
@@ -1631,6 +3134,83 @@ describe('MonitoringStack', () => {
     expect(alarms).not.toContain('"OrderEscrowCreateFailed"');
   });
 
+  test('ESC-15: the order cron feeds the same order-escrow-problems metric (refund scheduling, unconfigured walk)', () => {
+    const template = monitoringTemplate(false);
+    const filter = metricFilter(template, ORDER_CRON_LG, 'OrderEscrowProblems');
+    const UNCONFIGURED_LINE = 'ORDER_CRON_COMMITMENTS_UNCONFIGURED missing=trips: no deadline was settled this run.';
+    // FUP-210: a deadline cancel whose money could not be read (or whose cancel and arm could not be
+    // written) waits for the next run, and is alarmed with the same token.
+    const NOT_ARMED_LINE =
+      'ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId=ord-1 reason=escrow_unreadable cancelReason=farmer_response_expired '
+      + 'error=[AmazonDynamoDBException]: nothing written, the cancel and its refund wait for the next run.';
+    for (const line of [REFUND_SCHEDULE_LINE, UNCONFIGURED_LINE, NOT_ARMED_LINE]) {
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, line)).toBe(true);
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, `2026-10-26T10:00:00.000Z\t4f1c7a2e-req\terror\t${line}`)).toBe(true);
+    }
+    // The cron's ordinary lines and the sync-only tokens do not count here.
+    for (const line of [
+      'Commitment deadlines complete: 1 farmer windows expired, 0 trucker windows expired, 0 trip cancellations applied, 0 buyer choices expired, 0/0/0 reminders stamped, 0 pickups overdue, 0 conflicts, 1 trip reads.',
+      'Commitment deadlines skipped: COMMITMENTS_ENABLED is off.',
+      'Order escrow refund scheduled: orderId=ord-1 reason=order_cancelled',
+      // FUP-210: a cancel held by busy money only warns for now (FUP-231).
+      'ORDER_DEADLINE_REFUND_WAITING orderId=ord-1 cancelReason=farmer_response_expired reason=escrow_busy: '
+        + 'the refund could not be armed with the cancel, nothing written; looked at again in 1h.',
+      CREATE_LINE, LINK_LINE, DISPUTE_NO_ESCROW_LINE,
+    ]) {
+      expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+    }
+    // One alarm for both sources (the metric is summed across filters).
+    expect(filter.Properties.MetricTransformations[0]).toEqual(
+      expect.objectContaining({ MetricName: 'OrderEscrowProblems', MetricValue: '1' }),
+    );
+    const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm')) as Array<{ Properties: { AlarmName: string } }>;
+    expect(alarms.filter((a) => a.Properties.AlarmName === 'wereda-connect-dev-order-escrow-problems')).toHaveLength(1);
+  });
+
+  test('ESC-18: the Telebirr webhook feeds order-escrow-problems with its refund-schedule failures', () => {
+    const template = monitoringTemplate(true);
+    const WEBHOOK_LG = '/aws/lambda/wereda-connect-dev-telebirr-webhook';
+    const filter = metricFilter(template, WEBHOOK_LG, 'OrderEscrowProblems');
+    const NO_ESCROW_LINE = 'ORDER_ESCROW_REFUND_SCHEDULE_FAILED orderId=ord-1 reason=no_escrow';
+    for (const line of [REFUND_SCHEDULE_LINE, NO_ESCROW_LINE]) {
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, line)).toBe(true);
+      expect(cloudWatchTermsMatch(filter.Properties.FilterPattern, `2026-11-06T10:00:00.000Z\t4f1c7a2e-req\terror\t${line}`)).toBe(true);
+    }
+    // The payment-problem tokens stay on their own metric.
+    for (const line of [
+      'ORDER_STOCK_DECREMENT_FAILED orderId=ord-1 listingId=crop-1 reason=insufficient_stock status=farmer_accepted',
+      'Order escrow refund scheduled: orderId=ord-1 reason=listing_out_of_stock',
+    ]) {
+      expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+    }
+    expect(filter.Properties.MetricTransformations[0]).toEqual(
+      expect.objectContaining({ MetricName: 'OrderEscrowProblems', MetricValue: '1' }),
+    );
+    // One alarm for every source, and the webhook alarm explains the insufficient_stock exception.
+    const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm')) as Array<{
+      Properties: { AlarmName: string; AlarmDescription?: string };
+    }>;
+    expect(alarms.filter((a) => a.Properties.AlarmName === 'wereda-connect-dev-order-escrow-problems')).toHaveLength(1);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-order-escrow-problems',
+      Metrics: [customMetric('OrderEscrowProblems', 900)],
+    });
+    const payment = alarms.find((a) => a.Properties.AlarmName === 'wereda-connect-dev-order-payment-problems');
+    expect(payment?.Properties.AlarmDescription).toContain('reason=insufficient_stock');
+    for (const alarm of alarms) {
+      expect([alarm.Properties.AlarmName, (alarm.Properties.AlarmDescription ?? '').length < 1024])
+        .toEqual([alarm.Properties.AlarmName, true]);
+    }
+  });
+
+  test('ESC-18: with the live gateway off there is no webhook log group to filter', () => {
+    const template = monitoringTemplate(false);
+    const filters = Object.values(template.findResources('AWS::Logs::MetricFilter')) as Array<{
+      Properties: { LogGroupName: string };
+    }>;
+    expect(filters.some((f) => f.Properties.LogGroupName === '/aws/lambda/wereda-connect-dev-telebirr-webhook')).toBe(false);
+  });
+
   test('ESC-13: queue alarms count overdue manual payouts and admin-queue entries on escrow-cron', () => {
     const template = monitoringTemplate(false);
     const payouts = metricFilter(template, ESCROW_CRON_LG, 'ManualPayoutsOverdue');
@@ -1761,6 +3341,39 @@ describe('MonitoringStack', () => {
     template.hasResourceProperties('AWS::CloudWatch::Alarm', {
       AlarmName: 'wereda-connect-dev-order-money-mismatch',
       Metrics: [customMetric('OrderMoneyMismatch', 900)],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 5,
+      DatapointsToAlarm: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
+  test('ESC-16: a delivery stamp that failed is counted on sync and escrow-cron and alarms', () => {
+    const template = monitoringTemplate(false);
+    const lines = [
+      'ESCROW_DELIVERY_STAMP_FAILED deliveryId=del-1 source=sync reason=[ProvisionedThroughputExceededException]: '
+        + 'delivery confirmed but its escrow is not marked delivery-confirmed; the hourly order-money sweep retries the stamp.',
+      'ESCROW_DELIVERY_STAMP_FAILED escrowId=escrow-order-ord-1 deliveryId=del-1 source=escrow-cron '
+        + 'reason=[InvalidOperationException]: failed to stamp a delivered-but-unstamped escrow; no refund (the order was '
+        + 'delivered), the next run retries.',
+    ];
+    for (const lg of [SYNC_LG, ESCROW_CRON_LG]) {
+      const filter = metricFilter(template, lg, 'EscrowDeliveryStampFailures');
+      expect(filter.Properties.MetricTransformations[0].MetricValue).toBe('1');
+      for (const line of lines) {
+        const prefixed = `2026-11-07T10:00:00.000Z\t4f1c7a2e-req\terror\t${line}`;
+        expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, true]);
+        expect([prefixed, cloudWatchTermsMatch(filter.Properties.FilterPattern, prefixed)]).toEqual([prefixed, true]);
+      }
+      for (const line of [SETTLEMENT_LINE, REFUND_SCHEDULE_LINE, LINK_LINE]) {
+        expect([line, cloudWatchTermsMatch(filter.Properties.FilterPattern, line)]).toEqual([line, false]);
+      }
+    }
+    expect(() => metricFilter(template, ESCROW_LG, 'EscrowDeliveryStampFailures')).toThrow();
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-escrow-delivery-stamp-failures',
+      Metrics: [customMetric('EscrowDeliveryStampFailures', 900)],
       Threshold: 0,
       ComparisonOperator: 'GreaterThanThreshold',
       EvaluationPeriods: 5,
@@ -1940,18 +3553,94 @@ describe('MonitoringStack', () => {
     return (pattern.match(/\??"[^"]*"|\??\S+/g) ?? []).map((t) => t.replace(/^\?/, '').replace(/^"|"$/g, ''));
   }
 
-  // The money filters of the four log groups that carry them (webhook only with the live gateway).
+  // The five log groups that carry money filters (webhook only with the live gateway).
+  const MONEY_LOG_GROUPS = [ESCROW_LG, ESCROW_CRON_LG, SYNC_LG, ORDER_CRON_LG, '/aws/lambda/wereda-connect-dev-telebirr-webhook'];
+  const MONEY_METRICS = [
+    'EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue',
+    'OrderPaymentProblems', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
+    'EscrowSettlementUnknownOutcomes', 'TruckerPayoutsOverdue', 'RiskSettlementSkipped',
+    // FUP-81: ESC-09's order-money sweep and FUP-27's dispute mirror.
+    'OrderMoneyMismatch', 'DisputePropagationFailed',
+    // ESC-16: a confirmed delivery whose escrow stamp failed.
+    'EscrowDeliveryStampFailures',
+    // ESC-20: the escrow ledger.
+    'LedgerRowsOverdue', 'EscrowLedgerInvariant',
+    // FUP-231: a deadline cancel or a refund the crons keep retrying (order-cron and escrow-cron).
+    'OrderDeadlineRefundStalled',
+    // FUP-41: a release the payout identity gate has blocked for a day.
+    'ReleasesBlockedOverdue',
+    // FUP-64: a recorded wait_for_delivery a week old (dispute-alarms.test.ts).
+    'DisputeVerdictWaitOverdue',
+    // FUP-06: a manual payout leg overdue for the first time (newly-overdue-alarm.test.ts).
+    'ManualPayoutsNewlyOverdue',
+    // FUP-436: the edge twins of the trucker, release-blocked and ledger row overdue lines (edge-overdue-alarms.test.ts).
+    'TruckerPayoutsNewlyOverdue', 'ReleasesBlockedNewlyOverdue', 'LedgerRowsNewlyOverdue',
+    // FUP-255: order deadlines that settle paid orders (obs-alarms.test.ts).
+    'OrderDeadlineUnstamped', 'OrderDeadlineStuck',
+  ];
+  // FUP-81: the other filters of those log groups, each named, so a new filter there must be
+  // sorted into one list or the other. The JSON audit filters match a field exactly (client text
+  // cannot spell them), the fraud ones are FRD-16's (fraud-alarms.test.ts), and the inbox replay
+  // count is a heartbeat whose alarm fires when it is missing.
+  const NOT_MONEY_METRICS = [
+    'EscrowInitiate', 'EscrowRelease', 'TelebirrInboxReplayRuns', 'FraudSignalsRecorded', 'FraudSignalsByType',
+    'RiskScoreUnavailable', 'RiskScoreTruncated', 'RiskScoreUnknownRecord', 'RiskHoldOrderMismatch',
+    'RiskTableUnconfigured', 'CleanDeliveryCreditFailed', 'OutcomeLabelFailed',
+    // ESC-28: the reputation log tokens on the sync and order-cron log groups (reputation-architecture.md 14).
+    // Points, not money: no payout or refund reads them.
+    'ReputationPolicyInvalid', 'ReputationEventsTruncated', 'ReputationReviewOverdue', 'ReputationAppealOverdue',
+    'ReputationCopyFailed', 'ReputationParkFailed',
+    // FUP-201: ESC-33's lost fraud hook (order-cron) and the attribution guard's skips by reason (sync).
+    'ReputationFraudHookFailed', 'FraudAttributedSkippedAlreadyRecorded', 'FraudAttributedSkippedTargetUnread',
+    'FraudAttributedSkippedSourceCapped', 'FraudAttributedSkippedTargetCapped', 'FraudAttributedSkippedHourLimited',
+    // ESC-36: an overdue delivery (order-cron). A trucker's reliability and an admin's dispute: the money is frozen,
+    // and an order whose money could not be frozen waits in the admin queue, which AdminQueueOverdue alarms.
+    'DeliveryOverdue',
+    // FUP-405 and FUP-267 (sync): a handoff photo not kept, and a delivery field a crafted client sent. Evidence,
+    // not money (obs-alarms.test.ts).
+    'DeliveryPhotoKeepFailed', 'DeliveryFieldDropped',
+  ];
+
+  // The money filters, and the sync's FUP-27 dispute filter: a rate, not money, but an alarm that
+  // client text must not fire either. Its escrow twin is the JSON audit filter (not listed).
   function moneyFilterPatterns(template: Template): string[] {
-    const groups = [ESCROW_LG, ESCROW_CRON_LG, SYNC_LG, '/aws/lambda/wereda-connect-dev-telebirr-webhook'];
-    const money = [
-      'EscrowSettlementFailures', 'OrderEscrowProblems', 'ManualPayoutsOverdue', 'AdminQueueOverdue',
-      'OrderPaymentProblems', 'DisputeVerdictOrderMismatch', 'DisputeVerdictSettlementBlocked',
-      'EscrowSettlementUnknownOutcomes', 'TruckerPayoutsOverdue', 'RiskSettlementSkipped',
-    ];
     return (Object.values(template.findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[])
-      .filter((f) => groups.includes(f.Properties.LogGroupName) && money.includes(f.Properties.MetricTransformations[0].MetricName))
+      .filter((f) => MONEY_LOG_GROUPS.includes(f.Properties.LogGroupName))
+      .filter((f) => {
+        const metric = f.Properties.MetricTransformations[0].MetricName;
+        return MONEY_METRICS.includes(metric) || (metric === 'EscrowDispute' && f.Properties.LogGroupName === SYNC_LG);
+      })
       .map((f) => f.Properties.FilterPattern);
   }
+
+  test('FUP-81: every filter of the money log groups is listed as money or as not money', () => {
+    for (const live of [false, true]) {
+      const filters = Object.values(monitoringTemplate(live).findResources('AWS::Logs::MetricFilter')) as MetricFilterResource[];
+      for (const f of filters.filter((x) => MONEY_LOG_GROUPS.includes(x.Properties.LogGroupName))) {
+        const metric = f.Properties.MetricTransformations[0].MetricName;
+        const listed = MONEY_METRICS.includes(metric) || NOT_MONEY_METRICS.includes(metric) || metric === 'EscrowDispute';
+        expect([f.Properties.LogGroupName, metric, listed]).toEqual([f.Properties.LogGroupName, metric, true]);
+      }
+    }
+  });
+
+  test('FUP-81: every alarm on a money metric is in MONEY_ALARMS (or is the live-only webhook one)', () => {
+    // ESC-01's alarm exists only with the live gateway (its own test above); MONEY_ALARMS holds
+    // the alarms of both shapes.
+    const liveOnly = ['wereda-connect-dev-order-payment-problems'];
+    for (const live of [false, true]) {
+      const alarms = Object.values(monitoringTemplate(live).findResources('AWS::CloudWatch::Alarm')) as Array<{
+        Properties: { AlarmName: string; Metrics?: Array<{ MetricStat?: { Metric: { MetricName: string } } }> };
+      }>;
+      const onMoney = alarms
+        .filter((a) => (a.Properties.Metrics ?? []).some((m) => MONEY_METRICS.includes(m.MetricStat?.Metric.MetricName ?? '')))
+        .map((a) => a.Properties.AlarmName);
+      expect(onMoney.length).toBeGreaterThanOrEqual(MONEY_METRICS.length - (live ? 0 : 1)); // OrderPaymentProblems is live only
+      for (const name of onMoney) {
+        expect([name, MONEY_ALARMS.includes(name) || (live && liveOnly.includes(name))]).toEqual([name, true]);
+      }
+    }
+  });
 
   // Whether every term a pattern requires appears in the line as a plain substring (any one of
   // them for a pattern of `?` alternatives): stricter than the service's token match.
@@ -1962,7 +3651,18 @@ describe('MonitoringStack', () => {
 
   test('ESC-13: every money filter needs a term with an underscore (the server defangs client text by turning _ into -)', () => {
     const patterns = moneyFilterPatterns(monitoringTemplate(true));
-    expect(patterns.length).toBe(13);
+    // ESC-18 added the webhook's refund-schedule filter; FUP-81 added OrderMoneyMismatch (1),
+    // DisputePropagationFailed (3) and the sync dispute filter (1); ESC-16 added
+    // EscrowDeliveryStampFailures (2: sync and escrow-cron); ESC-20 added LedgerRowsOverdue (1: escrow-cron) and
+    // EscrowLedgerInvariant (2 here: escrow and escrow-cron; its admin filter is outside these log groups);
+    // FUP-231 added OrderDeadlineRefundStalled (2: order-cron and escrow-cron); FUP-41 added
+    // ReleasesBlockedOverdue (1: escrow-cron); FUP-64 added DisputeVerdictWaitOverdue (1: escrow-cron); FUP-06 added
+    // ManualPayoutsNewlyOverdue (1: escrow-cron); FUP-37 added two OrderPaymentProblems sources (escrow-cron and
+    // order-cron, live only); FUP-436 added TruckerPayoutsNewlyOverdue, ReleasesBlockedNewlyOverdue and
+    // LedgerRowsNewlyOverdue (1 each: escrow-cron); FUP-255 added OrderDeadlineUnstamped (5 here: escrow,
+    // escrow-cron, sync, order-cron and the live webhook; its other Lambdas are outside these log groups) and
+    // OrderDeadlineStuck (1: order-cron).
+    expect(patterns.length).toBe(41);
     for (const pattern of patterns) {
       const terms = filterTerms(pattern);
       // Alternatives: every term must carry one. All required (ESC-05's unknown filter pairs the
@@ -2042,6 +3742,8 @@ describe('MonitoringStack', () => {
         'DisputeVerdictOrderMismatch',
         'DisputeVerdictSettlementBlocked',
         'RiskSettlementSkipped',
+        'OrderMoneyMismatch',
+        'DisputePropagationFailed',
       ]) {
         expect(body).toMatch(new RegExp(`"Fn::GetAtt":\\["${logicalId}[0-9A-F]+","Arn"\\]`));
       }
@@ -2050,6 +3752,91 @@ describe('MonitoringStack', () => {
         expect(body).toMatch(webhookAlarmRef);
       } else {
         expect(body).not.toMatch(webhookAlarmRef);
+      }
+    }
+  });
+
+  // ESC-21: the order notification stream consumer. Standalone alarms (the aggregate
+  // LambdaErrors expression is at its 10 metric cap), referenced by name.
+  function lambdaMetric(metricName: string, stat: string) {
+    return Match.objectLike({
+      MetricStat: Match.objectLike({
+        Metric: Match.objectLike({
+          Namespace: 'AWS/Lambda',
+          MetricName: metricName,
+          Dimensions: [{ Name: 'FunctionName', Value: 'wereda-connect-dev-order-notify-stream' }],
+        }),
+        Period: 300,
+        Stat: stat,
+      }),
+    });
+  }
+
+  test('ESC-21: a message in the notify DLQ alarms until the queue is drained', () => {
+    const template = monitoringTemplate(false);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-notify-dlq-messages',
+      Metrics: [
+        Match.objectLike({
+          MetricStat: Match.objectLike({
+            Metric: Match.objectLike({
+              Namespace: 'AWS/SQS',
+              MetricName: 'ApproximateNumberOfMessagesVisible',
+              Dimensions: [{ Name: 'QueueName', Value: 'wereda-connect-dev-notify-dlq' }],
+            }),
+            Period: 300,
+          }),
+        }),
+      ],
+      Threshold: 1,
+      ComparisonOperator: 'GreaterThanOrEqualToThreshold',
+      EvaluationPeriods: 1,
+      DatapointsToAlarm: Match.absent(),
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
+  test('ESC-21: the notifier falling 15 minutes behind its streams alarms', () => {
+    const template = monitoringTemplate(false);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-notify-stream-iterator-age',
+      Metrics: [lambdaMetric('IteratorAge', 'Maximum')],
+      Threshold: 900000,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
+  test('ESC-21: any failed notifier invocation alarms', () => {
+    const template = monitoringTemplate(false);
+    template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+      AlarmName: 'wereda-connect-dev-notify-stream-errors',
+      Metrics: [lambdaMetric('Errors', 'Sum')],
+      Threshold: 0,
+      ComparisonOperator: 'GreaterThanThreshold',
+      EvaluationPeriods: 1,
+      TreatMissingData: 'notBreaching',
+    });
+  });
+
+  test('ESC-21: the notifier alarms page and clear on the alarm topic, fit their descriptions, and sit on the dashboard', () => {
+    for (const live of [false, true]) {
+      const template = monitoringTemplate(live);
+      const topicRef = [{ Ref: Match.stringLikeRegexp('^AlarmTopic') }];
+      const alarms = template.findResources('AWS::CloudWatch::Alarm');
+      for (const name of ['notify-dlq-messages', 'notify-stream-iterator-age', 'notify-stream-errors']) {
+        template.hasResourceProperties('AWS::CloudWatch::Alarm', {
+          AlarmName: `wereda-connect-dev-${name}`,
+          AlarmActions: topicRef,
+          OKActions: topicRef,
+        });
+        const alarm = Object.values(alarms).find((a) => a.Properties.AlarmName === `wereda-connect-dev-${name}`);
+        expect([name, alarm!.Properties.AlarmDescription.length < 1024]).toEqual([name, true]);
+      }
+      const body = JSON.stringify(template.findResources('AWS::CloudWatch::Dashboard'));
+      for (const logicalId of ['NotifyDlqMessages', 'NotifyStreamIteratorAge', 'NotifyStreamErrors']) {
+        expect(body).toMatch(new RegExp(`"Fn::GetAtt":\\["${logicalId}[0-9A-F]+","Arn"\\]`));
       }
     }
   });
@@ -2290,5 +4077,61 @@ describe('GithubActionsStack', () => {
     );
     expect(prodPolicies).not.toContain('SeedSsmSecrets');
     expect(prodPolicies).not.toContain('secretsmanager:GetSecretValue');
+  });
+});
+
+describe('WebStack security headers (CSP)', () => {
+  const cspFor = (config: EnvironmentConfig): string => {
+    const app = new cdk.App();
+    const env = { account: '123456789012', region: config.region };
+    const certScope = new cdk.Stack(app, `TestCert-${config.name}`, { env });
+    const certificate = acm.Certificate.fromCertificateArn(
+      certScope,
+      'Cert',
+      'arn:aws:acm:us-east-1:123456789012:certificate/test',
+    );
+    const stack = new WebStack(app, `TestWebStack-${config.name}`, {
+      env,
+      envConfig: config,
+      certificate,
+    });
+    const policies = Template.fromStack(stack).findResources(
+      'AWS::CloudFront::ResponseHeadersPolicy',
+    );
+    const [policy] = Object.values(policies) as Array<{
+      Properties: {
+        ResponseHeadersPolicyConfig: {
+          SecurityHeadersConfig: { ContentSecurityPolicy: { ContentSecurityPolicy: string } };
+        };
+      };
+    }>;
+    return policy.Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig
+      .ContentSecurityPolicy.ContentSecurityPolicy;
+  };
+
+  const directive = (csp: string, name: string): string[] => {
+    const found = csp
+      .split(';')
+      .map((d) => d.trim())
+      .find((d) => d.startsWith(`${name} `));
+    return found ? found.split(/\s+/).slice(1) : [];
+  };
+
+  test.each([
+    ['dev', devConfig],
+    ['prod', prodConfig],
+  ])('%s: crop photo upload and display sources are allowed', (_name, config) => {
+    const csp = cspFor(config);
+    const connect = directive(csp, 'connect-src');
+    const img = directive(csp, 'img-src');
+
+    // image_picker on web returns a blob: URL that readAsBytes() fetches.
+    expect(connect).toContain('blob:');
+    // Presigned PUT of the original and GETs of renditions hit the regional bucket.
+    expect(connect).toContain(`https://*.s3.${config.region}.amazonaws.com`);
+    expect(img).toContain(`https://*.s3.${config.region}.amazonaws.com`);
+    // Scoped to the stack's region, never every S3 endpoint.
+    expect(connect).not.toContain('https://*.amazonaws.com');
+    expect(connect).not.toContain('https://*.s3.amazonaws.com');
   });
 });

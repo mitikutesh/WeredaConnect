@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -6,7 +7,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 
+import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
 import 'package:wereda_connect/core/database/contact_phone_purge.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
@@ -14,6 +17,7 @@ import 'package:wereda_connect/core/network/data_usage_auth_binding.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
+import 'package:wereda_connect/core/sync/dropoff_check_in_preflight.dart';
 import 'package:wereda_connect/core/sync/isar_marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
@@ -31,22 +35,45 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_blo
 import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/conflict_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
+import 'package:wereda_connect/features/crop_listing/data/services/crop_photo_sync_preflight.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/delivery_photo_attached.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/delivery_photo_sync_preflight.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_repository.dart';
 import 'package:wereda_connect/features/escrow_payment/data/services/escrow_sync_service.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
+import 'package:wereda_connect/features/listing_report/data/listing_report_repository.dart';
+import 'package:wereda_connect/features/listing_report/domain/base_listing_report_repository.dart';
+import 'package:wereda_connect/features/account/data/repositories/profile_repository.dart';
+import 'package:wereda_connect/features/account/domain/profile_edit.dart';
+import 'package:wereda_connect/features/live_trip/check_in_engine_binding.dart';
+import 'package:wereda_connect/features/live_trip/check_in_notice.dart';
+import 'package:wereda_connect/features/live_trip/data/geolocator_location_source.dart';
+import 'package:wereda_connect/features/live_trip/data/location_ping_repository.dart';
+import 'package:wereda_connect/features/live_trip/data/prefs_sharing_state_store.dart';
+import 'package:wereda_connect/features/live_trip/data/repositories/track_repository.dart';
+import 'package:wereda_connect/features/live_trip/data/repository_trip_progress_reader.dart';
+import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
+import 'package:wereda_connect/features/live_trip/domain/repositories/base_track_repository.dart';
+import 'package:wereda_connect/features/live_trip/sign_out_forgetter.dart';
+import 'package:wereda_connect/features/notifications/data/notification_repository.dart';
+import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/order/data/repositories/order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/open_order_detail.dart';
 import 'package:wereda_connect/features/messaging/data/isar_conversation_context_resolver.dart';
 import 'package:wereda_connect/features/messaging/data/repositories/message_repository.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_event.dart';
+import 'package:wereda_connect/features/messaging/presentation/open_notified_conversation.dart';
 import 'package:wereda_connect/features/messaging/presentation/widgets/message_arrival_listener.dart';
 import 'package:wereda_connect/features/rating/data/repositories/rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -54,6 +81,7 @@ import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart'
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/theme/signed_in_role.dart';
 
 Future<void> runMobile({
   required FlutterSecureStorage secureStorage,
@@ -130,6 +158,55 @@ Future<void> runMobile({
     getCurrentUserId: () => secureStorage.read(key: AuthBloc.currentUserIdKey),
   );
 
+  // LT-08: the trucker's check-in engine (where the truck is after pickup).
+  // Built before the executor, which tells it when the server ended sharing
+  // for a trip or refused a pickup for good.
+  // T-3: the trucker's kept drop-off handoffs, dropped as a trip's
+  // deliveries are seen done, and all of them on an explicit logout or a
+  // deleted account (the AuthBloc's signOutForgetter below), never when a
+  // session lapsed.
+  final dropoffHandoffs = SecureDropoffHandoffStore();
+  final checkInEngine = CheckInEngine(
+    pings: LocationPingRepository(
+      isar: IsarService.instance.db,
+      syncQueue: syncQueue,
+    ),
+    location: GeolocatorLocationSource(),
+    trips: RepositoryTripProgressReader(
+      deliveries: DeliveryRepository(
+        isar: IsarService.instance.db,
+        syncQueue: syncQueue,
+      ),
+      trips: TripListingRepository(
+        isar: IsarService.instance.db,
+        syncQueue: syncQueue,
+      ),
+      handoffs: dropoffHandoffs,
+    ),
+    states: PrefsSharingStateStore(),
+    notice: () => checkInNoticeFor(languageProvider.locale),
+  );
+
+  final cropPhotoPreflight =
+      CropPhotoSyncPreflight(isar: IsarService.instance.db);
+  final deliveryPhotoPreflight = DeliveryPhotoSyncPreflight(
+    saveData: syncQueue.replaceData,
+    // A photo waits for its delivery's own create; once nothing of the
+    // delivery waits on the phone, an unknown delivery ends the wait.
+    deliveryOpsOpen: (deliveryId) =>
+        syncQueue.hasOpenOperationsFor('delivery', deliveryId),
+    onAttached:
+        DeliveryPhotoAttachedCleanup(isar: IsarService.instance.db).call,
+  );
+  // FUP-336: a drop-off check-in waits for its arrival photo.
+  final dropoffCheckInPreflight = DropoffCheckInSyncPreflight(
+    waiting: syncQueue.hasWaitingOperationsFor,
+  );
+  // FUP-315: a profile edit refused for good puts the server's profile back
+  // on the phone and in the session, which the AuthBloc below holds.
+  final profileRepository =
+      ProfileRepository(syncQueue: syncQueue, api: ApiClient());
+  late final AuthBloc authBloc;
   final syncExecutor = SyncExecutor(
     syncQueue: syncQueue,
     connectivityMonitor: connectivityMonitor,
@@ -152,12 +229,40 @@ Future<void> runMobile({
     },
     // Any other permanent order rejection: server wins, the local order goes
     // back to the server's view (sync-protocol.md 1.10.0); so do refused
-    // deliveries, crop listings and trips (1.11.0, 1.12.0, 1.17.0).
-    onPermanentRejection: marketplaceSync.revertRejected,
+    // deliveries, crop listings and trips (1.11.0, 1.12.0, 1.17.0), and a
+    // refused profile edit (1.72.0, FUP-315).
+    onPermanentRejection: (operation, message) async {
+      if (operation.entityType == userProfileEntityType) {
+        await profileRepository.revertRefusedEdit(
+          operation.entityId,
+          apply: (values) =>
+              _showServerProfile(authBloc, operation.entityId, values),
+        );
+        return;
+      }
+      await marketplaceSync.revertRejected(operation, message);
+    },
+    // LT-08: LOCATION_SHARING_ENDED stops sharing for the trip; a pickup
+    // refused for good drops the trip's waiting check-ins.
+    onLocationSharingEnded: checkInEngine.onSharingEnded,
+    onPickupRejected: checkInEngine.onPickupRejected,
+    // A crop listing's create waits until its photos are in the incoming
+    // bucket (crop-listing-api.md 1.6.0); a handoff photo's attach waits
+    // until the photo is in the uploads bucket (FRD-12); a drop-off check-in
+    // waits for its arrival photo to be attached (FUP-336). Each answers true
+    // for the others' operations.
+    preflight: (operation) async =>
+        await cropPhotoPreflight(operation) &&
+        await deliveryPhotoPreflight(operation) &&
+        await dropoffCheckInPreflight(operation),
+    // FRD-12: an attached handoff photo's file is deleted from the phone.
+    onOperationSynced: deliveryPhotoPreflight.onSynced,
   );
   final syncWorker = SyncWorker(
     executor: syncExecutor,
     syncQueue: syncQueue,
+    // BUG-32: early retries after a sync that could not reach the server.
+    connectivityMonitor: connectivityMonitor,
   );
   syncWorker.start();
 
@@ -170,14 +275,42 @@ Future<void> runMobile({
   }
 
   // AuthBloc with Isar for offline data cleanup on logout
-  final authBloc = AuthBloc(
+  authBloc = AuthBloc(
     isar: IsarService.instance.isInitialized ? IsarService.instance.db : null,
     // Logout asks the server to stop pushing to this device's FCM token.
     pushTokenProvider: PushNotificationService.currentToken,
     // A deleted account drops the token on the device too.
     pushTokenDeleter: PushNotificationService.deleteToken,
+    forgetTrackSnapshots: signOutForgetter(dropoffHandoffs),
+    // SIM-37: after a sign-in, show the profile's saved language unless the
+    // user picked one on this device.
+    applyProfileLanguage: languageProvider.applyProfileLanguage,
   )..add(const AuthCheckRequested());
   bindDataUsageToAuth(dataUsageTracker, authBloc);
+  // LT-08: only a signed-in trucker shares; a sign out stops the service.
+  CheckInEngineBinding(engine: checkInEngine, authBloc: authBloc).attach();
+
+  // SIM-37: when the user changes language in Settings, sync the choice to the
+  // server profile so it follows them to other devices. Offline-first: the
+  // op is queued and retried. No-op until the user is authenticated.
+  languageProvider.onLanguageChanged = (languageCode) async {
+    final state = authBloc.state;
+    if (state is! AuthAuthenticated) return;
+    try {
+      await syncQueue.enqueue(
+        userId: state.userId,
+        entityType: 'user',
+        entityId: state.userId,
+        action: 'update',
+        data: jsonEncode({'preferredLanguage': languageCode}),
+        operationId: const Uuid().v4(),
+      );
+    } on DuplicateOperationException {
+      // Same choice re-queued within the same millisecond; already pending.
+    } on SyncQueueFullException {
+      // Best effort: the preference re-syncs on the next change.
+    }
+  };
 
   // Lifecycle observer for resource cleanup
   WidgetsBinding.instance.addObserver(
@@ -200,7 +333,34 @@ Future<void> runMobile({
         syncExecutor: syncExecutor,
         syncWorker: syncWorker,
         marketplaceSync: marketplaceSync,
+        checkInEngine: checkInEngine,
       ),
+    ),
+  );
+}
+
+/// FUP-315: after a refused profile edit, the phone's copy of [userId]'s
+/// profile and the signed-in session take the server's [values], as the edit
+/// screen applies a server read.
+Future<void> _showServerProfile(
+  AuthBloc authBloc,
+  String userId,
+  ProfileValues values,
+) async {
+  final auth = authBloc.state;
+  await OfflineAuthCache().updateProfile(
+    userId: userId,
+    phoneNumber: auth is AuthAuthenticated ? auth.phoneNumber ?? '' : '',
+    displayName: values.displayName,
+    woreda: values.woreda,
+    buyerType: values.buyerType,
+    companyName: values.companyName,
+  );
+  authBloc.add(
+    AuthProfileChanged(
+      userId: userId,
+      userName: values.displayName,
+      woreda: values.woreda,
     ),
   );
 }
@@ -223,6 +383,10 @@ class _AppLifecycleObserver extends WidgetsBindingObserver {
 }
 
 class WeredaConnectApp extends StatelessWidget {
+  /// The root navigator, so a tapped push can open an order (ESC-21) or a
+  /// conversation (FUP-90).
+  static final navigatorKey = GlobalKey<NavigatorState>();
+
   final AuthBloc authBloc;
   final ConnectivityMonitor connectivityMonitor;
   final EscrowSyncService escrowSyncService;
@@ -235,6 +399,10 @@ class WeredaConnectApp extends StatelessWidget {
   /// without triggering network pulls; `runMobile` always supplies it.
   final MarketplaceSync? marketplaceSync;
 
+  /// The trucker's check-in engine (LT-08). Optional for the same reason;
+  /// `runMobile` always supplies it.
+  final CheckInEngine? checkInEngine;
+
   const WeredaConnectApp({
     required this.authBloc,
     required this.connectivityMonitor,
@@ -244,6 +412,7 @@ class WeredaConnectApp extends StatelessWidget {
     required this.syncExecutor,
     required this.syncWorker,
     this.marketplaceSync,
+    this.checkInEngine,
     super.key,
   });
 
@@ -278,6 +447,39 @@ class WeredaConnectApp extends StatelessWidget {
         // Exposed so non-BLoC screens (e.g. crop detail's suggested trips)
         // can refresh the marketplace cache before reading it. Null on web.
         Provider<MarketplaceSync?>.value(value: marketplaceSync),
+        // LT-08: the trucker's check-in engine (trip screens, LT-09).
+        Provider<CheckInEngine?>.value(value: checkInEngine),
+        // ESC-21: the order-event inbox (bell), kept in Isar.
+        Provider<BaseNotificationRepository>(
+          create: (_) => NotificationRepository(
+            isar: IsarService.instance.db,
+            api: ApiClient(),
+          ),
+        ),
+        // LT-11: where the truck of a delivery is (the live trip screens);
+        // the last answer per delivery is kept for offline display.
+        Provider<BaseTrackRepository>(
+          create: (_) => TrackRepository(
+            api: ApiClient(),
+            connectivity: connectivityMonitor,
+          ),
+        ),
+        // FUP-67: a buyer's listing report is queued and sent by the sync
+        // queue, so a report made offline goes out later.
+        Provider<BaseListingReportRepository>(
+          create: (_) => ListingReportRepository(syncQueue: syncQueue),
+        ),
+        // ESC-31: the signed-in farmer's or trucker's own reputation (HTTP,
+        // with the last answer kept on the phone for offline reading).
+        Provider<ReputationRepository>(
+          create: (_) => ReputationRepository(api: ApiClient()),
+        ),
+        // SIM-56: a profile edit is queued and sent by the sync queue, so an
+        // edit made offline goes out later.
+        Provider<BaseProfileRepository>(
+          create: (_) =>
+              ProfileRepository(syncQueue: syncQueue, api: ApiClient()),
+        ),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -312,6 +514,7 @@ class WeredaConnectApp extends StatelessWidget {
                 syncQueue: syncQueue,
               ),
               marketplaceSync: marketplaceSync,
+              scanCheckIns: checkInEngine,
             ),
           ),
           BlocProvider<OrderBloc>(
@@ -319,6 +522,11 @@ class WeredaConnectApp extends StatelessWidget {
               repository: OrderRepository(
                 isar: IsarService.instance.db,
                 syncQueue: syncQueue,
+                // FUP-285: only the signed-in user's queued check-ins show.
+                currentUserId: () async => switch (authBloc.state) {
+                  AuthAuthenticated(:final userId) => userId,
+                  _ => null,
+                },
               ),
               marketplaceSync: marketplaceSync,
             ),
@@ -328,6 +536,8 @@ class WeredaConnectApp extends StatelessWidget {
               repository: BuyerIntentRepository(
                 isar: IsarService.instance.db,
                 syncQueue: syncQueue,
+                // SIM-56: My Requests reads the server's copy back.
+                api: ApiClient(),
               ),
               matchingService: MatchingService(
                 isar: IsarService.instance.db,
@@ -376,7 +586,10 @@ class WeredaConnectApp extends StatelessWidget {
         ],
         child: Consumer<LanguageProvider>(
           builder: (context, languageProvider, child) {
+            // The whole app wears the signed-in role's colours.
+            final role = watchSignedInRole(context);
             return MaterialApp(
+              navigatorKey: navigatorKey,
               title: 'WeredaConnect',
               locale: languageProvider.locale,
               localizationsDelegates: const [
@@ -390,8 +603,8 @@ class WeredaConnectApp extends StatelessWidget {
                 Locale('am'),
                 Locale('om'),
               ],
-              theme: AppTheme.light(),
-              darkTheme: AppTheme.dark(),
+              theme: AppTheme.light(role: role),
+              darkTheme: AppTheme.dark(role: role),
               // Pinned to light until the raw Colors.* sweep makes all
               // screens dark-safe; then a Settings toggle can ship.
               themeMode: ThemeMode.light,
@@ -411,7 +624,56 @@ class WeredaConnectApp extends StatelessWidget {
                   // Capture blocs, not context: the callbacks outlive builds.
                   final inbox = context.read<InboxBloc>();
                   final auth = context.read<AuthBloc>();
+                  final notifications =
+                      context.read<BaseNotificationRepository>();
+                  final orders = context.read<OrderBloc>().repository;
+                  final sync = marketplaceSync;
+                  // ESC-21: an order event pulls the inbox and the order, with
+                  // one follow-up like the chat pull.
+                  void pullOrderEvent(String? orderId) {
+                    final state = auth.state;
+                    if (state is! AuthAuthenticated) return;
+                    notifications.pull(state.userId, force: true).ignore();
+                    if (orderId != null) sync?.pullOrder(orderId).ignore();
+                    Timer(const Duration(seconds: 3), () {
+                      final now = auth.state;
+                      if (now is AuthAuthenticated) {
+                        notifications.pull(now.userId, force: true).ignore();
+                      }
+                    });
+                  }
+
                   PushNotificationService(api: ApiClient()).init(
+                    onOrderPush: pullOrderEvent,
+                    onOpenOrder: (orderId) async {
+                      if (auth.state is! AuthAuthenticated) return;
+                      await pullOrderIfMissing(orders, sync, orderId);
+                      await navigatorKey.currentState
+                          ?.push(orderDetailRoute(orders, orderId));
+                    },
+                    // FUP-90: a tapped chat push opens its thread, only for
+                    // the account it was sent to.
+                    onOpenConversation: (conversation) async {
+                      final signedIn = auth.state;
+                      if (signedIn is! AuthAuthenticated) return;
+                      final screen = await notifiedConversationScreen(
+                        repository: inbox.repository,
+                        userId: signedIn.userId,
+                        conversation: conversation,
+                        requestPull: () =>
+                            inbox.add(const InboxPollRequested()),
+                      );
+                      // Signed out, or another account in, while it read.
+                      final now = auth.state;
+                      if (screen == null ||
+                          now is! AuthAuthenticated ||
+                          now.userId != signedIn.userId) {
+                        return;
+                      }
+                      await navigatorKey.currentState?.push(
+                        MaterialPageRoute<void>(builder: (_) => screen),
+                      );
+                    },
                     onMessagePush: () {
                       // A push for the PREVIOUS user can arrive after logout
                       // (tokens aren't deregistered yet) — ignore it.

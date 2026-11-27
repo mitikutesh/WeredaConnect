@@ -1,12 +1,47 @@
 import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// The one offline banner — offline is a status, never a surprise.
+/// Whether a write just saved waits on this phone for a network (E-5): the
+/// device reports none, read from the app's connectivity monitor without a
+/// request, so the answer never waits on the network. "Saved on your
+/// phone" then, else "sent". Always false on web, where a write goes
+/// straight to the API: it was sent, or it failed with its own error.
+Future<bool> writeWaitsForNetwork(BuildContext context) async {
+  if (kIsWeb) return false;
+  final ConnectivityMonitor monitor;
+  try {
+    monitor = context.read<ConnectivityMonitor>();
+  } on Object {
+    return false;
+  }
+  try {
+    return !await monitor.isConnected();
+  } on Object {
+    return false;
+  }
+}
+
+/// Says how a write just saved went (E-5): [sent] when it went out, else
+/// that it waits on this phone ([writeWaitsForNetwork]). With no [sent],
+/// only a waiting write is said. The messenger is read first, so the
+/// snackbar still shows when the screen that saved closes meanwhile.
+Future<void> showSavedOrSent(BuildContext context, {String? sent}) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final l10n = AppLocalizations.of(context)!;
+  final waits = await writeWaitsForNetwork(context);
+  final text = waits ? l10n.savedOnPhoneWillSend : sent;
+  if (text != null) messenger.showSnackBar(SnackBar(content: Text(text)));
+}
+
+/// The one offline banner: offline is a status, never a surprise.
 ///
 /// Self-contained (monitors connectivity itself) so any screen can drop
 /// it into its column. Appears in the same slot (under the header) on
@@ -63,22 +98,36 @@ class _OfflineBannerState extends State<OfflineBanner> {
 
     final l10n = AppLocalizations.of(context)!;
 
+    // The boards' "No network here" note: the orange tint, radius 24,
+    // inside the page's 20 px margins.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: _banner(l10n),
+      ),
+    );
+  }
+
+  Widget _banner(AppLocalizations l10n) {
     return MaterialBanner(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      dividerColor: Colors.transparent,
       content: Row(
         children: [
           const Icon(
             Icons.cloud_off,
             color: AppTheme.onStatusWarningContainer,
-            size: 20,
+            size: 22,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               l10n.offlineModeIndicator,
               style: const TextStyle(
                 color: AppTheme.onStatusWarningContainer,
-                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),

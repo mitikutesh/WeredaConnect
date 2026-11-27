@@ -2,7 +2,9 @@
 #
 # Money alarms synthetic test (ESC-13; the dispute verdict mismatch alarm since ESC-03; the
 # unknown-outcome alarm since ESC-05; the trucker payouts overdue alarm since ESC-04; the
-# dispute propagation alarm and the sync filter of the escrow dispute rate since FUP-27).
+# dispute propagation alarm and the sync filter of the escrow dispute rate since FUP-27; the
+# edge-triggered manual payouts newly overdue alarm since FUP-06; the edge-triggered trucker payouts,
+# releases blocked and ledger rows newly overdue alarms since FUP-436).
 #
 # Proves that the CloudWatch metric filters and alarms behind the escrow money paths
 # fire on the exact log lines the server emits, without moving any money. Pairs with
@@ -15,6 +17,9 @@
 #   - checks that the lines of a normal queued payout (ESC-02) and lines carrying hostile
 #     client text, as the server writes them, match no money filter
 #   - checks that the unknown-outcome filter (ESC-05) skips an outcome=failed line
+#   - checks that the manual payout overdue filter and its newly overdue twin (FUP-06), and the
+#     trucker payout, release blocked and ledger row overdue filters and their twins (FUP-436),
+#     each count only their own line
 #   - checks the sync filter of the escrow dispute rate (FUP-27) like the money filters; that
 #     alarm is not a money alarm and is never fired here (it needs six disputes in an hour)
 #   - asserts the shape of the escrow-cron Errors alarm
@@ -94,13 +99,23 @@ A_UNKNOWN="${PREFIX}-escrow-settlement-unknown-outcomes"
 A_CRON="${PREFIX}-escrow-cron-errors"
 A_ORDER="${PREFIX}-order-escrow-problems"
 A_PAYOUT="${PREFIX}-manual-payouts-overdue"
+# FUP-06: a manual payout leg overdue for the first time (edge-triggered; clears within minutes).
+A_PAYOUT_NEW="${PREFIX}-manual-payouts-newly-overdue"
 A_QUEUE="${PREFIX}-admin-queue-overdue"
 A_TRUCKER="${PREFIX}-trucker-payouts-overdue"
+# FUP-41: a release the payout identity gate has blocked for a day.
+A_RELEASE_BLOCKED="${PREFIX}-releases-blocked-overdue"
+# FUP-436: the edge twins of the trucker, release blocked and ledger row overdue alarms (clear within minutes).
+A_TRUCKER_NEW="${PREFIX}-trucker-payouts-newly-overdue"
+A_RELEASE_BLOCKED_NEW="${PREFIX}-releases-blocked-newly-overdue"
+A_LEDGER_NEW="${PREFIX}-ledger-rows-newly-overdue"
 A_MISMATCH="${PREFIX}-dispute-verdict-order-mismatch"
 A_PROPAGATION="${PREFIX}-dispute-propagation-failed"
+# ESC-16: a confirmed delivery whose escrow could not be stamped.
+A_STAMP="${PREFIX}-escrow-delivery-stamp-failures"
 # Persistence alarm (three of four hourly datapoints): checked, never fired by this script.
 A_BLOCKED="${PREFIX}-dispute-verdict-settlement-blocked"
-ALL_ALARMS=("$A_SETTLE" "$A_UNKNOWN" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_QUEUE" "$A_TRUCKER" "$A_MISMATCH" "$A_PROPAGATION" "$A_BLOCKED")
+ALL_ALARMS=("$A_SETTLE" "$A_UNKNOWN" "$A_CRON" "$A_ORDER" "$A_PAYOUT" "$A_PAYOUT_NEW" "$A_QUEUE" "$A_TRUCKER" "$A_TRUCKER_NEW" "$A_RELEASE_BLOCKED" "$A_RELEASE_BLOCKED_NEW" "$A_LEDGER_NEW" "$A_MISMATCH" "$A_PROPAGATION" "$A_STAMP" "$A_BLOCKED")
 
 # Sample lines: the exact formats of MoneyAlarmLog and the sync Lambda, with a synthetic id.
 SID="synthetic-esc13"
@@ -108,13 +123,24 @@ L_SETTLE="ESCROW_SETTLEMENT_FAILED escrowId=${SID} action=release_failed outcome
 L_UNKNOWN="ESCROW_SETTLEMENT_FAILED escrowId=${SID} action=stale_lock_parked outcome=unknown code=release"
 L_LINK="ORDER_ESCROW_LINK_FAILED orderId=${SID} deliveryId=${SID} reason=[Synthetic]"
 L_PAYOUT="MANUAL_PAYOUT_OVERDUE escrowId=${SID} ref=release:farmer ageHours=25"
+L_PAYOUT_NEW="MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=${SID} ref=release:farmer ageHours=24"
 L_TRUCKER="TRUCKER_PAYOUT_OVERDUE escrowId=${SID} reason=phone_unverified ageHours=25"
+L_TRUCKER_NEW="TRUCKER_PAYOUT_NEWLY_OVERDUE escrowId=${SID} reason=phone_unverified ageHours=24"
+L_RELEASE_BLOCKED="RELEASE_BLOCKED_OVERDUE escrowId=${SID} leg=farmer reason=phone_unverified ageHours=25"
+L_RELEASE_BLOCKED_NEW="RELEASE_BLOCKED_NEWLY_OVERDUE escrowId=${SID} leg=farmer reason=phone_unverified ageHours=24"
+# FUP-436: the ledger sweep's open row line (its level alarm is not fired here) and its edge twin.
+L_LEDGER="LEDGER_ROW_OVERDUE escrowId=${SID} ref=release.farmer status=pending ageHours=25"
+L_LEDGER_NEW="LEDGER_ROW_NEWLY_OVERDUE escrowId=${SID} ref=release.farmer status=pending ageHours=24"
 L_QUEUE="ADMIN_QUEUE_OVERDUE orderId=${SID} reason=synthetic ageHours=25"
 L_MISMATCH="DISPUTE_VERDICT_ORDER_MISMATCH escrowId=${SID} op=refund legs=order:mismatch:accepted"
 L_BLOCKED="DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=${SID} op=refund legs=order:cancel:conflict"
+L_WAIT="DISPUTE_VERDICT_WAIT_OVERDUE escrowId=${SID} op=release ageDays=8 legs=order:mismatch:in-transit"
 # FUP-27: a dispute mirror leg that failed, and a sync delivery dispute that froze its escrow.
 L_PROPAGATION="DISPUTE_PROPAGATION_FAILED escrowId=${SID} orderId=${SID} deliveryId=${SID} legs=order:conflict"
 L_FROZEN="DELIVERY_DISPUTE_FROZEN escrowId=${SID} orderId=${SID} deliveryId=${SID}"
+# ESC-16: the sync's failed inline stamp and the escrow cron's failed repair of it.
+L_STAMP_SYNC="ESCROW_DELIVERY_STAMP_FAILED deliveryId=${SID} source=sync reason=[Synthetic]: delivery confirmed but its escrow is not marked delivery-confirmed; the hourly order-money sweep retries the stamp."
+L_STAMP_CRON="ESCROW_DELIVERY_STAMP_FAILED escrowId=${SID} deliveryId=${SID} source=escrow-cron reason=[Synthetic]: failed to stamp a delivered-but-unstamped escrow; no refund (the order was delivered), the next run retries."
 
 # How the Lambda runtime writes a line to CloudWatch: time, request id and level, tab separated.
 RT_PREFIX=$'2026-10-09T10:00:00.000Z\tsynthetic-esc13-request\twarn\t'
@@ -123,7 +149,7 @@ RT_PREFIX=$'2026-10-09T10:00:00.000Z\tsynthetic-esc13-request\twarn\t'
 # ESCROW_034), and lines that carry client text exactly as the server writes them, with a
 # hostile value that spells a token (the server turns "_" into "-" in client values, and the
 # escrow Lambda logs the route template, not the path).
-HOSTILE="ESCROW-SETTLEMENT-FAILED-ORDER-ESCROW-LINK-FAILED-MANUAL-PAYOUT-OVERDUE-TRUCKER-PAYOUT-OVERDUE-DISPUTE-VERDICT-ORDER-MISMATCH-DISPUTE-VERDICT-SETTLEMENT-BLOCKED-DISPUTE-PROPAGATION-FAILED-DELIVERY-DISPUTE-FROZEN"
+HOSTILE="ESCROW-SETTLEMENT-FAILED-ORDER-ESCROW-LINK-FAILED-MANUAL-PAYOUT-OVERDUE-MANUAL-PAYOUT-NEWLY-OVERDUE-TRUCKER-PAYOUT-OVERDUE-TRUCKER-PAYOUT-NEWLY-OVERDUE-RELEASE-BLOCKED-NEWLY-OVERDUE-LEDGER-ROW-NEWLY-OVERDUE-DISPUTE-VERDICT-ORDER-MISMATCH-DISPUTE-VERDICT-SETTLEMENT-BLOCKED-DISPUTE-PROPAGATION-FAILED-DELIVERY-DISPUTE-FROZEN"
 NEGATIVE_LINES=(
   "ESCROW_MANUAL_PAYOUT_QUEUED escrowId=${SID} op=release legs=farmer,trucker reason=PAYOUT_NOT_SUPPORTED"
   "ESCROW_MANUAL_PAYOUT_WAITING escrowId=${SID} sweep=auto-release"
@@ -146,14 +172,22 @@ CHECKS=(
   "${LG_CRON}|EscrowSettlementUnknownOutcomes|${L_UNKNOWN}"
   "${LG_SYNC}|OrderEscrowProblems|${L_LINK}"
   "${LG_CRON}|ManualPayoutsOverdue|${L_PAYOUT}"
+  "${LG_CRON}|ManualPayoutsNewlyOverdue|${L_PAYOUT_NEW}"
   "${LG_CRON}|TruckerPayoutsOverdue|${L_TRUCKER}"
+  "${LG_CRON}|TruckerPayoutsNewlyOverdue|${L_TRUCKER_NEW}"
+  "${LG_CRON}|ReleasesBlockedOverdue|${L_RELEASE_BLOCKED}"
+  "${LG_CRON}|ReleasesBlockedNewlyOverdue|${L_RELEASE_BLOCKED_NEW}"
+  "${LG_CRON}|LedgerRowsNewlyOverdue|${L_LEDGER_NEW}"
   "${LG_CRON}|AdminQueueOverdue|${L_QUEUE}"
   "${LG_ESCROW}|DisputeVerdictOrderMismatch|${L_MISMATCH}"
   "${LG_CRON}|DisputeVerdictOrderMismatch|${L_MISMATCH}"
   "${LG_CRON}|DisputeVerdictSettlementBlocked|${L_BLOCKED}"
+  "${LG_CRON}|DisputeVerdictWaitOverdue|${L_WAIT}"
   "${LG_ESCROW}|DisputePropagationFailed|${L_PROPAGATION}"
   "${LG_SYNC}|DisputePropagationFailed|${L_PROPAGATION}"
   "${LG_CRON}|DisputePropagationFailed|${L_PROPAGATION}"
+  "${LG_SYNC}|EscrowDeliveryStampFailures|${L_STAMP_SYNC}"
+  "${LG_CRON}|EscrowDeliveryStampFailures|${L_STAMP_CRON}"
   # Not a money alarm: the escrow dispute rate's sync filter (the escrow one is a JSON filter).
   "${LG_SYNC}|EscrowDispute|${L_FROZEN}"
 )
@@ -207,6 +241,28 @@ for lg in "$LG_ESCROW" "$LG_CRON"; do
     pass "EscrowSettlementUnknownOutcomes on ${lg}: an outcome=failed line is not counted"
   else
     fail "EscrowSettlementUnknownOutcomes on ${lg}: pattern ${pattern} counts an outcome=failed line (matches: ${failed_hits:-none})"
+  fi
+done
+echo
+
+echo "Overdue filters and their newly overdue twins (FUP-06, FUP-436) each skip the other's line:"
+for pair in "ManualPayoutsOverdue|${L_PAYOUT_NEW}" "ManualPayoutsNewlyOverdue|${L_PAYOUT}" \
+            "TruckerPayoutsOverdue|${L_TRUCKER_NEW}" "TruckerPayoutsNewlyOverdue|${L_TRUCKER}" \
+            "ReleasesBlockedOverdue|${L_RELEASE_BLOCKED_NEW}" "ReleasesBlockedNewlyOverdue|${L_RELEASE_BLOCKED}" \
+            "LedgerRowsOverdue|${L_LEDGER_NEW}" "LedgerRowsNewlyOverdue|${L_LEDGER}"; do
+  IFS='|' read -r metric other <<< "$pair"
+  pattern="$(aws_text logs describe-metric-filters --log-group-name "$LG_CRON" \
+    --query "metricFilters[?metricTransformations[0].metricName=='${metric}'].filterPattern | [0]" 2>/dev/null)"
+  if [ -z "$pattern" ] || [ "$pattern" = "None" ]; then
+    fail "${metric} on ${LG_CRON}: no metric filter deployed"
+    continue
+  fi
+  other_hits="$(aws_text logs test-metric-filter --filter-pattern "$pattern" \
+    --log-event-messages "$other" "${RT_PREFIX}${other}" --query 'length(matches)' 2>/dev/null)"
+  if [ "$other_hits" = "0" ]; then
+    pass "${metric} on ${LG_CRON}: the other overdue line is not counted"
+  else
+    fail "${metric} on ${LG_CRON}: pattern ${pattern} counts '${other}' (matches: ${other_hits:-none})"
   fi
 done
 echo
@@ -289,8 +345,8 @@ put_lines() {
   fi
 }
 put_lines "$LG_ESCROW" "$L_SETTLE" "$L_UNKNOWN" "$L_MISMATCH" "$L_PROPAGATION"
-put_lines "$LG_CRON" "$L_SETTLE" "$L_UNKNOWN" "$L_PAYOUT" "$L_TRUCKER" "$L_QUEUE" "$L_MISMATCH" "$L_PROPAGATION"
-put_lines "$LG_SYNC" "$L_LINK" "$L_PROPAGATION"
+put_lines "$LG_CRON" "$L_SETTLE" "$L_UNKNOWN" "$L_PAYOUT" "$L_PAYOUT_NEW" "$L_TRUCKER" "$L_TRUCKER_NEW" "$L_RELEASE_BLOCKED" "$L_RELEASE_BLOCKED_NEW" "$L_LEDGER_NEW" "$L_QUEUE" "$L_MISMATCH" "$L_PROPAGATION" "$L_STAMP_CRON"
+put_lines "$LG_SYNC" "$L_LINK" "$L_PROPAGATION" "$L_STAMP_SYNC"
 
 # A JSON string cannot deserialize into APIGatewayProxyRequest, so the runtime fails the
 # invocation before the handler runs: one Errors datapoint, no sweep, no money effect. If
@@ -349,8 +405,9 @@ for lg in "$LG_ESCROW" "$LG_CRON" "$LG_SYNC"; do
 done
 echo
 echo "Expected to clear by themselves with no new lines or errors:"
-echo "  ${A_SETTLE}, ${A_UNKNOWN}, ${A_PAYOUT}, ${A_TRUCKER}, ${A_QUEUE}, ${A_MISMATCH}, ${A_PROPAGATION}: about 75 to 90 minutes after the lines were written"
+echo "  ${A_SETTLE}, ${A_UNKNOWN}, ${A_PAYOUT}, ${A_TRUCKER}, ${A_RELEASE_BLOCKED}, ${A_QUEUE}, ${A_MISMATCH}, ${A_PROPAGATION}, ${A_STAMP}: about 75 to 90 minutes after the lines were written"
 echo "  ${A_ORDER}: 15 to 30 minutes"
+echo "  ${A_PAYOUT_NEW}, ${A_TRUCKER_NEW}, ${A_RELEASE_BLOCKED_NEW}, ${A_LEDGER_NEW}: 5 to 15 minutes"
 echo "  ${A_CRON}: 20 to 25 minutes"
 
 if [ "$WAIT_CLEAR" = 1 ] && [ ${#FIRED[@]} -gt 0 ]; then

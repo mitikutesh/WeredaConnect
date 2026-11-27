@@ -17,8 +17,25 @@ public interface IRatingRepository
         string ratingId,
         Dictionary<string, object> data);
 
+    /// <summary>
+    /// rating-api.md 1.7.0: create a rating that is stored but never enters the ratee's aggregate
+    /// (<c>inAggregate: false</c> and the server-only <c>aggregateExclusion</c> set to
+    /// <paramref name="reason"/>). The ratee's sum and count are not touched. Same conflict as
+    /// <see cref="CreateAsync"/> for an id that exists.
+    /// </summary>
+    Task<AuthResult<Dictionary<string, object>>> CreateOutsideAggregateAsync(
+        string ratingId,
+        Dictionary<string, object> data,
+        string reason);
+
     /// <summary>Get a rating by its id. Returns null if not found.</summary>
     Task<Dictionary<string, object>?> GetByIdAsync(string ratingId);
+
+    /// <summary>
+    /// GCR-03: <see cref="GetByIdAsync(string)"/>, strongly consistent when <paramref name="consistentRead"/>, so a
+    /// rating created a moment ago (earlier in the same sync batch) is seen.
+    /// </summary>
+    Task<Dictionary<string, object>?> GetByIdAsync(string ratingId, bool consistentRead);
 
     /// <summary>
     /// Query ratings received by a ratee (newest first), paginated.
@@ -26,11 +43,12 @@ public interface IRatingRepository
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByRateeAsync(
         string rateeId,
         int limit = 20,
-        Dictionary<string, AttributeValue>? exclusiveStartKey = null);
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null,
+        string? rateeRole = null);
 
     /// <summary>
     /// Compute the aggregate (average + count) of all ratings for a ratee by
     /// walking every page. Used for the summary figure.
     /// </summary>
-    Task<(double Average, int Count)> GetSummaryAsync(string rateeId);
+    Task<(double Average, int Count)> GetSummaryAsync(string rateeId, string? rateeRole = null);
 }

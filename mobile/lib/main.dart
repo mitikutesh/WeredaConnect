@@ -1,4 +1,3 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -15,6 +14,8 @@ import 'package:wereda_connect/core/network/data_usage_interceptor.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/routing/app_router.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/sync/sync_queue_web.dart'
+    show SyncPlatformInterceptor;
 import 'package:wereda_connect/core/auth/token_refresh.dart';
 import 'package:wereda_connect/core/auth/web_test_auth_seam.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
@@ -25,6 +26,11 @@ import 'package:wereda_connect/features/conflict_resolution/presentation/bloc/co
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
+import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
+import 'package:wereda_connect/features/listing_report/data/web_listing_report_repository.dart';
+import 'package:wereda_connect/features/listing_report/domain/base_listing_report_repository.dart';
+import 'package:wereda_connect/features/live_trip/sign_out_forgetter.dart';
+import 'package:wereda_connect/features/live_trip/web_check_in_engine.dart';
 import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
@@ -33,6 +39,7 @@ import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart'
 import 'package:wereda_connect/shared/providers/language_provider.dart';
 import 'package:wereda_connect/shared/providers/settings_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/theme/signed_in_role.dart';
 
 // Conditional import: native runner on mobile, stub on web
 import 'package:wereda_connect/app/run_mobile.dart'
@@ -43,13 +50,21 @@ import 'package:wereda_connect/features/buyer/data/repositories/web_buyer_intent
 import 'package:wereda_connect/features/buyer/domain/services/web_matching_service.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/web_crop_listing_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/web_delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/web_escrow_repository.dart';
+import 'package:wereda_connect/features/live_trip/data/repositories/web_track_repository.dart';
+import 'package:wereda_connect/features/live_trip/domain/repositories/base_track_repository.dart';
 import 'package:wereda_connect/features/messaging/data/repositories/web_message_repository.dart';
 import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
+import 'package:wereda_connect/features/notifications/data/web_notification_repository.dart';
+import 'package:wereda_connect/features/notifications/domain/base_notification_repository.dart';
 import 'package:wereda_connect/features/order/data/repositories/web_order_repository.dart';
 import 'package:wereda_connect/features/rating/data/repositories/web_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/web_trip_listing_repository.dart';
+import 'package:wereda_connect/features/account/data/repositories/web_profile_repository.dart';
+import 'package:wereda_connect/features/account/domain/profile_edit.dart';
 
 Future<void> main() async {
   if (kIsWeb) usePathUrlStrategy();
@@ -69,8 +84,13 @@ Future<void> main() async {
   // Initialize API client (no cert pinning on web)
   ApiClient().initialize(
     // Requests are metered after AuthInterceptor (sees the bearer token),
-    // responses before it (see DataUsageInterceptor.responses).
-    interceptors: [DataUsageInterceptor.requests(dataUsageTracker)],
+    // responses before it (see DataUsageInterceptor.responses). On web every
+    // /sync operation names the web platform before it is metered (GCR-02);
+    // the phone's queue names its own when it builds the batch.
+    interceptors: [
+      if (kIsWeb) SyncPlatformInterceptor(),
+      DataUsageInterceptor.requests(dataUsageTracker),
+    ],
   );
 
   // Wire AuthInterceptor for automatic token injection and 401 refresh.
@@ -78,15 +98,12 @@ Future<void> main() async {
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 
-  final refreshDio = Dio(
-    BaseOptions(
-      baseUrl: ApiClient().dio.options.baseUrl,
-      connectTimeout: ApiClient().dio.options.connectTimeout,
-      receiveTimeout: ApiClient().dio.options.receiveTimeout,
-      headers: Map<String, dynamic>.from(ApiClient().dio.options.headers),
-    ),
+  // Shares the API client's HTTP adapter, so the refresh token travels over
+  // the same pinned connection as every other API call (MOB-02).
+  final refreshDio = buildRefreshDio(
+    ApiClient().dio,
+    interceptors: [DataUsageInterceptor(dataUsageTracker)],
   );
-  refreshDio.interceptors.add(DataUsageInterceptor(dataUsageTracker));
 
   // Shared refresh callback: persists the new tokens, restarts the 48h
   // offline session clock, and signs the user out (SessionSignals) when the
@@ -99,6 +116,10 @@ Future<void> main() async {
       refreshDio: refreshDio,
       storage: secureStorage,
     ),
+    // FUP-96: on web every tab shares the stored session, so each bearer is
+    // checked against the account this tab is signed in as. One app per
+    // device on mobile: no check.
+    sessionSubject: kIsWeb ? () => _webAuthBloc?.sessionSubject : null,
   );
   ApiClient().dio.interceptors.insert(0, authInterceptor);
   ApiClient()
@@ -139,6 +160,9 @@ Future<void> main() async {
 
 // ─── Web initialization ────────────────────────────────────────────
 
+/// The web tab's AuthBloc, once [_runWeb] created it (FUP-96).
+AuthBloc? _webAuthBloc;
+
 Future<void> _runWeb({
   required FlutterSecureStorage secureStorage,
   required DataUsageTracker dataUsageTracker,
@@ -146,11 +170,31 @@ Future<void> _runWeb({
   required SettingsProvider settingsProvider,
 }) async {
   // No Isar, no SyncWorker, no cert pinning, no lifecycle observer on web
-  final authBloc = AuthBloc()..add(const AuthCheckRequested());
+  // T-3: an explicit logout or a deleted account also drops the trucker's
+  // kept drop-off handoffs (browser storage on web); a lapsed session keeps
+  // them.
+  final authBloc = AuthBloc(
+    forgetTrackSnapshots: signOutForgetter(SecureDropoffHandoffStore()),
+    // SIM-37: after a sign-in, show the profile's saved language unless the
+    // user picked one on this device.
+    applyProfileLanguage: languageProvider.applyProfileLanguage,
+  )..add(const AuthCheckRequested());
+  _webAuthBloc = authBloc;
   // F-37: production-gated test auth seam for e2e (no-op in prod builds).
   registerWebTestAuthSeam(authBloc);
   bindDataUsageToAuth(dataUsageTracker, authBloc);
   final api = ApiClient();
+  // LT-08: a trucker on web checks in while the page is visible.
+  final checkInEngine = buildWebCheckInEngine(
+    api: api,
+    authBloc: authBloc,
+    languageProvider: languageProvider,
+  );
+
+  // One router for the app's life. It used to be built inside the language
+  // Consumer below, so every language change made a new router that started
+  // again at Home (BUG-24).
+  final router = createWebRouter(authBloc);
 
   runApp(
     MultiProvider(
@@ -161,6 +205,30 @@ Future<void> _runWeb({
         // No Isar on web: matching/browse query the API directly, so there is
         // nothing to pull into a local cache. Screens read this as null.
         Provider<MarketplaceSync?>.value(value: null),
+        // ESC-21: the order-event inbox (bell), kept for the session.
+        Provider<BaseNotificationRepository>.value(
+          value: WebNotificationRepository(api: api),
+        ),
+        // LT-08: the trucker's check-in engine (trip screens, LT-09).
+        Provider<CheckInEngine?>.value(value: checkInEngine),
+        // LT-11: where the truck of a delivery is (the live trip screens);
+        // the last answer per delivery is kept in localStorage.
+        Provider<BaseTrackRepository>.value(
+          value: WebTrackRepository(api: api),
+        ),
+        // FUP-67: a buyer's listing report goes straight to /sync on web.
+        Provider<BaseListingReportRepository>.value(
+          value: WebListingReportRepository(api: api),
+        ),
+        // ESC-31: the signed-in farmer's or trucker's own reputation (HTTP,
+        // with the last answer kept in localStorage).
+        Provider<ReputationRepository>.value(
+          value: ReputationRepository(api: api),
+        ),
+        // SIM-56: a profile edit goes straight to /sync on web.
+        Provider<BaseProfileRepository>.value(
+          value: WebProfileRepository(api: api),
+        ),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -179,6 +247,7 @@ Future<void> _runWeb({
           BlocProvider<DeliveryBloc>(
             create: (_) => DeliveryBloc(
               repository: WebDeliveryRepository(api: api),
+              scanCheckIns: checkInEngine,
             ),
           ),
           BlocProvider<OrderBloc>(
@@ -218,7 +287,8 @@ Future<void> _runWeb({
         ],
         child: Consumer<LanguageProvider>(
           builder: (context, langProvider, child) {
-            final router = createWebRouter(authBloc);
+            // The whole app wears the signed-in role's colours.
+            final role = watchSignedInRole(context);
             return MaterialApp.router(
               title: 'WeredaConnect',
               locale: langProvider.locale,
@@ -233,8 +303,8 @@ Future<void> _runWeb({
                 Locale('am'),
                 Locale('om'),
               ],
-              theme: AppTheme.light(),
-              darkTheme: AppTheme.dark(),
+              theme: AppTheme.light(role: role),
+              darkTheme: AppTheme.dark(role: role),
               // Pinned to light until the raw Colors.* sweep makes all
               // screens dark-safe; then a Settings toggle can ship.
               themeMode: ThemeMode.light,

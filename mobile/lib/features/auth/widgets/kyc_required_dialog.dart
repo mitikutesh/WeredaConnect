@@ -12,8 +12,9 @@ import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 /// when that verification succeeded, so the caller sends the payment again;
 /// false (cancelled, failed, wrong identity) means the payment stays unsent.
 ///
-/// When the farmer is the one not verified, or the check is unavailable, it
-/// only explains and resolves to false: verifying the buyer would not help.
+/// When the farmer is the one not verified, the check is unavailable, or
+/// the reason is one this build does not know, it only explains and resolves
+/// to false: verifying the buyer would not help.
 /// [verificationScreen] replaces the Fayda screen (tests).
 Future<bool> showKycRequiredDialog(
   BuildContext context, {
@@ -32,11 +33,15 @@ Future<bool> showKycRequiredDialog(
           switch (reason) {
             KycReason.farmerPhone => l10n.kycFarmerPhoneMessage,
             KycReason.farmerFayda => l10n.kycFarmerFaydaMessage,
+            KycReason.unknown => l10n.kycUnknownReasonMessage,
             _ => l10n.kycUnavailableMessage,
           },
         ),
         actions: [
           FilledButton(
+            // Beside Cancel, not stacked under it: the theme's button is
+            // full width.
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
             key: const Key('kyc_ok_button'),
             onPressed: () => Navigator.of(dialogContext).pop(),
             child: Text(l10n.ok),
@@ -63,6 +68,9 @@ Future<bool> showKycRequiredDialog(
           child: Text(l10n.cancel),
         ),
         FilledButton.icon(
+          // Beside Cancel, not stacked under it: the theme's button is
+          // full width.
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
           key: const Key('kyc_verify_button'),
           onPressed: () => Navigator.of(dialogContext).pop(true),
           icon: const Icon(Icons.fingerprint),

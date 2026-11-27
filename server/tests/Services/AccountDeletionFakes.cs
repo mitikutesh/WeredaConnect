@@ -24,6 +24,10 @@ internal sealed class FakeAccountDeletionRepository : IAccountDeletionRepository
     public List<(string BuyerId, string IntentId)> Intents { get; } = new();
     public Dictionary<string, List<string>> MatchEvents { get; } = new();
     public Dictionary<string, List<string>> DeviceTokens { get; } = new();
+
+    /// <summary>The ESC-21 inbox: rows per recipient (PK <c>userId</c>), keyed by <c>sortKey</c>.</summary>
+    public Dictionary<string, Dictionary<string, InboxEntry>> Inbox { get; } = new();
+
     public HashSet<string> CheckoutSlots { get; } = new();
     public Dictionary<string, List<Dictionary<string, object>>> PaymentTrails { get; } = new();
 
@@ -434,6 +438,84 @@ internal sealed class FakeAccountDeletionRepository : IAccountDeletionRepository
         return Task.CompletedTask;
     }
 
+    // ── notifications inbox (FUP-120) ──
+
+    public void AddInbox(string recipientId, string sortKey, string orderId, IReadOnlyDictionary<string, string> parameters,
+        string entity = "order", string? entityId = null)
+    {
+        if (!Inbox.TryGetValue(recipientId, out var rows))
+        {
+            Inbox[recipientId] = rows = new Dictionary<string, InboxEntry>();
+        }
+
+        rows[sortKey] = new InboxEntry(sortKey, orderId, entity, entityId ?? orderId,
+            new Dictionary<string, string>(parameters, StringComparer.Ordinal));
+    }
+
+    public IReadOnlyDictionary<string, string> InboxParams(string recipientId, string sortKey) => Inbox[recipientId][sortKey].Params;
+
+    public Task<List<string>> QueryNotificationKeysAsync(string userId)
+    {
+        Hit(nameof(QueryNotificationKeysAsync));
+        return Task.FromResult(Inbox.TryGetValue(userId, out var rows) ? rows.Keys.ToList() : new List<string>());
+    }
+
+    public Task DeleteNotificationAsync(string userId, string sortKey)
+    {
+        Hit(nameof(DeleteNotificationAsync));
+        if (Inbox.TryGetValue(userId, out var rows))
+        {
+            rows.Remove(sortKey);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>ESC-28: the reputation-events partition per user.</summary>
+    public Dictionary<string, HashSet<string>> ReputationEvents { get; } = new();
+
+    public Task<List<string>> QueryReputationEventIdsAsync(string userId)
+    {
+        Hit(nameof(QueryReputationEventIdsAsync));
+        return Task.FromResult(ReputationEvents.TryGetValue(userId, out var ids) ? ids.ToList() : new List<string>());
+    }
+
+    public Task DeleteReputationEventAsync(string userId, string eventId)
+    {
+        Hit(nameof(DeleteReputationEventAsync));
+        if (ReputationEvents.TryGetValue(userId, out var ids))
+        {
+            ids.Remove(eventId);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task<List<InboxEntry>> QueryNotificationsAsync(string recipientId)
+    {
+        Hit(nameof(QueryNotificationsAsync));
+        return Task.FromResult(Inbox.TryGetValue(recipientId, out var rows) ? rows.Values.ToList() : new List<InboxEntry>());
+    }
+
+    public Task<bool> AnonymizeNotificationAsync(string recipientId, string sortKey, IReadOnlyCollection<string> nameParams)
+    {
+        Hit(nameof(AnonymizeNotificationAsync));
+        if (!Inbox.TryGetValue(recipientId, out var rows) || !rows.TryGetValue(sortKey, out var row))
+        {
+            // Like the condition on the table: a row that is gone is not recreated.
+            return Task.FromResult(false);
+        }
+
+        var parameters = new Dictionary<string, string>(row.Params, StringComparer.Ordinal);
+        foreach (var param in nameParams)
+        {
+            parameters[param] = AccountDeletionPolicy.Sentinel;
+        }
+
+        rows[sortKey] = row with { Params = parameters };
+        return Task.FromResult(true);
+    }
+
     // ── helpers ──
 
     private static List<PartyRow> Party(
@@ -497,6 +579,13 @@ internal sealed class FakeTransactionAuditRepository : ITransactionAuditReposito
 
     public Task<List<Dictionary<string, object>>> GetByEntityAsync(string entityId)
         => Task.FromResult(Rows.Where(r => r["entityId"].ToString() == entityId).ToList());
+
+    public Task<(List<Dictionary<string, object>> Items, bool More)> GetLatestByTransactionAsync(string transactionId, int limit)
+    {
+        var rows = Rows.Where(r => r["transactionId"].ToString() == transactionId)
+            .OrderByDescending(r => r["timestamp"].ToString(), StringComparer.Ordinal).ToList();
+        return Task.FromResult((rows.Take(limit).ToList(), rows.Count > limit));
+    }
 
     public Task<List<Dictionary<string, object>>> GetRecentAsync(int limit)
         => Task.FromResult(Rows.TakeLast(limit).ToList());

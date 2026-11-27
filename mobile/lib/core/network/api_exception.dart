@@ -4,6 +4,7 @@ library;
 import 'package:dio/dio.dart';
 
 import 'package:wereda_connect/core/network/json_body.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 
 /// Base exception for all API errors
 sealed class ApiException implements Exception {
@@ -75,6 +76,19 @@ String? accountGoneState(int? statusCode, Object? body) {
   return state is String ? state : '';
 }
 
+/// REST error code (HTTP 403) for a suspended account. Sign-in, OTP and token
+/// refresh answer it, and since sync-protocol.md 1.48.0 so do `/sync` and the
+/// other write endpoints (reputation-api.md 8.4).
+const String accountSuspendedCode = 'AUTH_025';
+
+/// True for a `403 AUTH_025` answer
+/// (`{"error":{"code":"AUTH_025","message":"Account suspended."}}`).
+bool isAccountSuspended(int? statusCode, Object? body) {
+  if (statusCode != 403) return false;
+  final error = decodeJsonMap(body)?['error'];
+  return error is Map && error['code'] == accountSuspendedCode;
+}
+
 /// The server wants the user to confirm it is them before a money action
 /// (REST 403 `AUTH_040` for the password, `AUTH_041` for Fayda). Not an
 /// [AuthException]: the session is still valid, so callers must
@@ -141,6 +155,16 @@ const String orderCancelNotAllowedCode = 'ORDER_CANCEL_NOT_ALLOWED';
 bool isOrderCancelNotAllowedMessage(String? message) =>
     message != null && message.startsWith(orderCancelNotAllowedCode);
 
+/// Whether an order cancel was refused because of the order's money, not
+/// its pickup: a dispute froze the payment, or it is being settled or
+/// reviewed (`ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or
+/// reviewed.`, FUP-32). The server has no code of its own for it, so the
+/// wording tells it apart (sync-protocol.md 1.49.0 pins it); the buyer is
+/// then told about the payment instead of the pickup rule (FUP-77).
+bool isOrderCancelPaymentBusyMessage(String? message) =>
+    isOrderCancelNotAllowedMessage(message) &&
+    message!.contains('payment is being settled or reviewed');
+
 /// Sync rejection prefix when a party tries to cancel a delivery after pickup
 /// (ESC-08, sync-protocol.md 1.11.0).
 const String deliveryCancelNotAllowedCode = 'DELIVERY_CANCEL_NOT_ALLOWED';
@@ -185,25 +209,190 @@ bool isContactLockedMessage(String? message) =>
     message != null && message.startsWith(contactLockedCode);
 
 /// Sync rejection prefixes when crop or trip text that buyers read carries a
-/// phone number (FUP-49, sync-protocol.md 1.23.0). Nothing was written.
+/// phone number (FUP-49, sync-protocol.md 1.23.0), or an order's drop-off
+/// note does (LT-12, sync-protocol.md 1.36.0). Nothing was written.
 const String cropContactInTextCode = 'CROP_CONTACT_IN_TEXT';
 const String tripContactInTextCode = 'TRIP_CONTACT_IN_TEXT';
+const String orderContactInTextCode = 'ORDER_CONTACT_IN_TEXT';
 
-/// Whether a /sync per-operation error message refuses a crop listing or a
-/// trip because its text holds a phone number. Permanent: the same payload
-/// always gets the same answer, so it is never resent.
+/// Whether a /sync per-operation error message refuses a crop listing, a
+/// trip or an order's drop-off note because its text holds a phone number.
+/// Permanent: the same payload always gets the same answer, so it is never
+/// resent (the order code is also an `ORDER_*` refusal, so the order is put
+/// back to the server's view).
 bool isContactInTextMessage(String? message) =>
     message != null &&
     (message.startsWith(cropContactInTextCode) ||
-        message.startsWith(tripContactInTextCode));
+        message.startsWith(tripContactInTextCode) ||
+        message.startsWith(orderContactInTextCode));
+
+/// Sync rejection prefix when the buyer's drop-off note changes after pickup
+/// (LT-12, sync-protocol.md 1.36.0). Permanent like every `ORDER_*` refusal:
+/// the order is put back to the server's view.
+const String orderDropoffNoteLockedCode = 'ORDER_DROPOFF_NOTE_LOCKED';
+
+/// Whether a /sync per-operation error message refuses a drop-off note change
+/// because the goods were picked up (`ORDER_DROPOFF_NOTE_LOCKED: ...`).
+bool isDropoffNoteLockedMessage(String? message) =>
+    message != null && message.startsWith(orderDropoffNoteLockedCode);
+
+/// Sync rejection prefix when the order's drop-off point changes after
+/// pickup (LT-14, sync-protocol.md 1.42.0). Permanent like every `ORDER_*`
+/// refusal: the order is put back to the server's view.
+const String orderDeliveryLocationLockedCode = 'ORDER_DELIVERY_LOCATION_LOCKED';
+
+/// Whether a /sync per-operation error message refuses a drop-off point
+/// change because the goods were picked up
+/// (`ORDER_DELIVERY_LOCATION_LOCKED: ...`).
+bool isDeliveryLocationLockedMessage(String? message) =>
+    message != null && message.startsWith(orderDeliveryLocationLockedCode);
+
+/// Sync rejection prefixes for a pickup or drop-off confirmed with a typed
+/// handoff code (T-1, sync-protocol.md 1.33.0): the code is not the
+/// delivery's, typed codes are locked for that step after five wrong ones
+/// (a scanned QR still works; before pickup the farmer's Regenerate
+/// unlocks, a trucker's drop-off has its own code because nothing can renew
+/// it), or a paid delivery's typed code came without a location. Nothing was
+/// written. `DELIVERY_CODE_LOCKED_DROPOFF` starts with
+/// `DELIVERY_CODE_LOCKED`: check it first.
+const String deliveryCodeMismatchCode = 'DELIVERY_CODE_MISMATCH';
+const String deliveryCodeLockedCode = 'DELIVERY_CODE_LOCKED';
+const String deliveryCodeLockedDropoffCode = 'DELIVERY_CODE_LOCKED_DROPOFF';
+const String deliveryCodeGpsRequiredCode = 'DELIVERY_CODE_GPS_REQUIRED';
+
+/// Whether a /sync per-operation error message refuses a typed handoff code
+/// (`DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED`,
+/// `DELIVERY_CODE_LOCKED_DROPOFF` or `DELIVERY_CODE_GPS_REQUIRED`). Permanent: resending the same code gets the
+/// same answer, so the client undoes its local pickup or delivery instead of
+/// retrying (and never spends more of the five tries by itself).
+bool isDeliveryCodeRejectionMessage(String? message) =>
+    message != null &&
+    (message.startsWith(deliveryCodeMismatchCode) ||
+        message.startsWith(deliveryCodeLockedCode) ||
+        message.startsWith(deliveryCodeGpsRequiredCode));
+
+/// The buyer's confirm at a trucker's drop-off whose own code (ESC-35,
+/// sync-protocol.md 1.58.0) is involved, told apart from the farmer's code
+/// by the server's text, not by the code alone: the wait for the trucker's
+/// code to sync (`DELIVERY_NONCE_PENDING` also waits for the farmer's QR or
+/// a payment check), and the lock of the trucker's code, which the trucker
+/// renews (`DELIVERY_CODE_LOCKED` also locks the farmer's code).
+const String deliveryDropoffCodePendingText =
+    "DELIVERY_NONCE_PENDING: Waiting for the trucker's drop-off QR code";
+
+/// The wait for the farmer's pickup QR to reach the server: like the
+/// trucker's above, a wait for a code (the payment check and the wait for
+/// the pickup share `DELIVERY_NONCE_PENDING` and are not about a code).
+const String deliveryPickupCodePendingText =
+    "DELIVERY_NONCE_PENDING: Waiting for the farmer's QR code";
+const String deliveryDropoffCodeLockedText =
+    'DELIVERY_CODE_LOCKED: Too many wrong codes for this drop-off.';
+
+/// A trucker's drop-off code the server answered `success` for but did not
+/// keep (ESC-35): another drop-off code is on record (made on another phone
+/// or browser), or the delivery has no pickup code on the server.
+const String dropoffCodeSupersededCode = 'DROPOFF_CODE_SUPERSEDED';
+const String dropoffCodeNotStoredCode = 'DROPOFF_CODE_NOT_STORED';
+
+/// Sync rejection prefix when a change reaches a delivery that is already
+/// cancelled (sync-protocol.md 1.45.0, FUP-128). A party who is behind the
+/// cancel gets a `conflict` with the row; the error is left for a change
+/// sent at the cancelled version (one queued behind the change that lost).
+const String deliveryAlreadyCancelledCode = 'DELIVERY_ALREADY_CANCELLED';
+
+/// Whether a /sync per-operation error message refuses a change to a
+/// cancelled delivery (`DELIVERY_ALREADY_CANCELLED: ...`). Permanent: a
+/// cancelled delivery never leaves that status, so the client puts the
+/// delivery back from the server instead of retrying.
+bool isDeliveryAlreadyCancelledMessage(String? message) =>
+    message != null && message.startsWith(deliveryAlreadyCancelledCode);
+
+/// Sync rejection prefixes when a change reaches a trip that is over
+/// (`cancelled`, `delivered` or deleted; trip-listing-api.md 2.4.0). A
+/// trucker who is behind gets a `conflict` with the row; the error is left
+/// for a change sent at the stored version.
+const String tripTerminalStateCode = 'TRIP_TERMINAL_STATE';
+const String tripAlreadyCancelledCode = 'TRIP_ALREADY_CANCELLED';
+
+/// Whether a /sync per-operation error message refuses a change to a trip
+/// that is over (`TRIP_TERMINAL_STATE: ...` or `TRIP_ALREADY_CANCELLED:
+/// ...`, sync-protocol.md 1.45.0). Permanent: a finished trip never changes
+/// again, so the client puts the trip back from the server instead of
+/// retrying.
+bool isTripOverMessage(String? message) =>
+    message != null &&
+    (message.startsWith(tripTerminalStateCode) ||
+        message.startsWith(tripAlreadyCancelledCode));
+
+/// Sync rejection prefix of a pickup or delivery confirm refused for its GPS
+/// (F12-SEC-05): `DELIVERY_GPS_PROXIMITY: <reason>: <text>` (FUP-439,
+/// sync-protocol.md 1.62.0). Nothing was written. Permanent: the same payload
+/// always gets the same answer, so the client undoes its local pickup or
+/// delivery instead of retrying. The reason ([DeliveryGpsRefusal]), never the
+/// text, picks what the user is told.
+const String deliveryGpsProximityCode = 'DELIVERY_GPS_PROXIMITY';
+
+/// Whether a /sync per-operation error message refuses a handoff for its GPS
+/// (`DELIVERY_GPS_PROXIMITY: ...`), whatever the reason.
+bool isDeliveryGpsProximityMessage(String? message) =>
+    message != null && message.startsWith(deliveryGpsProximityCode);
+
+/// Why a handoff was refused for its GPS: the reason token right after
+/// [deliveryGpsProximityCode].
+enum DeliveryGpsRefusal {
+  /// `pickup_far`: the trucker's pickup is more than 5 km from the listing.
+  pickupFar,
+
+  /// `self_pickup_no_fix`: a self-pickup confirm sent no location.
+  selfPickupNoFix,
+
+  /// `self_pickup_no_farm_point`: the listing has no point to check a
+  /// self-pickup against.
+  selfPickupNoFarmPoint,
+
+  /// `self_pickup_far`: a self-pickup confirm more than 5 km from the farm.
+  selfPickupFar,
+
+  /// `dropoff_far`: a delivery confirm more than 5 km from both drop-off
+  /// points.
+  dropoffFar,
+
+  /// No reason this build knows: a server before FUP-439 (its text comes
+  /// right after the code) or a reason added later.
+  unknown;
+
+  /// The reason of a [deliveryGpsProximityCode] refusal [message].
+  static DeliveryGpsRefusal fromMessage(String message) {
+    if (!isDeliveryGpsProximityMessage(message)) return unknown;
+    final rest = message.substring(deliveryGpsProximityCode.length);
+    final token = rest.startsWith(':')
+        ? rest.substring(1).trimLeft().split(':').first.trim()
+        : '';
+    return switch (token) {
+      'pickup_far' => pickupFar,
+      'self_pickup_no_fix' => selfPickupNoFix,
+      'self_pickup_no_farm_point' => selfPickupNoFarmPoint,
+      'self_pickup_far' => selfPickupFar,
+      'dropoff_far' => dropoffFar,
+      _ => unknown,
+    };
+  }
+}
 
 /// Whether a /sync per-operation error message refuses a delivery change for
 /// good and the client must put the delivery back from the server: a cancel
-/// after pickup (ESC-08) or a dispute that was refused or too late (ESC-07).
+/// after pickup (ESC-08), a dispute that was refused or too late (ESC-07), a
+/// typed handoff code that was refused (T-1), a handoff without the
+/// farmer's QR nonce (FUP-138), a change to a delivery that is already
+/// cancelled (FUP-128), or a handoff refused for its GPS (FUP-439).
 bool isRevertableDeliveryRejectionMessage(String? message) =>
+    isDeliveryAlreadyCancelledMessage(message) ||
     isDeliveryCancelRefusalMessage(message) ||
     isDeliveryDisputeRefusalMessage(message) ||
-    isDeliveryDisputeExpiredMessage(message);
+    isDeliveryDisputeExpiredMessage(message) ||
+    isDeliveryCodeRejectionMessage(message) ||
+    isDeliveryNonceMissingMessage(message) ||
+    isDeliveryGpsProximityMessage(message);
 
 /// Sync rejection prefix when a farmer's or trucker's response to an order
 /// comes after its deadline (three-party commitments, spec section 8).
@@ -218,6 +407,17 @@ const String orderTripNotEligibleCode = 'ORDER_TRIP_NOT_ELIGIBLE';
 /// order after transport failures. Permanent under the `ORDER_*` rule.
 const String orderTransportAttemptsExceededCode =
     'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED';
+
+/// Sync rejection prefix when a farmer's or trucker's answer is not open:
+/// the farmer has not accepted yet (the trucker waits), or the request was
+/// already answered or closed (ESC-15, sync-protocol.md 1.29.0). Permanent
+/// under the `ORDER_*` rule; has its own text.
+const String orderResponseNotPendingCode = 'ORDER_RESPONSE_NOT_PENDING';
+
+/// Whether a /sync per-operation error message refuses an answer that is not
+/// open (`ORDER_RESPONSE_NOT_PENDING: ...`).
+bool isOrderResponseNotPendingMessage(String? message) =>
+    message != null && message.startsWith(orderResponseNotPendingCode);
 
 /// Whether a /sync per-operation error message is a response after the
 /// order's deadline (`ORDER_DEADLINE_PASSED: ...`).
@@ -266,6 +466,22 @@ const String appUpdateRequiredCode = 'APP_UPDATE_REQUIRED';
 bool isReputationRestrictedMessage(String? message) =>
     message != null && message.startsWith(reputationRestrictedCode);
 
+/// ESC-31: when the restriction of a `REPUTATION_RESTRICTED: until=...:`
+/// refusal ends (reputation-api.md 8.1), read from anywhere in [message] (a
+/// bloc keeps the exception's text, not the bare message). Null when the
+/// text carries no date: `until=review` (an admin review is open, no end
+/// date yet), the `counterparty` form of a refused order create, the
+/// wording for old builds, or anything that does not parse.
+DateTime? reputationRestrictedUntil(String? message) {
+  if (message == null) return null;
+  final match = _reputationRestrictedUntilPattern.firstMatch(message);
+  if (match == null) return null;
+  return DateTime.tryParse(match.group(1)!)?.toUtc();
+}
+
+final RegExp _reputationRestrictedUntilPattern =
+    RegExp('$reputationRestrictedCode: until=(\\S+): ');
+
 /// Whether a /sync per-operation error message refuses a trip change because
 /// of its bookings (`TRIP_HAS_BOOKINGS: ...`).
 bool isTripHasBookingsMessage(String? message) =>
@@ -289,21 +505,47 @@ bool isAppUpdateRequiredMessage(String? message) =>
 /// Whether a /sync per-operation error message refuses a crop listing change
 /// for good and the client must put the listing back from the server (or
 /// remove a refused create): the farmer is restricted or the listing has
-/// active orders (sync-protocol.md 1.17.0). Only these codes: `CROP_VALIDATION`
-/// also covers a failed profile read on the server, so a `CROP_` prefix is not
-/// deterministic and keeps retrying. `APP_UPDATE_REQUIRED` is not one either:
-/// the same listing goes through once the app is updated.
+/// active orders (sync-protocol.md 1.17.0), its text holds a phone number, or
+/// the account is under review (FUP-51). Only these codes: a `CROP_` prefix
+/// alone says nothing the server holds (`CROP_VALIDATION` is permanent but not
+/// undone since 1.72.0, and `CROP_PROFILE_UNAVAILABLE` keeps retrying).
+/// `APP_UPDATE_REQUIRED` is not one either: the same listing goes through once
+/// the app is updated.
 bool isRevertableListingRejectionMessage(String? message) =>
     isReputationRestrictedMessage(message) ||
-    isCropHasActiveOrdersMessage(message);
+    isCropHasActiveOrdersMessage(message) ||
+    (message != null && message.startsWith(cropContactInTextCode)) ||
+    isFraudAccountHeldMessage(message);
+
+/// Sync rejection prefix of a create the server refused as a duplicate. On a
+/// crop listing: a similar listing, or the same lot, is already listed
+/// (crop-listing-api.md rule 13). On a trip: the trucker already has an open
+/// trip on that route, departure day and vehicle (trip-listing-api.md rule
+/// 14). Nothing was written.
+const String fraudDuplicateListingCode = 'FRAUD_DUPLICATE_LISTING';
+
+/// Whether a /sync per-operation error message refuses a create as a
+/// duplicate (`FRAUD_DUPLICATE_LISTING: ...`). The entity type says which
+/// kind: the code is one for crop listings and trips.
+bool isDuplicateListingMessage(String? message) =>
+    message != null && message.startsWith(fraudDuplicateListingCode);
 
 /// Whether a /sync per-operation error message refuses a trip change for
 /// good and the client must put the trip back from the server (or remove a
 /// refused create): the trucker is restricted or the trip has bookings
-/// (sync-protocol.md 1.17.0). Only these codes, for the same reasons as
-/// [isRevertableListingRejectionMessage].
+/// (sync-protocol.md 1.17.0), its text holds a phone number, the account
+/// is under review (FUP-51), the trip is already over (FUP-128), or the
+/// create is a duplicate of a trip the trucker already has (trip-listing-api
+/// 2.10.0: only a create gets it, so the local copy is removed and My Trips
+/// shows the trip that is on the server). Only these codes, for the same
+/// reasons as [isRevertableListingRejectionMessage].
 bool isRevertableTripRejectionMessage(String? message) =>
-    isReputationRestrictedMessage(message) || isTripHasBookingsMessage(message);
+    isTripOverMessage(message) ||
+    isReputationRestrictedMessage(message) ||
+    isTripHasBookingsMessage(message) ||
+    (message != null && message.startsWith(tripContactInTextCode)) ||
+    isFraudAccountHeldMessage(message) ||
+    isDuplicateListingMessage(message);
 
 /// Sync rejection prefix when the live gateway refuses a payment whose order
 /// total one Telebirr payment cannot take (FUP-22, sync-protocol.md 1.24.0).
@@ -312,16 +554,12 @@ const String orderPaymentTotalOutOfRangeCode =
     'ORDER_PAYMENT_TOTAL_OUT_OF_RANGE';
 
 /// Whether a /sync per-operation error message is the live gateway's refusal
-/// of a payment whose order total one Telebirr payment cannot take:
-/// `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: ...` since sync-protocol.md 1.24.0, or,
-/// from servers before it, `ORDER_VALIDATION: This order total (X ETB) is
-/// outside what one Telebirr payment can take (100 to 500000 ETB).`
-/// (order-lifecycle.md 1.7.0). The old text is matched for one more release.
+/// of a payment whose order total one Telebirr payment cannot take
+/// (`ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: ...`, sync-protocol.md 1.24.0). The
+/// `ORDER_VALIDATION` text servers sent before 1.24.0 is no longer matched
+/// (FUP-84): it reads as a generic order refusal.
 bool isPaymentTotalOutOfRangeMessage(String? message) =>
-    message != null &&
-    (message.startsWith(orderPaymentTotalOutOfRangeCode) ||
-        (message.startsWith('ORDER_VALIDATION:') &&
-            message.contains('outside what one Telebirr payment can take')));
+    message != null && message.startsWith(orderPaymentTotalOutOfRangeCode);
 
 /// Sync rejection prefix when the live gateway refuses a payment method it
 /// cannot fund (FUP-20, sync-protocol.md 1.16.0): a bank transfer
@@ -335,6 +573,116 @@ const String orderPaymentMethodUnavailableCode =
 /// refusal: the local payment is undone.
 bool isPaymentMethodUnavailableMessage(String? message) =>
     message != null && message.startsWith(orderPaymentMethodUnavailableCode);
+
+/// Prefix of every `location_ping` refusal (live-trip-api.md section 1,
+/// sync-protocol.md 1.31.0).
+const String locationCodePrefix = 'LOCATION_';
+
+/// The one `location_ping` answer that is not a refusal: the server sends it
+/// with status `deferred` while no delivery of the trip is on the road yet, so
+/// the client re-queues the ping without spending a retry.
+const String locationNotActiveCode = 'LOCATION_NOT_ACTIVE';
+
+/// Refusal of a ping captured after every delivery of the trip left the road:
+/// the phone also stops sharing for that trip.
+const String locationSharingEndedCode = 'LOCATION_SHARING_ENDED';
+
+/// Whether a /sync per-operation error message refuses a check-in for good
+/// (`LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`,
+/// `LOCATION_RATE_LIMITED`, `LOCATION_STALE`). Every `LOCATION_*` code is
+/// permanent except `LOCATION_NOT_ACTIVE`; an unprefixed error (a failed read
+/// on the server) is retried.
+bool isLocationRejectionMessage(String? message) =>
+    message != null &&
+    message.startsWith(locationCodePrefix) &&
+    !message.startsWith(locationNotActiveCode);
+
+/// Whether a /sync per-operation error message ends sharing for the ping's
+/// trip (`LOCATION_SHARING_ENDED: ...`).
+bool isLocationSharingEndedMessage(String? message) =>
+    message != null && message.startsWith(locationSharingEndedCode);
+
+/// Sync rejection prefix when a pickup or drop-off goes without the farmer's
+/// QR nonce (FRD-11, `delivery-verification-api.md` 1.24.0): the operation
+/// carries no scanned nonce or typed code while the server holds one, or the
+/// farmer's nonce never reached the server within 14 days. Permanent and
+/// reverted (FUP-138): the same operation always gets the same answer, so the
+/// delivery goes back to the server's view. `DELIVERY_NONCE_PENDING` (the
+/// nonce may still sync) comes as `deferred`, not as this error.
+const String deliveryNonceMissingCode = 'DELIVERY_NONCE_MISSING';
+
+/// Whether a /sync per-operation error message refuses a handoff without the
+/// farmer's QR nonce (`DELIVERY_NONCE_MISSING: ...`).
+bool isDeliveryNonceMissingMessage(String? message) =>
+    message != null && message.startsWith(deliveryNonceMissingCode);
+
+/// FRD-08 refusals no retry can pass (FUP-110, sync-protocol.md 1.27.0):
+/// every `*_UNAUTHORIZED` code but a role gate (a row or field that is not
+/// the caller's), a rating of another user's order, and a changed identity
+/// or money field. Permanent, not reverted: the honest apps never send these.
+final RegExp _unauthorizedCodePattern = RegExp(
+  r'^[A-Z][A-Z_]*_UNAUTHORIZED(:|$)',
+);
+
+/// A role gate (`CROP_UNAUTHORIZED: Only farmers can create crop listings.`
+/// and the like) also answers a token without the role claim, a client
+/// set-up problem the server does not score: the same operation passes once
+/// the app sends a token with the role, so it keeps retrying.
+final RegExp _roleGatePattern = RegExp(
+  r'^[A-Z_]+_UNAUTHORIZED: Only (farmers|truckers|buyers) can ',
+);
+const String _ratingOfOthersOrderText =
+    'RATING_FORBIDDEN: You can only rate your own orders.';
+const String _immutableFieldText =
+    'is immutable and cannot be changed on update.';
+
+/// Whether a /sync per-operation error message is an FRD-08 refusal no retry
+/// can pass. Not a role gate (see [_roleGatePattern]), not
+/// `RATING_FORBIDDEN` for an order that is not delivered yet (it can pass
+/// later), and not the QR nonce codes other than [deliveryNonceMissingCode]
+/// (a nonce regenerated offline passes once it syncs).
+bool isUnretryableFraudSignalMessage(String? message) =>
+    message != null &&
+    ((_unauthorizedCodePattern.hasMatch(message) &&
+            !_roleGatePattern.hasMatch(message)) ||
+        message.startsWith(_ratingOfOthersOrderText) ||
+        ((message.startsWith('CROP_VALIDATION:') ||
+                message.startsWith('TRIP_VALIDATION:') ||
+                message.startsWith('DELIVERY_VALIDATION:')) &&
+            message.contains(_immutableFieldText)));
+
+/// What a server before sync-protocol.md 1.72.0 sent under `CROP_VALIDATION`
+/// and `TRIP_VALIDATION` when the owner's profile could not be read or had no
+/// name. A retry can pass both, so they keep retrying.
+const List<String> _oldServerProfileTexts = [
+  'profile could not be read',
+  'Add your name to your profile',
+];
+
+/// Whether a /sync per-operation error message refuses a crop listing or trip
+/// for its contents (FUP-74, sync-protocol.md 1.72.0): any `CROP_VALIDATION`
+/// or `TRIP_VALIDATION`. Since the server sends `CROP_PROFILE_UNAVAILABLE`,
+/// `CROP_PROFILE_INCOMPLETE` and their `TRIP_` twins for the owner's profile,
+/// these codes judge only the operation, so the same one always gets the same
+/// answer: permanent, not reverted. The profile texts of an older server
+/// ([_oldServerProfileTexts]) are not among them.
+bool isListingValidationMessage(String? message) =>
+    message != null &&
+    (message.startsWith('CROP_VALIDATION:') ||
+        message.startsWith('TRIP_VALIDATION:')) &&
+    !_oldServerProfileTexts.any(message.contains);
+
+/// Whether a /sync per-operation error message refuses a profile edit for its
+/// values (FUP-315, sync-protocol.md 1.72.0): `USER_PROFILE_VALIDATION` (an
+/// empty or too long field, the deleted-account name, a company name the
+/// account cannot have) or the registration's `AUTH_027` (a phone number in
+/// the text). The same values always get the same answer, so on a `user`
+/// operation they are permanent and the phone's copy goes back to the
+/// server's (`GET /user/profile`).
+bool isProfileEditRefusalMessage(String? message) =>
+    message != null &&
+    (message.startsWith('USER_PROFILE_VALIDATION') ||
+        message.startsWith('AUTH_027'));
 
 /// Request validation error (400)
 final class ValidationException extends ApiException {
@@ -446,13 +794,23 @@ final class SyncConflictException extends SyncRejectedException {
 ///
 /// No-op when the response shape is unexpected (e.g. an empty body) so it
 /// never masks an otherwise-successful write.
-void ensureSyncSucceeded(Map<String, dynamic> syncResponse) {
+///
+/// An `APP_UPDATE_REQUIRED` refusal also raises the update flag the shell's
+/// banner reads ([SecurityEvents.reportAppUpdateRequired], FUP-75); the
+/// mobile queue raises it itself. [events] defaults to the app's.
+void ensureSyncSucceeded(
+  Map<String, dynamic> syncResponse, {
+  SecurityEvents? events,
+}) {
   final results = syncResponse['results'];
   if (results is! List) return;
   for (final result in results) {
     if (result is! Map) continue;
     final message = result['message'] as String?;
     if (result['status'] == 'error') {
+      if (isAppUpdateRequiredMessage(message)) {
+        (events ?? SecurityEvents.instance).reportAppUpdateRequired();
+      }
       throw SyncRejectedException(message ?? 'Sync operation was rejected.');
     }
     if (result['status'] == 'deferred') {

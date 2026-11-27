@@ -2,22 +2,119 @@ import { useState } from "react";
 import { useParams } from "react-router";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { ReputationPanel } from "@/components/reputation/ReputationPanel";
 import { useLocale } from "@/hooks/useLocale";
 import { useUserDetail, useUserAction } from "@/hooks/useQuery";
-import { formatDate } from "@/lib/i18n";
+import { formatDate, formatDateTime } from "@/lib/i18n";
+import { isDeletedUser, userName, userPhone } from "@/lib/user";
+
+/** FUP-317: one changed field of a profile edit, as GET /admin/users/{id} sends it (`from` absent when there was none). */
+interface ProfileFieldChange {
+  field: string;
+  from?: string;
+  to?: string;
+}
+
+/** FUP-317: one accepted profile edit, newest first in `profileHistory`. */
+interface ProfileEdit {
+  editedAt: string;
+  actor: string;
+  actorRole?: string;
+  changes: ProfileFieldChange[];
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  displayName: "users.name",
+  woreda: "users.woreda",
+  companyName: "users.companyName",
+};
+
+/**
+ * FUP-317: the user's name, woreda and company name history from the profile edit audit rows, so a name changed
+ * around a disputed order or a fraud case can be traced. Absent from the response: not configured or not read.
+ */
+function ProfileHistory({
+  history,
+  more,
+  deleted,
+  t,
+}: {
+  history: ProfileEdit[] | undefined;
+  more: boolean;
+  deleted: boolean;
+  t: (key: string) => string;
+}) {
+  let body;
+  if (deleted) {
+    body = <p className="text-sm text-slate">{t("users.profileHistoryDeleted")}</p>;
+  } else if (!history) {
+    body = <p className="text-sm text-slate">{t("users.profileHistoryUnavailable")}</p>;
+  } else if (history.length === 0) {
+    body = <p className="text-sm text-slate">{t("users.profileHistoryEmpty")}</p>;
+  } else {
+    body = (
+      <ol className="space-y-3" aria-label={t("users.profileHistory")}>
+        {history.map((edit, i) => {
+          const changes = Array.isArray(edit.changes) ? edit.changes : [];
+          return (
+            <li key={`${edit.editedAt}-${i}`} className="border-b border-track pb-3 last:border-0 last:pb-0">
+              <div className="text-xs text-slate">{edit.editedAt ? formatDateTime(edit.editedAt) : ""}</div>
+              {changes.length === 0 ? (
+                <p className="mt-1 text-sm text-slate">{t("users.profileHistoryNoDetail")}</p>
+              ) : (
+                <dl className="mt-1 space-y-1 text-sm">
+                  {changes.map((change) => (
+                    <div key={change.field} className="flex flex-wrap gap-x-2">
+                      <dt className="text-slate">
+                        {FIELD_LABELS[change.field] ? t(FIELD_LABELS[change.field]) : change.field}
+                      </dt>
+                      <dd>
+                        <span>{change.from || t("users.profileHistoryNone")}</span>
+                        <span> → </span>
+                        <span className="font-medium">{change.to || t("users.profileHistoryNone")}</span>
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    );
+  }
+
+  return (
+    <Card>
+      <h3 className="mb-4 text-[15px] font-extrabold">{t("users.profileHistory")}</h3>
+      {body}
+      {!deleted && history && more && (
+        <p className="mt-3 text-xs text-slate">{t("users.profileHistoryMore")}</p>
+      )}
+    </Card>
+  );
+}
 
 export function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const { data, isLoading } = useUserDetail(id || "");
   const userAction = useUserAction();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const resp = data as Record<string, unknown> | undefined;
   const user = (resp?.user as Record<string, unknown>) || {};
+  // FRD-07: admin-only, next to the user in the response; fraud_confirmed is the Fraud Review reject.
+  const suspendReason = typeof resp?.suspendReason === "string" ? resp.suspendReason : "";
+  // FUP-317: newest first, at most 50; absent when the server could not read it or withheld it. The server says
+  // profileHistoryHidden for a deleting or deleted account (the phone is still set while the deletion runs).
+  const profileHistory = Array.isArray(resp?.profileHistory) ? (resp.profileHistory as ProfileEdit[]) : undefined;
+  const profileHistoryMore = resp?.profileHistoryMore === true;
+  const profileHistoryHidden =
+    resp?.profileHistoryHidden === true || isDeletedUser(resp?.user as Record<string, unknown> | undefined);
 
   if (isLoading) {
-    return <div className="text-text-muted">{t("common.loading")}</div>;
+    return <div className="text-slate">{t("common.loading")}</div>;
   }
 
   function handleAction(action: string) {
@@ -38,9 +135,9 @@ export function UserDetailPage() {
 
   return (
     <div>
-      <h2 className="mb-6 text-xl font-bold">{t("users.detail")}</h2>
+      <h2 className="mb-6 text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("users.detail")}</h2>
       {errorMsg && (
-        <div className="mb-4 rounded border border-danger/30 bg-danger/10 px-4 py-2 text-sm text-danger">
+        <div className="mb-4 rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger">
           {errorMsg}
         </div>
       )}
@@ -48,37 +145,45 @@ export function UserDetailPage() {
         <Card>
           <dl className="space-y-3">
             <div className="flex justify-between">
-              <dt className="text-text-muted">{t("users.name")}</dt>
-              <dd className="font-medium">{String(user.displayName || "")}</dd>
+              <dt className="text-slate">{t("users.name")}</dt>
+              <dd className="font-medium">{userName(user, locale)}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-text-muted">{t("users.phone")}</dt>
-              <dd>{String(user.phoneNumber || "")}</dd>
+              <dt className="text-slate">{t("users.phone")}</dt>
+              <dd>{userPhone(user, locale)}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-text-muted">{t("users.role")}</dt>
+              <dt className="text-slate">{t("users.role")}</dt>
               <dd><Badge>{String(user.role || "")}</Badge></dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-text-muted">{t("users.woreda")}</dt>
+              <dt className="text-slate">{t("users.woreda")}</dt>
               <dd>{String(user.woreda || "")}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-text-muted">{t("users.joined")}</dt>
+              <dt className="text-slate">{t("users.joined")}</dt>
               <dd>{user.createdAt ? formatDate(String(user.createdAt)) : ""}</dd>
             </div>
+            {Boolean(user.suspended) && suspendReason && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-slate">{t("users.suspendReason")}</dt>
+                <dd className="text-right">
+                  {suspendReason === "fraud_confirmed" ? t("users.suspendReason_fraud_confirmed") : suspendReason}
+                </dd>
+              </div>
+            )}
           </dl>
 
           <div className="mt-6 flex flex-wrap gap-2">
             <button
               onClick={() => handleAction(user.suspended ? "unsuspend" : "suspend")}
-              className={`rounded px-3 py-1.5 text-sm text-white ${user.suspended ? "bg-success" : "bg-danger"}`}
+              className={`rounded-[10px] px-3 py-1.5 text-sm text-white ${user.suspended ? "bg-success" : "bg-danger"}`}
             >
               {user.suspended ? t("users.activate") : t("users.suspend")}
             </button>
             <button
               onClick={() => handleAction("verify")}
-              className="rounded bg-primary px-3 py-1.5 text-sm text-white"
+              className="rounded-[10px] bg-ink px-3 py-1.5 text-sm text-white"
             >
               {t("users.verify")}
             </button>
@@ -86,9 +191,25 @@ export function UserDetailPage() {
         </Card>
 
         <Card>
-          <h3 className="mb-4 font-semibold">{t("users.transactionHistory")}</h3>
-          <p className="text-sm text-text-muted">{t("common.noData")}</p>
+          <h3 className="mb-4 text-[15px] font-extrabold">{t("users.transactionHistory")}</h3>
+          <p className="text-sm text-slate">{t("common.noData")}</p>
         </Card>
+
+        <div className="lg:col-span-2">
+          <ProfileHistory
+            history={profileHistory}
+            more={profileHistoryMore}
+            deleted={profileHistoryHidden}
+            t={t}
+          />
+        </div>
+
+        {/* ESC-32: points, tier, tags, restrictions and events, with the admin actions. */}
+        {id && (
+          <div className="lg:col-span-2">
+            <ReputationPanel userId={id} />
+          </div>
+        )}
       </div>
     </div>
   );

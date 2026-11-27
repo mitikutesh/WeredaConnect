@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
+import 'package:wereda_connect/features/buyer/data/intent_wire.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/woreda_centroids.dart';
 
@@ -11,15 +12,18 @@ import 'package:wereda_connect/features/buyer/domain/woreda_centroids.dart';
 /// app see the buyer's intents — the mobile repo does the same. An in-memory cache
 /// backs reads within a session.
 ///
-/// KNOWN LIMITATION: there is no GET endpoint to list a buyer's intents, so the
-/// cached list is not repopulated after a full page reload (intents created in a
-/// prior session are on the server and drive matching, but are not re-listed).
-/// Repopulating the list on reload requires a server GET /intents?buyerId= (or a
-/// /sync pull into a web cache) — tracked as a server follow-up.
+/// SIM-56: after a page reload the cache is empty, so [refreshFromServer]
+/// fills it from `GET /intents` (the buyer's own active requests,
+/// push-alerts-api.md 1.5.0), skipping the requests deleted or fulfilled in
+/// this session.
 class WebBuyerIntentRepository extends BaseBuyerIntentRepository {
   static const _uuid = Uuid();
   final ApiClient? _api;
   final Map<String, BuyerIntent> _intents = {};
+
+  /// Requests deleted or fulfilled in this session: the server may still list
+  /// one when its delete did not go through, and it must not come back.
+  final Set<String> _removedIds = {};
 
   WebBuyerIntentRepository({ApiClient? api}) : _api = api;
 
@@ -104,6 +108,24 @@ class WebBuyerIntentRepository extends BaseBuyerIntentRepository {
     return intent;
   }
 
+  /// Adds the server's rows the session does not hold. A row the session
+  /// holds keeps its match count and its own changes; a request created in
+  /// this session whose sync failed stays.
+  @override
+  Future<bool> refreshFromServer(String buyerId) async {
+    final api = _api;
+    if (api == null) return false;
+    final body = await api.get<Map<String, dynamic>>(IntentWire.path);
+    var added = false;
+    for (final intent in IntentWire.parseList(body, buyerId: buyerId)) {
+      if (_removedIds.contains(intent.intentId)) continue;
+      if (_intents.containsKey(intent.intentId)) continue;
+      _intents[intent.intentId] = intent;
+      added = true;
+    }
+    return added;
+  }
+
   @override
   Future<List<BuyerIntent>> getActiveIntents(String buyerId) async {
     final list = _intents.values
@@ -147,6 +169,7 @@ class WebBuyerIntentRepository extends BaseBuyerIntentRepository {
 
   @override
   Future<void> fulfillIntent(String intentId) async {
+    _removedIds.add(intentId);
     final intent = _intents[intentId];
     if (intent != null) {
       intent
@@ -160,6 +183,7 @@ class WebBuyerIntentRepository extends BaseBuyerIntentRepository {
 
   @override
   Future<void> deleteIntent(String intentId) async {
+    _removedIds.add(intentId);
     final intent = _intents.remove(intentId);
     await _syncIntent('delete', intentId, {'buyerId': intent?.buyerId ?? ''});
   }

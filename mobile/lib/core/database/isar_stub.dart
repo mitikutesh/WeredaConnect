@@ -33,6 +33,8 @@ class Isar {
   dynamic get messages => null;
   dynamic get ratings => null;
   dynamic get conversationReads => null;
+  dynamic get appNotifications => null;
+  dynamic get locationPings => null;
 
   /// Catch-all for any other collection accessors.
   @override

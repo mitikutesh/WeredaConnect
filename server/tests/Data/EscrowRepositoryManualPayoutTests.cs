@@ -76,6 +76,36 @@ public class EscrowRepositoryManualPayoutTests
     }
 
     [Fact]
+    public async Task Queue_WithAReleaseOrigin_StoresItInTheSameWrite()
+    {
+        // FUP-137: the auto-release's queue write says who started the release.
+        var ok = await _repo.TryQueueManualPayoutAsync(EscrowId, CreatedAt, "release", "PAYOUT_NOT_SUPPORTED", "escrowed",
+            new List<ManualPayoutLegSeed> { new("farmer", "pending", null, null, null) }, "2026-10-02T09:00:00.0000000Z",
+            "auto_release");
+
+        ok.Should().BeTrue();
+        _update!.UpdateExpression.Should().StartWith("SET #origin = :origin, ").And.Contain("#marker = :open");
+        Name(_update, "#origin").Should().Be("releaseOrigin");
+        _update.ExpressionAttributeValues[":origin"].S.Should().Be("auto_release");
+        // The condition is the queue's own: the origin never loosens or tightens it.
+        _update.ConditionExpression.Should().Be("#lock = :op AND attribute_not_exists(#marker)");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task Queue_WithoutAReleaseOrigin_WritesNone(string? origin)
+    {
+        await _repo.TryQueueManualPayoutAsync(EscrowId, CreatedAt, "release", "PAYOUT_NOT_SUPPORTED", "escrowed",
+            new List<ManualPayoutLegSeed> { new("farmer", "pending", null, null, null) }, "2026-10-02T09:00:00.0000000Z",
+            origin);
+
+        _update!.UpdateExpression.Should().NotContain("#origin");
+        _update.ExpressionAttributeNames.Should().NotContainKey("#origin");
+        _update.ExpressionAttributeValues.Should().NotContainKey(":origin");
+    }
+
+    [Fact]
     public async Task Queue_ConditionalCheckFailed_ReturnsFalse()
     {
         _dynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
@@ -94,8 +124,13 @@ public class EscrowRepositoryManualPayoutTests
             EscrowId, CreatedAt, "release", "farmer", "TB-REF-0001", "admin-1", "2026-10-02T10:00:00Z", "trucker");
 
         ok.Should().BeTrue();
+        // FUP-05: no live claim of another admin; the record ends the leg's claim.
         _update!.ConditionExpression.Should().Be(
-            "#marker = :open AND #op = :op AND #legStatus = :pending AND #otherStatus = :pending");
+            "#marker = :open AND #op = :op AND #legStatus = :pending AND #otherStatus = :pending"
+            + " AND (attribute_not_exists(#claimBy) OR #claimBy = :paidBy OR #claimExp < :paidAt)");
+        Name(_update, "#claimBy").Should().Be("manualFarmerClaimedBy");
+        Name(_update, "#claimAt").Should().Be("manualFarmerClaimedAt");
+        Name(_update, "#claimExp").Should().Be("manualFarmerClaimExpiresAt");
         Name(_update, "#legStatus").Should().Be("manualFarmerStatus");
         Name(_update, "#otherStatus").Should().Be("manualTruckerStatus");
         Name(_update, "#legRef").Should().Be("manualFarmerRef");
@@ -103,9 +138,10 @@ public class EscrowRepositoryManualPayoutTests
         _update.ExpressionAttributeValues[":ref"].S.Should().Be("TB-REF-0001");
         _update.ExpressionAttributeValues[":paidBy"].S.Should().Be("admin-1");
         _update.ExpressionAttributeValues[":paid"].S.Should().Be("paid");
-        _update.UpdateExpression.Should().Contain("#legStatus = :paid").And.Contain("ADD #version :one");
+        _update.UpdateExpression.Should().Contain("#legStatus = :paid")
+            .And.Contain("REMOVE #claimBy, #claimAt, #claimExp ADD #version :one");
         // The leg write never changes the escrow status or the marker.
-        _update.UpdateExpression.Should().NotContain("#status").And.NotContain("REMOVE");
+        _update.UpdateExpression.Should().NotContain("#status").And.NotContain("#marker,");
     }
 
     [Fact]
@@ -114,7 +150,9 @@ public class EscrowRepositoryManualPayoutTests
         await _repo.TryMarkManualLegPaidAsync(
             EscrowId, CreatedAt, "refund", "buyer", "TB-REF-0009", "admin-1", "2026-10-02T10:00:00Z", null);
 
-        _update!.ConditionExpression.Should().Be("#marker = :open AND #op = :op AND #legStatus = :pending");
+        _update!.ConditionExpression.Should().Be("#marker = :open AND #op = :op AND #legStatus = :pending"
+            + " AND (attribute_not_exists(#claimBy) OR #claimBy = :paidBy OR #claimExp < :paidAt)");
+        Name(_update, "#claimBy").Should().Be("manualBuyerClaimedBy");
         _update.ExpressionAttributeNames.Should().NotContainKey("#otherStatus");
     }
 
@@ -139,7 +177,12 @@ public class EscrowRepositoryManualPayoutTests
             "#marker = :open AND #op = :op AND #legStatus = :pending"
             + " AND (#status = :escrowed OR #status = :disputed OR #status = :disputeResolved OR #status = :held"
             + " OR (#status = :released AND #fromStatus = :released))"
-            + " AND #other0 = :paid");
+            + " AND #other0 = :paid AND #otherRef0 = :otherRef0"
+            + " AND (attribute_not_exists(#claimBy) OR #claimBy = :paidBy OR #claimExp < :paidAt)");
+        // FUP-218: the farmer's reference copied into telebirrReleaseRef must still be the farmer leg's.
+        Name(_update, "#otherRef0").Should().Be("manualFarmerRef");
+        _update.ExpressionAttributeValues[":otherRef0"].S.Should().Be("TB-REF-0001");
+        Name(_update, "#claimBy").Should().Be("manualTruckerClaimedBy");
         // FRD-03: an admin release or refund of a held escrow that the gateway queued closes from held.
         _update.ExpressionAttributeValues[":held"].S.Should().Be("held");
         Name(_update, "#legStatus").Should().Be("manualTruckerStatus");
@@ -150,7 +193,8 @@ public class EscrowRepositoryManualPayoutTests
         // ESC-04: once a release closes no trucker leg is owed, so its pending attributes go too.
         // ESC-10: nor is the settlement blocked any more.
         _update.UpdateExpression.Should().Contain("#status = :newStatus")
-            .And.Contain("REMOVE #marker, #blockReason, #blockReasonAt, #tPending, #tBlock, #tBlockAt, #tLockId, #tLockAt")
+            .And.Contain("REMOVE #marker, #blockReason, #blockReasonAt, #tPending, #tBlock, #tBlockAt, #tLockId, #tLockAt,"
+                         + " #claimBy, #claimAt, #claimExp")
             .And.Contain("ADD #version :one");
         Name(_update, "#tPending").Should().Be("truckerPayoutPending");
         Name(_update, "#tBlock").Should().Be("truckerPayoutBlockReason");
@@ -164,6 +208,33 @@ public class EscrowRepositoryManualPayoutTests
         // Protected keys passed in the settlement fields are ignored, not written twice.
         _update.ExpressionAttributeValues.Values.Select(v => v.S).Should().NotContain("ignored");
         _update.ExpressionAttributeValues.Values.Select(v => v.N).Should().NotContain("99");
+    }
+
+    [Fact]
+    public async Task Close_ReleasedTruckerQueue_GuardsTheTruckerReferenceItCopies_AndNoGatewayLegWithoutAReference()
+    {
+        // FUP-218: an ESC-04 close of a farmer leg copies the recorded trucker reference into truckerTelebirrRef, so
+        // the trucker leg must still carry it. A paid leg whose copied value is empty adds no condition.
+        var fields = new Dictionary<string, object>
+        {
+            { "truckerTelebirrRef", "TB-REF-0002" },
+            { "telebirrReleaseRef", "" },
+            { "completedAt", "2026-10-02T10:05:00Z" }
+        };
+
+        await _repo.TryCloseManualPayoutAsync(
+            EscrowId, CreatedAt, "release", "farmer", "TB-REF-0001", "admin-1", "2026-10-02T10:05:00Z",
+            new[] { "trucker" }, "completed", fields);
+
+        _update!.ConditionExpression.Should().Contain(" AND #other0 = :paid AND #otherRef0 = :otherRef0 AND ");
+        Name(_update, "#otherRef0").Should().Be("manualTruckerRef");
+        _update.ExpressionAttributeValues[":otherRef0"].S.Should().Be("TB-REF-0002");
+
+        await _repo.TryCloseManualPayoutAsync(
+            EscrowId, CreatedAt, "release", "trucker", "TB-REF-0002", "admin-1", "2026-10-02T10:05:00Z",
+            new[] { "farmer" }, "released", fields);
+
+        _update.ConditionExpression.Should().NotContain("#otherRef0");
     }
 
     [Fact]
@@ -186,10 +257,88 @@ public class EscrowRepositoryManualPayoutTests
             EscrowId, CreatedAt, "refund", "buyer", "TB-REF-0009", "admin-1", "2026-10-02T10:05:00Z",
             Array.Empty<string>(), "refunded", new Dictionary<string, object> { { "telebirrRefundRef", "TB-REF-0009" } });
 
-        _update!.UpdateExpression.Should().Contain("REMOVE #marker, #blockReason, #blockReasonAt ADD #version :one");
+        _update!.UpdateExpression.Should().Contain(
+            "REMOVE #marker, #blockReason, #blockReasonAt, #claimBy, #claimAt, #claimExp ADD #version :one");
         Name(_update, "#blockReason").Should().Be("settlementBlockReason");
         Name(_update, "#blockReasonAt").Should().Be("settlementBlockReasonAt");
         _update.ExpressionAttributeNames.Should().NotContainKey("#tPending");
+    }
+
+    // ── FUP-05: the reference item in the record's transaction ──
+
+    private static PayoutReferenceRecord Reference(string externalRef = "tb-ref-0001 ") =>
+        new("escrow-idempotency-test", externalRef.Trim(), EscrowId, "farmer", "admin-1", "2026-10-02T10:00:00.0000000Z");
+
+    private static TransactionCanceledException Canceled(params string[] codes) => new("canceled")
+    {
+        CancellationReasons = codes.Select(c => new CancellationReason { Code = c }).ToList()
+    };
+
+    [Fact]
+    public async Task MarkLegPaid_WithAReference_WritesTheLegAndTheReferenceItemInOneTransaction()
+    {
+        TransactWriteItemsRequest? transaction = null;
+        _dynamoDb.TransactWriteItemsAsync(Arg.Do<TransactWriteItemsRequest>(r => transaction = r), Arg.Any<CancellationToken>())
+            .Returns(new TransactWriteItemsResponse());
+
+        var ok = await _repo.TryMarkManualLegPaidAsync(
+            EscrowId, CreatedAt, "release", "farmer", "tb-ref-0001", "admin-1", "2026-10-02T10:00:00.0000000Z", "trucker",
+            Reference());
+
+        ok.Should().BeTrue();
+        await _dynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+        transaction!.TransactItems.Should().HaveCount(2);
+        var update = transaction.TransactItems[0].Update;
+        update.TableName.Should().Be(Table);
+        update.ConditionExpression.Should().EndWith("AND (attribute_not_exists(#claimBy) OR #claimBy = :paidBy OR #claimExp < :paidAt)");
+        update.UpdateExpression.Should().Contain("REMOVE #claimBy, #claimAt, #claimExp");
+        var put = transaction.TransactItems[1].Put;
+        put.TableName.Should().Be("escrow-idempotency-test");
+        put.ConditionExpression.Should().Be("attribute_not_exists(#key)");
+        put.ExpressionAttributeNames["#key"].Should().Be("idempotencyKey");
+        // Trimmed and upper case: the same portal id in another case is the same reference.
+        put.Item["idempotencyKey"].S.Should().Be("payout-ref#TB-REF-0001");
+        put.Item["externalRef"].S.Should().Be("tb-ref-0001");
+        put.Item["escrowId"].S.Should().Be(EscrowId);
+        put.Item["ref"].S.Should().Be("farmer");
+        put.Item["recordedBy"].S.Should().Be("admin-1");
+        put.Item["kind"].S.Should().Be("payout_ref");
+        // 400 days after the record, as the table's other long-lived rows.
+        put.Item["expiresAt"].N.Should().Be(
+            new DateTimeOffset(2026, 10, 2, 10, 0, 0, TimeSpan.Zero).AddDays(400).ToUnixTimeSeconds().ToString());
+    }
+
+    [Fact]
+    public async Task Close_WithAReference_ThatOnlyTheReferenceItemFails_ThrowsReferenceTaken()
+    {
+        _dynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(Canceled("None", "ConditionalCheckFailed"));
+
+        var act = () => _repo.TryCloseManualPayoutAsync(
+            EscrowId, CreatedAt, "refund", "buyer", "TB-REF-0009", "admin-1", "2026-10-02T10:05:00Z",
+            Array.Empty<string>(), "refunded", new Dictionary<string, object> { { "telebirrRefundRef", "TB-REF-0009" } },
+            Reference("TB-REF-0009"));
+
+        (await act.Should().ThrowAsync<PayoutReferenceTakenException>()).Which.ExternalRef.Should().Be("TB-REF-0009");
+    }
+
+    [Theory]
+    [InlineData("ConditionalCheckFailed", "None")]
+    [InlineData("ConditionalCheckFailed", "ConditionalCheckFailed")]
+    [InlineData("TransactionConflict", "None")]
+    public async Task Close_WithAReference_WhoseEscrowConditionFails_ReturnsFalse(string escrowCode, string referenceCode)
+    {
+        // The escrow moved (another admin recorded the leg, a claim, the queue closed) or a concurrent
+        // transaction: the caller reads again, and a replay of the same leg is answered from the row.
+        _dynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(Canceled(escrowCode, referenceCode));
+
+        var ok = await _repo.TryCloseManualPayoutAsync(
+            EscrowId, CreatedAt, "refund", "buyer", "TB-REF-0009", "admin-1", "2026-10-02T10:05:00Z",
+            Array.Empty<string>(), "refunded", new Dictionary<string, object> { { "telebirrRefundRef", "TB-REF-0009" } },
+            Reference("TB-REF-0009"));
+
+        ok.Should().BeFalse();
     }
 
     [Fact]
@@ -272,10 +421,14 @@ public class EscrowRepositoryManualPayoutTests
 
         _update!.ConditionExpression.Should().Be(
             "#status = :expectedStatus AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock) "
-            + "AND attribute_not_exists(#refundReason)");
+            + "AND attribute_not_exists(#refundReason) AND " + EscrowRepository.LedgerCropHeldCondition);
         Name(_update, "#manualPayout").Should().Be("manualPayout");
         Name(_update, "#lock").Should().Be("settlementLock");
         Name(_update, "#refundReason").Should().Be("refundReason");
+        // ESC-20: nor on a ledger escrow whose crop leg is already decided.
+        Name(_update, "#ledgerLegs").Should().Be("legStatus");
+        Name(_update, "#ledgerCrop").Should().Be("crop");
+        _update.ExpressionAttributeValues[":ledgerHeld"].S.Should().Be("held");
     }
 
     [Fact]
@@ -384,7 +537,9 @@ public class EscrowRepositoryManualPayoutTests
         {
             r.IndexName.Should().Be("StatusExpiresIndex");
             // ESC-04: a released escrow with an owed trucker leg belongs to the trucker retry.
-            r.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND " + HoldCapFilter);
+            // ESC-20: a ledger escrow whose crop leg is decided belongs to the ledger sweep.
+            r.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND "
+                                           + EscrowRepository.LedgerCropHeldCondition + " AND " + HoldCapFilter);
             r.ExpressionAttributeNames["#manualPayout"].Should().Be("manualPayout");
             r.ExpressionAttributeNames["#truckerPending"].Should().Be("truckerPayoutPending");
         });
@@ -447,7 +602,8 @@ public class EscrowRepositoryManualPayoutTests
         // A capped escrow that moved on (a verdict, a release) must stay visible to its sweep.
         await _repo.QueryByStatusForCronAsync(status);
 
-        _query!.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending)");
+        _query!.FilterExpression.Should().Be("attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND "
+                                             + EscrowRepository.LedgerCropHeldCondition);
         _query.ExpressionAttributeNames.Should().NotContainKey("#holdCap");
     }
 
@@ -457,8 +613,8 @@ public class EscrowRepositoryManualPayoutTests
         await _repo.QueryByStatusForCronAsync("escrowed", deliveryConfirmedBefore: "2026-10-01T00:00:00Z");
 
         _query!.FilterExpression.Should().Be(
-            "attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND " + HoldCapFilter
-            + " AND #confirmedAt <= :confirmedBefore");
+            "attribute_not_exists(#manualPayout) AND attribute_not_exists(#truckerPending) AND "
+            + EscrowRepository.LedgerCropHeldCondition + " AND " + HoldCapFilter + " AND #confirmedAt <= :confirmedBefore");
     }
 
     /// <summary>

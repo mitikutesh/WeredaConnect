@@ -425,6 +425,52 @@ public class AdminFunctionUnappliedPaymentTests
             Arg.Is<QueryRequest>(q => q.TableName == OrdersTable && q.ConsistentRead == true), Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData("manual", true)]
+    [InlineData("pending", true)]
+    [InlineData(null, false)]
+    public async Task Refund_OfADuplicateTheLedgerRefunds_IsRefused_Escrow045(string? ledgerStatus, bool refused)
+    {
+        // ESC-20 (P.9): a duplicate payment refunded through the ledger is recorded in the manual payout queue,
+        // never here as well, so it cannot be refunded twice.
+        TrailReturns(Unmatched());
+        OrderReturns(Order("cancelled"));
+        _db.GetItemAsync(Arg.Is<GetItemRequest>(g => g.TableName == "escrow-ledger-test"), Arg.Any<CancellationToken>())
+            .Returns(new GetItemResponse
+            {
+                Item = ledgerStatus == null
+                    ? new Dictionary<string, AttributeValue>()
+                    : new Dictionary<string, AttributeValue>
+                    {
+                        ["escrowId"] = S("escrow-order-ord-1"), ["ref"] = S("refund#duplicate#TB-PAY-1"), ["kind"] = S("refund"),
+                        ["status"] = S(ledgerStatus), ["amount"] = new AttributeValue { N = "1500" }, ["gatewayRef"] = S("WCL1"),
+                        ["reason"] = S("duplicate_payment"), ["actor"] = S("system"), ["createdAt"] = S("t"), ["updatedAt"] = S("t"),
+                        ["version"] = new AttributeValue { N = "1" }
+                    }
+            });
+        var function = new AdminFunction(_db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable, IdempotencyTable)
+        {
+            LedgerTable = "escrow-ledger-test"
+        };
+
+        var response = await function.FunctionHandler(Request("POST", "/admin/payments/ord-1/refund-manual", RefundBody()), _context);
+
+        if (refused)
+        {
+            response.StatusCode.Should().Be(409);
+            response.Body.Should().Contain("ESCROW_045");
+            await _db.DidNotReceive().TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>());
+        }
+        else
+        {
+            response.StatusCode.Should().Be(200);
+        }
+
+        await _db.Received(1).GetItemAsync(
+            Arg.Is<GetItemRequest>(g => g.Key["escrowId"].S == "escrow-order-ord-1" && g.Key["ref"].S == "refund#duplicate#TB-PAY-1"),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task Refund_LogLine_DefangsClientValues()
     {

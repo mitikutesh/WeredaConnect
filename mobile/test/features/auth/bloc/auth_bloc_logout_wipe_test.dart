@@ -10,7 +10,9 @@ import 'package:wereda_connect/core/auth/auth_service.dart';
 import 'package:wereda_connect/core/auth/models/auth_result.dart';
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
+import 'package:wereda_connect/core/database/schemas/app_notification.dart';
 import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/core/database/schemas/location_ping.dart';
 import 'package:wereda_connect/core/database/schemas/message.dart';
 import 'package:wereda_connect/core/database/schemas/order.dart';
 import 'package:wereda_connect/core/database/schemas/payment.dart';
@@ -106,6 +108,8 @@ void main() {
         MessageSchema,
         RatingSchema,
         SyncOperationSchema,
+        AppNotificationSchema,
+        LocationPingSchema,
       ],
       directory: dir.path,
       name: 'logout_wipe_${DateTime.now().microsecondsSinceEpoch}',
@@ -156,6 +160,16 @@ void main() {
         _rating('r-got', _other, _me),
         _rating('r-unrelated', _other, 'user-3'),
       ]);
+      // ESC-21: the inbox belongs to the user it was pulled for.
+      await isar.appNotifications.putAll([
+        _notification('n-mine', _me),
+        _notification('n-other', _other),
+      ]);
+      // LT-08: where the truck was is the trucker's own data.
+      await isar.locationPings.putAll([
+        _ping('trip-1#1', _me),
+        _ping('trip-2#1', _other),
+      ]);
     });
     final queue = SyncQueue(isar);
     await queue.enqueue(
@@ -199,6 +213,125 @@ void main() {
 
     final ops = await isar.syncOperations.where().findAll();
     expect(ops.map((o) => o.operationId), ['op-other']);
+
+    final inbox = await isar.appNotifications.where().findAll();
+    expect(inbox.map((n) => n.notificationId), ['n-other']);
+
+    final pings = await isar.locationPings.where().findAll();
+    expect(pings.map((p) => p.pingId), ['trip-2#1']);
+  });
+
+  // E-1: the logout dialog warns about exactly what the logout deletes
+  // before it reached the server.
+  test('unsentWorkFor counts what the logout deletes unsent, then nothing',
+      () async {
+    final queue = SyncQueue(isar);
+    Future<void> op(String userId, String id, {String type = 'order'}) =>
+        queue.enqueue(
+          userId: userId,
+          entityType: type,
+          entityId: id,
+          action: 'update',
+          data: '{}',
+          operationId: id,
+        );
+    await op(_me, 'op-pending');
+    await op(_me, 'op-failed');
+    await op(_me, 'op-rejected');
+    await op(_me, 'op-synced');
+    await op(_me, 'op-match', type: 'match_event');
+    await op(_other, 'op-other');
+    await queue.markAsSyncing('op-pending');
+    for (var i = 0; i < SyncQueue.maxRetries; i++) {
+      await queue.markAsFailed('op-failed');
+    }
+    await queue.markAsRejected('op-rejected');
+    await queue.markAsSynced('op-synced');
+    await isar.writeTxn(() async {
+      await isar.paymentIntents.putAll([
+        _intent('pi-mine', _me, IntentStatus.pendingSync),
+        _intent('pi-sent', _me, IntentStatus.completed),
+        _intent('pi-other', _other, IntentStatus.pendingSync),
+      ]);
+    });
+
+    final bloc = AuthBloc(
+      authService: service,
+      offlineCache: cache,
+      isar: isar,
+      sessionExpired: const Stream.empty(),
+    );
+    addTearDown(bloc.close);
+
+    // On its way and failed but retried again; never the synced one, the
+    // one refused for good, a match event or another user's.
+    expect(await bloc.unsentWorkFor(_me), (changes: 2, payments: 1));
+    expect(await bloc.unsentWorkFor(_other), (changes: 1, payments: 1));
+    expect(await bloc.unsentWorkFor(''), (changes: 0, payments: 0));
+
+    bloc.add(
+      const AuthLoginRequested(phoneNumber: _phone, password: 'Secret123'),
+    );
+    await waitFor(bloc, (s) => s is AuthAuthenticated);
+    bloc.add(const AuthLogoutRequested());
+    await waitFor(bloc, (s) => s is AuthUnauthenticated);
+
+    expect(await bloc.unsentWorkFor(_me), (changes: 0, payments: 0));
+    expect(await bloc.unsentWorkFor(_other), (changes: 1, payments: 1));
+  });
+
+  test('unsentWorkFor is nothing without Isar', () async {
+    final bloc = AuthBloc(
+      authService: service,
+      offlineCache: cache,
+      sessionExpired: const Stream.empty(),
+    );
+    addTearDown(bloc.close);
+
+    expect(await bloc.unsentWorkFor(_me), (changes: 0, payments: 0));
+  });
+
+  // LT-10: the live trip snapshots (where the trucks of this user's
+  // deliveries were) are kept outside Isar, on mobile and web alike.
+  test('logout forgets the user\'s live trip snapshots', () async {
+    final forgotten = <String>[];
+    final bloc = AuthBloc(
+      authService: service,
+      offlineCache: cache,
+      isar: isar,
+      sessionExpired: const Stream.empty(),
+      forgetTrackSnapshots: (userId) async => forgotten.add(userId),
+    );
+    addTearDown(bloc.close);
+
+    bloc.add(
+      const AuthLoginRequested(phoneNumber: _phone, password: 'Secret123'),
+    );
+    await waitFor(bloc, (s) => s is AuthAuthenticated);
+    bloc.add(const AuthLogoutRequested());
+    await waitFor(bloc, (s) => s is AuthUnauthenticated);
+
+    expect(forgotten, [_me]);
+  });
+
+  test('a failing snapshot clear never blocks the logout', () async {
+    final bloc = AuthBloc(
+      authService: service,
+      offlineCache: cache,
+      isar: isar,
+      sessionExpired: const Stream.empty(),
+      forgetTrackSnapshots: (_) async => throw Exception('storage'),
+    );
+    addTearDown(bloc.close);
+
+    bloc.add(
+      const AuthLoginRequested(phoneNumber: _phone, password: 'Secret123'),
+    );
+    await waitFor(bloc, (s) => s is AuthAuthenticated);
+    bloc.add(const AuthLogoutRequested());
+    await waitFor(bloc, (s) => s is AuthUnauthenticated);
+
+    expect(bloc.state, isA<AuthUnauthenticated>());
   });
 
   // ESC-12: sync refusals kept for a listener belong to the leaving user.
@@ -237,3 +370,34 @@ void main() {
     expect(received, isEmpty);
   });
 }
+
+LocationPing _ping(String pingId, String truckerId) => LocationPing()
+  ..pingId = pingId
+  ..tripId = pingId.split('#').first
+  ..truckerId = truckerId
+  ..kind = 'fix'
+  ..source = 'hourly'
+  ..capturedAt = DateTime.utc(2026, 10, 28)
+  ..latitude = 8.75
+  ..longitude = 38.98
+  ..accuracyM = 30;
+
+AppNotification _notification(String id, String userId) => AppNotification()
+  ..notificationId = id
+  ..userId = userId
+  ..type = 'order_confirmed'
+  ..entity = 'order'
+  ..entityId = 'o1'
+  ..orderId = 'o1'
+  ..params = '{}'
+  ..createdAt = DateTime.utc(2026, 10, 27);
+
+PaymentIntent _intent(String key, String buyerId, IntentStatus status) =>
+    PaymentIntent()
+      ..idempotencyKey = key
+      ..deliveryId = 'd-$key'
+      ..buyerId = buyerId
+      ..farmerId = 'farmer-1'
+      ..amount = 100
+      ..status = status
+      ..createdAt = DateTime.utc(2026, 11, 4);

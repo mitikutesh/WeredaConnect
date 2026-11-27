@@ -123,15 +123,8 @@ void main() {
       true,
     ),
     ('buyer', 'order', 'order-1', 'create', '{"status":"created"}', true),
-    (
-      'farmer',
-      'crop_listing',
-      'crop-1',
-      'create',
-      '{"cropType":"teff"}',
-      false
-    ),
-    ('trucker', 'trip', 'trip-1', 'create', '{"origin":"Adama"}', false),
+    ('farmer', 'crop_listing', 'crop-1', 'create', '{"cropType":"teff"}', true),
+    ('trucker', 'trip', 'trip-1', 'create', '{"origin":"Adama"}', true),
   ]) {
     test('$role: $entityType $action is refused for good and explained',
         () async {
@@ -161,8 +154,9 @@ void main() {
       await executor.executeBatch();
       expect(syncPosts, 1);
 
-      // An order operation goes back to the server's view (ESC-12); crop and
-      // trip keep their row like the other FRAUD_* codes.
+      // An order operation goes back to the server's view (ESC-12); since
+      // FUP-51 a refused crop or trip create is removed too, unlike the
+      // other FRAUD_* codes.
       expect(
         reverts.map((r) => r.$1.operationId).toList(),
         reverted ? ['op-1'] : <String>[],

@@ -17,6 +17,11 @@ namespace WeredaConnect.Server.Data;
 /// create-time <c>attribute_not_exists(ratingId)</c> condition guarantee one
 /// rating per (order, ratee). (A sort key would break this: a re-submission
 /// with a fresh createdAt would be a distinct item and slip past the guard.)
+///
+/// ESC-28 (rating-api.md 1.2.0, "Stored aggregate"): with the users table set, a create is one
+/// transaction that puts the rating with <c>inAggregate: true</c>, <c>ADD</c>s its stars to the
+/// ratee's <c>ratingSum</c> and <c>ratingCount</c> (conditioned on the ratee's role and a live
+/// account) and upserts the ratee's <c>HEAL#</c> marker for the reputation daily job.
 /// </summary>
 public sealed class RatingRepository : IRatingRepository
 {
@@ -28,10 +33,32 @@ public sealed class RatingRepository : IRatingRepository
     /// <summary>Safety cap on pages walked by <see cref="GetSummaryAsync"/>.</summary>
     private const int MaxQueryPages = 50;
 
-    public RatingRepository(IAmazonDynamoDB dynamoDb, string tableName)
+    /// <summary>ESC-28: the users table of the stored aggregate; null keeps the plain put of 1.1.0.</summary>
+    private readonly string? _usersTable;
+
+    /// <summary>ESC-28: the reputation-events table the heal marker goes to; null leaves it out.</summary>
+    private readonly string? _reputationEventsTable;
+
+    /// <summary>The server-only flag on a rating row (rating-api.md 1.2.0); never returned to clients.</summary>
+    public const string InAggregateField = "inAggregate";
+
+    /// <summary>
+    /// The server-only reason a rating was stored outside the aggregate on purpose (rating-api.md 1.7.0);
+    /// never returned to clients. A row with it is skipped by the summary walk, and no backfill, heal or
+    /// rebuild may add it.
+    /// </summary>
+    public const string AggregateExclusionField = "aggregateExclusion";
+
+    /// <summary>The rater and the ratee are linked accounts: one identity, or one install (persona simulation BUG-3).</summary>
+    public const string LinkedAccountsExclusion = "linked_accounts";
+
+    public RatingRepository(
+        IAmazonDynamoDB dynamoDb, string tableName, string? usersTable = null, string? reputationEventsTable = null)
     {
         _dynamoDb = dynamoDb ?? throw new ArgumentNullException(nameof(dynamoDb));
         _tableName = tableName ?? throw new ArgumentNullException(nameof(tableName));
+        _usersTable = string.IsNullOrEmpty(usersTable) ? null : usersTable;
+        _reputationEventsTable = string.IsNullOrEmpty(reputationEventsTable) ? null : reputationEventsTable;
     }
 
     /// <inheritdoc />
@@ -39,8 +66,38 @@ public sealed class RatingRepository : IRatingRepository
         string ratingId,
         Dictionary<string, object> data)
     {
-        var now = DateTime.UtcNow.ToString("o");
+        var nowUtc = DateTime.UtcNow;
+        var item = NewItem(ratingId, data, nowUtc);
 
+        if (_usersTable != null
+            && data.TryGetValue("rateeId", out var rateeObj) && rateeObj?.ToString() is { Length: > 0 } rateeId
+            && data.TryGetValue("rateeRole", out var roleObj) && roleObj?.ToString() is { Length: > 0 } rateeRole
+            && data.TryGetValue("stars", out var starsObj)
+            && int.TryParse(starsObj?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var stars))
+        {
+            return await CreateWithAggregateAsync(item, rateeId, rateeRole, stars, nowUtc);
+        }
+
+        return await PutAsync(item);
+    }
+
+    /// <inheritdoc />
+    public async Task<AuthResult<Dictionary<string, object>>> CreateOutsideAggregateAsync(
+        string ratingId,
+        Dictionary<string, object> data,
+        string reason)
+    {
+        var item = NewItem(ratingId, data, DateTime.UtcNow);
+        item[InAggregateField] = new AttributeValue { BOOL = false, IsBOOLSet = true };
+        item[AggregateExclusionField] = new AttributeValue { S = reason };
+        return await PutAsync(item);
+    }
+
+    /// <summary>The rating row of a create: the payload without the fields only the server sets.</summary>
+    private static Dictionary<string, AttributeValue> NewItem(
+        string ratingId, Dictionary<string, object> data, DateTime nowUtc)
+    {
+        var now = nowUtc.ToString("o");
         var item = new Dictionary<string, AttributeValue>
         {
             { "ratingId", new AttributeValue { S = ratingId } },
@@ -59,6 +116,109 @@ public sealed class RatingRepository : IRatingRepository
             item[kvp.Key] = DynamoDbHelper.ToAttributeValue(kvp.Value);
         }
 
+        // Server-only: never taken from the payload.
+        item.Remove(InAggregateField);
+        item.Remove(AggregateExclusionField);
+        return item;
+    }
+
+    /// <summary>
+    /// rating-api.md 1.2.0 "Stored aggregate" steps 1 and 2: the rating, the ratee's sum and count and
+    /// the heal marker in one transaction. The rating's own condition failing is the usual conflict;
+    /// only the users condition failing (the ratee's role changed since the order, or the account is
+    /// being deleted) puts the rating alone with <c>inAggregate: false</c>, so the stored aggregate of
+    /// the current role stays exact. Any other failure throws: nothing was written, the client retries.
+    /// </summary>
+    private async Task<AuthResult<Dictionary<string, object>>> CreateWithAggregateAsync(
+        Dictionary<string, AttributeValue> item, string rateeId, string rateeRole, int stars, DateTime nowUtc)
+    {
+        item[InAggregateField] = new AttributeValue { BOOL = true, IsBOOLSet = true };
+        var items = new List<TransactWriteItem>
+        {
+            new()
+            {
+                Put = new Put
+                {
+                    TableName = _tableName,
+                    Item = item,
+                    ConditionExpression = "attribute_not_exists(ratingId)"
+                }
+            },
+            new()
+            {
+                Update = new Update
+                {
+                    TableName = _usersTable,
+                    Key = new Dictionary<string, AttributeValue> { { "userId", new AttributeValue { S = rateeId } } },
+                    // Top-level numbers: ADD creates them on a row from before the backfill, and the
+                    // reputation map's version is never touched (no conflict with its writers).
+                    UpdateExpression = "ADD #rs :stars, #rc :one",
+                    ConditionExpression = "attribute_exists(userId) AND #role = :role AND attribute_not_exists(#ds)",
+                    ExpressionAttributeNames = new Dictionary<string, string>
+                    {
+                        { "#rs", "ratingSum" },
+                        { "#rc", "ratingCount" },
+                        { "#role", "role" },
+                        { "#ds", "deletionState" }
+                    },
+                    ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                    {
+                        { ":stars", new AttributeValue { N = stars.ToString(CultureInfo.InvariantCulture) } },
+                        { ":one", new AttributeValue { N = "1" } },
+                        { ":role", new AttributeValue { S = rateeRole } }
+                    }
+                }
+            }
+        };
+
+        if (_reputationEventsTable != null)
+        {
+            items.Add(new TransactWriteItem { Update = ReputationEventRepository.HealUpsert(_reputationEventsTable, rateeId, nowUtc) });
+        }
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest { TransactItems = items });
+                return AuthResult<Dictionary<string, object>>.Success(ClientView(item));
+            }
+            catch (TransactionCanceledException ex)
+            {
+                var reasons = ex.CancellationReasons ?? new List<CancellationReason>();
+                if (reasons.Count > 0 && reasons[0]?.Code == "ConditionalCheckFailed")
+                {
+                    return AuthResult<Dictionary<string, object>>.Failure(
+                        409, "SYNC_CONFLICT", "Rating already exists.", "ratingId");
+                }
+
+                if (reasons.Count > 1 && reasons[1]?.Code == "ConditionalCheckFailed")
+                {
+                    item[InAggregateField] = new AttributeValue { BOOL = false, IsBOOLSet = true };
+                    return await PutAsync(item);
+                }
+
+                // FUP-162: another transaction on the ratee's row (the heal of an unstamped ratee, the
+                // backfill) cancels this one with TransactionConflict. Nothing was written and every
+                // item is conditional or idempotent (the put on attribute_not_exists(ratingId), the
+                // ADD only with it, the heal marker an upsert), so the same transaction goes once more.
+                if (attempt < TransactionConflictAttempts && reasons.Any(r => r?.Code == "TransactionConflict"))
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(40));
+                    continue;
+                }
+
+                throw;
+            }
+        }
+    }
+
+    /// <summary>FUP-162: transactions per create when another one is in flight on the ratee's row (the first and one retry).</summary>
+    internal const int TransactionConflictAttempts = 2;
+
+    /// <summary>The 1.1.0 conditional put (also the role-changed fallback of the aggregate path).</summary>
+    private async Task<AuthResult<Dictionary<string, object>>> PutAsync(Dictionary<string, AttributeValue> item)
+    {
         var request = new PutItemRequest
         {
             TableName = _tableName,
@@ -69,7 +229,7 @@ public sealed class RatingRepository : IRatingRepository
         try
         {
             await _dynamoDb.PutItemAsync(request);
-            return AuthResult<Dictionary<string, object>>.Success(DynamoDbHelper.FromItem(item));
+            return AuthResult<Dictionary<string, object>>.Success(ClientView(item));
         }
         catch (ConditionalCheckFailedException)
         {
@@ -78,8 +238,20 @@ public sealed class RatingRepository : IRatingRepository
         }
     }
 
+    /// <summary>The created rating as the sync response returns it: without the server-only flag.</summary>
+    private static Dictionary<string, object> ClientView(Dictionary<string, AttributeValue> item)
+    {
+        var view = DynamoDbHelper.FromItem(item);
+        view.Remove(InAggregateField);
+        view.Remove(AggregateExclusionField);
+        return view;
+    }
+
     /// <inheritdoc />
-    public async Task<Dictionary<string, object>?> GetByIdAsync(string ratingId)
+    public Task<Dictionary<string, object>?> GetByIdAsync(string ratingId) => GetByIdAsync(ratingId, consistentRead: false);
+
+    /// <inheritdoc />
+    public async Task<Dictionary<string, object>?> GetByIdAsync(string ratingId, bool consistentRead)
     {
         // PK-only table → a direct GetItem on the partition key.
         var response = await _dynamoDb.GetItemAsync(new GetItemRequest
@@ -88,7 +260,8 @@ public sealed class RatingRepository : IRatingRepository
             Key = new Dictionary<string, AttributeValue>
             {
                 { "ratingId", new AttributeValue { S = ratingId } }
-            }
+            },
+            ConsistentRead = consistentRead
         });
 
         return response.Item is { Count: > 0 }
@@ -100,7 +273,8 @@ public sealed class RatingRepository : IRatingRepository
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByRateeAsync(
         string rateeId,
         int limit = 20,
-        Dictionary<string, AttributeValue>? exclusiveStartKey = null)
+        Dictionary<string, AttributeValue>? exclusiveStartKey = null,
+        string? rateeRole = null)
     {
         if (limit < 1 || limit > 50)
         {
@@ -129,13 +303,15 @@ public sealed class RatingRepository : IRatingRepository
             request.ExclusiveStartKey = exclusiveStartKey;
         }
 
+        ApplyRoleFilter(request, rateeRole);
+
         var response = await _dynamoDb.QueryAsync(request);
         var items = response.Items.Select(DynamoDbHelper.FromItem).ToList();
         return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
     }
 
     /// <inheritdoc />
-    public async Task<(double Average, int Count)> GetSummaryAsync(string rateeId)
+    public async Task<(double Average, int Count)> GetSummaryAsync(string rateeId, string? rateeRole = null)
     {
         var request = new QueryRequest
         {
@@ -152,6 +328,8 @@ public sealed class RatingRepository : IRatingRepository
             }
         };
 
+        ApplyRoleFilter(request, rateeRole);
+
         var total = 0L;
         var count = 0;
         QueryResponse? response = null;
@@ -167,6 +345,12 @@ public sealed class RatingRepository : IRatingRepository
             response = await _dynamoDb.QueryAsync(request);
             foreach (var raw in response.Items)
             {
+                // 1.7.0: a rating stored outside the aggregate on purpose is not in the walk either.
+                if (raw.ContainsKey(AggregateExclusionField))
+                {
+                    continue;
+                }
+
                 if (raw.TryGetValue("stars", out var starsAttr) && starsAttr.N != null
                     && int.TryParse(starsAttr.N, NumberStyles.Integer, CultureInfo.InvariantCulture, out var stars))
                 {
@@ -181,5 +365,21 @@ public sealed class RatingRepository : IRatingRepository
 
         var average = count > 0 ? (double)total / count : 0.0;
         return (average, count);
+    }
+
+    /// <summary>
+    /// ESC-29 (rating-api.md 1.2.0): only the ratings received in one role (the index projects
+    /// <c>ALL</c>, so the filter sees <c>rateeRole</c>). No role, no filter.
+    /// </summary>
+    private static void ApplyRoleFilter(QueryRequest request, string? rateeRole)
+    {
+        if (string.IsNullOrEmpty(rateeRole))
+        {
+            return;
+        }
+
+        request.FilterExpression = "#rateeRole = :rateeRole";
+        request.ExpressionAttributeNames["#rateeRole"] = "rateeRole";
+        request.ExpressionAttributeValues[":rateeRole"] = new AttributeValue { S = rateeRole };
     }
 }

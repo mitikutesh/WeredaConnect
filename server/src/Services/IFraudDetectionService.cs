@@ -11,10 +11,19 @@ public interface IFraudDetectionService
 {
     /// <summary>
     /// Run all listing-related fraud checks (velocity, duplicate, price anomaly).
-    /// Call BEFORE _cropRepo.CreateAsync().
+    /// Call BEFORE _cropRepo.CreateAsync(). With a <paramref name="lot"/> the duplicate check also
+    /// refuses a lot the farmer already lists (same crop type, quantity and place) at any price.
     /// </summary>
     Task<FraudCheckResult> CheckListingCreationAsync(
-        string farmerId, string cropType, decimal pricePerKg);
+        string farmerId, string cropType, decimal pricePerKg, ListingLot? lot = null);
+
+    /// <summary>
+    /// Rule 6: check a trip create against the trucker's open and matched trips of the same departure
+    /// day in Ethiopia. Rejected (<c>FRAUD_DUPLICATE_LISTING</c>) for the same route with the same
+    /// vehicle; flagged (<c>TRIP_SAME_DAY</c>) for any other trip that day; allowed otherwise, and when
+    /// the trips table is not configured. Call BEFORE the trip is written. Throws on a failed read.
+    /// </summary>
+    Task<FraudCheckResult> CheckTripCreationAsync(TripPlan plan);
 
     /// <summary>
     /// Check payment velocity before escrow initiation.
@@ -42,6 +51,29 @@ public interface IFraudDetectionService
     /// </summary>
     Task RecordFraudSignalAsync(
         string userId, string signalType, string? entityId,
+        string entityType, string? description);
+
+    /// <summary>
+    /// FRD-15: whether the user already holds a signal row of <paramref name="signalType"/> on
+    /// <paramref name="entityId"/> within the table's 30 day life, whatever its review status, so a
+    /// scan that sees the same entity again in a later hour writes nothing more. False when the
+    /// table is not configured. True when the partition has more rows than the read cap (absence
+    /// cannot be shown). Throws on a failed read.
+    /// </summary>
+    Task<bool> HasSignalAsync(string userId, string signalType, string entityId);
+
+    /// <summary>
+    /// ESC-33 (fraud-detection-architecture.md section 14.3): write a signal onto
+    /// <paramref name="targetUserId"/> that the request of another user, <paramref name="sourceUserId"/>,
+    /// caused. A truncated score read is CRITICAL, so such a write is bounded before it is made: at most
+    /// one row per target, type and entity, one per source and target, and two per target from all
+    /// sources, each over the table's 30 day life (the two caps held by conditional slot writes, so
+    /// concurrent requests cannot pass them), on top of the one row per user, type and hour of every
+    /// signal. The caller must take both ids from server rows, never from the request. Throws on a failed
+    /// read or write: callers treat it as best effort, like <see cref="RecordFraudSignalAsync"/>.
+    /// </summary>
+    Task<AttributedSignalOutcome> RecordAttributedSignalAsync(
+        string targetUserId, string sourceUserId, string signalType, string entityId,
         string entityType, string? description);
 
     /// <summary>

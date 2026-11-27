@@ -2,14 +2,16 @@ import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
 
-/// Step 2: Fayda eKYC Verification via OIDC (required to register).
+/// Step 2: Fayda eKYC Verification via OIDC (the RegisterFayda board).
 ///
-/// States:
-/// - Pending: "Verify with Fayda" button
-/// - Verifying: spinner while browser/callback in progress
-/// - Verified: green checkmark with verified name
-/// - Error: red panel above the card, whose button becomes "Retry"
+/// The title, the dark Digital ID card and the blue note scroll; the
+/// "Verify with Fayda" button sits at the foot with "Needs internet for this
+/// step." under it, and gives way to a spinner while Fayda answers. Once
+/// verified the card shows the legal name and the button is gone (the flow's
+/// Continue takes its place). Also the body of the link-later screen.
 class FayidaIdScreen extends StatelessWidget {
   final VoidCallback onFaydaVerifyRequested;
   final VoidCallback? onCancelVerification;
@@ -21,7 +23,7 @@ class FayidaIdScreen extends StatelessWidget {
   final String? verifiedName;
   final String? errorMessage;
 
-  /// Replaces the "required to register" line (link-later and payment use).
+  /// Replaces the "required to register" line.
   final String? promptMessage;
 
   const FayidaIdScreen({
@@ -40,202 +42,242 @@ class FayidaIdScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                l10n.faydaVerifyTitle,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textDark,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                l10n.faydaVerifyDescription,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textMuted,
-                ),
-              ),
-              const SizedBox(height: 32),
-
-              // Error message
-              if (errorMessage != null) ...[
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.statusError.withAlpha(25),
-                    border:
-                        Border.all(color: AppTheme.statusError.withAlpha(50)),
-                    borderRadius: BorderRadius.circular(8),
+    return Column(
+      children: [
+        Expanded(
+          child: FwContentWidth(
+            maxWidth: 480,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  JoinTitle(
+                    title: l10n.faydaVerifyTitle,
+                    subtitle: promptMessage ?? l10n.faydaVerifyDescription,
                   ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.error_outline,
-                        color: AppTheme.statusError,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          errorMessage!,
-                          style: const TextStyle(
-                            color: AppTheme.statusError,
-                            fontSize: 13,
+                  const SizedBox(height: 20),
+
+                  // Error banner if any
+                  if (errorMessage != null) ...[
+                    JoinErrorBanner(message: errorMessage!),
+                    const SizedBox(height: 12),
+                  ],
+
+                  _DigitalIdCard(
+                    verified: isVerified,
+                    verifiedName: verifiedName,
+                  ),
+                  const SizedBox(height: 18),
+
+                  JoinNote.info(text: l10n.faydaRequired),
+
+                  if (isVerified) ...[
+                    const SizedBox(height: 18),
+                    Center(
+                      child: JoinStatusPill(label: l10n.faydaVerifiedSuccess),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        // The step's own action at the foot, until Fayda has answered.
+        if (!isVerified)
+          FwContentWidth(
+            maxWidth: 480,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+              child: isVerifying
+                  ? Column(
+                      children: [
+                        CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            context.roleColors.primary,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-
-              // Verified state
-              if (isVerified) ...[
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: AppTheme.statusSuccess.withAlpha(15),
-                    border: Border.all(color: AppTheme.statusSuccess),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    children: [
-                      const Icon(
-                        Icons.verified_user,
-                        color: AppTheme.statusSuccess,
-                        size: 48,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        l10n.faydaVerifiedSuccess,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.statusSuccess,
-                        ),
-                      ),
-                      if (verifiedName != null) ...[
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 10),
                         Text(
-                          verifiedName!,
+                          verifyingMessage ?? l10n.faydaVerifying,
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.textDark,
+                            fontSize: 14,
+                            color: AppTheme.slate,
                           ),
                         ),
-                      ],
-                    ],
-                  ),
-                ),
-              ]
-
-              // Verifying state
-              else if (isVerifying) ...[
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(32),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surfaceWhite,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.borderLight),
-                  ),
-                  child: Column(
-                    children: [
-                      const SizedBox(
-                        width: 40,
-                        height: 40,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 3,
-                          color: AppTheme.primaryGreen,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        verifyingMessage ?? l10n.faydaVerifying,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppTheme.textMuted,
-                        ),
-                      ),
-                      if (onCancelVerification != null) ...[
-                        const SizedBox(height: 20),
-                        TextButton(
-                          onPressed: onCancelVerification,
-                          child: Text(
-                            l10n.cancel,
-                            style: const TextStyle(color: AppTheme.textMuted),
+                        if (onCancelVerification != null) ...[
+                          const SizedBox(height: 4),
+                          TextButton(
+                            onPressed: onCancelVerification,
+                            child: Text(
+                              l10n.cancel,
+                              style: const TextStyle(color: AppTheme.slate),
+                            ),
                           ),
-                        ),
+                        ],
                       ],
-                    ],
-                  ),
-                ),
-              ]
-
-              // Pending state — show verify button
-              else ...[
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surfaceWhite,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.borderLight),
-                  ),
-                  child: Column(
-                    children: [
-                      const Icon(
-                        Icons.fingerprint,
-                        size: 48,
-                        color: AppTheme.primaryGreen,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        promptMessage ?? l10n.faydaRequired,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppTheme.textMuted,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 48,
-                        child: FilledButton.icon(
+                    )
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // The orange pill (the theme's button).
+                        FilledButton.icon(
                           onPressed: onFaydaVerifyRequested,
-                          icon: Icon(
-                            errorMessage != null
-                                ? Icons.refresh
-                                : Icons.open_in_browser,
-                          ),
+                          icon: const Icon(Icons.shield_outlined, size: 20),
                           label: Text(
                             errorMessage != null
                                 ? l10n.retry
                                 : l10n.verifyWithFayda,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
+                        const SizedBox(height: 10),
+                        Text(
+                          l10n.joinFaydaNeedsInternet,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppTheme.slate,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// The board's black Digital ID card, raised on the soft shadow: the label and shield, a photo
+/// placeholder beside three grey lines (or the verified legal name), and
+/// the note that the legal name comes from Fayda.
+class _DigitalIdCard extends StatelessWidget {
+  final bool verified;
+  final String? verifiedName;
+
+  const _DigitalIdCard({required this.verified, this.verifiedName});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final showName = verified && verifiedName != null;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppTheme.ink,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: joinRaisedShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                l10n.faydaDigitalIdLabel.toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.4,
+                  color: AppTheme.track,
                 ),
-              ],
+              ),
+              Icon(
+                verified ? Icons.verified_outlined : Icons.shield_outlined,
+                color: Colors.white,
+                size: 26,
+              ),
             ],
           ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Container(
+                width: 64,
+                height: 76,
+                decoration: BoxDecoration(
+                  color: AppTheme.inkCard,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.person_outline,
+                  color: AppTheme.fieldBorder,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: showName
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            verifiedName!,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            l10n.faydaVerifiedWith,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.track,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      )
+                    : const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _PlaceholderLine(fraction: 0.8),
+                          SizedBox(height: 8),
+                          _PlaceholderLine(fraction: 0.6),
+                          SizedBox(height: 8),
+                          _PlaceholderLine(fraction: 0.7),
+                        ],
+                      ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text(
+            l10n.faydaLegalNameNote,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppTheme.track,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlaceholderLine extends StatelessWidget {
+  final double fraction;
+
+  const _PlaceholderLine({required this.fraction});
+
+  @override
+  Widget build(BuildContext context) {
+    return FractionallySizedBox(
+      alignment: Alignment.centerLeft,
+      widthFactor: fraction,
+      child: Container(
+        height: 10,
+        decoration: BoxDecoration(
+          color: AppTheme.inkTrack,
+          borderRadius: BorderRadius.circular(999),
         ),
       ),
     );

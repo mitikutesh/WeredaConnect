@@ -12,6 +12,7 @@ import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
+import '../helpers/crop_photo_fixtures.dart';
 
 /// Tests that verify overview stats (listing count, etc.) stay in sync
 /// with the actual data in Isar.
@@ -43,6 +44,7 @@ void main() {
         name: 'test_stats_${DateTime.now().millisecondsSinceEpoch}',
       );
       repository = CropListingRepository(
+        photoFiles: tempCropPhotoFileStore(),
         isar: isar,
         syncQueue: SyncQueue(isar),
       );
@@ -68,6 +70,7 @@ void main() {
       // Create 3 listings
       for (final crop in ['teff', 'wheat', 'barley']) {
         await repository.createListing(
+          photos: testCropPhotos(),
           farmerId: farmerId,
           cropType: crop,
           quantity: 50.0,
@@ -106,6 +109,7 @@ void main() {
       const farmerId = 'farmer-delete-test';
 
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: farmerId,
         cropType: 'teff',
         quantity: 50.0,
@@ -117,6 +121,7 @@ void main() {
       );
 
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: farmerId,
         cropType: 'wheat',
         quantity: 30.0,
@@ -148,6 +153,7 @@ void main() {
     test('buyer sees active listings from all farmers', () async {
       // Create listings from two farmers
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-a',
         cropType: 'teff',
         quantity: 50.0,
@@ -158,6 +164,7 @@ void main() {
         description: 'Teff',
       );
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-b',
         cropType: 'wheat',
         quantity: 30.0,
@@ -196,6 +203,7 @@ void main() {
 
     test('different farmers listings are isolated in overview', () async {
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-x',
         cropType: 'teff',
         quantity: 50.0,
@@ -206,6 +214,7 @@ void main() {
         description: 'Teff from X',
       );
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-y',
         cropType: 'wheat',
         quantity: 30.0,
@@ -216,6 +225,7 @@ void main() {
         description: 'Wheat from Y',
       );
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-x',
         cropType: 'barley',
         quantity: 20.0,

@@ -10,9 +10,12 @@ import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
+import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 /// Insert a test delivery directly into Isar.
 Future<Delivery> _insertTestDelivery(
@@ -258,6 +261,32 @@ void main() {
       expect(pending.length, 2); // create + update
       expect(pending.last.action, 'update');
       expect(pending.last.entityType, 'delivery');
+    });
+
+    test('a typed code is queued as scannedQrCode (T-1)', () async {
+      final delivery = await repository.createDelivery(
+        tripId: 'trip-001',
+        orderId: 'order-test-001',
+        listingId: 'listing-001',
+        farmerId: 'farmer-001',
+        farmerName: 'Abebe',
+        truckerId: 'trucker-001',
+        truckerName: 'Dawit',
+        buyerId: 'buyer-001',
+        buyerName: 'Sara',
+        qrToken: 'qr-token',
+      );
+
+      await repository.confirmPickup(
+        deliveryId: delivery.deliveryId,
+        truckerId: 'trucker-001',
+        scannedQrCode: '757555978',
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      final data = jsonDecode(pending.last.data) as Map<String, dynamic>;
+      expect(data['scannedQrCode'], '757555978');
+      expect(data.containsKey('scannedQrNonce'), isFalse);
     });
 
     test(
@@ -856,6 +885,152 @@ void main() {
 
     // --- Null delivery (no-op for nonexistent) ---
 
+    group('the trucker\'s drop-off code (ESC-35)', () {
+      test('is queued behind the pickup, alone, and not kept on the row',
+          () async {
+        final delivery = await _insertTestDelivery(isar);
+        await repository.confirmPickup(
+          deliveryId: delivery.deliveryId,
+          truckerId: 'trucker-001',
+          scannedQrNonce: 'farmer-nonce',
+        );
+
+        await repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: 'd.trucker-nonce',
+          truckerId: 'trucker-001',
+        );
+
+        final pending = await syncQueue.getPendingOperations();
+        expect(pending.length, 2);
+        final pickup = jsonDecode(pending.first.data) as Map<String, dynamic>;
+        expect(pickup['status'], 'pickedUp');
+        final register = pending.last;
+        expect(register.entityType, 'delivery');
+        expect(register.entityId, delivery.deliveryId);
+        expect(register.action, 'update');
+        expect(register.idempotencyKey, startsWith('trucker-001:'));
+        expect(jsonDecode(register.data), {
+          'dropoffQrNonce': 'd.trucker-nonce',
+          'version': 2,
+        });
+        final stored = await isar.deliverys
+            .filter()
+            .deliveryIdEqualTo(delivery.deliveryId)
+            .findFirst();
+        expect(stored!.qrNonce, isNot('d.trucker-nonce'));
+      });
+
+      test('nothing for anyone but the delivery\'s trucker', () async {
+        final delivery = await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.pickedUp,
+        );
+
+        for (final userId in ['farmer-001', 'buyer-001', '']) {
+          await repository.persistDropoffQrNonce(
+            deliveryId: delivery.deliveryId,
+            nonce: 'd.trucker-nonce',
+            truckerId: userId,
+          );
+        }
+        await repository.persistDropoffQrNonce(
+          deliveryId: 'nonexistent-id',
+          nonce: 'd.trucker-nonce',
+          truckerId: 'trucker-001',
+        );
+
+        expect(await syncQueue.getPendingOperations(), isEmpty);
+      });
+
+      test('the same code waiting is not queued twice (each open)', () async {
+        final delivery = await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.pickedUp,
+        );
+
+        for (var i = 0; i < 3; i++) {
+          expect(
+            await repository.persistDropoffQrNonce(
+              deliveryId: delivery.deliveryId,
+              nonce: 'd.trucker-nonce',
+              truckerId: 'trucker-001',
+            ),
+            DropoffCodeRegistration.sent,
+          );
+        }
+
+        expect(await syncQueue.getPendingOperations(), hasLength(1));
+      });
+
+      test('a new code drops the older ones still waiting and asks to renew',
+          () async {
+        final delivery = await _insertTestDelivery(
+          isar,
+          status: DeliveryStatus.pickedUp,
+        );
+        await repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: 'd.first',
+          truckerId: 'trucker-001',
+        );
+        await repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: 'd.second',
+          truckerId: 'trucker-001',
+          renew: true,
+        );
+        await repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: 'd.third',
+          truckerId: 'trucker-001',
+          renew: true,
+        );
+
+        final pending = await syncQueue.getPendingOperations();
+        expect(pending, hasLength(1));
+        expect(jsonDecode(pending.single.data), {
+          'dropoffQrNonce': 'd.third',
+          'dropoffQrRenew': true,
+          'version': 1,
+        });
+      });
+
+      test('a new code leaves the other operations of the delivery queued',
+          () async {
+        final delivery = await _insertTestDelivery(isar);
+        await repository.confirmPickup(
+          deliveryId: delivery.deliveryId,
+          truckerId: 'trucker-001',
+          scannedQrNonce: 'farmer-nonce',
+        );
+        await repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: 'd.first',
+          truckerId: 'trucker-001',
+        );
+
+        await repository.persistDropoffQrNonce(
+          deliveryId: delivery.deliveryId,
+          nonce: 'd.second',
+          truckerId: 'trucker-001',
+          renew: true,
+        );
+
+        final pending = await syncQueue.getPendingOperations();
+        expect(pending, hasLength(2));
+        expect(
+          (jsonDecode(pending.first.data) as Map<String, dynamic>)['status'],
+          'pickedUp',
+        );
+        expect(
+          (jsonDecode(pending.last.data)
+              as Map<String, dynamic>)['dropoffQrNonce'],
+          'd.second',
+        );
+      });
+    });
+
     test('confirmPickup on nonexistent delivery does nothing', () async {
       await repository.confirmPickup(
         deliveryId: 'nonexistent-id',
@@ -1023,10 +1198,12 @@ void main() {
     // Validation Tests (_validateDeliveryOperation)
     // =======================================================
 
-    // SIM-60: the camera screen hands over a LOCAL file path as the photo ref.
-    // The server accepts only its own upload key and refuses the whole op for
-    // anything else, so a local path stays in Isar and never enters the sync op.
-    group('photo refs in the sync op', () {
+    // SIM-60, FRD-12: the camera screen hands over a LOCAL file path as the
+    // photo ref. Isar keeps it so the photo shows on this phone; the handoff
+    // op never carries a photo ref, and the photo gets its own
+    // `delivery_photo` op, queued behind the handoff, that the sync
+    // preflight uploads when online.
+    group('handoff photos', () {
       const deliveryId = '550e8400-e29b-41d4-a716-446655440000';
       const pickupKey = 'uploads/photos/$deliveryId/pickup-1700000000000.webp';
       const dropoffKey =
@@ -1036,14 +1213,14 @@ void main() {
       const localDropoffPath =
           '/data/user/0/app/files/photos/$deliveryId/dropoff-1700000000000.webp';
 
-      Future<Map<String, dynamic>> lastSyncData() async {
-        final pending = await syncQueue.getPendingOperations();
-        return jsonDecode(pending.last.data) as Map<String, dynamic>;
-      }
+      Future<List<SyncOperation>> pending() => syncQueue.getPendingOperations();
+
+      Map<String, dynamic> dataOf(SyncOperation op) =>
+          jsonDecode(op.data) as Map<String, dynamic>;
 
       test(
-          'confirmPickup keeps a local photo path in Isar and leaves it out of '
-          'the sync op', () async {
+          'confirmPickup keeps a local photo path in Isar and queues the '
+          'photo behind the pickup', () async {
         await _insertTestDelivery(isar);
 
         await repository.confirmPickup(
@@ -1057,12 +1234,32 @@ void main() {
             .deliveryIdEqualTo(deliveryId)
             .findFirst();
         expect(fromDb!.pickupPhotoRef, localPickupPath);
-        final data = await lastSyncData();
-        expect(data['status'], 'pickedUp');
-        expect(data.containsKey('pickupPhotoRef'), isFalse);
+        final ops = await pending();
+        expect(ops, hasLength(2));
+        expect(ops[0].entityType, 'delivery');
+        expect(dataOf(ops[0])['status'], 'pickedUp');
+        expect(dataOf(ops[0]).containsKey('pickupPhotoRef'), isFalse);
+        expect(ops[1].entityType, deliveryPhotoEntityType);
+        expect(ops[1].entityId, '$deliveryId#pickup');
+        expect(ops[1].action, 'create');
+        expect(dataOf(ops[1]), {deliveryPhotoLocalPathKey: localPickupPath});
+        expect(ops[1].idempotencyKey, startsWith('trucker-001:'));
       });
 
-      test('confirmPickup sends a server photo key', () async {
+      test('confirmPickup without a photo queues the pickup only', () async {
+        await _insertTestDelivery(isar);
+
+        await repository.confirmPickup(
+          deliveryId: deliveryId,
+          truckerId: 'trucker-001',
+        );
+
+        expect(await pending(), hasLength(1));
+      });
+
+      test(
+          'a server key or a file of another delivery is never sent or '
+          'queued', () async {
         await _insertTestDelivery(isar);
 
         await repository.confirmPickup(
@@ -1071,25 +1268,30 @@ void main() {
           photoRef: pickupKey,
         );
 
-        expect((await lastSyncData())['pickupPhotoRef'], pickupKey);
-      });
+        final ops = await pending();
+        expect(ops, hasLength(1));
+        expect(dataOf(ops.single).containsKey('pickupPhotoRef'), isFalse);
 
-      test('confirmPickup drops a server key of another delivery', () async {
-        await _insertTestDelivery(isar);
-
-        await repository.confirmPickup(
-          deliveryId: deliveryId,
-          truckerId: 'trucker-001',
-          photoRef:
-              'uploads/photos/660e8400-e29b-41d4-a716-446655440099/pickup-1.webp',
+        await _insertTestDelivery(
+          isar,
+          deliveryId: '660e8400-e29b-41d4-a716-446655440099',
         );
-
-        expect((await lastSyncData()).containsKey('pickupPhotoRef'), isFalse);
+        await repository.confirmPickup(
+          deliveryId: '660e8400-e29b-41d4-a716-446655440099',
+          truckerId: 'trucker-001',
+          photoRef: localPickupPath,
+        );
+        expect(
+          (await pending()).where(
+            (op) => op.entityType == deliveryPhotoEntityType,
+          ),
+          isEmpty,
+        );
       });
 
       test(
-          'confirmDelivery keeps a local photo path in Isar and leaves it out '
-          'of the sync op', () async {
+          'confirmDelivery keeps a local photo path in Isar and queues the '
+          'drop-off photo as the buyer', () async {
         await _insertTestDelivery(isar, status: DeliveryStatus.pickedUp);
 
         await repository.confirmDelivery(
@@ -1103,12 +1305,17 @@ void main() {
             .deliveryIdEqualTo(deliveryId)
             .findFirst();
         expect(fromDb!.dropoffPhotoRef, localDropoffPath);
-        final data = await lastSyncData();
-        expect(data['status'], 'delivered');
-        expect(data.containsKey('dropoffPhotoRef'), isFalse);
+        final ops = await pending();
+        expect(ops, hasLength(2));
+        expect(dataOf(ops[0])['status'], 'delivered');
+        expect(dataOf(ops[0]).containsKey('dropoffPhotoRef'), isFalse);
+        expect(ops[1].entityId, '$deliveryId#dropoff');
+        expect(dataOf(ops[1]), {deliveryPhotoLocalPathKey: localDropoffPath});
+        expect(ops[1].idempotencyKey, startsWith('buyer-001:'));
       });
 
-      test('confirmDelivery sends a server photo key', () async {
+      test('confirmDelivery never sends a server key in the handoff op',
+          () async {
         await _insertTestDelivery(isar, status: DeliveryStatus.pickedUp);
 
         await repository.confirmDelivery(
@@ -1117,7 +1324,166 @@ void main() {
           photoRef: dropoffKey,
         );
 
-        expect((await lastSyncData())['dropoffPhotoRef'], dropoffKey);
+        final ops = await pending();
+        expect(ops, hasLength(1));
+        expect(dataOf(ops.single).containsKey('dropoffPhotoRef'), isFalse);
+      });
+    });
+
+    // FUP-440: each handoff confirm says why it has no fix, or with a fix
+    // its own time and accuracy.
+    group('handoff GPS evidence (FUP-440)', () {
+      const deliveryId = '550e8400-e29b-41d4-a716-446655440000';
+      final fixAt = DateTime.utc(2026, 11, 26, 7, 30, 5);
+
+      LatLng point(GpsCaptureResult fix) => LatLng()
+        ..latitude = fix.latitude!
+        ..longitude = fix.longitude!;
+
+      Future<Map<String, dynamic>> handoffData() async {
+        final ops = await syncQueue.getPendingOperations();
+        final handoff = ops.lastWhere((op) => op.entityType == 'delivery');
+        return jsonDecode(handoff.data) as Map<String, dynamic>;
+      }
+
+      test('a trucker pickup with a fix sends its time and accuracy', () async {
+        await _insertTestDelivery(isar);
+        final fix = GpsCaptureResult.success(
+          latitude: 9.0192,
+          longitude: 38.7525,
+          accuracy: 14.5,
+          capturedAt: fixAt,
+        );
+
+        await repository.confirmPickup(
+          deliveryId: deliveryId,
+          truckerId: 'trucker-001',
+          gpsPickup: point(fix),
+          gpsCapture: fix,
+        );
+
+        final data = await handoffData();
+        expect(data['gpsStatus'], 'fix');
+        expect(data['gpsPickup'], {
+          'latitude': 9.0192,
+          'longitude': 38.7525,
+          'capturedAt': '2026-11-26T07:30:05.000Z',
+          'accuracyM': 14.5,
+        });
+      });
+
+      test('a pickup without a fix says why and sends no point', () async {
+        await _insertTestDelivery(isar);
+
+        await repository.confirmPickup(
+          deliveryId: deliveryId,
+          truckerId: 'trucker-001',
+          gpsCapture: const GpsCaptureResult.unavailable(
+            GpsCaptureResult.locationOffReason,
+          ),
+        );
+
+        final data = await handoffData();
+        expect(data['gpsStatus'], 'services_off');
+        expect(data.containsKey('gpsPickup'), isFalse);
+      });
+
+      test('a buyer drop-off with an approximate fix says so', () async {
+        await _insertTestDelivery(isar, status: DeliveryStatus.pickedUp);
+        final fix = GpsCaptureResult.success(
+          latitude: 8.9806,
+          longitude: 38.7578,
+          accuracy: 1800,
+          capturedAt: fixAt,
+          approximate: true,
+        );
+
+        await repository.confirmDelivery(
+          deliveryId: deliveryId,
+          buyerId: 'buyer-001',
+          gpsDropoff: point(fix),
+          gpsCapture: fix,
+        );
+
+        final data = await handoffData();
+        expect(data['gpsStatus'], 'approximate');
+        expect(data['gpsDropoff'], {
+          'latitude': 8.9806,
+          'longitude': 38.7578,
+          'capturedAt': '2026-11-26T07:30:05.000Z',
+          'accuracyM': 1800.0,
+        });
+      });
+
+      test('a drop-off without a fix says why and sends no point', () async {
+        await _insertTestDelivery(isar, status: DeliveryStatus.pickedUp);
+
+        await repository.confirmDelivery(
+          deliveryId: deliveryId,
+          buyerId: 'buyer-001',
+          gpsCapture: const GpsCaptureResult.unavailable(
+            GpsCaptureResult.noSignalReason,
+          ),
+        );
+
+        final data = await handoffData();
+        expect(data['gpsStatus'], 'timeout');
+        expect(data.containsKey('gpsDropoff'), isFalse);
+      });
+
+      test('a self-pickup confirm refused the permission says so', () async {
+        final delivery = await _insertTestDelivery(isar);
+        await isar.writeTxn(() async {
+          delivery.deliveryType = 'self_pickup';
+          await isar.deliverys.put(delivery);
+        });
+
+        await repository.confirmDelivery(
+          deliveryId: deliveryId,
+          buyerId: 'buyer-001',
+          gpsCapture: const GpsCaptureResult.unavailable(
+            GpsCaptureResult.permanentlyDeniedReason,
+          ),
+        );
+
+        final data = await handoffData();
+        expect(data['status'], 'delivered');
+        expect(data['gpsStatus'], 'denied_forever');
+        expect(data.containsKey('gpsDropoff'), isFalse);
+      });
+
+      test('a fix without its time or accuracy sends the point alone',
+          () async {
+        await _insertTestDelivery(isar);
+        const fix = GpsCaptureResult.success(
+          latitude: 9.0192,
+          longitude: 38.7525,
+          accuracy: 0,
+        );
+
+        await repository.confirmPickup(
+          deliveryId: deliveryId,
+          truckerId: 'trucker-001',
+          gpsPickup: point(fix),
+          gpsCapture: fix,
+        );
+
+        final data = await handoffData();
+        expect(data['gpsStatus'], 'fix');
+        expect(data['gpsPickup'], {'latitude': 9.0192, 'longitude': 38.7525});
+      });
+
+      test('no capture tried sends no status', () async {
+        await _insertTestDelivery(isar);
+
+        await repository.confirmPickup(
+          deliveryId: deliveryId,
+          truckerId: 'trucker-001',
+        );
+
+        final data = await handoffData();
+        expect(data.containsKey('gpsStatus'), isFalse);
+        expect(data.containsKey('gpsPickup'), isFalse);
       });
     });
 

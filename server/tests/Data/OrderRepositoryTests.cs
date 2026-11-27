@@ -493,6 +493,33 @@ public class OrderRepositoryTests
         Assert.False(await _repository.TryLeaveAdminQueueAsync("order-1", "2026-10-30T08:00:00.0000000Z"));
     }
 
+    // FUP-334: the escrow cron's hold-cap stamp carries this check, so it lands only on the entry it read.
+    [Fact]
+    public void AdminQueueEntryCheck_HoldsOnlyWhileTheEntryReadStands_NoIo()
+    {
+        var named = _repository.BuildAdminQueueEntryCheck(
+            "order-1", "2026-10-01T09:00:00Z", "2026-10-30T08:00:00.0000000Z", "escrow-order-order-1").ConditionCheck;
+
+        Assert.Equal(TableName, named.TableName);
+        Assert.Equal("order-1", named.Key["orderId"].S);
+        Assert.Equal("2026-10-01T09:00:00Z", named.Key["createdAt"].S);
+        Assert.Equal("#marker = :open AND #queuedAt = :queuedAt AND #escrowId = :escrowId", named.ConditionExpression);
+        Assert.Equal("adminQueue", named.ExpressionAttributeNames["#marker"]);
+        Assert.Equal("adminQueuedAt", named.ExpressionAttributeNames["#queuedAt"]);
+        Assert.Equal("adminQueueEscrowId", named.ExpressionAttributeNames["#escrowId"]);
+        Assert.Equal("open", named.ExpressionAttributeValues[":open"].S);
+        Assert.Equal("2026-10-30T08:00:00.0000000Z", named.ExpressionAttributeValues[":queuedAt"].S);
+        Assert.Equal("escrow-order-order-1", named.ExpressionAttributeValues[":escrowId"].S);
+
+        // An entry read without adminQueueEscrowId (it names the order escrow) must still have none.
+        var unnamed = _repository.BuildAdminQueueEntryCheck(
+            "order-1", "2026-10-01T09:00:00Z", "2026-10-30T08:00:00.0000000Z", null).ConditionCheck;
+        Assert.Equal("#marker = :open AND #queuedAt = :queuedAt AND attribute_not_exists(#escrowId)", unnamed.ConditionExpression);
+        Assert.False(unnamed.ExpressionAttributeValues.ContainsKey(":escrowId"));
+
+        Assert.Empty(_mockDynamoDb.ReceivedCalls());
+    }
+
     [Fact]
     public async Task QueryAdminQueue_ReadsTheSparseIndexOldestFirst()
     {

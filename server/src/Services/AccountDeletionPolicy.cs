@@ -36,7 +36,8 @@ public static class AccountDeletionPolicy
 
     private static readonly HashSet<string> BlockingOrderStatuses = new(StringComparer.Ordinal)
     {
-        "payment_submitted", "funded", "accepted", "pickup_confirmed", "in_transit", "delivered", "disbursing"
+        "payment_submitted", "funded", OrderCommitment.AwaitingTransportStatus, "accepted", "pickup_confirmed", "in_transit",
+        "delivered", "disbursing"
     };
 
     private static readonly HashSet<string> TerminalOrderStatuses = new(StringComparer.Ordinal)

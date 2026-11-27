@@ -8,6 +8,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
@@ -115,7 +116,8 @@ public partial class SyncFunctionTests
             { "pricePerKg", 45.5 },
             { "farmerId", farmerId },
             { "woreda", "Jimma" },
-            { "status", "active" }
+            { "status", "active" },
+            { "photoIds", CropPhotoFixtures.ValidPhotoIds() }
         },
             Timestamp = "2026-03-15T10:00:00Z"
         };
@@ -142,78 +144,26 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
-    public async Task FunctionHandler_Create_InjectsFarmerReliability_FromListingHistory()
+    public async Task FunctionHandler_Create_NeverWritesFarmerReliability()
     {
-        // Farmer history: 3 sold + 1 expired = 4 resolved → reliability 0.75.
-        Dictionary<string, object> Crop(string status) =>
-            new() { { "cropId", "c" }, { "status", status } };
-        _mockCropRepo.QueryCropsAsync(
-                farmerId: "farmer-001",
-                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-                Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(), Arg.Any<double?>())
-            .Returns((new List<Dictionary<string, object>>
-            {
-                Crop("sold"), Crop("sold"), Crop("sold"), Crop("expired"), Crop("available"),
-            }, (Dictionary<string, AttributeValue>?)null));
-
+        // ESC-30: the listing-conversion reliability is gone. The create reads no listing
+        // history and stores no farmerReliability, not even one a client sends.
         Dictionary<string, object>? capturedData = null;
         _mockCropRepo.CreateAsync("crop-001", Arg.Do<Dictionary<string, object>>(d => capturedData = d))
             .Returns(AuthResult<Dictionary<string, object>>.Success(
                 new Dictionary<string, object> { { "cropId", "crop-001" }, { "version", "1" } }));
 
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
+        var op = MakeCropCreateOp();
+        op.Data!["farmerReliability"] = 1.0;
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer");
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        Assert.NotNull(capturedData);
-        Assert.True(capturedData!.ContainsKey("farmerReliability"));
-        Assert.Equal(0.75, Convert.ToDouble(capturedData["farmerReliability"]), 6);
-    }
-
-    [Fact]
-    public async Task FunctionHandler_Create_NoReliability_WhenTooFewResolvedListings()
-    {
-        // Only 2 resolved listings (< MinListingsForReliability=3) → unset (neutral).
-        _mockCropRepo.QueryCropsAsync(
-                farmerId: "farmer-001",
-                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-                Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(), Arg.Any<double?>())
-            .Returns((new List<Dictionary<string, object>>
-            {
-                new() { { "cropId", "c" }, { "status", "sold" } },
-                new() { { "cropId", "c" }, { "status", "available" } },
-            }, (Dictionary<string, AttributeValue>?)null));
-
-        Dictionary<string, object>? capturedData = null;
-        _mockCropRepo.CreateAsync("crop-001", Arg.Do<Dictionary<string, object>>(d => capturedData = d))
-            .Returns(AuthResult<Dictionary<string, object>>.Success(
-                new Dictionary<string, object> { { "cropId", "crop-001" }, { "version", "1" } }));
-
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
-        await _function.FunctionHandler(request, _context);
-
         Assert.NotNull(capturedData);
         Assert.False(capturedData!.ContainsKey("farmerReliability"));
-    }
-
-    [Fact]
-    public async Task FunctionHandler_Create_ReliabilityFailure_DoesNotBlockCreate()
-    {
-        // A reliability read failure must never fail the crop creation.
-        _mockCropRepo.QueryCropsAsync(
-                farmerId: "farmer-001",
-                Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
-                Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(), Arg.Any<double?>())
-            .ThrowsAsync(new Exception("dynamo down"));
-        _mockCropRepo.CreateAsync("crop-001", Arg.Any<Dictionary<string, object>>())
-            .Returns(AuthResult<Dictionary<string, object>>.Success(
-                new Dictionary<string, object> { { "cropId", "crop-001" }, { "version", "1" } }));
-
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
-        var response = await _function.FunctionHandler(request, _context);
-
-        Assert.Equal(200, response.StatusCode);
-        Assert.Contains("success", response.Body);
+        await _mockCropRepo.DidNotReceive().QueryCropsAsync(
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<string?>(),
+            Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>(), Arg.Any<double?>());
     }
 
     [Fact]
@@ -233,7 +183,7 @@ public partial class SyncFunctionTests
             "farmer-001:" + op.IdempotencyKey,
             op.OperationId,
             "crop_listing",
-            "success");
+            "success", Arg.Any<string?>());
     }
 
     [Fact]
@@ -265,7 +215,7 @@ public partial class SyncFunctionTests
             .Returns(ci => Task.FromResult(stored.Contains(ci.ArgAt<string>(0))));
         _mockSyncMeta
             .When(x => x.StoreIdempotencyKeyAsync(
-                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()))
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>()))
             .Do(ci => stored.Add(ci.ArgAt<string>(0)));
         return stored;
     }
@@ -360,7 +310,7 @@ public partial class SyncFunctionTests
             MakeAuthenticatedRequest(MakeSyncRequest(op), "farmer-001", "farmer"), _context);
 
         await _mockSyncMeta.Received(1).IdempotencyKeyExistsAsync(key);
-        await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(key, "op-001", "crop_listing", "success");
+        await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(key, "op-001", "crop_listing", "success", Arg.Any<string?>());
     }
 
     [Fact]
@@ -374,7 +324,7 @@ public partial class SyncFunctionTests
 
         await _mockSyncMeta.Received(1).IdempotencyKeyExistsAsync("farmer-001:web_create_crop-001");
         await _mockSyncMeta.Received(1).StoreIdempotencyKeyAsync(
-            "farmer-001:web_create_crop-001", "op-001", "crop_listing", "success");
+            "farmer-001:web_create_crop-001", "op-001", "crop_listing", "success", Arg.Any<string?>());
         await _mockSyncMeta.DidNotReceive().IdempotencyKeyExistsAsync("web_create_crop-001");
     }
 
@@ -391,7 +341,7 @@ public partial class SyncFunctionTests
         Assert.Contains("SYNC_VALIDATION", response.Body);
         await _mockSyncMeta.DidNotReceive().IdempotencyKeyExistsAsync(Arg.Any<string>());
         await _mockSyncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
         await _mockCropRepo.DidNotReceive()
             .CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
@@ -538,6 +488,8 @@ public partial class SyncFunctionTests
         };
         _mockCropRepo.DeleteAsync("crop-001", 1)
             .Returns(AuthResult<Dictionary<string, object>>.Success(serverData));
+        // SIM-56: the delete reads the listing's orders whatever the commitments flag; none here.
+        _mockOrderRepo.QueryByListingAsync("crop-001").Returns(new List<Dictionary<string, object>>());
 
         var deleteOp = new SyncOperationRequest
         {
@@ -588,25 +540,32 @@ public partial class SyncFunctionTests
         Assert.Contains("duplicate", response.Body);
     }
 
-    [Fact]
-    public async Task FunctionHandler_UnsupportedEntityType_ReturnsError()
+    // FUP-74 (sync-protocol.md 1.72.0): SYNC_VALIDATION, permanent on every client since March 2026,
+    // so the `cropListing` update a build before FUP-18 queued with a delivery is no longer resent.
+    [Theory]
+    [InlineData("unknown_entity", "create", "farmer-001", "farmer")]
+    [InlineData("cropListing", "update", "trucker-001", "trucker")]
+    [InlineData("cropListing", "update", "buyer-001", "buyer")]
+    public async Task FunctionHandler_UnsupportedEntityType_ReturnsError(
+        string entityType, string action, string userId, string role)
     {
         var badOp = new SyncOperationRequest
         {
             OperationId = "op-bad",
-            IdempotencyKey = "user:unknown:x:create:12345",
-            EntityType = "unknown_entity",
+            IdempotencyKey = $"{userId}:{entityType}:x-001:{action}:12345",
+            EntityType = entityType,
             EntityId = "x-001",
-            Action = "create",
-            Data = new Dictionary<string, object> { { "foo", "bar" } }
+            Action = action,
+            Data = new Dictionary<string, object> { { "status", "reserved" }, { "version", 2 } }
         };
 
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(badOp), "farmer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(badOp), userId, role);
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        Assert.Contains("error", response.Body);
-        Assert.Contains("Unsupported entity type", response.Body);
+        var result = JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0];
+        Assert.Equal("error", result.GetProperty("status").GetString());
+        Assert.Equal($"SYNC_VALIDATION: Unsupported entity type: '{entityType}'.", result.GetProperty("message").GetString());
     }
 
     [Fact]
@@ -617,6 +576,132 @@ public partial class SyncFunctionTests
 
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("SYNC_VALIDATION", response.Body);
+    }
+
+    // FUP-127 audit, FUP-148: SyncRequest and SyncOperationRequest mark no member required. A missing,
+    // null or blank batch member is refused whole as SYNC_VALIDATION with its field; an operation missing
+    // an identifying member is that operation's own SYNC_VALIDATION error. Neither may crash the batch.
+    private const string AuditOp =
+        "{\"operationId\":\"op-1\",\"idempotencyKey\":\"user:crop_listing:crop-1:create:12345\","
+        + "\"entityType\":\"crop_listing\",\"entityId\":\"crop-1\",\"action\":\"create\",\"data\":{}}";
+
+    private static APIGatewayProxyRequest RawSyncRequest(string body) => new()
+    {
+        Body = body,
+        RequestContext = new APIGatewayProxyRequest.ProxyRequestContext
+        {
+            Authorizer = new APIGatewayCustomAuthorizerContext { { "userId", "farmer-001" }, { "custom:role", "farmer" } }
+        }
+    };
+
+    [Theory]
+    // FUP-148: absent (it was "Invalid JSON in request body." with no field), null (it was accepted) or blank.
+    [InlineData("{\"clientId\":\"d-1\",\"operations\":[" + AuditOp + "]}", "syncBatchId", "syncBatchId is required.")]
+    [InlineData("{\"syncBatchId\":null,\"clientId\":\"d-1\",\"operations\":[" + AuditOp + "]}", "syncBatchId", "syncBatchId is required.")]
+    [InlineData("{\"syncBatchId\":\" \",\"clientId\":\"d-1\",\"operations\":[" + AuditOp + "]}", "syncBatchId", "syncBatchId is required.")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"operations\":[" + AuditOp + "]}", "clientId", "clientId is required.")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":null,\"operations\":[" + AuditOp + "]}", "clientId", "clientId is required.")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":\"\",\"operations\":[" + AuditOp + "]}", "clientId", "clientId is required.")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\"}", "operations", "Request must contain at least one operation.")]
+    [InlineData("{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":null}", "operations", "Request must contain at least one operation.")]
+    [InlineData("{}", "syncBatchId", "syncBatchId is required.")]
+    public async Task FunctionHandler_MissingBatchMember_Returns400WithItsField_NothingApplied(
+        string body, string field, string message)
+    {
+        var response = await _function.FunctionHandler(RawSyncRequest(body), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"SYNC_VALIDATION\"", response.Body);
+        Assert.Contains($"\"message\":\"{message}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+        await _mockSyncMeta.DidNotReceive().IdempotencyKeyExistsAsync(Arg.Any<string>());
+        await _mockCropRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_NullBody_KeepsTheOperationsAnswerWithoutAField()
+    {
+        var response = await _function.FunctionHandler(RawSyncRequest("null"), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("Request must contain at least one operation.", response.Body);
+        Assert.DoesNotContain("\"field\"", response.Body);
+    }
+
+    [Theory]
+    [InlineData("[null]")]
+    [InlineData("[" + AuditOp + ",null]")]
+    public async Task FunctionHandler_NullOperation_Returns400SyncValidation_NothingApplied(string operations)
+    {
+        // It was a NullReferenceException (a 502 from API Gateway), also for the valid operation
+        // sent with it.
+        var body = "{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":" + operations + "}";
+
+        var response = await _function.FunctionHandler(RawSyncRequest(body), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("SYNC_VALIDATION", response.Body);
+        Assert.Contains("Operations must not contain null.", response.Body);
+    }
+
+    [Theory]
+    [InlineData("operationId", "absent")]
+    [InlineData("operationId", "null")]
+    [InlineData("operationId", "empty")]
+    [InlineData("idempotencyKey", "absent")]
+    [InlineData("idempotencyKey", "null")]
+    [InlineData("idempotencyKey", "empty")]
+    [InlineData("entityType", "absent")]
+    [InlineData("entityType", "null")]
+    [InlineData("entityType", "empty")]
+    [InlineData("entityId", "absent")]
+    [InlineData("entityId", "null")]
+    [InlineData("entityId", "empty")]
+    [InlineData("action", "absent")]
+    [InlineData("action", "null")]
+    [InlineData("action", "empty")]
+    public async Task FunctionHandler_MissingOperationMember_IsThatOperationsSyncValidation_BatchGoesOn(
+        string member, string mode)
+    {
+        // FUP-148: an absent member refused the whole batch ("Invalid JSON in request body."), a null one
+        // was "Missing required fields: ..." with no code. Now each is the operation's own SYNC_VALIDATION
+        // (permanent on every client) naming the member, and the other operation still gets its result.
+        var pattern = $"\"{member}\":\"[^\"]*\"";
+        var bad = mode switch
+        {
+            "absent" => System.Text.RegularExpressions.Regex.Replace(AuditOp, pattern + ",", ""),
+            "null" => System.Text.RegularExpressions.Regex.Replace(AuditOp, pattern, $"\"{member}\":null"),
+            _ => System.Text.RegularExpressions.Regex.Replace(AuditOp, pattern, $"\"{member}\":\"\""),
+        };
+        Assert.NotEqual(AuditOp, bad);
+        var good = AuditOp.Replace("op-1", "op-2").Replace("crop-1", "crop-2");
+        var body = "{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":[" + bad + "," + good + "]}";
+
+        var response = await _function.FunctionHandler(RawSyncRequest(body), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        using var json = JsonDocument.Parse(response.Body);
+        var results = json.RootElement.GetProperty("results").EnumerateArray().ToList();
+        Assert.Equal(2, results.Count);
+        var refused = results[0];
+        Assert.Equal(member == "operationId" ? "unknown" : "op-1", refused.GetProperty("operationId").GetString());
+        Assert.Equal("error", refused.GetProperty("status").GetString());
+        Assert.Equal($"SYNC_VALIDATION: {member} is required.", refused.GetProperty("message").GetString());
+        Assert.Equal("op-2", results[1].GetProperty("operationId").GetString());
+        Assert.NotEqual($"SYNC_VALIDATION: {member} is required.",
+            results[1].TryGetProperty("message", out var other) ? other.GetString() : null);
+    }
+
+    [Fact]
+    public async Task FunctionHandler_OperationWithOnlyAnOperationId_NamesTheFirstMissingMember()
+    {
+        var body = "{\"syncBatchId\":\"b-1\",\"clientId\":\"d-1\",\"operations\":[{\"operationId\":\"op-1\"}]}";
+
+        var response = await _function.FunctionHandler(RawSyncRequest(body), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("\"message\":\"SYNC_VALIDATION: idempotencyKey is required.\"", response.Body);
+        await _mockSyncMeta.DidNotReceive().IdempotencyKeyExistsAsync(Arg.Any<string>());
     }
 
     [Fact]
@@ -1341,6 +1426,46 @@ public partial class SyncFunctionTests
         Assert.Contains("fromWoreda and toWoreda must be different", response.Body);
     }
 
+    // trip-listing-api 2.1.0: the destination point, the live track's drop-off (TripTrack.PlannedDropoff),
+    // is stored as numbers when the trucker picked a place with coordinates.
+    [Fact]
+    public async Task TripCreate_DestinationPoint_IsStoredAsNumbers()
+    {
+        var op = MakeTripCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "destinationLatitude", 9.0054 },
+            { "destinationLongitude", 38.7636 }
+        });
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("success", response.Body);
+        await _mockDynamoDb.Received(1).PutItemAsync(Arg.Is<PutItemRequest>(r =>
+            r.Item.ContainsKey("destinationLatitude") && r.Item["destinationLatitude"].N == "9.0054"
+            && r.Item.ContainsKey("destinationLongitude") && r.Item["destinationLongitude"].N == "38.7636"));
+    }
+
+    [Theory]
+    [InlineData(9.0, null, "must be sent together")]
+    [InlineData(51.5, 38.7, "destinationLatitude must be a number between 3 and 15")]
+    [InlineData(9.0, -0.1, "destinationLongitude must be a number between 32.5 and 48.5")]
+    public async Task TripCreate_BadDestinationPoint_IsRefused(double lat, double? lng, string expected)
+    {
+        var overrides = new Dictionary<string, object> { { "destinationLatitude", lat } };
+        if (lng is { } longitude)
+        {
+            overrides["destinationLongitude"] = longitude;
+        }
+
+        var op = MakeTripCreateOp(dataOverrides: overrides);
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Contains("TRIP_VALIDATION", response.Body);
+        Assert.Contains(expected, response.Body);
+        await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+    }
+
     [Fact]
     public async Task TripCreate_ForcesStatusOpen()
     {
@@ -1454,6 +1579,8 @@ public partial class SyncFunctionTests
             && r.Item["truckerName"].S == "Chaltu Tolosa"));
     }
 
+    // FUP-74 (sync-protocol.md 1.72.0): the profile decides it, not the operation, so it is not
+    // TRIP_VALIDATION, which clients treat as permanent.
     [Fact]
     public async Task TripCreate_OwnerProfileMissing_IsRejected()
     {
@@ -1463,9 +1590,14 @@ public partial class SyncFunctionTests
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Contains("TRIP_VALIDATION", response.Body);
+        Assert.Equal(
+            "TRIP_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.",
+            FirstResultMessage(response.Body));
         await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
     }
+
+    private static string? FirstResultMessage(string body) =>
+        JsonDocument.Parse(body).RootElement.GetProperty("results")[0].GetProperty("message").GetString();
 
     private static UserDto ProfileWithNames(string userId, string? displayName, string? fullName) => new()
     {
@@ -1515,8 +1647,10 @@ public partial class SyncFunctionTests
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Contains("TRIP_VALIDATION", response.Body);
-        Assert.Contains("Add your name to your profile", response.Body);
+        // FUP-74: the same operation passes once the trucker adds a name, so not TRIP_VALIDATION.
+        Assert.Equal(
+            "TRIP_PROFILE_INCOMPLETE: Add your name to your profile before creating a listing.",
+            FirstResultMessage(response.Body));
         await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
     }
 
@@ -1528,7 +1662,23 @@ public partial class SyncFunctionTests
         var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Contains("CROP_VALIDATION", response.Body);
+        Assert.Equal(
+            "CROP_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.",
+            FirstResultMessage(response.Body));
+        await _mockCropRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task CropCreate_ProfileWithoutAnyName_IsRejected()
+    {
+        _mockUserRepo.GetUserByIdAsync("farmer-001").Returns(ProfileWithNames("farmer-001", null, null));
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(
+            "CROP_PROFILE_INCOMPLETE: Add your name to your profile before creating a listing.",
+            FirstResultMessage(response.Body));
         await _mockCropRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
@@ -2124,8 +2274,10 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
-    public async Task TripDelete_AlreadyCancelled_ReturnsError()
+    public async Task TripDelete_AlreadyCancelled_AnswersTheStoredRowAsAConflict()
     {
+        // ESC-17: a delete is a cancel and the trip is already cancelled, so the client takes the
+        // server's row instead of retrying an error.
         SetupExistingTrip("trip-001", "trucker-001", "cancelled", 2);
 
         var deleteOp = new SyncOperationRequest
@@ -2141,8 +2293,9 @@ public partial class SyncFunctionTests
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        Assert.Contains("error", response.Body);
-        Assert.Contains("TRIP_TERMINAL_STATE", response.Body);
+        Assert.Contains("\"status\":\"conflict\"", response.Body);
+        Assert.Contains("TRIP_ALREADY_CANCELLED", response.Body);
+        await _mockDynamoDb.DidNotReceiveWithAnyArgs().UpdateItemAsync(default(UpdateItemRequest)!);
     }
 
     // ===== Per-User Rate Limiting Tests (F-11 Finding 3) =====
@@ -2482,9 +2635,10 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
-    public async Task DeliveryUpdate_PickedUpWithoutGeneratorNonce_AllowsTransition()
+    public async Task DeliveryUpdate_PickedUpWithoutGeneratorNonce_OnAnOldDelivery_IsRefused()
     {
-        // Generator hasn't synced qrNonce yet — offline-first backward compat
+        // FRD-11: no farmer's nonce, no pickup, money or not. A recent delivery waits for the
+        // nonce (deferred, SyncFunctionQrGateTests); this one is past the 14-day window.
         SetupExistingDelivery("del-001", "trucker-001", "pending", 1);
 
         var updateOp = new SyncOperationRequest
@@ -2505,7 +2659,10 @@ public partial class SyncFunctionTests
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        Assert.Contains("success", response.Body);
+        // The body escapes the apostrophe, so the check stops before it.
+        Assert.Contains("DELIVERY_NONCE_MISSING: The farmer", response.Body);
+        Assert.Contains("never reached the server for this pickup.", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -2800,8 +2957,158 @@ public partial class SyncFunctionTests
             Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
+    // ---- FUP-66: the delivered stamp for an order escrow the DeliveryIndex does not know ----
+
+    private async Task<IEscrowRepository> ConfirmDeliveryOfOrderAsync(
+        Dictionary<string, object>? orderEscrow, Dictionary<string, object>? indexEscrow = null)
+    {
+        var mockEscrow = Substitute.For<IEscrowRepository>();
+        mockEscrow.GetByDeliveryIdAsync("del-001").Returns(indexEscrow);
+        mockEscrow.GetByIdAsync("escrow-order-ord-66", true).Returns(orderEscrow);
+
+        var function = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, escrowRepo: mockEscrow);
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "nonce-66", orderId: "ord-66");
+
+        var updateOp = new SyncOperationRequest
+        {
+            OperationId = "op-deliver-66",
+            IdempotencyKey = "buyer-001:delivery:del-001:update:deliver-66",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "delivered" },
+                { "version", 1 },
+                { "scannedQrNonce", "nonce-66" }
+            }
+        };
+
+        var response = await function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(updateOp), "buyer-001", "buyer"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        return mockEscrow;
+    }
+
+    private static Dictionary<string, object> OrderEscrow66(
+        string status = "escrowed", string orderId = "ord-66", string? deliveryId = null, string? confirmedAt = null)
+    {
+        var escrow = new Dictionary<string, object>
+        {
+            { "escrowId", "escrow-order-ord-66" }, { "orderId", orderId }, { "source", "order" },
+            { "createdAt", "2026-02-16T10:00:00Z" }, { "status", status }
+        };
+        if (deliveryId != null)
+        {
+            escrow["deliveryId"] = deliveryId;
+        }
+
+        if (confirmedAt != null)
+        {
+            escrow["deliveryConfirmedAt"] = confirmedAt;
+        }
+
+        return escrow;
+    }
+
+    private static Task DidNotStampAsync(IEscrowRepository escrow) => escrow.DidNotReceive().UpdateStatusAsync(
+        Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("del-001")]
+    public async Task DeliveryConfirmed_UnlinkedOrderEscrow_IsStampedByTheOrderKey(string? linkedDeliveryId)
+    {
+        // The link write failed (ORDER_ESCROW_LINK_FAILED) or the index lags: the DeliveryIndex finds
+        // nothing, and the stamp used to stop there, so the escrow was never paid by the auto-release.
+        var escrow = await ConfirmDeliveryOfOrderAsync(OrderEscrow66(deliveryId: linkedDeliveryId));
+
+        await escrow.Received(1).GetByIdAsync("escrow-order-ord-66", true);
+        await escrow.Received(1).UpdateStatusAsync(
+            "escrow-order-ord-66", "2026-02-16T10:00:00Z", "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f =>
+                f.ContainsKey("deliveryConfirmedAt") && f.ContainsKey("disputeWindowEndsAt") && !f.ContainsKey("deliveryId")));
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_LinkedEscrowFoundByTheIndex_TheOrderKeyIsNotRead()
+    {
+        var escrow = await ConfirmDeliveryOfOrderAsync(
+            orderEscrow: null, indexEscrow: OrderEscrow66(deliveryId: "del-001"));
+
+        await escrow.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
+        await escrow.Received(1).UpdateStatusAsync(
+            "escrow-order-ord-66", Arg.Any<string>(), "escrowed", "escrowed",
+            Arg.Is<Dictionary<string, object>>(f => f.ContainsKey("deliveryConfirmedAt")));
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_OrderEscrowLinkedToAnotherDelivery_IsNotStamped()
+    {
+        await DidNotStampAsync(await ConfirmDeliveryOfOrderAsync(OrderEscrow66(deliveryId: "del-other")));
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_OrderEscrowOfAnotherOrder_IsNotStamped()
+    {
+        await DidNotStampAsync(await ConfirmDeliveryOfOrderAsync(OrderEscrow66(orderId: "ord-other")));
+    }
+
+    [Theory]
+    [InlineData("released", null)]
+    [InlineData("disputed", null)]
+    [InlineData("refunded", null)]
+    [InlineData("escrowed", "2026-02-18T09:00:00Z")]
+    public async Task DeliveryConfirmed_UnlinkedOrderEscrow_NotWaitingOrAlreadyStamped_IsNotStamped(
+        string status, string? confirmedAt)
+    {
+        await DidNotStampAsync(await ConfirmDeliveryOfOrderAsync(OrderEscrow66(status, confirmedAt: confirmedAt)));
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_NoEscrowOfEitherKind_NothingIsStamped()
+    {
+        await DidNotStampAsync(await ConfirmDeliveryOfOrderAsync(orderEscrow: null));
+    }
+
+    [Fact]
+    public async Task DeliveryConfirmed_OrderKeyReadFails_TheDeliveryStillConfirms_AndTheStampFailureIsAlarmed()
+    {
+        var mockEscrow = Substitute.For<IEscrowRepository>();
+        mockEscrow.GetByDeliveryIdAsync("del-001").Returns((Dictionary<string, object>?)null);
+        mockEscrow.GetByIdAsync("escrow-order-ord-66", true).ThrowsAsync(new TimeoutException("slow"));
+        var function = new SyncFunction(
+            _mockSyncMeta, _mockCropRepo, _mockDynamoDb, "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, escrowRepo: mockEscrow);
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pickedUp", 1, "nonce-66", orderId: "ord-66");
+
+        var response = await function.FunctionHandler(MakeAuthenticatedRequest(MakeSyncRequest(new SyncOperationRequest
+        {
+            OperationId = "op-deliver-66f",
+            IdempotencyKey = "buyer-001:delivery:del-001:update:deliver-66f",
+            EntityType = "delivery",
+            EntityId = "del-001",
+            Action = "update",
+            Data = new Dictionary<string, object>
+            {
+                { "status", "delivered" }, { "version", 1 }, { "scannedQrNonce", "nonce-66" }
+            }
+        }), "buyer-001", "buyer"), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("success", response.Body);
+        Assert.Contains("ESCROW_DELIVERY_STAMP_FAILED deliveryId=del-001 source=sync reason=[TimeoutException]",
+            ((TestLambdaLogger)_context.Logger).Buffer.ToString());
+    }
+
     private void SetupExistingDeliveryWithQrNonce(
-        string deliveryId, string truckerId, string status, int version, string qrNonce)
+        string deliveryId, string truckerId, string status, int version, string qrNonce, string? orderId = null,
+        IReadOnlyDictionary<string, AttributeValue>? stored = null)
     {
         var item = new Dictionary<string, AttributeValue>
         {
@@ -2819,11 +3126,26 @@ public partial class SyncFunctionTests
             { "buyerPhone", new AttributeValue { S = "+251933333333" } },
             { "qrToken", new AttributeValue { S = "qr-token-abc123" } },
             { "qrNonce", new AttributeValue { S = qrNonce } },
+            { "pickupPhotoVersionId", new AttributeValue { S = "photo-version-pickup-1" } },
+            { "dropoffPhotoVersionId", new AttributeValue { S = "photo-version-dropoff-1" } },
+            // FUP-140: the kept copies, server-only like the version ids.
+            { "pickupPhotoKeptRef", new AttributeValue { S = "evidence/photos/del-001/pickup-1700000000000.webp" } },
+            { "pickupPhotoKeptVersionId", new AttributeValue { S = "photo-version-kept-1" } },
             { "status", new AttributeValue { S = status } },
             { "createdAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
             { "updatedAt", new AttributeValue { S = "2026-02-16T10:30:00Z" } },
             { "version", new AttributeValue { N = version.ToString() } }
         };
+        if (orderId != null)
+        {
+            item["orderId"] = new AttributeValue { S = orderId };
+        }
+
+        // FUP-246: further stored attributes (a picked-up delivery's pickup point and times).
+        foreach (var (key, value) in stored ?? new Dictionary<string, AttributeValue>())
+        {
+            item[key] = value;
+        }
 
         _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r =>
                 r.TableName == "test-deliveries-table"))
@@ -2986,6 +3308,87 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
+    public async Task DeliveryCreate_StampsCargoFromOrderListingAndTrip()
+    {
+        // delivery-verification-api 1.21.0: the list cards title each delivery by crop and
+        // quantity and name the pickup place and day off the row itself, so the create copies
+        // them from the order, the listing and the trip it already reads.
+        SetupTruckOrder();
+        _mockOrderRepo.GetByIdAsync(TestOrderId).Returns(new Dictionary<string, object>
+        {
+            { "orderId", TestOrderId }, { "buyerId", TestBuyerId }, { "farmerId", TestFarmerId },
+            { "listingId", TestListingId }, { "tripId", TestTripId }, { "truckerId", TestTruckerId },
+            { "cropType", "wheat" }, { "quantity", "2000" },
+            { "status", "accepted" }, { "version", "1" }
+        });
+        _mockCropRepo.GetByIdAsync(TestListingId).Returns(new Dictionary<string, object>
+        {
+            { "cropId", TestListingId }, { "farmerId", TestFarmerId },
+            { "locationName", "Meki" }, { "status", "available" }, { "version", "1" }
+        });
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r =>
+                r.TableName == "test-trips-table" && r.ExpressionAttributeValues[":id"].S == TestTripId))
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new()
+                    {
+                        { "tripId", new AttributeValue { S = TestTripId } },
+                        { "truckerId", new AttributeValue { S = TestTruckerId } },
+                        { "departureDate", new AttributeValue { S = "2026-10-30T06:00:00Z" } },
+                        { "status", new AttributeValue { S = "open" } }
+                    }
+                }
+            });
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await ReceivedDeliveryWrite(item =>
+            item["cropType"].S == "wheat"
+            && item["quantity"].N == "2000"
+            && item["pickupPlace"].S == "Meki"
+            && item["pickupPlannedAt"].S == "2026-10-30T06:00:00Z");
+        // The creator's echo carries the same fields.
+        Assert.Contains("\"cropType\":\"wheat\"", response.Body);
+        Assert.Contains("\"pickupPlace\":\"Meki\"", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_OrderWithoutCargo_WritesNoCargoFields()
+    {
+        // An order row without crop or quantity (older data) leaves the fields off the row
+        // instead of writing empty values; the clients fall back to the delivery number.
+        SetupTruckOrder();
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await ReceivedDeliveryWrite(item =>
+            !item.ContainsKey("cropType") && !item.ContainsKey("quantity")
+            && !item.ContainsKey("pickupPlace") && !item.ContainsKey("pickupPlannedAt"));
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_ClientCargoFields_AreRefused()
+    {
+        // The cargo fields are the server's: a client that sends them hits the whitelist.
+        SetupTruckOrder();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["cropType"] = "teff";
+        op.Data["quantity"] = 5;
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("Unknown fields", response.Body);
+        await DidNotWriteDelivery();
+    }
+
+    [Fact]
     public async Task DeliveryCreate_FarmerIdMismatchListingOwner_ReturnsError()
     {
         // Listing owner is TestFarmerId (from default mock), but delivery says different farmer
@@ -3023,6 +3426,27 @@ public partial class SyncFunctionTests
             { "farmerId", TestFarmerId },
             { "status", "deleted" },
             { "deletedAt", "2026-02-15T10:00:00Z" },
+            { "version", "1" }
+        });
+
+        var op = MakeDeliveryCreateOp();
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId);
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("DELIVERY_VALIDATION", response.Body);
+        Assert.Contains("listing has been deleted", response.Body);
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_ListingDeletedByStatusOnly_ReturnsError()
+    {
+        // FUP-132: a row deleted by an update before the stamp was written has no deletedAt.
+        _mockCropRepo.GetByIdAsync(TestListingId).Returns(new Dictionary<string, object>
+        {
+            { "cropId", TestListingId },
+            { "farmerId", TestFarmerId },
+            { "status", "deleted" },
             { "version", "1" }
         });
 
@@ -3126,15 +3550,22 @@ public partial class SyncFunctionTests
         string cropType = "teff",
         double quantityQuintals = 10,
         double pricePerKg = 45.5,
-        string status = "available")
+        string status = "available",
+        string? locationName = null)
     {
-        _mockCropRepo.GetByIdAsync(listingId).Returns(new Dictionary<string, object>
+        var listing = new Dictionary<string, object>
         {
             { "cropId", listingId }, { "listingId", listingId }, { "farmerId", farmerId },
             { "farmerName", "Abebe Kebede" }, { "cropType", cropType },
             { "quantity", quantityQuintals }, { "pricePerKg", pricePerKg },
             { "status", status }, { "version", "1" }
-        });
+        };
+        if (locationName != null)
+        {
+            listing["locationName"] = locationName;
+        }
+
+        _mockCropRepo.GetByIdAsync(listingId).Returns(listing);
     }
 
     private Dictionary<string, object>? _createdOrder;
@@ -3295,6 +3726,73 @@ public partial class SyncFunctionTests
 
     // --- SIM-05: order create is bound to the server's listing and trip records ---
 
+    // FUP-130: older apps send the farmer's id as farmerName when the listing has no name.
+    // The order never stores it: the name is the listing's, or empty (the field stays, since
+    // released apps read it as a string).
+    [Theory]
+    [InlineData(null)]
+    [InlineData("  ")]
+    [InlineData("farmer-001")]
+    [InlineData("3f2c1a9e-7b44-4c1d-9a55-0d6e8f1b2c3d")]
+    public async Task OrderCreate_ListingWithoutRealFarmerName_StoresEmptyName_NotTheId(string? listingName)
+    {
+        var listing = new Dictionary<string, object>
+        {
+            { "cropId", "listing-001" }, { "listingId", "listing-001" }, { "farmerId", "farmer-001" },
+            { "cropType", "teff" }, { "quantity", 10.0 }, { "pricePerKg", 45.5 },
+            { "status", "available" }, { "version", "1" }
+        };
+        if (listingName != null)
+        {
+            listing["farmerName"] = listingName;
+        }
+
+        _mockCropRepo.GetByIdAsync("listing-001").Returns(listing);
+        SetupOrderCreateSucceeds();
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "farmerName", "farmer-001" }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        Assert.Equal(string.Empty, _createdOrder!["farmerName"]);
+    }
+
+    // FUP-130: the same for the trucker. truckerName is optional on an order, so a trip without
+    // a real name leaves it off the row instead of keeping the client's copy.
+    [Fact]
+    public async Task OrderCreate_TripNameIsTheTruckerId_DropsTruckerName()
+    {
+        SetupListing();
+        _mockDynamoDb.QueryAsync(Arg.Any<QueryRequest>()).Returns(new QueryResponse
+        {
+            Items = new List<Dictionary<string, AttributeValue>>
+            {
+                new()
+                {
+                    { "tripId", new AttributeValue { S = "trip-001" } },
+                    { "truckerId", new AttributeValue { S = "trucker-001" } },
+                    { "truckerName", new AttributeValue { S = "trucker-001" } },
+                    { "status", new AttributeValue { S = "open" } },
+                    { "pricePerQuintal", new AttributeValue { N = "120" } },
+                    { "version", new AttributeValue { N = "1" } }
+                }
+            }
+        });
+        SetupOrderCreateSucceeds();
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "tripId", "trip-001" }, { "truckerId", "trucker-001" }, { "truckerName", "trucker-001" }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        Assert.False(_createdOrder!.ContainsKey("truckerName"));
+    }
+
     [Fact]
     public async Task OrderCreate_Valid_ComputesMoneyFromListingAndTrip()
     {
@@ -3323,6 +3821,55 @@ public partial class SyncFunctionTests
     }
 
     [Fact]
+    public async Task OrderCreate_FloatNoise_EveryMoneyFieldIsRoundedToTheSantim_AndAddsUp()
+    {
+        // SIM-30: 1.7 quintals (170 kg) at 18.99 ETB/kg on a 255.55 ETB/quintal trip. In doubles the
+        // crop is 3228.2999999999997, the commission 161.41499999999999 and the transport
+        // 434.43499999999995, so rounding the doubles would give 161.41 and 434.43. Exact: 3228.30,
+        // 161.415 and 434.435, rounded half away from zero to 161.42 and 434.44.
+        SetupListing(pricePerKg: 18.99);
+        SetupExistingTrip("trip-001", "trucker-001", "open", 1, pricePerQuintal: 255.55);
+        SetupOrderCreateSucceeds();
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", 170 }, { "pricePerUnit", 18.99 },
+            { "tripId", "trip-001" }, { "truckerId", "trucker-001" }, { "transportCost", 434.44 }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        var order = _createdOrder!;
+        Assert.Equal(0.05, (double)order["commissionRate"]);
+        Assert.Equal(3228.30, (double)order["cropCost"]);
+        Assert.Equal(434.44, (double)order["transportCost"]);
+        Assert.Equal(161.42, (double)order["commissionAmount"]);
+        Assert.Equal(3824.16, (double)order["orderTotal"]);
+        // Stored as written: no float tail on any field.
+        Assert.Equal("161.42", ((double)order["commissionAmount"]).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal("3824.16", ((double)order["orderTotal"]).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal((decimal)(double)order["orderTotal"],
+            (decimal)(double)order["cropCost"] + (decimal)(double)order["transportCost"] + (decimal)(double)order["commissionAmount"]);
+    }
+
+    [Fact]
+    public async Task OrderCreate_CommissionOn19Etb_IsStoredAs0Point95()
+    {
+        // SIM-30, the simulation's case: 19 ETB of crop gave 0.9500000000000001 in doubles.
+        SetupListing(pricePerKg: 19);
+        SetupOrderCreateSucceeds();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", 1 }, { "pricePerUnit", 19 }
+        }));
+
+        Assert.Contains("success", body);
+        Assert.Equal("0.95", ((double)_createdOrder!["commissionAmount"]).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(19.95, (double)_createdOrder["orderTotal"]);
+    }
+
+    [Fact]
     public async Task OrderCreate_WithoutTrip_HasZeroTransportCost()
     {
         SetupListing();
@@ -3334,6 +3881,101 @@ public partial class SyncFunctionTests
         Assert.Equal(0.0, (double)_createdOrder!["transportCost"]);
         Assert.Equal(2275.0 + 2275.0 * (double)_createdOrder["commissionRate"],
             (double)_createdOrder["orderTotal"], 6);
+    }
+
+    [Fact]
+    public async Task OrderCreate_Places_AreStampedFromListingAndBuyerProfile_NotClient()
+    {
+        // order-lifecycle 2.2.0: the trip bookings row reads "farmer, farm place → buyer,
+        // drop-off place", so the create stamps the listing's locationName and the buyer's
+        // registered woreda from the reads it already makes; a client's values are dropped.
+        SetupListing(locationName: "Meki");
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns(new UserDto
+        {
+            UserId = "buyer-001",
+            PhoneNumber = "+251933333333",
+            DisplayName = "Selam Traders",
+            Role = "buyer",
+            Woreda = "Merkato",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "pickupPlace", "Spoofed Farm" }, { "dropoffPlace", "Spoofed Warehouse" }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        Assert.NotNull(_createdOrder);
+        Assert.Equal("Meki", _createdOrder!["pickupPlace"]);
+        Assert.Equal("Merkato", _createdOrder["dropoffPlace"]);
+    }
+
+    [Fact]
+    public async Task OrderCreate_Places_MissingSourcesLeaveTheFieldsOff()
+    {
+        // A listing without a place name and a profile without a woreda stamp nothing, so a
+        // client reading the row falls back to the trip's route.
+        SetupListing();
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns(new UserDto
+        {
+            UserId = "buyer-001",
+            PhoneNumber = "+251933333333",
+            DisplayName = "Selam Traders",
+            Role = "buyer",
+            Woreda = " ",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp());
+
+        Assert.Contains("success", body);
+        Assert.NotNull(_createdOrder);
+        Assert.False(_createdOrder!.ContainsKey("pickupPlace"));
+        Assert.False(_createdOrder.ContainsKey("dropoffPlace"));
+    }
+
+    [Fact]
+    public async Task OrderCreate_BuyerName_IsStampedFromProfile_NotClient()
+    {
+        // FUP-99: buyerName is shown to the farmer before escrow, so the server stamps it
+        // from the buyer's profile and ignores the client value, which inherits the FUP-52
+        // phone screen on the profile fields.
+        SetupListing();
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns(new UserDto
+        {
+            UserId = "buyer-001",
+            PhoneNumber = "+251933333333",
+            DisplayName = "Real Buyer",
+            Role = "buyer",
+            Woreda = "Jimma",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+
+        var op = MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "buyerName", "Spoofed Name (fake)" }
+        });
+
+        var body = await CreateOrderAsBuyer(op);
+
+        Assert.Contains("success", body);
+        Assert.NotNull(_createdOrder);
+        Assert.Equal("Real Buyer", _createdOrder!["buyerName"]);
     }
 
     [Fact]
@@ -4190,12 +4832,16 @@ public partial class SyncFunctionTests
         Assert.Contains("success", response.Body);
     }
 
-    [Fact]
-    public async Task OrderUpdate_OnAnOrderTheMoneyMovedOn_FailsTheTransitionCheck_AndWritesNothing()
+    [Theory]
+    [InlineData(5, "conflict")]
+    [InlineData(7, "error")]
+    public async Task OrderUpdate_OnAnOrderTheMoneyMovedOn_FailsTheTransitionCheck_AndWritesNothing(
+        int sentVersion, string expectedStatus)
     {
         // ESC-09 (V8): a device still showing in_transit queues the delivered catch-up after the
-        // escrow release moved the order to disbursing. The transition check runs before the version
-        // check, so the answer is a permanent ORDER_VALIDATION (the client reverts to the server row).
+        // escrow release moved the order to disbursing. Sent from an older version (5) it lost the
+        // race: SIM-28 answers conflict with the disbursing row, which the client adopts. Sent at the
+        // current version (7) the transition is simply invalid: a permanent ORDER_VALIDATION.
         var orderRepo = Substitute.For<IOrderRepository>();
         orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
         {
@@ -4217,13 +4863,24 @@ public partial class SyncFunctionTests
             EntityType = "order",
             EntityId = "order-001",
             Action = "update",
-            Data = new Dictionary<string, object> { { "status", "delivered" }, { "version", 5 } }
+            Data = new Dictionary<string, object> { { "status", "delivered" }, { "version", sentVersion } }
         };
         var response = await function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer"), _context);
 
-        // The body is JSON, which escapes the quotes around the statuses.
-        Assert.Contains("ORDER_VALIDATION: Invalid status transition from \\u0027disbursing\\u0027 to \\u0027delivered\\u0027.", response.Body);
+        var result = FirstResult(response.Body);
+        Assert.Equal(expectedStatus, result.GetProperty("status").GetString());
+        if (expectedStatus == "conflict")
+        {
+            Assert.Equal(7, result.GetProperty("serverVersion").GetInt32());
+            Assert.Equal("disbursing", result.GetProperty("serverData").GetProperty("status").GetString());
+        }
+        else
+        {
+            Assert.Equal("ORDER_VALIDATION: Invalid status transition from 'disbursing' to 'delivered'.",
+                result.GetProperty("message").GetString());
+        }
+
         await orderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
         await orderRepo.DidNotReceive().TryAdvanceStatusAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
     }
@@ -4554,6 +5211,19 @@ public partial class SyncFunctionTests
         return item;
     }
 
+    private const string LegacyFarmerNonce = "farmer-nonce-001";
+
+    /// <summary>
+    /// <see cref="DeliveryItemForOrder"/> with the farmer's nonce on record (this function has no
+    /// secret store, so the legacy on-record nonce counts): a pickup needs it since FRD-11.
+    /// </summary>
+    private static Dictionary<string, AttributeValue> DeliveryItemWithFarmerNonce()
+    {
+        var item = DeliveryItemForOrder();
+        item["qrNonce"] = new AttributeValue { S = LegacyFarmerNonce };
+        return item;
+    }
+
     private static SyncOperationRequest MakeDeliveryUpdateOp(Dictionary<string, object> data, string action = "update") => new()
     {
         OperationId = "op-del-update",
@@ -4663,6 +5333,40 @@ public partial class SyncFunctionTests
             && item["truckerPhone"].S == "+251900100002");
     }
 
+    // FRD-12: a valid photo key on a delivery create is accepted but not written: photos reach the
+    // delivery only through the checked delivery_photo attach.
+    [Fact]
+    public async Task DeliveryCreate_AValidPhotoKey_IsDroppedNotWritten()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["pickupPhotoRef"] = "uploads/photos/del-001/pickup-1700000000000.webp";
+        op.Data["dropoffPhotoRef"] = "uploads/photos/del-001/dropoff-1700000000000.jpg";
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await ReceivedDeliveryWrite(item =>
+            !item.ContainsKey("pickupPhotoRef") && !item.ContainsKey("dropoffPhotoRef")
+            && item["deliveryId"].S == "del-001");
+    }
+
+    [Fact]
+    public async Task DeliveryCreate_AnInvalidPhotoKey_FailsTheCreate()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles();
+        var op = MakeDeliveryCreateOp();
+        op.Data!["pickupPhotoRef"] = "uploads/photos/del-999/pickup-1700000000000.webp";
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
+
+        Assert.Contains("DELIVERY_INVALID_FIELD: pickupPhotoRef has invalid format.", response.Body);
+    }
+
     // SIM-46: a client that sends no phones at all (the shipped mobile and web
     // clients) still gets every phone stamped.
     [Fact]
@@ -4731,6 +5435,28 @@ public partial class SyncFunctionTests
 
         await ReceivedDeliveryWrite(item =>
             item["farmerName"].S == "Abebe Kebede Lemma");
+    }
+
+    // FUP-130: an order written before the fix may hold the farmer's id as farmerName.
+    // That is no name, so the delivery never copies it.
+    [Fact]
+    public async Task DeliveryCreate_OrderNameIsThePartyId_IsNotUsedAsTheName()
+    {
+        _mockOrderRepo.GetByIdAsync(TestOrderId).Returns(new Dictionary<string, object>
+        {
+            { "orderId", TestOrderId }, { "buyerId", TestBuyerId }, { "farmerId", TestFarmerId },
+            { "farmerName", TestFarmerId }, { "truckerId", TestTruckerId },
+            { "listingId", TestListingId }, { "tripId", TestTripId },
+            { "status", "accepted" }, { "version", "1" }
+        });
+        SetupOrderTrip();
+        SetupDeliveryPartyProfiles(farmerDisplayName: null);
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        Assert.Contains("farmer has no name", response.Body);
+        await DidNotWriteDelivery();
     }
 
     // SIM-46: no name anywhere must not fall back to the client value.
@@ -4859,10 +5585,10 @@ public partial class SyncFunctionTests
                 { "truckerName", "Tadesse" }, { "truckerPhone", "0922222222" }, { "version", 1 }
             })), "trucker-001"), _context);
 
-        Assert.Contains("success", response.Body);
-        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
-            !r.ExpressionAttributeNames.Values.Contains("truckerName")
-            && !r.ExpressionAttributeNames.Values.Contains("truckerPhone")));
+        // The echoes are stripped; nothing else was sent, so nothing is written and the version stays.
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        Assert.Contains("\"serverVersion\":1", response.Body);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
     }
 
     [Fact]
@@ -4997,12 +5723,12 @@ public partial class SyncFunctionTests
     {
         SetupExistingOrder(status: "accepted");
         SetupOrderUpdateSucceeds();
-        SetupDeliveryQuery(DeliveryItemForOrder());
+        SetupDeliveryQuery(DeliveryItemWithFarmerNonce());
 
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
             {
-                { "status", "pickedUp" }, { "version", 1 }
+                { "status", "pickedUp" }, { "scannedQrNonce", LegacyFarmerNonce }, { "version", 1 }
             })), "trucker-001"), _context);
 
         Assert.Contains("success", response.Body);
@@ -5076,12 +5802,12 @@ public partial class SyncFunctionTests
         SetupExistingOrder(status: "accepted");
         _mockOrderRepo.UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
             .ThrowsAsync(new InvalidOperationException("orders table unavailable"));
-        SetupDeliveryQuery(DeliveryItemForOrder());
+        SetupDeliveryQuery(DeliveryItemWithFarmerNonce());
 
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
             {
-                { "status", "pickedUp" }, { "version", 1 }
+                { "status", "pickedUp" }, { "scannedQrNonce", LegacyFarmerNonce }, { "version", 1 }
             })), "trucker-001"), _context);
 
         Assert.Contains("success", response.Body);
@@ -5253,23 +5979,29 @@ public partial class SyncFunctionTests
     }
 
     // --- SIM-60: a photo ref on a delivery update is a server upload key of this delivery ---
+    // --- FRD-12: such a key is accepted but never written; delivery_photo attaches photos ---
 
-    [Fact]
-    public async Task DeliveryUpdate_PhotoRefInUploadKeyShape_IsAccepted()
+    [Theory]
+    [InlineData("uploads/photos/del-001/pickup-1700000000000.webp")]
+    [InlineData("uploads/photos/del-001/dropoff-1700000000000.jpg")]
+    public async Task DeliveryUpdate_PhotoRefInUploadKeyShape_IsAcceptedButNotWritten(string key)
     {
         SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "pending", 1, "nonce-abc-123");
-        const string key = "uploads/photos/del-001/pickup-1700000000000.webp";
+        var field = key.Contains("/pickup-") ? "pickupPhotoRef" : "dropoffPhotoRef";
 
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
             {
                 { "status", "pickedUp" }, { "scannedQrNonce", "nonce-abc-123" },
-                { "pickupPhotoRef", key }, { "version", 1 }
+                { field, key }, { "version", 1 }
             })), "trucker-001"), _context);
 
         Assert.Contains("success", response.Body);
+        // The pickup itself is written; the photo key is not (it skipped the attach's checks).
         await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Is<UpdateItemRequest>(r =>
-            r.ExpressionAttributeValues.Values.Any(v => v.S == key)));
+            r.ExpressionAttributeValues.Values.Any(v => v.S == "pickedUp")
+            && !r.ExpressionAttributeValues.Values.Any(v => v.S == key)
+            && !r.ExpressionAttributeNames.Values.Contains(field)));
     }
 
     [Theory]
@@ -5899,6 +6631,261 @@ public partial class SyncFunctionTests
         }
     }
 
+    // --- Persona sim 2026-11-19, BUG-1: an escrow dispute raised in transit, then the buyer confirms ---
+
+    /// <summary>
+    /// The finding's state before the confirm: the escrow disputed by the buyer while the truck drove
+    /// (no deliveryConfirmedAt), the order still in_transit, the delivery inTransit at version 2. The
+    /// order mock keeps its row, so each write is seen by the next read. Returns the order statuses
+    /// written, in order.
+    /// </summary>
+    private (DisputeRig Rig, List<string> OrderStatuses) DisputedInTransitRig(string escrowStatus = "disputed")
+    {
+        var escrow = OrderEscrowRow(status: escrowStatus);
+        escrow.Remove("deliveryConfirmedAt");
+        escrow["disputedBy"] = "buyer";
+        escrow["disputeReason"] = "not_delivered";
+        var rig = DisputeFunction(escrow, orderStatus: "in_transit");
+        rig.EscrowRepo.GetByDeliveryIdAsync("del-001").Returns(escrow);
+
+        var order = SetupExistingOrder(status: "in_transit", version: 4);
+        var orderStatuses = new List<string>();
+        _mockOrderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(ci =>
+            {
+                if (ci.ArgAt<int>(2).ToString() != order["version"].ToString())
+                {
+                    return AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict.");
+                }
+
+                foreach (var (key, value) in ci.ArgAt<Dictionary<string, object>>(1))
+                {
+                    order[key] = value;
+                }
+
+                order["version"] = (ci.ArgAt<int>(2) + 1).ToString();
+                orderStatuses.Add(order["status"].ToString()!);
+                return AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>(order));
+            });
+
+        // The stored delivery, the row the confirm writes, and the row the dispute mirror leaves.
+        SetupExistingDeliveryWithQrNonce("del-001", "trucker-001", "inTransit", 2, "nonce-bug1", orderId: "order-001");
+        var delivered = DeliveryItemForOrder(status: "delivered", version: 3, confirmedAt: DateTime.UtcNow.ToString("o"));
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>()).Returns(new UpdateItemResponse { Attributes = delivered });
+        rig.DeliveryRepo.TryMarkDisputedAsync("del-001", Arg.Any<string>(), Arg.Any<string?>()).Returns(_ =>
+        {
+            var disputed = DeliveryItemForOrder(status: "disputed", version: 4, confirmedAt: DateTime.UtcNow.ToString("o"));
+            _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table"))
+                .Returns(new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { disputed } });
+            return true;
+        });
+        return (rig, orderStatuses);
+    }
+
+    private Task<APIGatewayProxyResponse> ConfirmInTransitDeliveryAsync(SyncFunction function)
+        => function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "delivered" }, { "version", 2 }, { "scannedQrNonce", "nonce-bug1" }
+            })), "buyer-001", "buyer"), _context);
+
+    [Fact]
+    public async Task DeliveryConfirmed_UnderAnEscrowDisputedInTransit_TakesTheDeliveryAndTheOrderToDisputed()
+    {
+        // Before: the delivery and the order read delivered over frozen money, and a rating went through.
+        var (rig, orderStatuses) = DisputedInTransitRig();
+
+        var response = await ConfirmInTransitDeliveryAsync(rig.Function);
+
+        var result = JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0];
+        Assert.Equal("success", result.GetProperty("status").GetString());
+        // The answer carries the row as the mirror left it.
+        Assert.Equal("disputed", result.GetProperty("serverData").GetProperty("status").GetString());
+        Assert.Equal(4, result.GetProperty("serverVersion").GetInt32());
+        await rig.DeliveryRepo.Received(1).TryMarkDisputedAsync("del-001", "buyer", "not_delivered");
+        // The order follows its delivery to delivered, then the dispute.
+        Assert.Equal(new[] { "delivered", "disputed" }, orderStatuses);
+        // The frozen escrow is not stamped as confirmed and not written at all.
+        await DidNotWriteTheEscrow(rig.EscrowRepo);
+    }
+
+    [Theory]
+    [InlineData("escrowed")]
+    [InlineData("dispute_resolved")]
+    public async Task DeliveryConfirmed_UnderAnEscrowThatIsNotDisputed_IsNotMirrored(string escrowStatus)
+    {
+        // An escrowed escrow is stamped as before; after a verdict the verdict mirror moves the order.
+        var (rig, orderStatuses) = DisputedInTransitRig(escrowStatus);
+
+        var response = await ConfirmInTransitDeliveryAsync(rig.Function);
+
+        var result = JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0];
+        Assert.Equal("success", result.GetProperty("status").GetString());
+        Assert.Equal("delivered", result.GetProperty("serverData").GetProperty("status").GetString());
+        Assert.Equal(3, result.GetProperty("serverVersion").GetInt32());
+        await rig.DeliveryRepo.DidNotReceive().TryMarkDisputedAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
+        Assert.Equal(new[] { "delivered" }, orderStatuses);
+    }
+
+    // --- Persona sim 2026-11-19, BUG-10: the smallest order is 0.01 kg ---
+
+    [Theory]
+    [InlineData(0.009)]
+    [InlineData(0.001)]
+    [InlineData(0)]
+    public async Task OrderCreate_QuantityBelowTheMinimum_ReturnsValidationError(double quantityKg)
+    {
+        SetupListing();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", quantityKg }
+        }));
+
+        Assert.Contains("ORDER_VALIDATION: quantity must be between 0.01 and 1000000 kg.", body);
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_QuantityAtTheMinimum_Succeeds()
+    {
+        SetupListing();
+        SetupOrderCreateSucceeds();
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "quantity", 0.01 }
+        }));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        Assert.NotNull(_createdOrder);
+    }
+
+    // --- Persona sim 2026-11-19, BUG-11: an order update with nothing left to write ---
+
+    [Theory]
+    [InlineData("orderTotal", 1.0)]
+    [InlineData("commissionAmount", 0.0)]
+    [InlineData("quantity", 50.0)]
+    public async Task OrderUpdate_HoldingOnlyStrippedOrEchoedFields_WritesNothing_AndKeepsTheVersion(string field, double value)
+    {
+        // A server-owned field is stripped, an unchanged immutable field is an echo: before, the empty
+        // update was still written and the version moved.
+        SetupExistingOrder(status: "funded", version: 7);
+
+        var body = await UpdateOrderAs("farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { field, value }, { "version", 7 }
+        });
+
+        var result = JsonDocument.Parse(body).RootElement.GetProperty("results")[0];
+        Assert.Equal("success", result.GetProperty("status").GetString());
+        Assert.Equal(7, result.GetProperty("serverVersion").GetInt32());
+        Assert.Equal("funded", result.GetProperty("serverData").GetProperty("status").GetString());
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(9)]
+    public async Task OrderUpdate_WithNothingToWrite_AtAnotherVersion_IsAConflictWithTheRow(int sent)
+    {
+        // The phone is behind (or ahead): it gets the stored row as a conflict, which it applies; a
+        // success would leave it on its old copy.
+        SetupExistingOrder(status: "funded", version: 7);
+
+        var body = await UpdateOrderAs("farmer-001", "farmer", new Dictionary<string, object>
+        {
+            { "quantity", 50.0 }, { "version", sent }
+        });
+
+        var result = JsonDocument.Parse(body).RootElement.GetProperty("results")[0];
+        Assert.Equal("conflict", result.GetProperty("status").GetString());
+        Assert.Equal(7, result.GetProperty("serverVersion").GetInt32());
+        Assert.Equal("funded", result.GetProperty("serverData").GetProperty("status").GetString());
+        await _mockOrderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task OrderUpdate_HoldingOnlyAStrippedField_FromANonParty_IsStillUnauthorized()
+    {
+        SetupExistingOrder(status: "funded", version: 7);
+
+        var body = await UpdateOrderAs("buyer-999", "buyer", new Dictionary<string, object>
+        {
+            { "orderTotal", 1.0 }, { "version", 7 }
+        });
+
+        Assert.Contains("ORDER_UNAUTHORIZED", body);
+        Assert.DoesNotContain("serverData", body);
+    }
+
+    // --- Persona sim 2026-11-19, BUG-9: no payment for an order the listing can no longer fill ---
+
+    private SyncFunction StockGateFunction(IOrderRepository orderRepo)
+    {
+        orderRepo.GetByIdAsync("order-001", true).Returns(new Dictionary<string, object>
+        {
+            { "orderId", "order-001" }, { "listingId", "listing-001" },
+            { "buyerId", "buyer-001" }, { "farmerId", "farmer-001" },
+            { "quantity", 50.0 }, { "status", "created" }, { "orderTotal", "500.00" }, { "version", "1" }
+        });
+        orderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>
+            {
+                { "orderId", "order-001" }, { "status", "payment_submitted" }, { "version", "2" }
+            }));
+        return new SyncFunction(_mockSyncMeta, _mockCropRepo, _mockDynamoDb,
+            "test-trips-table", "test-deliveries-table",
+            userRepo: _mockUserRepo, orderRepo: orderRepo);
+    }
+
+    private Task<APIGatewayProxyResponse> PayOrderAsync(SyncFunction function)
+        => function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeOrderUpdateOp(new Dictionary<string, object>
+            {
+                { "status", "payment_submitted" }, { "paymentMethod", "telebirr" }, { "version", 1 }
+            })), "buyer-001", "buyer", authTime: DateTimeOffset.UtcNow.ToUnixTimeSeconds()), _context);
+
+    [Fact]
+    public async Task PaymentSubmitted_ListingStockBelowTheOrder_IsRefusedBeforeAnyMoneyMoves()
+    {
+        // 0.3 quintal = 30 kg left for a 50 kg order: the funding would cancel it and refund.
+        SetupListing(quantityQuintals: 0.3);
+        var orderRepo = Substitute.For<IOrderRepository>();
+
+        var response = await PayOrderAsync(StockGateFunction(orderRepo));
+
+        Assert.Contains(
+            "ORDER_VALIDATION: quantity (50 kg) exceeds the listing stock (30 kg). Place a new order.", response.Body);
+        await orderRepo.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_ListingStockExactlyTheOrder_GoesAhead()
+    {
+        SetupListing(quantityQuintals: 0.5);
+        var orderRepo = Substitute.For<IOrderRepository>();
+
+        var response = await PayOrderAsync(StockGateFunction(orderRepo));
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+        await orderRepo.Received(1).UpdateAsync(
+            "order-001", Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "payment_submitted"), 1);
+    }
+
+    [Fact]
+    public async Task PaymentSubmitted_ListingUnreadable_IsLeftToTheFunding()
+    {
+        // The gate is a cheap pre-check: a failed read never blocks a payment, the funding decides.
+        _mockCropRepo.GetByIdAsync("listing-001").ThrowsAsync(new ProvisionedThroughputExceededException("slow down"));
+        var orderRepo = Substitute.For<IOrderRepository>();
+
+        var response = await PayOrderAsync(StockGateFunction(orderRepo));
+
+        Assert.Contains("\"status\":\"success\"", response.Body);
+    }
+
     // ===== Self-pickup + QR handoff hardening =====
 
     private void SetupDeliveryQuery(Dictionary<string, AttributeValue> item)
@@ -6075,7 +7062,8 @@ public partial class SyncFunctionTests
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "buyer-001", "buyer");
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Contains("DELIVERY_GPS_PROXIMITY", response.Body);
+        // FUP-439: the reason the clients key on.
+        Assert.Contains("DELIVERY_GPS_PROXIMITY: self_pickup_no_fix: ", response.Body);
     }
 
     [Fact]
@@ -6253,6 +7241,12 @@ public partial class SyncFunctionTests
         Assert.DoesNotContain("qrNonce", response.Body);
         // ESC-48: nor any party's phone number.
         AssertNoDeliveryPhones(response.Body);
+        // FRD-12: nor the server-only photo version ids.
+        Assert.DoesNotContain("PhotoVersionId", response.Body);
+        Assert.DoesNotContain("photo-version-", response.Body);
+        // FUP-140: nor the kept copies.
+        Assert.DoesNotContain("PhotoKept", response.Body);
+        Assert.DoesNotContain("evidence/photos/", response.Body);
     }
 
     private static void AssertNoDeliveryPhones(string body)
@@ -6611,7 +7605,7 @@ public partial class SyncFunctionTests
             Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
         await _paymentAuditRepo!.DidNotReceive().AppendAsync(Arg.Any<Dictionary<string, object>>());
         await _mockSyncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
         await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
         await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>());
     }
@@ -6895,6 +7889,28 @@ public partial class SyncFunctionTests
         Assert.Contains("\"status\":\"success\"", body);
         Assert.NotNull(_updatedOrderData);
         Assert.False(_updatedOrderData!.ContainsKey("pendingPaymentAt"));
+    }
+
+    [Fact]
+    public async Task OrderUpdate_DeadlineIndexFields_AreStripped_NotRejected()
+    {
+        // ESC-16: the next deadline is the server's; a client echoing it (or planting a far one to
+        // keep its order out of the sweep) is stripped and the rest of the update goes through.
+        SetupExistingOrder(status: "pending_payment");
+        SetupOrderUpdateSucceeds();
+
+        var body = await UpdateOrderAs("buyer-001", "buyer", new Dictionary<string, object>
+        {
+            { "paymentMethod", "telebirr" },
+            { OrderDeadlines.AtField, "2099-01-01T00:00:00.0000000Z" },
+            { OrderDeadlines.KindField, OrderDeadlines.Kind.FarmerResponse },
+            { OrderDeadlines.ShardField, OrderDeadlines.Shard },
+            { "version", 1 }
+        });
+
+        Assert.Contains("\"status\":\"success\"", body);
+        Assert.NotNull(_updatedOrderData);
+        Assert.DoesNotContain(_updatedOrderData!.Keys, OrderDeadlines.IsDeadlineField);
     }
 
     [Fact]
@@ -7187,7 +8203,7 @@ public partial class SyncFunctionTests
         await DidNotWriteTheDelivery();
         await DidNotWriteTheOrder();
         await _mockSyncMeta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
     }
 
     [Theory]

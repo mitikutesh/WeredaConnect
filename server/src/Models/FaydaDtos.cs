@@ -5,12 +5,14 @@ namespace WeredaConnect.Server.Models;
 /// <summary>
 /// POST /auth/fayda-verify request body.
 /// Client sends the authorization code received from Fayda OIDC redirect.
+/// No member is <c>required</c>: a missing field gets its own code (FAYDA_001 code, FAYDA_002
+/// state, AUTH_007 with field redirectUri) instead of AUTH_007 Invalid JSON (auth-api 2.13.0, SIM-27).
 /// </summary>
 public sealed record FaydaVerifyRequest
 {
-    public required string AuthorizationCode { get; init; }
-    public required string State { get; init; }
-    public required string RedirectUri { get; init; }
+    public string AuthorizationCode { get; init; } = "";
+    public string State { get; init; } = "";
+    public string RedirectUri { get; init; } = "";
 }
 
 /// <summary>
@@ -23,15 +25,27 @@ public sealed record FaydaStartRequest
     /// <summary>Accepted for forward compatibility; the proof is bound to the phone Fayda releases, not to this value.</summary>
     public string? PhoneNumber { get; init; }
 
-    /// <summary>The app's callback; only the registered deep links (and, against the mock, the web app's callback page) are accepted.</summary>
+    /// <summary>The app's callback; only the registered deep links (and, against the mock or the sandbox, the web app's callback pages) are accepted.</summary>
     public string? RedirectUri { get; init; }
 
     /// <summary>
-    /// Comma-separated web callback pages accepted only while the mock provider is in use
-    /// (FAYDA_MOCK=true, which the infra guard refuses in production and DevBypass refuses
-    /// on a prod function name). The real eSignet client registers the deep links only.
+    /// Comma-separated web callback pages accepted only while a development provider is in
+    /// use: the mock (FAYDA_MOCK=true) or the VeriFayda sandbox (FAYDA_SANDBOX=true). The
+    /// infra guard refuses both flags in production and DevBypass refuses them on a prod
+    /// function name. The real eSignet client registers the deep links only.
     /// </summary>
     public const string MockWebRedirectUrisEnv = "FAYDA_MOCK_WEB_REDIRECT_URIS";
+
+    /// <summary>Marker of the VeriFayda sandbox mode: the real eSignet sandbox with its shared test client.</summary>
+    public const string SandboxEnv = "FAYDA_SANDBOX";
+
+    /// <summary>
+    /// Sandbox mode only: the redirect URI registered for the shared sandbox test client
+    /// (http://localhost:3000/callback), where a local relay forwards the callback to the
+    /// app's own redirect. The server authorizes and exchanges with this value while the
+    /// app sends, and the state row keeps, the app's redirect. Loopback http or https only.
+    /// </summary>
+    public const string SandboxRedirectUriEnv = "FAYDA_SANDBOX_REDIRECT_URI";
 
     public static bool IsAllowedRedirect(string redirectUri, Func<string, string?>? env = null)
     {
@@ -41,7 +55,7 @@ public sealed record FaydaStartRequest
             return true;
         }
 
-        if (!DevBypass.IsEnabled("FAYDA_MOCK", env))
+        if (!DevBypass.IsEnabled("FAYDA_MOCK", env) && !DevBypass.IsEnabled(SandboxEnv, env))
         {
             return false;
         }
@@ -61,6 +75,40 @@ public sealed record FaydaStartRequest
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// The redirect URI the provider is given in sandbox mode: <see cref="SandboxEnv"/> on a
+    /// non-prod function and a loopback-http or https <see cref="SandboxRedirectUriEnv"/>.
+    /// Null otherwise, and the app's own redirect is used, as against the mock and live Fayda.
+    /// </summary>
+    public static string? SandboxProviderRedirect(Func<string, string?>? env = null)
+    {
+        if (!DevBypass.IsEnabled(SandboxEnv, env))
+        {
+            return null;
+        }
+
+        var read = env ?? Environment.GetEnvironmentVariable;
+        var configured = read(SandboxRedirectUriEnv)?.Trim();
+        return !string.IsNullOrEmpty(configured) && IsSafeWebRedirect(configured) ? configured : null;
+    }
+
+    /// <summary>
+    /// The <c>login_hint</c> for a <c>/user/fayda-start</c> against the mock provider only
+    /// (FAYDA_MOCK=true): the Fayda ID the account holds, else the account phone. The mock
+    /// offers that identity first, so a tester whose account is bound to a generated
+    /// identity (random FIN, never shown) can sign in as it again at payment or from the
+    /// profile. Only advice to the mock: the link still checks the identity that comes back.
+    /// Null when there is nothing to hint. Live Fayda never receives it.
+    /// </summary>
+    public static string? MockLoginHint(UserDto? user)
+    {
+        if (!string.IsNullOrEmpty(user?.FaydaId))
+        {
+            return "sub:" + user.FaydaId;
+        }
+        return string.IsNullOrEmpty(user?.PhoneNumber) ? null : "phone:" + user.PhoneNumber;
     }
 
     /// <summary>https, or plain http on the loopback host for local web runs; never a query or fragment.</summary>

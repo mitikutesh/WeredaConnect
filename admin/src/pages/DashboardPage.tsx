@@ -1,4 +1,4 @@
-import { Wallet, TrendingUp, Scale, ShieldAlert } from "lucide-react";
+import { Wallet, TrendingUp, Scale, ShieldAlert, Lock } from "lucide-react";
 import { KpiCard } from "@/components/ui/Card";
 import { useLocale } from "@/hooks/useLocale";
 import { useDashboardStats } from "@/hooks/useQuery";
@@ -11,12 +11,12 @@ export function DashboardPage() {
   const stats = (data as Record<string, number>) || {};
 
   if (isLoading) {
-    return <div className="text-text-muted">{t("common.loading")}</div>;
+    return <div className="text-slate">{t("common.loading")}</div>;
   }
 
   return (
     <div>
-      <h2 className="mb-6 text-xl font-bold">{t("dashboard.title")}</h2>
+      <h2 className="mb-6 text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("dashboard.title")}</h2>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label={t("dashboard.activeEscrows")}
@@ -33,10 +33,16 @@ export function DashboardPage() {
           value={stats.disputedEscrows ?? 0}
           icon={<Scale size={20} />}
         />
+        {/* FRD-07: the signals waiting for review, and the escrows held for it (the held queue). */}
         <KpiCard
           label={t("dashboard.fraudFlags")}
           value={stats.fraudSignalsCount ?? 0}
           icon={<ShieldAlert size={20} />}
+        />
+        <KpiCard
+          label={t("dashboard.heldEscrows")}
+          value={stats.heldEscrows ?? 0}
+          icon={<Lock size={20} />}
         />
       </div>
     </div>

@@ -37,6 +37,12 @@ export function formatDate(date: string | Date): string {
   });
 }
 
+/** "09:40": the clock time alone, as the trail map labels its points. */
+export function formatTime(date: string | Date): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
+
 export function formatDateTime(date: string | Date): string {
   const d = typeof date === "string" ? new Date(date) : date;
   return d.toLocaleString("en-GB", {

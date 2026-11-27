@@ -11,19 +11,30 @@ public sealed record GetTripsResponse
     public required List<TripDto> Trips { get; init; }
 
     /// <summary>
-    /// Pagination token to retrieve next page (null if no more results).
+    /// Pagination token to retrieve next page. Null, and so omitted, when no trip follows this
+    /// page; when present a trip may follow (the read budget can end a page early, FUP-126).
     /// </summary>
     public string? NextToken { get; init; }
 
     /// <summary>
-    /// Whether more results are available beyond this page.
+    /// True exactly when <see cref="NextToken"/> is present
+    /// (trip-listing-api 2.5.0, FUP-126).
     /// </summary>
     public bool HasMore { get; init; }
 
     /// <summary>
-    /// Approximate total count of matching trips (for UI display).
+    /// The number of trips on this page (<see cref="Trips"/>), not a count of every match
+    /// (trip-listing-api 2.5.0). Kept because shipped clients may read it; a client that needs a
+    /// count follows <see cref="NextToken"/> to the end.
     /// </summary>
     public int Total { get; init; }
+
+    /// <summary>
+    /// FUP-122 (trip-listing-api 2.3.0): an order create refuses a trip departing sooner than
+    /// this many hours from now (24 while the server runs the commitments, 0 when it does not).
+    /// The apps cache it and leave such trips out of the match suggestions.
+    /// </summary>
+    public int OrderLeadHours { get; init; }
 }
 
 /// <summary>
@@ -92,6 +103,29 @@ public sealed record TripDto
     /// Available capacity in quintals (100kg).
     /// </summary>
     public required double Capacity { get; init; }
+
+    /// <summary>
+    /// ESC-15: quintals reserved by funded orders. Null when the trip has no bookings yet
+    /// (a row written before bookings existed); treat null as zero.
+    /// </summary>
+    public double? BookedQuintals { get; init; }
+
+    /// <summary>
+    /// ESC-15: quintals still free for new orders. Null when the trip has no bookings yet;
+    /// treat null as <see cref="Capacity"/>. Zero means fully booked (<c>matched</c>).
+    /// </summary>
+    public double? RemainingQuintals { get; init; }
+
+    /// <summary>
+    /// ESC-29 (reputation-api.md section 7): the owner's public reputation copied onto the row:
+    /// the public tier (<c>good</c> or <c>low</c>), the effective rating, the rating count, the
+    /// reliability and when the copy was written. All absent while <c>reputationPublicTags</c> is off.
+    /// </summary>
+    public string? OwnerTier { get; init; }
+    public decimal? OwnerEffectiveRating { get; init; }
+    public int? OwnerRatingCount { get; init; }
+    public int? OwnerReliabilityPct { get; init; }
+    public string? OwnerReputationAt { get; init; }
 
     /// <summary>
     /// Transport price per quintal in Ethiopian Birr.

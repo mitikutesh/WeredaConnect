@@ -25,6 +25,37 @@ public static class AccountDeletionGuard
         return string.IsNullOrEmpty(user?.DeletionState) ? null : Gone(user.DeletionState!);
     }
 
+    public const string SuspendedCode = "AUTH_025";
+    public const string SuspendedMessage = "Account suspended.";
+
+    /// <summary>
+    /// ESC-29 (reputation-api.md 8.4): the refusal of a write endpoint for the caller's row as read:
+    /// <c>410 ACCOUNT_004</c> for a deleting or deleted account, else <c>403 AUTH_025</c> for a
+    /// suspended one (the code sign-in, OTP and refresh already answer), else null. A missing row
+    /// refuses nothing: the endpoint answers that itself.
+    /// </summary>
+    public static APIGatewayProxyResponse? RefusalFor(UserDto? caller)
+    {
+        if (caller == null)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrEmpty(caller.DeletionState))
+        {
+            return Gone(caller.DeletionState!);
+        }
+
+        return caller.Suspended ? LambdaResponse.Error(403, SuspendedCode, SuspendedMessage) : null;
+    }
+
+    /// <summary>
+    /// <see cref="RefuseIfDeletingAsync"/> plus the suspension refusal of <see cref="RefusalFor"/>,
+    /// from the same strongly consistent read. A failed read throws (the caller fails closed).
+    /// </summary>
+    public static async Task<APIGatewayProxyResponse?> RefuseIfDeletingOrSuspendedAsync(IUserRepository users, string userId)
+        => RefusalFor(await users.GetUserByIdAsync(userId, consistentRead: true));
+
     /// <summary>The refusal text of a payment for an order of a deleting or deleted account.</summary>
     public const string DeletedPartyMessage = "A party to this order has deleted their account.";
 

@@ -1,3 +1,5 @@
+import 'package:wereda_connect/shared/services/place_normalizer.dart';
+
 /// A selectable Ethiopian place (woreda / town) used by the place selector.
 ///
 /// Reference data loaded from the bundled `assets/data/ethiopia_woredas.json`
@@ -7,10 +9,15 @@
 /// `am` (Amharic / Ge'ez) and `om` (Afaan Oromo) may be empty: GeoNames
 /// coverage for translated names is sparse, especially for small places.
 /// Callers must tolerate empty values.
+///
+/// Label a place with [displayName] rather than [en]: [en] is the raw
+/// GeoNames form ("Mek’ī", "Nazrēt"), kept because legacy free-text fields
+/// store it.
 class Place {
   const Place({
     required this.id,
     required this.en,
+    this.display = '',
     this.am = '',
     this.om = '',
     this.alts = const [],
@@ -28,6 +35,11 @@ class Place {
   /// Canonical English / Latin name. This is the value written to the legacy
   /// free-text fields so server matching and centroid lookup keep working.
   final String en;
+
+  /// Curated English display name from the overrides file, set only where
+  /// cleaning [en] is not enough (the current official name: "Adama" for
+  /// "Nazrēt", "Batu" for "Ziway"); empty otherwise. Use [displayEn].
+  final String display;
 
   /// Amharic (Ge'ez) name; empty when unknown.
   final String am;
@@ -59,6 +71,7 @@ class Place {
     return Place(
       id: json['id'] as String,
       en: json['en'] as String,
+      display: (json['display'] as String?) ?? '',
       am: (json['am'] as String?) ?? '',
       om: (json['om'] as String?) ?? '',
       alts: rawAlts is List
@@ -71,4 +84,30 @@ class Place {
       population: (json['population'] as num?)?.toInt() ?? 0,
     );
   }
+
+  /// English (Latin) name for display: [display] when curated, else [en]
+  /// without transliteration marks ("Mek’ī" gives "Meki").
+  String get displayEn => display.isNotEmpty ? display : cleanPlaceName(en);
+
+  /// Amharic name when it is written in Ge'ez; empty otherwise. GeoNames has
+  /// some romanized `am` values ("Ādīs Ābeba") that are not worth showing.
+  String get amGeez => _hasEthiopic(am) ? am : '';
+
+  /// The name to show for [languageCode] (`en`, `am` or `om`): the Amharic or
+  /// Oromo name when known, else [displayEn]. Unknown codes get [displayEn].
+  String displayName(String languageCode) {
+    final translated = switch (languageCode) {
+      'am' => amGeez,
+      'om' => om.trim(),
+      _ => '',
+    };
+    return translated.isNotEmpty ? translated : displayEn;
+  }
+
+  static bool _hasEthiopic(String text) => text.runes.any(
+        (r) =>
+            (r >= 0x1200 && r <= 0x139F) ||
+            (r >= 0x2D80 && r <= 0x2DDF) ||
+            (r >= 0xAB00 && r <= 0xAB2F),
+      );
 }

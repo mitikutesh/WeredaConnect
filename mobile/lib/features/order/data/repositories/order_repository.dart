@@ -5,11 +5,22 @@ import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
-import 'package:wereda_connect/core/models/order_status_sets.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
+import 'package:wereda_connect/core/models/order_dropoff_check_in.dart';
+import 'package:wereda_connect/core/models/order_dropoff_note.dart';
+import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
+import 'package:wereda_connect/core/models/sync_operation.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
+import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
 /// Offline-first repository for order CRUD operations.
@@ -25,13 +36,25 @@ import 'package:wereda_connect/features/order/domain/repositories/base_order_rep
 class OrderRepository extends BaseOrderRepository {
   final Isar _isar;
   final SyncQueue _syncQueue;
+
+  /// The signed-in user, whose own queued check-ins [getOrderById] shows
+  /// (FUP-285). The app passes it; without it every user's show.
+  final Future<String?> Function()? _currentUserId;
+
+  /// Deletes a photo file this phone took (FUP-373: an arrival photo taken
+  /// while another one already waits to upload); tests pass a fake.
+  final Future<void> Function(String path)? _deletePhotoFile;
   static const _uuid = Uuid();
 
   OrderRepository({
     required Isar isar,
     required SyncQueue syncQueue,
+    Future<String?> Function()? currentUserId,
+    Future<void> Function(String path)? deletePhotoFile,
   })  : _isar = isar,
-        _syncQueue = syncQueue;
+        _syncQueue = syncQueue,
+        _currentUserId = currentUserId,
+        _deletePhotoFile = deletePhotoFile;
 
   /// Get orders for a farmer, optionally filtered by status.
   @override
@@ -44,7 +67,7 @@ class OrderRepository extends BaseOrderRepository {
     if (statusFilter != null) {
       final status = OrderStatus.values.firstWhere(
         (s) => s.name == statusFilter,
-        orElse: () => OrderStatus.created,
+        orElse: () => OrderStatus.unknown,
       );
       query = query.statusEqualTo(status);
     }
@@ -63,7 +86,7 @@ class OrderRepository extends BaseOrderRepository {
     if (statusFilter != null) {
       final status = OrderStatus.values.firstWhere(
         (s) => s.name == statusFilter,
-        orElse: () => OrderStatus.created,
+        orElse: () => OrderStatus.unknown,
       );
       query = query.statusEqualTo(status);
     }
@@ -97,7 +120,7 @@ class OrderRepository extends BaseOrderRepository {
     if (statusFilter != null) {
       final status = OrderStatus.values.firstWhere(
         (s) => s.name == statusFilter,
-        orElse: () => OrderStatus.created,
+        orElse: () => OrderStatus.unknown,
       );
       query = query.statusEqualTo(status);
     }
@@ -106,27 +129,99 @@ class OrderRepository extends BaseOrderRepository {
   }
 
   /// Get orders where the user is the assigned trucker, optionally by status.
+  /// Reads through the `truckerId` index (ESC-22), not a scan of every order.
   Future<List<Order>> _getOrdersByTrucker(
     String truckerId, {
     String? statusFilter,
   }) async {
-    var query = _isar.orders.filter().truckerIdEqualTo(truckerId);
+    final query = _isar.orders.where().truckerIdEqualTo(truckerId);
 
-    if (statusFilter != null) {
-      final status = OrderStatus.values.firstWhere(
-        (s) => s.name == statusFilter,
-        orElse: () => OrderStatus.created,
-      );
-      query = query.statusEqualTo(status);
+    if (statusFilter == null) {
+      return query.sortByCreatedAtDesc().findAll();
     }
 
-    return query.sortByCreatedAtDesc().findAll();
+    final status = OrderStatus.values.firstWhere(
+      (s) => s.name == statusFilter,
+      orElse: () => OrderStatus.unknown,
+    );
+    return query.filter().statusEqualTo(status).sortByCreatedAtDesc().findAll();
   }
 
-  /// Get a single order by its orderId.
+  /// Get a single order by its orderId, with the signed-in user's check-ins
+  /// made on this phone that the server has not refused
+  /// ([Order.queuedCheckIns], FUP-285).
   @override
   Future<Order?> getOrderById(String orderId) async {
-    return _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
+    final order =
+        await _isar.orders.filter().orderIdEqualTo(orderId).findFirst();
+    if (order == null) return null;
+    final currentUserId = _currentUserId;
+    if (currentUserId == null) return _withQueuedCheckIns(order);
+    final userId = await currentUserId();
+    // Signed out: nobody's marks.
+    if (userId == null || userId.isEmpty) return order;
+    return _withQueuedCheckIns(order, userId: userId);
+  }
+
+  /// [order] with its [Order.queuedCheckIns]: per kind the first check-in of
+  /// the queue the server has not refused (the server keeps the first one
+  /// too), sent once any of them was applied. A refused one is left out, so
+  /// the local mark goes back as soon as the queue rejects it. With
+  /// [userId], only that user's: on a shared phone another user's check-in
+  /// neither shows nor holds back this user's button.
+  Future<Order> _withQueuedCheckIns(Order order, {String? userId}) async {
+    final ops = await _syncQueue.unrejectedOperationsFor(
+      handoffCheckInEntityType,
+      entityIdPrefix: handoffCheckInEntityId(order.orderId, ''),
+      userId: userId,
+    );
+    if (ops.isEmpty) return order;
+    return order..queuedCheckIns = _queuedCheckInsOf(ops);
+  }
+
+  /// FUP-327, FUP-371: the marks of [_withQueuedCheckIns] for many orders,
+  /// from one read of the queue, only [userId]'s (none when signed out).
+  @override
+  Future<List<Order>> ordersWithQueuedCheckIns(
+    List<Order> orders,
+    String userId,
+  ) async {
+    if (orders.isEmpty || userId.isEmpty) return orders;
+    final ops = await _syncQueue.unrejectedOperationsFor(
+      handoffCheckInEntityType,
+      entityIdPrefix: '',
+      userId: userId,
+    );
+    if (ops.isEmpty) return orders;
+    final byOrder = <String, List<SyncOperation>>{};
+    for (final op in ops) {
+      final orderId = parseHandoffCheckInEntityId(op.entityId)?.orderId;
+      if (orderId != null) (byOrder[orderId] ??= []).add(op);
+    }
+    for (final order in orders) {
+      final own = byOrder[order.orderId];
+      if (own != null) order.queuedCheckIns = _queuedCheckInsOf(own);
+    }
+    return orders;
+  }
+
+  /// The marks of the check-in operations [ops] (oldest first): per kind
+  /// the first one, sent once any of them was applied.
+  static Map<String, QueuedCheckIn> _queuedCheckInsOf(
+    List<SyncOperation> ops,
+  ) {
+    final queued = <String, QueuedCheckIn>{};
+    for (final op in ops) {
+      final kind = parseHandoffCheckInEntityId(op.entityId)?.kind;
+      if (kind == null) continue;
+      final sent = op.status == SyncStatus.synced;
+      final first = queued[kind];
+      queued[kind] = QueuedCheckIn(
+        madeAt: first?.madeAt ?? op.createdAt.toUtc(),
+        sent: (first?.sent ?? false) || sent,
+      );
+    }
+    return queued;
   }
 
   /// Create a new order (buyer action).
@@ -145,14 +240,25 @@ class OrderRepository extends BaseOrderRepository {
     String? truckerName,
     double? transportCost,
     double? commissionRate,
+    String? dropoffNote,
+    DeliveryPoint? deliveryPoint,
   }) async {
     final orderId = _uuid.v4();
     final now = DateTime.now().toUtc();
+    final note = normalizeDropoffNote(dropoffNote);
+    final point = _boxed(deliveryPoint);
     final totalPrice = quantity * pricePerUnit;
-    final cropCost = totalPrice;
     final effectiveCommissionRate = commissionRate ?? 0.05;
-    final commissionAmount = cropCost * effectiveCommissionRate;
-    final orderTotal = cropCost + (transportCost ?? 0) + commissionAmount;
+    // SIM-30: the server's money, each leg to the santim, so the local copy
+    // shows what the server stores until the sync brings its row back.
+    final pricing = OrderPricing(
+      cropCost: totalPrice,
+      transportCost: transportCost ?? 0,
+      commissionRate: effectiveCommissionRate,
+    );
+    final cropCost = pricing.cropCostEtb;
+    final commissionAmount = pricing.commissionAmount;
+    final orderTotal = pricing.orderTotal;
 
     final order = Order()
       ..orderId = orderId
@@ -172,11 +278,14 @@ class OrderRepository extends BaseOrderRepository {
       ..truckerId = truckerId
       ..truckerName = truckerName
       ..cropCost = cropCost
-      ..transportCost = transportCost
+      ..transportCost = transportCost == null ? null : pricing.transportCostEtb
       ..commissionRate = effectiveCommissionRate
       ..commissionAmount = commissionAmount
       ..orderTotal = orderTotal
       ..paymentMethod = 'cbe_transfer'
+      ..dropoffNote = note
+      ..deliveryLatitude = point?.latitude
+      ..deliveryLongitude = point?.longitude
       ..updatedAt = now;
 
     await _isar.writeTxn(() async {
@@ -212,6 +321,11 @@ class OrderRepository extends BaseOrderRepository {
           if (tripId != null) 'tripId': tripId,
           if (truckerId != null) 'truckerId': truckerId,
           if (truckerName != null) 'truckerName': truckerName,
+          if (note != null) 'dropoffNote': note,
+          if (point != null) ...{
+            'deliveryLatitude': point.latitude,
+            'deliveryLongitude': point.longitude,
+          },
           'status': orderStatusToWire(OrderStatus.created.name),
           'createdAt': now.toIso8601String(),
           'updatedAt': now.toIso8601String(),
@@ -347,13 +461,7 @@ class OrderRepository extends BaseOrderRepository {
     if (order.status == OrderStatus.cancelled) return;
 
     final now = DateTime.now().toUtc();
-    // ESC-06: an accepted order is cancelled only after a transport failure.
-    if (order.status == OrderStatus.accepted &&
-        !isTransportFailureCancelOpen(order, now)) {
-      throw const OrderCancelNotAllowedException(
-        'An accepted order can be cancelled only after its pickup deadline.',
-      );
-    }
+    checkOrderCancelAllowed(order, userId, now);
 
     final baseVersion = order.version;
 
@@ -385,21 +493,31 @@ class OrderRepository extends BaseOrderRepository {
     );
   }
 
-  /// Accept an order (farmer action).
+  /// Accept an order (farmer action). ESC-15: sent as the farmer command; the
+  /// local row shows the sequential result until the next pull (a server with
+  /// commitments off accepts a trip order at once).
   @override
   Future<void> acceptOrder(String orderId, String farmerId) async {
     final order = await _findOrder(orderId);
     _checkFarmerResponse(order, farmerId);
-    if (order.status == OrderStatus.accepted) return;
+    if (order.status == OrderStatus.accepted ||
+        order.farmerResponse == CommitmentResponse.accepted) {
+      return;
+    }
     _checkFunded(order);
 
     final now = DateTime.now().toUtc();
     final baseVersion = order.version;
+    final nextStatus = farmerAcceptStatus(order);
 
     await _writeThenEnqueue(
       order,
       (o) {
-        o.status = OrderStatus.accepted;
+        o.status = nextStatus;
+        o.farmerResponse = CommitmentResponse.accepted;
+        if (nextStatus == OrderStatus.funded) {
+          o.truckerResponse = CommitmentResponse.pending;
+        }
         o.respondedAt = now;
         o.updatedAt = now;
         o.version = baseVersion + 1;
@@ -414,7 +532,7 @@ class OrderRepository extends BaseOrderRepository {
         action: 'update',
         data: jsonEncode({
           'orderId': orderId,
-          'status': orderStatusToWire(OrderStatus.accepted.name),
+          'farmerResponse': CommitmentCommand.accept,
           'respondedAt': now.toIso8601String(),
           'updatedAt': now.toIso8601String(),
           'version': baseVersion,
@@ -430,6 +548,7 @@ class OrderRepository extends BaseOrderRepository {
     String orderId,
     String farmerId, {
     String? reason,
+    String? declineReason,
   }) async {
     final order = await _findOrder(orderId);
     _checkFarmerResponse(order, farmerId);
@@ -443,8 +562,11 @@ class OrderRepository extends BaseOrderRepository {
       order,
       (o) {
         o.status = OrderStatus.rejected;
+        o.farmerResponse = CommitmentResponse.declined;
+        o.cancelledBy = 'farmer';
         o.respondedAt = now;
         o.rejectionReason = reason;
+        o.declineReason = declineReason;
         o.updatedAt = now;
         o.version = baseVersion + 1;
         _closeContact(o);
@@ -456,9 +578,10 @@ class OrderRepository extends BaseOrderRepository {
         action: 'update',
         data: jsonEncode({
           'orderId': orderId,
-          'status': orderStatusToWire(OrderStatus.rejected.name),
+          'farmerResponse': CommitmentCommand.decline,
           'respondedAt': now.toIso8601String(),
           if (reason != null) 'rejectionReason': reason,
+          if (declineReason != null) 'declineReason': declineReason,
           'updatedAt': now.toIso8601String(),
           'version': baseVersion,
         }),
@@ -466,6 +589,340 @@ class OrderRepository extends BaseOrderRepository {
       ),
     );
   }
+
+  /// ESC-15: the trucker's answer to a transport request, or the drop-out
+  /// from an accepted order before pickup (the server asks for a fresh
+  /// sign-in, which the sync queue waits for).
+  @override
+  Future<void> respondAsTrucker(
+    String orderId,
+    String truckerId, {
+    required bool accept,
+    String? declineReason,
+  }) async {
+    final order = await _findOrder(orderId);
+    if (truckerId.isEmpty || order.truckerId != truckerId) {
+      throw const OrderActionNotAllowedException(
+        'Only the trucker of this order can answer its transport request.',
+      );
+    }
+    final answered = truckerResponseOf(order);
+    if (accept && answered == CommitmentResponse.accepted) return;
+    if (!accept &&
+        order.status == OrderStatus.awaitingTransport &&
+        (answered == CommitmentResponse.declined ||
+            answered == CommitmentResponse.cancelled)) {
+      return;
+    }
+    final dropOut = !accept && canTruckerDropOut(order, truckerId);
+    if (!dropOut && !canTruckerRespond(order, truckerId)) {
+      throw const OrderActionNotAllowedException(
+        'This transport request is not open: the farmer has not accepted '
+        'yet, or it was already answered.',
+      );
+    }
+
+    final now = DateTime.now().toUtc();
+    final baseVersion = order.version;
+
+    await _writeThenEnqueue(
+      order,
+      (o) {
+        if (accept) {
+          o.status = OrderStatus.accepted;
+          o.truckerResponse = CommitmentResponse.accepted;
+          o.contactOpen = null;
+        } else {
+          o.status = OrderStatus.awaitingTransport;
+          o.truckerResponse = dropOut
+              ? CommitmentResponse.cancelled
+              : CommitmentResponse.declined;
+          o.transportFailure =
+              dropOut ? 'trucker_cancelled' : 'trucker_declined';
+          o.declineReason = declineReason;
+          // The trucker leaves the order's contact at once.
+          _closeContact(o);
+        }
+        o.updatedAt = now;
+        o.version = baseVersion + 1;
+      },
+      () => _syncQueue.enqueue(
+        userId: truckerId,
+        entityType: 'order',
+        entityId: orderId,
+        action: 'update',
+        data: jsonEncode({
+          'orderId': orderId,
+          'truckerResponse':
+              accept ? CommitmentCommand.accept : CommitmentCommand.decline,
+          if (!accept && declineReason != null) 'declineReason': declineReason,
+          'updatedAt': now.toIso8601String(),
+          'version': baseVersion,
+        }),
+        operationId: _uuid.v4(),
+      ),
+    );
+  }
+
+  /// LT-12: the buyer's drop-off landmark, saved on the phone and queued
+  /// (offline-first). The server checks the same rules again and refuses a
+  /// change that lost the race with the pickup (`ORDER_DROPOFF_NOTE_LOCKED`);
+  /// the queue then puts the order back to the server's view.
+  @override
+  Future<void> updateDropoffNote(
+    String orderId,
+    String buyerId,
+    String? dropoffNote,
+  ) async {
+    final order = await _findOrder(orderId);
+    if (!canEditDropoffNote(order, buyerId)) {
+      throw const OrderActionNotAllowedException(
+        'Only the buyer of a trucked order can change its drop-off note, '
+        'and only before pickup.',
+      );
+    }
+    final note = normalizeDropoffNote(dropoffNote);
+    if (note == normalizeDropoffNote(order.dropoffNote)) return;
+
+    final now = DateTime.now().toUtc();
+    final baseVersion = order.version;
+
+    await _writeThenEnqueue(
+      order,
+      (o) {
+        o.dropoffNote = note;
+        o.updatedAt = now;
+        o.version = baseVersion + 1;
+      },
+      () => _syncQueue.enqueue(
+        userId: buyerId,
+        entityType: 'order',
+        entityId: orderId,
+        action: 'update',
+        data: jsonEncode({
+          'orderId': orderId,
+          // An empty note clears it on the server.
+          'dropoffNote': note ?? '',
+          'updatedAt': now.toIso8601String(),
+          'version': baseVersion,
+        }),
+        operationId: _uuid.v4(),
+      ),
+    );
+  }
+
+  /// LT-14: the order's own drop-off point, saved on the phone and queued
+  /// (offline-first), by the drop-off note's rules. The server checks them
+  /// again and refuses a change that lost the race with the pickup
+  /// (`ORDER_DELIVERY_LOCATION_LOCKED`); the queue then puts the order back
+  /// to the server's view.
+  @override
+  Future<void> updateDeliveryLocation(
+    String orderId,
+    String buyerId,
+    DeliveryPoint point,
+  ) async {
+    final order = await _findOrder(orderId);
+    if (!canEditDeliveryLocation(order, buyerId)) {
+      throw const OrderActionNotAllowedException(
+        'Only the buyer of a trucked order can change its drop-off place, '
+        'and only before pickup.',
+      );
+    }
+    final boxed = _boxed(point);
+    if (boxed == null) {
+      throw const OrderActionNotAllowedException(
+        'The drop-off place must be in Ethiopia.',
+      );
+    }
+    if (boxed == orderDeliveryPoint(order)) return;
+
+    final now = DateTime.now().toUtc();
+    final baseVersion = order.version;
+
+    await _writeThenEnqueue(
+      order,
+      (o) {
+        o
+          ..deliveryLatitude = boxed.latitude
+          ..deliveryLongitude = boxed.longitude
+          ..updatedAt = now
+          ..version = baseVersion + 1;
+      },
+      () => _syncQueue.enqueue(
+        userId: buyerId,
+        entityType: 'order',
+        entityId: orderId,
+        action: 'update',
+        data: jsonEncode({
+          'orderId': orderId,
+          'deliveryLatitude': boxed.latitude,
+          'deliveryLongitude': boxed.longitude,
+          'updatedAt': now.toIso8601String(),
+          'version': baseVersion,
+        }),
+        operationId: _uuid.v4(),
+      ),
+    );
+  }
+
+  /// ESC-34 (FUP-285): the arrival check-in, queued (offline-first). Nothing
+  /// is written to the order: the queued operation is the local mark
+  /// ([getOrderById]), and the server's copy, with the time it received it,
+  /// comes with the next read of the order. Every `CHECKIN_*` refusal is
+  /// permanent; the sync queue then rejects the operation, which takes the
+  /// mark back, and says why. Only [userId]'s own queued check-ins count as
+  /// given.
+  @override
+  Future<bool> checkIn(
+    String orderId,
+    String userId, {
+    required String kind,
+    HandoffCheckInFix? fix,
+  }) async {
+    final order = await _withQueuedCheckIns(
+      await _findOrder(orderId),
+      userId: userId,
+    );
+    final now = DateTime.now().toUtc();
+    if (!checkCheckInAllowed(order, userId, kind, fix, now)) return false;
+    await _syncQueue.enqueue(
+      userId: userId,
+      entityType: handoffCheckInEntityType,
+      entityId: handoffCheckInEntityId(orderId, kind),
+      action: 'create',
+      data: jsonEncode(
+        handoffCheckInData(
+          orderId: orderId,
+          kind: kind,
+          capturedAt: now,
+          fix: fix,
+        ),
+      ),
+      operationId: _uuid.v4(),
+    );
+    return true;
+  }
+
+  /// ESC-36 (FUP-336): the trucker's drop-off check-in, queued behind the
+  /// arrival photo (offline-first). A new [arrivalPhotoRef] (this phone's
+  /// file of [deliveryId]) is kept on the local delivery, so the photo shows
+  /// and the next attempt does not ask for another, and queued as
+  /// `delivery_photo` `{deliveryId}#arrival` (the sync preflight uploads it),
+  /// unless one already waits (then a new file is deleted, FUP-373: it would
+  /// never be sent). The check-in names its delivery in a `_` key, never
+  /// sent: the sync preflight holds it back while that photo waits.
+  /// As for [checkIn], the queued operation is the local mark and every
+  /// `CHECKIN_*` refusal takes it back.
+  @override
+  Future<bool> checkInAtDropoff(
+    String orderId,
+    String userId, {
+    required String deliveryId,
+    required HandoffCheckInFix? fix,
+    String? arrivalPhotoRef,
+  }) async {
+    final order = await _withQueuedCheckIns(
+      await _findOrder(orderId),
+      userId: userId,
+    );
+    final now = DateTime.now().toUtc();
+    if (!checkDropoffCheckInAllowed(order, userId, fix, now)) return false;
+    final photo = arrivalPhotoRef;
+    final photoId = deliveryPhotoEntityId(deliveryId, arrivalPhotoType);
+    if (photo != null &&
+        DeliveryConstants.isLocalPhotoPath(photo, deliveryId)) {
+      if (!await _syncQueue.hasWaitingOperationsFor(
+        deliveryPhotoEntityType,
+        photoId,
+      )) {
+        await _keepArrivalPhoto(deliveryId, photo);
+        await _syncQueue.enqueue(
+          userId: userId,
+          entityType: deliveryPhotoEntityType,
+          entityId: photoId,
+          action: 'create',
+          data: jsonEncode({deliveryPhotoLocalPathKey: photo}),
+          operationId: _uuid.v4(),
+        );
+      } else if (!await _isQueuedPhotoFile(photoId, photo)) {
+        await _deleteUnsentPhoto(photo);
+      }
+    }
+    await _syncQueue.enqueue(
+      userId: userId,
+      entityType: handoffCheckInEntityType,
+      entityId: handoffCheckInEntityId(orderId, CheckInKind.arrivedDropoff),
+      action: 'create',
+      data: jsonEncode({
+        ...handoffCheckInData(
+          orderId: orderId,
+          kind: CheckInKind.arrivedDropoff,
+          capturedAt: now,
+          fix: fix,
+        ),
+        handoffCheckInDeliveryIdKey: deliveryId,
+      }),
+      operationId: _uuid.v4(),
+    );
+    return true;
+  }
+
+  /// The local delivery shows the arrival photo this phone took until the
+  /// server's key replaces it (FRD-12's attach clean-up). A server key that is
+  /// there already stays.
+  Future<void> _keepArrivalPhoto(String deliveryId, String path) async {
+    await _isar.writeTxn(() async {
+      final delivery = await _isar.deliverys
+          .filter()
+          .deliveryIdEqualTo(deliveryId)
+          .findFirst();
+      final current = delivery?.arrivalPhotoRef;
+      if (delivery == null ||
+          (current != null &&
+              DeliveryConstants.isServerPhotoRef(current, deliveryId))) {
+        return;
+      }
+      delivery.arrivalPhotoRef = path;
+      await _isar.deliverys.put(delivery);
+    });
+  }
+
+  /// Whether a `delivery_photo` [photoId] the server has not refused carries
+  /// the file [path] (the kept photo passed again for the next attempt).
+  Future<bool> _isQueuedPhotoFile(String photoId, String path) async {
+    final ops = await _syncQueue.unrejectedOperationsFor(
+      deliveryPhotoEntityType,
+      entityIdPrefix: photoId,
+    );
+    for (final op in ops) {
+      try {
+        final data = jsonDecode(op.data);
+        if (data is Map && data[deliveryPhotoLocalPathKey] == path) {
+          return true;
+        }
+      } on FormatException {
+        continue;
+      }
+    }
+    return false;
+  }
+
+  /// FUP-373: an arrival photo taken while another one already waits to
+  /// upload is never sent, so its file is not left on the phone. Best effort.
+  Future<void> _deleteUnsentPhoto(String path) async {
+    try {
+      await (_deletePhotoFile ?? PhotoManager().deleteLocalPhoto)(path);
+    } on Object catch (e) {
+      debugPrint('[OrderRepository] unsent arrival photo not deleted: $e');
+    }
+  }
+
+  /// [point] when the server takes it (inside Ethiopia's box), else null.
+  static DeliveryPoint? _boxed(DeliveryPoint? point) =>
+      point != null && isInDeliveryLocationBox(point.latitude, point.longitude)
+          ? point
+          : null;
 
   /// ESC-48: a cancelled or rejected order closes contact at once, offline
   /// too: the parties' phones leave the device with the change.
@@ -514,6 +971,11 @@ class OrderRepository extends BaseOrderRepository {
   ) async {
     final before = (
       status: order.status,
+      farmerResponse: order.farmerResponse,
+      truckerResponse: order.truckerResponse,
+      transportFailure: order.transportFailure,
+      declineReason: order.declineReason,
+      cancelledBy: order.cancelledBy,
       respondedAt: order.respondedAt,
       rejectionReason: order.rejectionReason,
       cancelledAt: order.cancelledAt,
@@ -526,6 +988,9 @@ class OrderRepository extends BaseOrderRepository {
       buyerPhone: order.buyerPhone,
       farmerPhone: order.farmerPhone,
       truckerPhone: order.truckerPhone,
+      dropoffNote: order.dropoffNote,
+      deliveryLatitude: order.deliveryLatitude,
+      deliveryLongitude: order.deliveryLongitude,
     );
     await _isar.writeTxn(() async {
       change(order);
@@ -537,6 +1002,11 @@ class OrderRepository extends BaseOrderRepository {
       await _isar.writeTxn(() async {
         order
           ..status = before.status
+          ..farmerResponse = before.farmerResponse
+          ..truckerResponse = before.truckerResponse
+          ..transportFailure = before.transportFailure
+          ..declineReason = before.declineReason
+          ..cancelledBy = before.cancelledBy
           ..respondedAt = before.respondedAt
           ..rejectionReason = before.rejectionReason
           ..cancelledAt = before.cancelledAt
@@ -548,7 +1018,10 @@ class OrderRepository extends BaseOrderRepository {
           ..contactOpen = before.contactOpen
           ..buyerPhone = before.buyerPhone
           ..farmerPhone = before.farmerPhone
-          ..truckerPhone = before.truckerPhone;
+          ..truckerPhone = before.truckerPhone
+          ..dropoffNote = before.dropoffNote
+          ..deliveryLatitude = before.deliveryLatitude
+          ..deliveryLongitude = before.deliveryLongitude;
         await _isar.orders.put(order);
       });
       rethrow;

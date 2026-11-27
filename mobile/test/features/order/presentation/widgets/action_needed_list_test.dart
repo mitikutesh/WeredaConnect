@@ -1,0 +1,315 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/action_needed_list.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+
+class MockOrderBloc extends Mock implements OrderBloc {}
+
+class MockOrderRepository extends Mock implements BaseOrderRepository {}
+
+Order _order(
+  String id,
+  OrderStatus status, {
+  String? farmer,
+  String? trucker,
+  bool trip = true,
+  DateTime? farmerDue,
+  DateTime? truckerDue,
+  DateTime? choiceDue,
+  DateTime? createdAt,
+}) =>
+    Order()
+      ..orderId = id
+      ..listingId = 'listing-1'
+      ..buyerId = 'buyer-1'
+      ..farmerId = 'farmer-1'
+      ..buyerName = 'Buyer'
+      ..farmerName = 'Farmer'
+      ..cropType = 'teff'
+      ..quantity = 500
+      ..pricePerUnit = 45
+      ..totalPrice = 22500
+      ..status = status
+      ..createdAt = createdAt ?? DateTime.utc(2026, 10)
+      ..version = 1
+      ..tripId = trip ? 'trip-1' : null
+      ..truckerId = trip ? 'trucker-1' : null
+      ..fulfillment = trip ? 'trucker' : 'self_pickup'
+      ..farmerResponse = farmer
+      ..truckerResponse = trucker
+      ..farmerDeadlineAt = farmerDue
+      ..truckerDeadlineAt = truckerDue
+      ..buyerChoiceDeadlineAt = choiceDue;
+
+List<(String, ActionNeededKind)> _kinds(List<ActionNeededItem> items) =>
+    [for (final i in items) (i.order.orderId, i.kind)];
+
+/// ESC-15/21: the Home cards: each role sees only what waits for it.
+void main() {
+  final orders = [
+    _order(
+      'funded-new',
+      OrderStatus.funded,
+      farmer: 'pending',
+      trucker: 'not_asked',
+      farmerDue: DateTime.utc(2026, 10, 28),
+    ),
+    _order(
+      'funded-asked',
+      OrderStatus.funded,
+      farmer: 'accepted',
+      trucker: 'pending',
+      truckerDue: DateTime.utc(2026, 10, 27),
+    ),
+    _order(
+      'awaiting',
+      OrderStatus.awaitingTransport,
+      farmer: 'accepted',
+      trucker: 'declined',
+      choiceDue: DateTime.utc(2026, 10, 29),
+    ),
+    _order(
+      'agreed',
+      OrderStatus.accepted,
+      farmer: 'accepted',
+      trucker: 'accepted',
+    ),
+    _order('unpaid', OrderStatus.created),
+    _order('failed', OrderStatus.paymentFailed),
+    _order('arrived', OrderStatus.delivered),
+    _order('settled', OrderStatus.settled),
+  ];
+
+  test('the farmer answers new orders and keeps the crops of a failed trip',
+      () {
+    expect(
+      _kinds(
+        actionNeededItems(
+          orders: orders,
+          userId: 'farmer-1',
+          role: UserRole.farmer,
+        ),
+      ),
+      [
+        ('funded-new', ActionNeededKind.answerOrder),
+        ('awaiting', ActionNeededKind.keepCrops),
+      ],
+    );
+  });
+
+  test('the trucker answers once asked and sets up agreed deliveries', () {
+    expect(
+      _kinds(
+        actionNeededItems(
+          orders: orders,
+          userId: 'trucker-1',
+          role: UserRole.trucker,
+        ),
+      ),
+      [
+        ('funded-asked', ActionNeededKind.answerTransport),
+        ('agreed', ActionNeededKind.setUpDelivery),
+      ],
+    );
+    // Not asked yet: nothing for the trucker on 'funded-new' (the sequential rule).
+    expect(
+      actionNeededItems(
+        orders: orders,
+        userId: 'trucker-1',
+        role: UserRole.trucker,
+        ordersWithDelivery: {'agreed'},
+      ).map((i) => i.order.orderId),
+      ['funded-asked'],
+    );
+  });
+
+  test('the buyer pays, decides after a failed transport, checks a delivery',
+      () {
+    final items = actionNeededItems(
+      orders: orders,
+      userId: 'buyer-1',
+      role: UserRole.buyer,
+    );
+    expect(
+      _kinds(items).toSet(),
+      {
+        ('awaiting', ActionNeededKind.decideTransport),
+        ('unpaid', ActionNeededKind.pay),
+        ('failed', ActionNeededKind.payAgain),
+        ('arrived', ActionNeededKind.checkDelivery),
+      },
+    );
+    // A deadline sorts first.
+    expect(items.first.order.orderId, 'awaiting');
+    expect(items.first.dueAt, DateTime.utc(2026, 10, 29));
+  });
+
+  test('another user\'s orders never show', () {
+    for (final role in UserRole.values) {
+      expect(
+        actionNeededItems(orders: orders, userId: 'someone-else', role: role),
+        isEmpty,
+        reason: role.name,
+      );
+      expect(
+        actionNeededItems(orders: orders, userId: '', role: role),
+        isEmpty,
+      );
+    }
+  });
+
+  test('the most urgent deadline comes first, then the newest order', () {
+    final farmerOrders = [
+      _order(
+        'later',
+        OrderStatus.funded,
+        farmer: 'pending',
+        farmerDue: DateTime.utc(2026, 10, 30),
+      ),
+      _order(
+        'sooner',
+        OrderStatus.funded,
+        farmer: 'pending',
+        farmerDue: DateTime.utc(2026, 10, 28),
+      ),
+      _order(
+        'no-stamp-old',
+        OrderStatus.funded,
+        createdAt: DateTime.utc(2026, 9),
+      ),
+      _order(
+        'no-stamp-new',
+        OrderStatus.funded,
+        createdAt: DateTime.utc(2026, 10, 2),
+      ),
+    ];
+    expect(
+      actionNeededItems(
+        orders: farmerOrders,
+        userId: 'farmer-1',
+        role: UserRole.farmer,
+      ).map((i) => i.order.orderId),
+      ['sooner', 'later', 'no-stamp-new', 'no-stamp-old'],
+    );
+  });
+
+  // Trucker home board: "Wheat · 1,500 kg · Thu 30 Oct trip"; the farmer
+  // and buyer cards name the other party first.
+  group('fact line', () {
+    final en = lookupAppLocalizations(const Locale('en'));
+    final order = _order('o', OrderStatus.funded)
+      ..buyerName = 'Abebe Trading'
+      ..quantity = 1500;
+
+    test('the trucker reads the crop, the weight and the trip day', () {
+      expect(
+        actionNeededFacts(order, UserRole.trucker, en),
+        'Teff · 1,500 kg',
+      );
+      final dated = _order('d', OrderStatus.funded)
+        ..quantity = 1500
+        ..pickupDate = DateTime.utc(2026, 10, 30, 3);
+      expect(
+        actionNeededFacts(dated, UserRole.trucker, en),
+        'Teff · 1,500 kg · ${en.orderTripOn('Fri 30 Oct')}',
+      );
+    });
+
+    test('the farmer reads the buyer first', () {
+      expect(
+        actionNeededFacts(order, UserRole.farmer, en),
+        'Abebe Trading · Teff · 1,500 kg',
+      );
+    });
+
+    // SIM-33: no "0 kg" and no id for the other party.
+    test('a quantity that cannot be real is a dash; an id name is left out',
+        () {
+      final odd = _order('x', OrderStatus.funded)
+        ..buyerName = '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b'
+        ..quantity = 0;
+      expect(actionNeededFacts(odd, UserRole.farmer, en), 'Teff · -');
+      expect(actionNeededFacts(odd, UserRole.trucker, en), 'Teff · -');
+    });
+  });
+
+  // E-6: a failed read is said as such, with Retry, never "nothing waits".
+  group('ActionNeededList on Home', () {
+    final en = lookupAppLocalizations(const Locale('en'));
+    late MockOrderRepository repository;
+
+    Future<void> pump(WidgetTester tester) async {
+      final bloc = MockOrderBloc();
+      when(() => bloc.state).thenReturn(const OrderInitial());
+      when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+      when(() => bloc.repository).thenReturn(repository);
+      await tester.pumpWidget(
+        BlocProvider<OrderBloc>.value(
+          value: bloc,
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: ActionNeededList(userId: 'farmer-1', role: UserRole.farmer),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    setUp(() => repository = MockOrderRepository());
+
+    testWidgets('a failed read shows the error with Retry, then the card',
+        (tester) async {
+      var fail = true;
+      when(
+        () => repository.getOrdersByUser(
+          any(),
+          role: any(named: 'role'),
+          statusFilter: any(named: 'statusFilter'),
+        ),
+      ).thenAnswer((_) async {
+        if (fail) throw Exception('offline');
+        return [orders.first];
+      });
+
+      await pump(tester);
+      expect(
+        find.byKey(const Key('action_needed_load_failed')),
+        findsOneWidget,
+      );
+      expect(find.text(en.homeActionNeededLoadFailed), findsOneWidget);
+      expect(find.text(en.actionAnswerOrder), findsNothing);
+
+      fail = false;
+      await tester.tap(find.text(en.retry));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('action_needed_load_failed')), findsNothing);
+      expect(find.text(en.actionAnswerOrder), findsOneWidget);
+    });
+
+    testWidgets('nothing waiting shows nothing, not an error', (tester) async {
+      when(
+        () => repository.getOrdersByUser(
+          any(),
+          role: any(named: 'role'),
+          statusFilter: any(named: 'statusFilter'),
+        ),
+      ).thenAnswer((_) async => const []);
+
+      await pump(tester);
+      expect(find.byKey(const Key('action_needed_load_failed')), findsNothing);
+      expect(find.text(en.actionAnswerOrder), findsNothing);
+    });
+  });
+}

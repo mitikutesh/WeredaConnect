@@ -29,6 +29,13 @@ internal static class ManualPayoutFields
     /// </summary>
     public const string ParkId = "manualPayoutParkId";
 
+    /// <summary>
+    /// FUP-06: the <see cref="QueuedAt"/> of the queue entry whose overdue legs the hourly report has announced
+    /// (<c>MANUAL_PAYOUT_NEWLY_OVERDUE</c>). Server bookkeeping like a claim: no version moves with it, the close
+    /// leaves it, and a later entry with another queue time is announced again.
+    /// </summary>
+    public const string OverdueLoggedFor = "manualPayoutOverdueLoggedFor";
+
     public const string OpRelease = "release";
     public const string OpRefund = "refund";
 
@@ -75,8 +82,35 @@ internal static class ManualPayoutFields
     public static string PaidByAttr(string leg) => $"manual{Capitalise(leg)}PaidBy";
     public static string PaidAtAttr(string leg) => $"manual{Capitalise(leg)}PaidAt";
 
+    /// <summary>
+    /// The settlement reference field the close copies a leg's reference into (1.8.0, 1.11.0): the farmer's
+    /// <c>telebirrReleaseRef</c>, the trucker's <c>truckerTelebirrRef</c>, the buyer's <c>telebirrRefundRef</c>.
+    /// </summary>
+    public static string SettlementRefAttr(string leg) => leg switch
+    {
+        LegFarmer => "telebirrReleaseRef",
+        LegTrucker => TruckerPayoutFields.Ref,
+        _ => "telebirrRefundRef"
+    };
+
     private static string Capitalise(string leg)
         => leg.Length == 0 ? leg : char.ToUpperInvariant(leg[0]) + leg[1..];
+}
+
+/// <summary>
+/// FUP-137: the escrow attribute that says who started the release a row records or waits for, written by
+/// the release itself in the write that settles the row or queues it for a manual payout. The
+/// clean-delivery credit reads it (<c>CleanDeliveryCreditService</c>).
+/// </summary>
+internal static class ReleaseOriginFields
+{
+    public const string Field = "releaseOrigin";
+
+    /// <summary>The hourly auto-release of a confirmed delivery: system actor, <c>delivery_confirmed</c>, from <c>escrowed</c>.</summary>
+    public const string AutoRelease = "auto_release";
+
+    /// <summary>Any other release decision of a ledger escrow, which can be decided more than once.</summary>
+    public const string Other = "other";
 }
 
 /// <summary>
@@ -117,6 +151,14 @@ internal static class TruckerPayoutFields
     /// </summary>
     public const string PendingSince = "truckerPayoutPendingSince";
 
+    /// <summary>
+    /// FUP-436: the since-time of the owed trucker leg whose overdue line the hourly retry has announced
+    /// (<c>TRUCKER_PAYOUT_NEWLY_OVERDUE</c>): <see cref="PendingSince"/> for a 1.x leg, <c>releasedAt</c> for a ledger
+    /// escrow's transport leg. Server bookkeeping like the FUP-06 marker: no version moves, the payout leaves it,
+    /// and a leg owed again from another time is announced again.
+    /// </summary>
+    public const string OverdueLoggedFor = "truckerPayoutOverdueLoggedFor";
+
     /// <summary>Why the payout gate blocks the trucker, one of the Block* values; audited once per value.</summary>
     public const string BlockReason = "truckerPayoutBlockReason";
 
@@ -152,12 +194,40 @@ internal static class SettlementBlockFields
     public const string Reason = "settlementBlockReason";
     public const string ReasonAt = "settlementBlockReasonAt";
 
+    /// <summary>
+    /// FUP-436: the <see cref="ReasonAt"/> of the stored block whose overdue line the system's release has announced
+    /// (<c>RELEASE_BLOCKED_NEWLY_OVERDUE</c>). Server bookkeeping: no version moves, the writes that remove the
+    /// reason leave it, and a block stored again (a new time) is announced again.
+    /// </summary>
+    public const string OverdueLoggedFor = "settlementBlockOverdueLoggedFor";
+
     public const string GatePayout = "payout";
     public const string GateTrade = "trade";
 
     public static string Value(string op, string gate, string reason) => $"{op}:{gate}:{reason}";
 
     public static string Prefix(string op, string gate) => $"{op}:{gate}:";
+}
+
+/// <summary>
+/// FUP-41 (escrow-protocol 2.19.0): an admin's decision to refund an <c>/escrow/initiate</c> escrow that is a
+/// second payment for an order whose own escrow holds or paid the money. Written once, before any money moves,
+/// by a conditional write on what the admin's call read; kept after the refund. Server-only (no read returns them).
+/// </summary>
+internal static class DoubleEscrowFields
+{
+    public const string RefundBy = "doubleEscrowRefundBy";
+    public const string RefundAt = "doubleEscrowRefundAt";
+    public const string RefundReason = "doubleEscrowRefundReason";
+
+    /// <summary>The order escrow's status the decision was made on.</summary>
+    public const string OrderEscrowStatus = "doubleEscrowOrderEscrowStatus";
+
+    /// <summary>The escrow-audit (at <see cref="RefundAt"/>) and transaction-audit action of the decision.</summary>
+    public const string AuditAction = "double_escrow_refund";
+
+    /// <summary>The ESC-10 block reason the sweeps store on such an escrow (release or refund).</summary>
+    public const string SweepBlockReason = "double_escrow";
 }
 
 /// <summary>

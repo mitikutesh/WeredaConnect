@@ -87,7 +87,8 @@ public static partial class RequestValidator
         "farmer", "trucker", "buyer"
     };
 
-    private static readonly HashSet<string> ValidLanguages = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>Supported UI language codes (en, am, om). Reused by the sync user-profile update (SIM-37).</summary>
+    public static readonly HashSet<string> ValidLanguages = new(StringComparer.OrdinalIgnoreCase)
     {
         "en", "am", "om"
     };
@@ -283,10 +284,11 @@ public static partial class RequestValidator
         errors.AddRange(ValidateOtpCode(request.OtpCode).Errors);
         if (string.IsNullOrEmpty(request.Password))
         {
+            // AUTH_002 as on login (auth-api 2.13.0, SIM-27); it was AUTH_007.
             errors.Add(new ValidationError
             {
                 Field = "password",
-                Code = "AUTH_007",
+                Code = "AUTH_002",
                 Message = "Password is required."
             });
         }

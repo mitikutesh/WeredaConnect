@@ -41,6 +41,12 @@ class _FakeMarketplaceSync implements MarketplaceSync {
   Future<void> pullTrips() async {}
 
   @override
+  Future<bool> pullOwnTrips({required String truckerId}) async => false;
+
+  @override
+  Future<bool> pullOwnCrops({required String farmerId}) async => false;
+
+  @override
   Future<void> pullDeliveries() async {}
 
   @override
@@ -107,6 +113,14 @@ class _FailingMarketplaceSync implements MarketplaceSync {
 
   @override
   Future<void> pullTrips() async => throw Exception('offline');
+
+  @override
+  Future<bool> pullOwnTrips({required String truckerId}) async =>
+      throw Exception('offline');
+
+  @override
+  Future<bool> pullOwnCrops({required String farmerId}) async =>
+      throw Exception('offline');
 
   @override
   Future<void> pullDeliveries() async => throw Exception('offline');

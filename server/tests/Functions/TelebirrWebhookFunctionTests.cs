@@ -160,9 +160,10 @@ public class TelebirrWebhookFunctionTests
         var resp = await NewFunction().FunctionHandler(Req(SignedBody("Completed")), _ctx);
 
         resp.StatusCode.Should().Be(200);
+        // SIM-29: no version in the fields; the repository adds 1 to it.
         await _escrowRepo.Received(1).UpdateStatusAsync(
             EscrowId, "2026-07-07T10:00:00.0000000Z", "escrowed", "initiated",
-            Arg.Any<Dictionary<string, object>>());
+            Arg.Is<Dictionary<string, object>>(f => f.ContainsKey("telebirrHoldRef") && !f.ContainsKey("version")));
         await _idemRepo.Received(1).UpdateAsync(MerchOrderId, "completed", Arg.Any<string?>());
     }
 
@@ -346,7 +347,7 @@ public class TelebirrWebhookFunctionTests
 
     private TelebirrWebhookFunction NewOrderFunction(
         bool wireOrders = true, IUserRepository? userRepo = null, bool requirePayerMatch = false,
-        IFraudDetectionService? fraudService = null)
+        IFraudDetectionService? fraudService = null, EscrowService? duplicateRefunds = null)
     {
         _checkoutRepo.GetMappingAsync(OrderMerchOrderId)
             .Returns(new OrderCheckoutMapping(OrderMerchOrderId, OrderId, "buyer-1", 15000m));
@@ -365,7 +366,10 @@ public class TelebirrWebhookFunctionTests
             txAuditRepo: _txAuditRepo,
             inboxRepo: _inboxRepo,
             clock: _clock,
-            fraudService: fraudService);
+            fraudService: fraudService)
+        {
+            DuplicateRefunds = duplicateRefunds
+        };
     }
 
     private readonly TestClock _clock = new(DateTimeOffset.UtcNow);
@@ -444,6 +448,61 @@ public class TelebirrWebhookFunctionTests
     }
 
     [Fact]
+    public async Task Order_payment_that_lost_the_listing_stock_is_applied_and_the_order_refunded_in_full()
+    {
+        // ESC-18 (spec A2): another buyer's funding took the last stock first. The payment is still
+        // applied (the money arrived and the escrow records it); the order then ends with
+        // listing_out_of_stock and its escrow is put up for the full refund. No alarm: a lost race.
+        // FUP-210: the end and the refund arm are one transaction.
+        var stored = StoredOrder("payment_submitted");
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(_ => stored);
+        _orderRepo.TryMarkFundedAsync(OrderId, Arg.Any<Dictionary<string, object>>())
+            .Returns(_ => stored = StoredOrder("funded", OrderPaymentId));
+        _cropRepo.TryDecrementStockAsync("listing-1", OrderId, 5.0).Returns(StockDecrementResult.InsufficientStock);
+        _orderRepo.TryUpdateWithAsync(OrderId, Arg.Any<Dictionary<string, object>>(), 4, "funded", Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .Returns(new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written, StoredOrder(OrderFundingService.OutOfStockStatus, OrderPaymentId)));
+        var escrow = new Dictionary<string, object>
+        {
+            { "escrowId", OrderEscrowId }, { "orderId", OrderId }, { "status", "escrowed" }, { "createdAt", VerifiedAt }
+        };
+        _escrowRepo.GetByIdAsync(OrderEscrowId).Returns(escrow);
+        _escrowRepo.GetByIdAsync(OrderEscrowId, true).Returns(escrow);
+
+        var resp = await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        resp.StatusCode.Should().Be(200);
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied");
+        await _orderRepo.Received(1).TryUpdateWithAsync(OrderId,
+            Arg.Is<Dictionary<string, object>>(f => (string)f["status"] == OrderFundingService.OutOfStockStatus
+                && (string)f["cancelReason"] == "listing_out_of_stock"
+                && (string)f[OrderCommitment.FaultPartyField] == OrderCommitment.Party.None
+                && (string)f[OrderCommitment.CancelledByField] == OrderCommitment.Party.System),
+            4, "funded", Arg.Is<IReadOnlyList<TransactWriteItem>>(items => items.Count == 1));
+        _escrowRepo.Received(1).BuildRefundArm(OrderEscrowId, VerifiedAt, "listing_out_of_stock", Arg.Any<string>(), false);
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+        await _cropRepo.DidNotReceive().TryRestoreStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+        Logs.Should().NotContain("ORDER_STOCK_DECREMENT_FAILED").And.NotContain("ORDER_PAYMENT_UNPROCESSED");
+    }
+
+    [Fact]
+    public async Task Order_payment_redelivery_for_an_order_ended_out_of_stock_changes_nothing()
+    {
+        // The ended order is terminal: a redelivery of its payment repairs nothing and refunds nothing twice.
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder(OrderFundingService.OutOfStockStatus, OrderPaymentId));
+
+        await NewOrderFunction().FunctionHandler(Req(OrderBody()), _ctx);
+
+        await _cropRepo.DidNotReceive().TryDecrementStockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>());
+        await _orderRepo.DidNotReceive().TryAdvanceStatusUnlessAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>(),
+            Arg.Any<string>(), Arg.Any<string>());
+        await _escrowRepo.DidNotReceive().UpdateStatusAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<Dictionary<string, object>?>());
+        await _inboxRepo.Received(1).FinalizeAsync(OrderInboxKey, "applied_again");
+    }
+
+    [Fact]
     public async Task Order_payment_is_recorded_in_the_inbox_before_it_is_applied()
     {
         var calls = new List<string>();
@@ -507,6 +566,38 @@ public class TelebirrWebhookFunctionTests
         await _orderRepo.DidNotReceive().TryMarkFundedAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
         await AuditRecorded("order_payment_duplicate");
         await _inboxRepo.Received(1).FinalizeAsync($"webhook-inbox:{OrderMerchOrderId}:{OrderPaymentId}:Completed", "duplicate");
+    }
+
+    [Fact]
+    public async Task Order_payment_duplicate_gets_its_ledger_refund_row_for_the_sweep()
+    {
+        // ESC-20 (P.9): a duplicate decided for good is refunded by itself: one pending row, payee the buyer,
+        // the captured amount, the payment's own id as the hold reference; the escrow row is not written.
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("funded", "TB-EARLIER"));
+        var ledger = new WeredaConnect.Server.Tests.Services.Ledger.InMemoryLedger();
+        var audit = Substitute.For<IEscrowAuditRepository>();
+        audit.GetAuditTrailAsync(Arg.Any<string>(), Arg.Any<bool>()).Returns(new List<Dictionary<string, object>>());
+        var refunds = new EscrowService(ledger.EscrowRepo, audit, null, null) { LedgerRepo = ledger };
+
+        await NewOrderFunction(duplicateRefunds: refunds).FunctionHandler(Req(OrderBody()), _ctx);
+
+        await AuditRecorded("order_payment_duplicate");
+        var row = ledger.Row(OrderEscrowId, $"refund#duplicate#{OrderPaymentId}");
+        (row.Status, row.Amount, row.PayeeId, row.HoldRef, row.Reason).Should()
+            .Be(("pending", 15000m, "buyer-1", OrderPaymentId, "duplicate_payment"));
+        ledger.Escrows.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Order_payment_unmatched_gets_no_ledger_refund_row()
+    {
+        _orderRepo.GetByIdAsync(OrderId, true).Returns(StoredOrder("cancelled"));
+        var ledger = new WeredaConnect.Server.Tests.Services.Ledger.InMemoryLedger();
+        var refunds = new EscrowService(ledger.EscrowRepo, Substitute.For<IEscrowAuditRepository>(), null, null) { LedgerRepo = ledger };
+
+        await NewOrderFunction(duplicateRefunds: refunds).FunctionHandler(Req(OrderBody()), _ctx);
+
+        ledger.Rows.Should().BeEmpty();
     }
 
     [Fact]

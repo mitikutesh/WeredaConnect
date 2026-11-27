@@ -1,0 +1,1018 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
+import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
+import 'package:wereda_connect/features/order/presentation/screens/order_detail_screen.dart';
+import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+
+class MockOrderBloc extends Mock implements OrderBloc {}
+
+class MockAuthBloc extends Mock implements AuthBloc {}
+
+class MockDeliveryBloc extends Mock implements DeliveryBloc {}
+
+class MockDeliveryRepository extends Mock implements BaseDeliveryRepository {}
+
+class MockRatingBloc extends Mock implements RatingBloc {}
+
+class MockRatingRepository extends Mock implements BaseRatingRepository {}
+
+class FakeOrderEvent extends Fake implements OrderEvent {}
+
+class FakeDeliveryEvent extends Fake implements DeliveryEvent {}
+
+const _tokens = AuthTokens(
+  accessToken: 'access',
+  refreshToken: 'refresh',
+  idToken: 'id',
+);
+
+/// A funded or later trip order the server runs commitments for.
+Order _order(
+  OrderStatus status, {
+  String farmer = 'pending',
+  String trucker = 'not_asked',
+  bool commitments = true,
+  String? transportFailure,
+}) =>
+    Order()
+      ..orderId = 'order-001'
+      ..listingId = 'listing-001'
+      ..buyerId = 'buyer-001'
+      ..farmerId = 'farmer-001'
+      ..buyerName = 'Buyer Bee'
+      ..farmerName = 'Farmer Fikru'
+      ..cropType = 'teff'
+      ..quantity = 100
+      ..pricePerUnit = 85
+      ..totalPrice = 8500
+      ..status = status
+      ..createdAt = DateTime.utc(2026, 10, 26)
+      ..version = 3
+      ..tripId = 'trip-001'
+      ..truckerId = 'trucker-001'
+      ..truckerName = 'Trucker Tesfaye'
+      ..fulfillment = commitments ? 'trucker' : null
+      ..farmerResponse = commitments ? farmer : null
+      ..truckerResponse = commitments ? trucker : null
+      ..farmerDeadlineAt = DateTime.utc(2026, 10, 27, 8)
+      ..truckerDeadlineAt =
+          trucker == 'pending' ? DateTime.utc(2026, 10, 28, 8) : null
+      ..buyerChoiceDeadlineAt = status == OrderStatus.awaitingTransport
+          ? DateTime.utc(2026, 10, 29, 8)
+          : null
+      ..transportFailure = transportFailure
+      ..contactOpen = true;
+
+/// ESC-15: the order detail offers each party exactly the answer it owes.
+void main() {
+  late MockOrderBloc orderBloc;
+  late MockAuthBloc authBloc;
+  late MockDeliveryBloc deliveryBloc;
+  late MockRatingBloc ratingBloc;
+  final en = lookupAppLocalizations(const Locale('en'));
+
+  setUpAll(() {
+    registerFallbackValue(FakeOrderEvent());
+    registerFallbackValue(FakeDeliveryEvent());
+  });
+
+  setUp(() {
+    orderBloc = MockOrderBloc();
+    authBloc = MockAuthBloc();
+    deliveryBloc = MockDeliveryBloc();
+    ratingBloc = MockRatingBloc();
+    final ratingRepo = MockRatingRepository();
+    when(() => ratingBloc.repository).thenReturn(ratingRepo);
+    when(() => ratingBloc.stream).thenAnswer((_) => const Stream.empty());
+    when(
+      () => ratingRepo.hasRated(
+        orderId: any(named: 'orderId'),
+        rateeId: any(named: 'rateeId'),
+      ),
+    ).thenAnswer((_) async => false);
+    when(() => orderBloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => orderBloc.add(any())).thenReturn(null);
+    when(() => orderBloc.isClosed).thenReturn(false);
+    when(() => authBloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => deliveryBloc.state).thenReturn(const DeliveryInitial());
+    when(() => deliveryBloc.stream).thenAnswer((_) => const Stream.empty());
+    final deliveryRepo = MockDeliveryRepository();
+    when(() => deliveryBloc.repository).thenReturn(deliveryRepo);
+    when(
+      () => deliveryRepo.findActiveDeliveryForOrder(
+        any(),
+        userId: any(named: 'userId'),
+        role: any(named: 'role'),
+        orderCreatedAt: any(named: 'orderCreatedAt'),
+      ),
+    ).thenAnswer((_) async => null);
+  });
+
+  Future<void> show(
+    WidgetTester tester,
+    Order order,
+    UserRole role,
+    String userId, {
+    Locale locale = const Locale('en'),
+  }) async {
+    tester.view.physicalSize = const Size(1000, 6000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    when(() => authBloc.state).thenReturn(
+      AuthAuthenticated(userId: userId, tokens: _tokens, role: role),
+    );
+    when(() => orderBloc.state).thenReturn(SingleOrderLoaded(order: order));
+    await tester.pumpWidget(
+      MultiBlocProvider(
+        providers: [
+          BlocProvider<OrderBloc>.value(value: orderBloc),
+          BlocProvider<AuthBloc>.value(value: authBloc),
+          BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
+          BlocProvider<RatingBloc>.value(value: ratingBloc),
+        ],
+        child: MaterialApp(
+          locale: locale,
+          // The app's delegates: Afan Oromo has no built-in Material strings.
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            FallbackMaterialLocalizationsDelegate(),
+            GlobalWidgetsLocalizations.delegate,
+            FallbackCupertinoLocalizationsDelegate(),
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const OrderDetailScreen(orderId: 'order-001'),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  group('farmer', () {
+    testWidgets('answers a new paid order, with its deadline', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      expect(find.text(en.commitmentTitle.toUpperCase()), findsOneWidget);
+      expect(find.text(en.acceptOrder), findsOneWidget);
+      expect(find.text(en.rejectOrder), findsOneWidget);
+      expect(find.textContaining('Please answer by'), findsOneWidget);
+      expect(find.text(en.commitmentNotAskedYet), findsOneWidget);
+      // The farmer cannot cancel a paid order before answering.
+      expect(find.text(en.cancelOrder), findsNothing);
+    });
+
+    // Farmer · Answer a new order board: the note, and a reject that asks
+    // why (farmer reasons only) and says the buyer is refunded.
+    testWidgets('rejecting asks why, then sends the reason', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+      expect(find.text(en.farmerAnswerNote), findsOneWidget);
+
+      await tester.ensureVisible(find.text(en.rejectOrder));
+      await tester.tap(find.text(en.rejectOrder));
+      await tester.pumpAndSettle();
+
+      expect(find.text(en.farmerRejectRefundNote), findsOneWidget);
+      expect(find.text(en.declineReasonDate), findsOneWidget);
+      expect(find.text(en.declineReasonPrice), findsOneWidget);
+      expect(find.text(en.declineReasonCropNotReady), findsOneWidget);
+      expect(find.text(en.declineReasonOther), findsOneWidget);
+      expect(find.text(en.declineReasonCapacity), findsNothing);
+      expect(find.text(en.declineReasonRoute), findsNothing);
+      verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+
+      await tester.tap(find.text(en.declineReasonPrice));
+      await tester.pumpAndSettle();
+
+      // FarmerRejectConfirmM: the confirm step says what rejecting means
+      // for the buyer's money and names the reason; nothing is sent yet.
+      expect(find.text(en.rejectConfirmTitle), findsOneWidget);
+      expect(find.text(en.rejectConfirmBody), findsOneWidget);
+      expect(
+        find.text(en.rejectConfirmReason(en.declineReasonPrice)),
+        findsOneWidget,
+      );
+      verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+      // The destructive pill: red with white ink.
+      final yes = tester.widget<FilledButton>(
+        find.byKey(const Key('reject_confirm_yes')),
+      );
+      expect(
+        yes.style!.backgroundColor!.resolve({}),
+        AppTheme.statusError,
+      );
+      expect(yes.style!.foregroundColor!.resolve({}), Colors.white);
+
+      await tester.tap(find.text(en.rejectConfirmYes));
+      await tester.pumpAndSettle();
+
+      final sent = verify(
+        () => orderBloc.add(captureAny(that: isA<RejectOrder>())),
+      ).captured.single as RejectOrder;
+      expect(sent.declineReason, 'price');
+      expect(sent.farmerId, 'farmer-001');
+      expect(find.text(en.rejectConfirmTitle), findsNothing);
+    });
+
+    // FarmerRejectConfirmM: the way back. "Keep order", or a dismiss of the
+    // confirm step, rejects nothing and leaves the answer buttons.
+    for (final (name, leave) in <(String, Future<void> Function(WidgetTester))>[
+      (
+        'Keep order',
+        (tester) => tester.tap(find.text(en.rejectConfirmKeep)),
+      ),
+      ('a dismiss', (tester) => tester.tapAt(const Offset(10, 10))),
+    ]) {
+      testWidgets('$name on the confirm step rejects nothing', (tester) async {
+        await show(
+          tester,
+          _order(OrderStatus.funded),
+          UserRole.farmer,
+          'farmer-001',
+        );
+        await tester.ensureVisible(find.text(en.rejectOrder));
+        await tester.tap(find.text(en.rejectOrder));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(en.declineReasonDate));
+        await tester.pumpAndSettle();
+        expect(find.text(en.rejectConfirmTitle), findsOneWidget);
+
+        await leave(tester);
+        await tester.pumpAndSettle();
+
+        expect(find.text(en.rejectConfirmTitle), findsNothing);
+        verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+        expect(find.text(en.acceptOrder), findsOneWidget);
+        expect(find.text(en.rejectOrder), findsOneWidget);
+      });
+    }
+
+    // FarmerOrderRequestM: under the farmer's own row, what is asked of
+    // them and by when, and what accepting does.
+    testWidgets('reads that it is their turn, and what accepting does',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      final note = find.byKey(const Key('commitment_your_turn_note'));
+      expect(note, findsOneWidget);
+      final text = tester.widget<Text>(
+        find.descendant(of: note, matching: find.byType(Text)).first,
+      );
+      final said = text.textSpan!.toPlainText();
+      expect(said, startsWith('It is your turn: accept or reject by '));
+      expect(said, endsWith(en.commitmentFarmerAcceptThenTrucker));
+      // The farmer's own row says it waits for them; the orange Accept
+      // leads the foot, over Reject.
+      expect(find.text(en.commitmentWaiting), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text(en.acceptOrder)).dy,
+        lessThan(tester.getTopLeft(find.text(en.rejectOrder)).dy),
+      );
+    });
+
+    testWidgets('a self-pickup order: accepting keeps the money in escrow',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded)
+          ..tripId = null
+          ..truckerId = null
+          ..truckerName = null
+          ..fulfillment = 'buyer_pickup'
+          ..truckerResponse = null,
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      expect(
+        find.textContaining(en.commitmentFarmerAcceptEscrowStays),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(en.commitmentFarmerAcceptThenTrucker),
+        findsNothing,
+      );
+    });
+
+    testWidgets('no turn note once the farmer has answered', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending'),
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      expect(find.byKey(const Key('commitment_your_turn_note')), findsNothing);
+      expect(find.byKey(const Key('commitment_waiting_on_note')), findsNothing);
+    });
+
+    testWidgets('dismissing the reasons rejects nothing', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+      await tester.ensureVisible(find.text(en.rejectOrder));
+      await tester.tap(find.text(en.rejectOrder));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(en.cancel).last);
+      await tester.pumpAndSettle();
+
+      verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+    });
+
+    testWidgets('after accepting, waits for the trucker', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending'),
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      expect(find.text(en.acceptOrder), findsNothing);
+      expect(find.text(en.rejectOrder), findsNothing);
+      // The trucker's row: the orange pill with when the answer is due.
+      expect(find.textContaining('Answer due '), findsOneWidget);
+    });
+
+    testWidgets('cancels without penalty after the transport fell through',
+        (tester) async {
+      await show(
+        tester,
+        _order(
+          OrderStatus.awaitingTransport,
+          farmer: 'accepted',
+          trucker: 'declined',
+          transportFailure: 'trucker_declined',
+        ),
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      expect(find.text(en.farmerCancelWithoutPenalty), findsOneWidget);
+      expect(find.textContaining(en.transportFailedFarmerBody), findsOneWidget);
+      expect(
+        find.textContaining(en.transportFailureTruckerDeclined),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('trucker', () {
+    testWidgets('is not asked before the farmer accepts', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.trucker,
+        'trucker-001',
+      );
+
+      expect(find.text(en.truckerAcceptRequest), findsNothing);
+      expect(find.text(en.truckerDeclineRequest), findsNothing);
+      expect(find.text(en.commitmentTruckerNotAskedNote), findsOneWidget);
+      // Not committed: no contact with the parties yet.
+      expect(find.text(en.contactBuyer), findsNothing);
+    });
+
+    testWidgets('accepts the transport request', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending'),
+        UserRole.trucker,
+        'trucker-001',
+      );
+
+      await tester.tap(find.text(en.truckerAcceptRequest));
+      await tester.pump();
+
+      verify(
+        () => orderBloc.add(
+          any(
+            that: isA<TruckerAcceptOrder>()
+                .having((e) => e.truckerId, 'truckerId', 'trucker-001'),
+          ),
+        ),
+      ).called(1);
+    });
+
+    testWidgets('declines with a reason', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending'),
+        UserRole.trucker,
+        'trucker-001',
+      );
+
+      await tester.tap(find.text(en.truckerDeclineRequest));
+      await tester.pumpAndSettle();
+      expect(find.text(en.declineReasonTitle), findsOneWidget);
+      await tester.tap(find.text(en.declineReasonCapacity));
+      await tester.pumpAndSettle();
+
+      verify(
+        () => orderBloc.add(
+          any(
+            that: isA<TruckerDeclineOrder>()
+                .having((e) => e.declineReason, 'reason', 'capacity'),
+          ),
+        ),
+      ).called(1);
+    });
+
+    testWidgets('may drop out of an accepted order before pickup',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.accepted, farmer: 'accepted', trucker: 'accepted'),
+        UserRole.trucker,
+        'trucker-001',
+      );
+
+      expect(find.text(en.truckerDropOut), findsOneWidget);
+      await tester.tap(find.text(en.truckerDropOut));
+      await tester.pumpAndSettle();
+      expect(find.text(en.truckerDropOutWarning), findsOneWidget);
+    });
+
+    testWidgets('no drop-out on a server without commitments', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.accepted, commitments: false),
+        UserRole.trucker,
+        'trucker-001',
+      );
+
+      expect(find.text(en.truckerDropOut), findsNothing);
+      expect(find.text(en.commitmentTitle), findsNothing);
+    });
+  });
+
+  group('buyer', () {
+    testWidgets('cannot cancel while the parties decide, and is told why',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      expect(find.text(en.cancelOrder), findsNothing);
+      expect(find.text(en.commitmentBuyerWaitingNote), findsOneWidget);
+    });
+
+    testWidgets('still cancels a funded order on a server without commitments',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded, commitments: false),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      expect(find.text(en.cancelOrder), findsOneWidget);
+      expect(find.text(en.commitmentTitle), findsNothing);
+    });
+
+    testWidgets('cancels for a full refund after the transport fell through',
+        (tester) async {
+      await show(
+        tester,
+        _order(
+          OrderStatus.awaitingTransport,
+          farmer: 'accepted',
+          trucker: 'expired',
+          transportFailure: 'trucker_expired',
+        ),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      expect(find.text(en.statusAwaitingTransport), findsWidgets);
+      expect(
+        find.textContaining('Cancel for a full refund by'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text(en.cancelOrder));
+      await tester.pumpAndSettle();
+      expect(find.text(en.cancelOrderAwaitingTransportBody), findsOneWidget);
+    });
+  });
+
+  // BuyerOrderDetailM: the buyer reads who the paid order waits for and
+  // that there is nothing for them to do; the farmer and the trucker do not.
+  group('buyer waiting note', () {
+    String said(WidgetTester tester) {
+      final note = find.byKey(const Key('commitment_waiting_on_note'));
+      expect(note, findsOneWidget);
+      return tester
+          .widget<Text>(
+            find.descendant(of: note, matching: find.byType(Text)).first,
+          )
+          .textSpan!
+          .toPlainText();
+    }
+
+    testWidgets(
+        'while the farmer decides: the farmer, by when, then the '
+        'trucker', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      final text = said(tester);
+      expect(
+        text,
+        startsWith('Now waiting for Farmer Fikru, the farmer, to answer by '),
+      );
+      expect(text, contains('You do not need to do anything.'));
+      expect(text, endsWith(en.commitmentThenTruckerAsked));
+      // Why it cannot be cancelled yet stays under it.
+      expect(find.text(en.commitmentBuyerWaitingNote), findsOneWidget);
+    });
+
+    testWidgets(
+        'while the trucker decides: the trucker, by when, then '
+        'contact opens', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending'),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      final text = said(tester);
+      expect(
+        text,
+        startsWith(
+          'Now waiting for Trucker Tesfaye, the trucker, to answer by ',
+        ),
+      );
+      expect(text, contains('You do not need to do anything.'));
+      expect(text, endsWith(en.commitmentContactOpensOnTruckerAccept));
+      // The farmer's answer is a pill, the trucker's the deadline pill.
+      // (The timeline has an "Accepted" step too.)
+      expect(find.text(en.commitmentAccepted), findsWidgets);
+      expect(find.textContaining('Answer due '), findsOneWidget);
+    });
+
+    testWidgets('a trucker without a name reads as "the trucker"',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending')
+          ..truckerName = '',
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      expect(
+        said(tester),
+        startsWith('Now waiting for the trucker to answer by '),
+      );
+    });
+
+    testWidgets('gone once everyone has agreed', (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.accepted, farmer: 'accepted', trucker: 'accepted'),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      expect(find.byKey(const Key('commitment_waiting_on_note')), findsNothing);
+    });
+
+    for (final (role, userId) in [
+      (UserRole.farmer, 'farmer-001'),
+      (UserRole.trucker, 'trucker-001'),
+    ]) {
+      testWidgets('not shown to the ${role.name}', (tester) async {
+        await show(
+          tester,
+          _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending'),
+          role,
+          userId,
+        );
+
+        expect(
+          find.byKey(const Key('commitment_waiting_on_note')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('commitment_your_turn_note')),
+          findsNothing,
+        );
+      });
+    }
+  });
+
+  // BUG-L5: the timeline said a step's state with a 4 px colour bar only.
+  group('timeline step icons', () {
+    Finder inTimeline(Finder matching) => find.descendant(
+          of: find.ancestor(
+            of: find.text(en.orderTimeline.toUpperCase()),
+            matching: find.byType(FwCard),
+          ),
+          matching: matching,
+        );
+
+    Finder stepSaying(String state) => inTimeline(
+          find.byWidgetPredicate(
+            (w) => w is Semantics && w.properties.value == state,
+          ),
+        );
+
+    for (final (role, userId) in [
+      (UserRole.buyer, 'buyer-001'),
+      (UserRole.farmer, 'farmer-001'),
+      (UserRole.trucker, 'trucker-001'),
+    ]) {
+      testWidgets('${role.name}: done, current and upcoming steps differ',
+          (tester) async {
+        await show(tester, _order(OrderStatus.funded), role, userId);
+
+        final done = inTimeline(find.byIcon(Icons.check_circle));
+        final current = inTimeline(find.byIcon(Icons.radio_button_checked));
+        final ahead = inTimeline(find.byIcon(Icons.radio_button_unchecked));
+        expect(current, findsOneWidget);
+        expect(done, findsWidgets);
+        expect(ahead, findsWidgets);
+        // One icon per step shown, and a screen reader hears each state.
+        final steps = tester.widgetList(done).length +
+            tester.widgetList(ahead).length +
+            1;
+        expect(stepSaying(en.orderTimelineStepNow), findsOneWidget);
+        expect(
+          stepSaying(en.orderTimelineStepDone),
+          findsNWidgets(tester.widgetList(done).length),
+        );
+        expect(
+          stepSaying(en.orderTimelineStepLater),
+          findsNWidgets(tester.widgetList(ahead).length),
+        );
+        expect(steps, greaterThanOrEqualTo(3));
+      });
+    }
+
+    testWidgets('a cancelled order: created is done, cancelled is where it is',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.cancelled),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      expect(inTimeline(find.byIcon(Icons.check_circle)), findsOneWidget);
+      expect(
+        inTimeline(find.byIcon(Icons.radio_button_checked)),
+        findsOneWidget,
+      );
+      // Nothing is still ahead of a cancelled order.
+      expect(
+        inTimeline(find.byIcon(Icons.radio_button_unchecked)),
+        findsNothing,
+      );
+    });
+  });
+
+  testWidgets('a status this build does not know shows Updating, no actions',
+      (tester) async {
+    await show(
+      tester,
+      _order(OrderStatus.unknown),
+      UserRole.buyer,
+      'buyer-001',
+    );
+
+    // The summary card's status chip says so (the timeline may too).
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('order_summary_hero')),
+        matching: find.text(en.orderStatusUpdating),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text(en.cancelOrder), findsNothing);
+    expect(find.text(en.payNow), findsNothing);
+  });
+
+  // LT-03: deadlines on the viewer's clock. 08:00 UTC is 11:00 in Ethiopia,
+  // 5:00 in the morning on the Ethiopian clock.
+  group('Ethiopian clock', () {
+    final am = lookupAppLocalizations(const Locale('am'));
+    final om = lookupAppLocalizations(const Locale('om'));
+
+    String withSmall24h(String sentence, String time, String time24) =>
+        sentence.replaceFirst(time, '$time ($time24)');
+
+    testWidgets('English keeps the 24-hour clock, no companion',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+      expect(find.text(en.commitmentAnswerBy('Oct 27 11:00')), findsOneWidget);
+    });
+
+    testWidgets('farmer in Amharic: the answer deadline with the 24-hour time',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+        locale: const Locale('am'),
+      );
+      // FUP-545: the Ethiopian date (Tikimt 17) first, the Gregorian one in
+      // brackets.
+      const time = 'ጥቅምት 17 (ኦክቶ 27) ከጠዋቱ 5:00';
+      expect(
+        find.text(withSmall24h(am.commitmentAnswerBy(time), time, '11:00')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('trucker in Amharic: the answer deadline with the 24-hour time',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded, farmer: 'accepted', trucker: 'pending'),
+        UserRole.trucker,
+        'trucker-001',
+        locale: const Locale('am'),
+      );
+      // FUP-545: the Ethiopian date (Tikimt 18) first.
+      const time = 'ጥቅምት 18 (ኦክቶ 28) ከጠዋቱ 5:00';
+      expect(
+        find.text(withSmall24h(am.commitmentAnswerBy(time), time, '11:00')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('buyer in Afaan Oromo: who is waiting, and until when',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded),
+        UserRole.buyer,
+        'buyer-001',
+        locale: const Locale('om'),
+      );
+      // BUG-L2: Oromo month names, not "Oct". FUP-545: the Ethiopian date
+      // (Tikimt 17, Onkoloolessa in Afaan Oromoo) first.
+      const time = 'Onkoloolessa 17 (Onk 27) 5:00 ganama';
+      expect(
+        find.text(withSmall24h(om.commitmentAnswerDue(time), time, '11:00')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('buyer in Amharic: the refund choice deadline after a failure',
+        (tester) async {
+      await show(
+        tester,
+        _order(
+          OrderStatus.awaitingTransport,
+          farmer: 'accepted',
+          trucker: 'declined',
+          transportFailure: 'trucker_declined',
+        ),
+        UserRole.buyer,
+        'buyer-001',
+        locale: const Locale('am'),
+      );
+      // FUP-545: the Ethiopian date (Tikimt 19) first.
+      const time = 'ጥቅምት 19 (ኦክቶ 29) ከጠዋቱ 5:00';
+      expect(
+        find.textContaining(
+          withSmall24h(am.transportFailedBuyerBody(time), time, '11:00'),
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
+  // Buyer · Order detail and Farmer · Answer a new order boards: the summary
+  // card shows each party their own money.
+  group('summary card', () {
+    Order priced(OrderStatus status) => _order(status)
+      ..cropCost = 8000
+      ..transportCost = 300
+      ..commissionAmount = 425
+      ..orderTotal = 8725;
+
+    Finder inHero(String text) => find.descendant(
+          of: find.byKey(const Key('order_summary_hero')),
+          matching: find.text(text),
+        );
+
+    testWidgets('the farmer sees what they receive', (tester) async {
+      await show(
+        tester,
+        priced(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      // Farmer · Answer a new order: the header names the new order, the
+      // card shows what they receive, the buyer and that the money is in.
+      expect(inHero(en.detailNewOrderTitle), findsOneWidget);
+      expect(find.text(en.orderYouReceive), findsOneWidget);
+      expect(find.text(en.etbCurrency('8,000')), findsOneWidget);
+      expect(find.text('Buyer Bee'), findsOneWidget);
+      expect(find.text(en.detailPaidIntoEscrow), findsOneWidget);
+    });
+
+    // F-1: an order from before the cost breakdown carries no cropCost; a
+    // synced row has no totalPrice either. The farmer reads weight times
+    // price, never the buyer's total.
+    testWidgets('the farmer of a legacy order reads weight times price',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.funded)
+          ..totalPrice = 0
+          ..orderTotal = 8725,
+        UserRole.farmer,
+        'farmer-001',
+      );
+
+      expect(find.text(en.orderYouReceive), findsOneWidget);
+      expect(find.text(en.etbCurrency('8,500')), findsOneWidget);
+      expect(find.text(en.etbCurrency('8,725')), findsNothing);
+    });
+
+    testWidgets('the buyer sees the total and the farmer', (tester) async {
+      await show(
+        tester,
+        priced(OrderStatus.funded),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      // Buyer · Order detail: the money held closes the page.
+      expect(find.text(en.detailHeldInEscrow), findsOneWidget);
+      expect(find.text(en.etbCurrency('8,725')), findsOneWidget);
+      expect(inHero(en.liveTripFrom('Farmer Fikru')), findsOneWidget);
+    });
+
+    // Boards: "From Almaz Bekele · Thu 30 Oct trip" and "Thu 30 Oct ·
+    // Dawit Tesfaye's truck", from the trip's departure stamped at funding
+    // (03:00 UTC on Friday Oct 30 is the same day in Addis Ababa).
+    Order dated() =>
+        priced(OrderStatus.funded)..pickupDate = DateTime.utc(2026, 10, 30, 3);
+
+    testWidgets('the buyer header names the trip day', (tester) async {
+      await show(tester, dated(), UserRole.buyer, 'buyer-001');
+      expect(
+        inHero(
+          '${en.liveTripFrom('Farmer Fikru')} · '
+          '${en.orderTripOn('Fri\u00A030\u00A0Oct')}',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the farmer pickup row names the trip day', (tester) async {
+      await show(tester, dated(), UserRole.farmer, 'farmer-001');
+      expect(
+        find.text(
+          'Fri\u00A030\u00A0Oct · ${en.detailTruckOf('Trucker Tesfaye')}',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('without a trip day the pickup row names the truck only',
+        (tester) async {
+      await show(
+        tester,
+        priced(OrderStatus.funded),
+        UserRole.farmer,
+        'farmer-001',
+      );
+      expect(find.text(en.detailTruckOf('Trucker Tesfaye')), findsOneWidget);
+    });
+
+    testWidgets('the trucker sees the transport pay', (tester) async {
+      await show(
+        tester,
+        priced(OrderStatus.accepted),
+        UserRole.trucker,
+        'trucker-001',
+      );
+
+      expect(find.text(en.orderYourTransportPay), findsOneWidget);
+      expect(find.text(en.etbCurrency('300')), findsOneWidget);
+    });
+
+    testWidgets('a trip order without a transport cost shows no 0 ETB',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.accepted)..cropCost = 8500,
+        UserRole.trucker,
+        'trucker-001',
+      );
+
+      expect(find.text(en.orderYourTransportPay), findsOneWidget);
+      expect(find.text(en.etbCurrency('0')), findsNothing);
+    });
+
+    testWidgets('no escrow line before the money is in', (tester) async {
+      await show(
+        tester,
+        priced(OrderStatus.created),
+        UserRole.buyer,
+        'buyer-001',
+      );
+
+      expect(find.text(en.detailHeldInEscrow), findsNothing);
+      expect(find.text(en.orderTotal), findsOneWidget);
+    });
+  });
+
+  // Buyer · Order detail board: Created, Funded, Accepted, Live trip, then
+  // Pickup Confirmed, In Transit, Delivered and Settled.
+  group('timeline', () {
+    testWidgets('a trip order shows the Live trip step after Accepted',
+        (tester) async {
+      await show(
+        tester,
+        _order(OrderStatus.accepted, farmer: 'accepted', trucker: 'accepted'),
+        UserRole.buyer,
+        'buyer-001',
+      );
+      expect(find.text(en.liveTripTitle), findsWidgets);
+      expect(
+        find.text(
+          en.detailTimelineThen(
+            '${en.statusPickupConfirmed}, ${en.statusInTransit}, '
+            '${en.statusDelivered} and ${en.statusSettled}',
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a self-pickup order has no Live trip step', (tester) async {
+      final order = _order(OrderStatus.accepted, farmer: 'accepted')
+        ..tripId = null
+        ..truckerId = null
+        ..truckerName = null
+        ..fulfillment = 'self_pickup'
+        ..truckerResponse = 'none';
+      await show(tester, order, UserRole.buyer, 'buyer-001');
+      expect(
+        find.text(
+          en.detailTimelineThen(
+            '${en.statusInTransit}, ${en.statusDelivered} and '
+            '${en.statusSettled}',
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+}

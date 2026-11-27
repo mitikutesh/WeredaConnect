@@ -214,6 +214,99 @@ public class RegisterFunctionTests
         Assert.Contains("AUTH_007", response.Body);
     }
 
+    // ===== SIM-27 (auth-api 2.13.0): a missing field gets its own code, not AUTH_007 =====
+
+    [Theory]
+    [InlineData("phoneNumber", "AUTH_001")]
+    [InlineData("password", "AUTH_002")]
+    [InlineData("role", "AUTH_003")]
+    [InlineData("woreda", "AUTH_004")]
+    [InlineData("faydaVerificationToken", "AUTH_021")]
+    public async Task FunctionHandler_MissingField_AnswersThatFieldsCode(string field, string code)
+    {
+        var body = new Dictionary<string, string>
+        {
+            ["phoneNumber"] = "+251912345678",
+            ["password"] = "secure123",
+            ["role"] = "farmer",
+            ["woreda"] = "Adama",
+            ["faydaVerificationToken"] = "valid-token",
+        };
+        body.Remove(field);
+
+        var response = await _function.FunctionHandler(MakeRequest(body), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+        Assert.DoesNotContain("Invalid JSON", response.Body);
+        await _mockAuth.DidNotReceive().RegisterAsync(
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>());
+    }
+
+    [Theory]
+    [InlineData("0912345678")]
+    [InlineData("00251912345678")]
+    [InlineData("0912 345-678")]
+    public async Task FunctionHandler_LocalPhone_IsRegisteredInE164(string typed)
+    {
+        // auth-api 2.13.0: local and 00251 spellings are accepted and normalised to +251.
+        SetUpSuccessfulSignUp();
+
+        var request = MakeRequest(new
+        {
+            phoneNumber = typed,
+            password = "secure123",
+            role = "farmer",
+            woreda = "Adama",
+            faydaVerificationToken = "valid-token",
+            preferredLanguage = "am"
+        });
+
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(201, response.StatusCode);
+        using var doc = JsonDocument.Parse(response.Body);
+        Assert.Equal("+251912345678", doc.RootElement.GetProperty("phoneNumber").GetString());
+        await _mockAuth.Received(1).RegisterAsync(
+            "+251912345678", Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_NoPreferredLanguage_RegistersInAmharic()
+    {
+        // The field is optional with default am. The source-generated reader left it null, which
+        // was refused as AUTH_007 "Invalid language" (SIM-27).
+        SetUpSuccessfulSignUp();
+        var body = new Dictionary<string, string>
+        {
+            ["phoneNumber"] = "+251912345678",
+            ["password"] = "secure123",
+            ["role"] = "farmer",
+            ["woreda"] = "Adama",
+            ["faydaVerificationToken"] = "valid-token",
+        };
+
+        var response = await _function.FunctionHandler(MakeRequest(body), _context);
+
+        Assert.Equal(201, response.StatusCode);
+        await _mockAuth.Received(1).RegisterAsync(
+            "+251912345678", Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<string>(), Arg.Any<string?>(), "am");
+    }
+
+    private void SetUpSuccessfulSignUp()
+    {
+        _mockAuth.RegisterAsync(
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>())
+            .Returns(AuthResult<string>.Success("user-abc"));
+        _mockRepo.CreateUserAsync(Arg.Any<UserDto>())
+            .Returns(ci => AuthResult<UserDto>.Success(ci.Arg<UserDto>()));
+    }
+
     [Fact]
     public async Task FunctionHandler_ValidationFails_Returns400WithFirstError()
     {

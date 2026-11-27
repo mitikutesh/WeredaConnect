@@ -270,6 +270,36 @@ public class LoginFunctionTests
         Assert.Contains("AUTH_007", response.Body);
     }
 
+    [Theory]
+    [InlineData("{\"password\":\"secure123\"}", "AUTH_001", "phoneNumber")]
+    [InlineData("{\"phoneNumber\":\"+251912345678\"}", "AUTH_002", "password")]
+    [InlineData("{}", "AUTH_001", "phoneNumber")]
+    public async Task FunctionHandler_MissingField_AnswersThatFieldsCode(string body, string code, string field)
+    {
+        // SIM-27 (auth-api 2.13.0): it was AUTH_007 "Invalid JSON".
+        var response = await _function.FunctionHandler(new APIGatewayProxyRequest { Body = body }, _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+        await _mockAuth.DidNotReceive().LoginAsync(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task FunctionHandler_LocalPhone_SignsInWithE164()
+    {
+        // auth-api 2.13.0: 0912345678 is the same account as +251912345678.
+        _mockAuth.LoginAsync(Arg.Any<string>(), Arg.Any<string>())
+            .Returns(AuthResult<CognitoAuthTokens>.Success(TestTokens));
+        _mockRepo.GetUserByPhoneAsync("+251912345678").Returns(TestUser);
+
+        var response = await _function.FunctionHandler(
+            MakeRequest(new { phoneNumber = "0912345678", password = "secure123" }), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await _mockAuth.Received(1).LoginAsync("+251912345678", "secure123");
+    }
+
     [Fact]
     public async Task FunctionHandler_ValidationFails_Returns400()
     {

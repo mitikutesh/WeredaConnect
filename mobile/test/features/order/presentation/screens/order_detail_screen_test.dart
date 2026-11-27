@@ -7,10 +7,13 @@ import 'package:mocktail/mocktail.dart';
 import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
+import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
@@ -20,16 +23,20 @@ import 'package:wereda_connect/features/delivery_verification/presentation/bloc/
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/screens/delivery_detail_screen.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_detail_screen.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
-import 'package:wereda_connect/features/rating/presentation/bloc/rating_state.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/features/order/presentation/screens/payment_instructions_screen.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
+
+class MockOrderRepository extends Mock implements BaseOrderRepository {}
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -42,6 +49,8 @@ class MockRatingBloc extends Mock implements RatingBloc {}
 class MockRatingRepository extends Mock implements BaseRatingRepository {}
 
 class MockMarketplaceSync extends Mock implements MarketplaceSync {}
+
+class MockConnectivityMonitor extends Mock implements ConnectivityMonitor {}
 
 class FakeOrderEvent extends Fake implements OrderEvent {}
 
@@ -249,6 +258,38 @@ void main() {
           .called(1);
     });
 
+    // FUP-130: an order without a real farmer name (empty, or an old row
+    // holding the id) never sends the id as the delivery's farmerName.
+    for (final stored in ['', '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b']) {
+      testWidgets(
+          'trucker create with farmerName "$stored" sends an empty name, '
+          'not an id', (tester) async {
+        stubAuth(UserRole.trucker, _truckerId);
+        await tester.pumpWidget(
+          buildScreen(
+            _makeOrder(
+              tripId: _tripId,
+              truckerId: _truckerId,
+              truckerName: 'Trucker Tesfaye',
+            )..farmerName = stored,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final button = find.text('Create Delivery');
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pump();
+
+        final sent = verify(() => deliveryBloc.add(captureAny()))
+            .captured
+            .whereType<CreateDelivery>()
+            .single;
+        expect(sent.farmerName, '');
+        expect(sent.farmerId, _farmerId);
+      });
+    }
+
     testWidgets(
         'buyer with no trucker sees "Collect it myself" once accepted '
         'and tapping dispatches CreateSelfPickupDelivery', (tester) async {
@@ -420,7 +461,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(DeliveryDetailScreen), findsOneWidget);
 
-      await tester.pageBack();
+      // The delivery detail has no app bar: its back is the square button.
+      await tester.tap(
+        find.descendant(
+          of: find.byType(DeliveryDetailScreen),
+          matching: find.byType(FwBackButton),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Collect it myself'), findsNothing);
@@ -563,6 +610,171 @@ void main() {
       for (final label in payLabels) {
         expect(find.text(label), findsNothing);
       }
+    });
+
+    // BUG-17: the payment knows the order's page is under it, so a paid
+    // order closes the payment only (never the order's page too).
+    testWidgets('Pay Now opens the payment over this page', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(_makeOrder(status: OrderStatus.created)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Pay Now'));
+      await tester.pumpAndSettle();
+
+      final payment = tester.widget<PaymentInstructionsScreen>(
+        find.byType(PaymentInstructionsScreen),
+      );
+      expect(payment.fromOrderDetail, isTrue);
+    });
+  });
+
+  // BUG-22: the buyer sees what the total is made of, from the order's own
+  // server fields. The farmer and the trucker keep their own card and never
+  // see the buyer's commission.
+  group('OrderDetailScreen price breakdown (BUG-22)', () {
+    Order pricedOrder({bool withTrip = true}) => _makeOrder(
+          status: OrderStatus.funded,
+          tripId: withTrip ? _tripId : null,
+          truckerId: withTrip ? _truckerId : null,
+          truckerName: withTrip ? 'Trucker Tesfaye' : null,
+        )
+          ..cropCost = 2800
+          ..transportCost = withTrip ? 120 : null
+          ..commissionRate = 0.05
+          ..commissionAmount = 140
+          ..orderTotal = withTrip ? 3060 : 2940;
+
+    const cropKey = Key('order_buyer_crop_cost');
+    const transportKey = Key('order_buyer_transport_cost');
+    const commissionKey = Key('order_buyer_commission');
+
+    String amountOf(WidgetTester tester, Key key) =>
+        tester.widget<FwMoneyRow>(find.byKey(key)).amount;
+
+    testWidgets('buyer: crop, transport, commission and the total',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(buildScreen(pricedOrder()));
+      await tester.pumpAndSettle();
+
+      expect(amountOf(tester, cropKey), '2,800 ETB');
+      expect(amountOf(tester, transportKey), '120 ETB');
+      expect(amountOf(tester, commissionKey), '140 ETB');
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('order_buyer_total')),
+          matching: find.text('3,060 ETB'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    // The rate is negotiable per order: the label carries the order's own
+    // rate, never a fixed 5%.
+    testWidgets('the commission row names the order\'s own rate',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(
+          pricedOrder()
+            ..commissionRate = 0.025
+            ..commissionAmount = 70
+            ..orderTotal = 2990,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<FwMoneyRow>(find.byKey(commissionKey)).label,
+        'Platform Commission · 2.5%',
+      );
+      expect(amountOf(tester, commissionKey), '70 ETB');
+      expect(find.textContaining('5%)'), findsNothing);
+    });
+
+    testWidgets('buyer of a self-pickup order: no transport row',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(buildScreen(pricedOrder(withTrip: false)));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(cropKey), findsOneWidget);
+      expect(find.byKey(transportKey), findsNothing);
+      expect(find.byKey(commissionKey), findsOneWidget);
+    });
+
+    testWidgets('an order without the server split shows the total alone',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(_makeOrder(status: OrderStatus.funded)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('order_buyer_total')), findsOneWidget);
+      expect(find.byKey(cropKey), findsNothing);
+      expect(find.byKey(commissionKey), findsNothing);
+    });
+
+    for (final (role, userId) in [
+      (UserRole.farmer, _farmerId),
+      (UserRole.trucker, _truckerId),
+    ]) {
+      testWidgets('${role.name} sees no buyer breakdown and no commission',
+          (tester) async {
+        stubAuth(role, userId);
+        await tester.pumpWidget(buildScreen(pricedOrder()));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('order_buyer_total')), findsNothing);
+        expect(find.byKey(commissionKey), findsNothing);
+        expect(find.text('140 ETB'), findsNothing);
+        expect(find.text('3,060 ETB'), findsNothing);
+      });
+    }
+  });
+
+  group('OrderDetailScreen load failures', () {
+    Widget failed(AppErrorCode code) {
+      when(() => orderBloc.state)
+          .thenReturn(OrderError(message: 'x', code: code));
+      return MultiBlocProvider(
+        providers: [
+          BlocProvider<OrderBloc>.value(value: orderBloc),
+          BlocProvider<AuthBloc>.value(value: authBloc),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: Locale('en'),
+          home: OrderDetailScreen(orderId: 'order-001'),
+        ),
+      );
+    }
+
+    // BUG-30: the server answers 403 for someone else's order.
+    testWidgets("someone else's order says so, not \"an error occurred\"",
+        (tester) async {
+      stubAuth(UserRole.trucker, 'another-trucker');
+      await tester.pumpWidget(failed(AppErrorCode.forbidden));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('You are not authorized to view this order.'),
+        findsOneWidget,
+      );
+      expect(find.text('An error occurred'), findsNothing);
+    });
+
+    testWidgets('no connection says so', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(failed(AppErrorCode.network));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No internet connection'), findsOneWidget);
     });
   });
 
@@ -709,13 +921,13 @@ void main() {
       });
     }
 
-    // ACC-03: a deleted farmer is shown as the localized "Deleted user" on
-    // the order and in the rating dialog.
-    testWidgets('am: a deleted farmer reads in Amharic, also when rating',
+    // ACC-03 + FUP-105: a deleted farmer reads as the localized "Deleted user"
+    // on the order, and the buyer gets no Rate button for them (the server
+    // refuses a rating of a deleted party).
+    testWidgets('am: a deleted farmer reads in Amharic and cannot be rated',
         (tester) async {
       tallView(tester);
       stubAuth(UserRole.buyer, _buyerId);
-      when(() => ratingBloc.state).thenReturn(const RatingInitial());
       await tester.pumpWidget(
         buildScreen(
           _makeOrder(status: OrderStatus.settled)
@@ -727,12 +939,45 @@ void main() {
       final am = lookupAppLocalizations(const Locale('am'));
 
       expect(find.text(am.deletedUser), findsOneWidget);
+      expect(find.text(am.rateFarmer), findsNothing);
+      expect(find.text(deletedUserSentinel), findsNothing);
+    });
 
-      await tester.tap(find.text(am.rateFarmer));
+    // FUP-105: hide the Rate button for a deleted party on the order.
+    testWidgets('buyer gets no Rate Farmer button for a deleted farmer',
+        (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(
+          _makeOrder(status: OrderStatus.settled)
+            ..farmerName = deletedUserSentinel,
+        ),
+      );
       await tester.pumpAndSettle();
 
-      expect(find.text(am.deletedUser), findsNWidgets(2));
-      expect(find.text(deletedUserSentinel), findsNothing);
+      expect(find.text('Rate Farmer'), findsNothing);
+    });
+
+    // FUP-105: only the deleted party's button goes; a live party is still rated.
+    testWidgets(
+        'buyer gets no Rate Trucker button for a deleted trucker but still '
+        'rates the farmer', (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(
+          _makeOrder(
+            status: OrderStatus.settled,
+            truckerId: _truckerId,
+            truckerName: deletedUserSentinel,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Rate Trucker'), findsNothing);
+      expect(find.text('Rate Farmer'), findsOneWidget);
     });
 
     testWidgets('the farmer never sees the rate section on a disbursing order',
@@ -778,7 +1023,11 @@ void main() {
       return order;
     }
 
+    // The contact card's rows (the board's name, role, Message and Call).
     const allButtons = ['Contact Buyer', 'Contact Farmer', 'Contact Trucker'];
+    Finder contactRow(String label) => find.byKey(
+          Key('order_contact_${label.split(' ').last.toLowerCase()}'),
+        );
     const escrowNote = 'Contact opens after payment is held in escrow.';
     const acceptNote = 'Contact opens once the farmer accepts the order.';
 
@@ -796,7 +1045,7 @@ void main() {
 
         for (final label in allButtons) {
           expect(
-            find.text(label),
+            contactRow(label),
             expected.contains(label) ? findsOneWidget : findsNothing,
             reason: label,
           );
@@ -814,11 +1063,15 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Contact Farmer'));
+      await tester.tap(contactRow('Contact Farmer'));
       await tester.pumpAndSettle();
 
+      final sheet = find.byType(BottomSheet);
       expect(find.text('+251911000002'), findsOneWidget);
-      expect(find.text('Call'), findsOneWidget);
+      expect(
+        find.descendant(of: sheet, matching: find.text('Call')),
+        findsOneWidget,
+      );
       expect(find.text('Send a message'), findsOneWidget);
     });
 
@@ -831,12 +1084,124 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Contact Buyer'));
+      await tester.tap(contactRow('Contact Buyer'));
       await tester.pumpAndSettle();
 
       expect(find.text('Phone number not available'), findsOneWidget);
       expect(find.text('Call'), findsNothing);
       expect(find.text('Send a message'), findsOneWidget);
+    });
+
+    // BuyerOrderDetailM: Message and Call on the party rows, by the rules
+    // contact already follows (ESC-48). Call shows only with a number.
+    group('Message and Call on the rows', () {
+      final message = find.byKey(const Key('order_contact_message'));
+      final call = find.byKey(const Key('order_contact_call'));
+
+      for (final (role, userId) in [
+        (UserRole.buyer, _buyerId),
+        (UserRole.farmer, _farmerId),
+        (UserRole.trucker, _truckerId),
+      ]) {
+        testWidgets('${role.name}, contact open with numbers: both, per party',
+            (tester) async {
+          tallView(tester);
+          stubAuth(role, userId);
+          await tester.pumpWidget(
+            buildScreen(openOrder(status: OrderStatus.inTransit)),
+          );
+          await tester.pumpAndSettle();
+
+          expect(message, findsNWidgets(2));
+          expect(call, findsNWidgets(2));
+          // The words under the round buttons; never a number on the page.
+          expect(find.text('Message'), findsNWidgets(2));
+          expect(find.text('Call'), findsNWidgets(2));
+          expect(find.textContaining('+2519'), findsNothing);
+        });
+
+        testWidgets('${role.name}, contact open, no number yet: Message only',
+            (tester) async {
+          tallView(tester);
+          stubAuth(role, userId);
+          await tester.pumpWidget(
+            buildScreen(openOrder(contactOpen: null, withPhones: false)),
+          );
+          await tester.pumpAndSettle();
+
+          expect(message, findsNWidgets(2));
+          expect(call, findsNothing);
+        });
+
+        testWidgets('${role.name}, paid but not accepted: neither',
+            (tester) async {
+          tallView(tester);
+          stubAuth(role, userId);
+          await tester.pumpWidget(
+            buildScreen(
+              openOrder(status: OrderStatus.funded, contactOpen: false),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(message, findsNothing);
+          expect(call, findsNothing);
+          expect(find.textContaining('+2519'), findsNothing);
+        });
+
+        testWidgets('${role.name}, after a cancel: neither', (tester) async {
+          tallView(tester);
+          stubAuth(role, userId);
+          await tester.pumpWidget(
+            buildScreen(
+              openOrder(status: OrderStatus.cancelled, contactOpen: false),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(message, findsNothing);
+          expect(call, findsNothing);
+        });
+      }
+
+      testWidgets('Message opens the thread, Call the sheet with the number',
+          (tester) async {
+        tallView(tester);
+        stubAuth(UserRole.buyer, _buyerId);
+        await tester.pumpWidget(
+          buildScreen(openOrder(withTrucker: false)),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(call);
+        await tester.pumpAndSettle();
+        expect(find.text('+251911000002'), findsOneWidget);
+      });
+    });
+
+    // SIM-33: a name field holding the user's id shows the role instead.
+    testWidgets('a party whose name is an id reads as its role',
+        (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      const id = '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b';
+      await tester.pumpWidget(
+        buildScreen(openOrder(withTrucker: false)..farmerName = id),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining(id), findsNothing);
+      expect(
+        find.descendant(
+          of: contactRow('Contact Farmer'),
+          matching: find.text('Farmer'),
+        ),
+        findsWidgets,
+      );
+
+      await tester.tap(contactRow('Contact Farmer'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining(id), findsNothing);
     });
 
     testWidgets('a self-pickup order has no trucker to contact',
@@ -846,8 +1211,8 @@ void main() {
       await tester.pumpWidget(buildScreen(openOrder(withTrucker: false)));
       await tester.pumpAndSettle();
 
-      expect(find.text('Contact Farmer'), findsOneWidget);
-      expect(find.text('Contact Trucker'), findsNothing);
+      expect(contactRow('Contact Farmer'), findsOneWidget);
+      expect(contactRow('Contact Trucker'), findsNothing);
     });
 
     for (final (status, note) in [
@@ -869,7 +1234,7 @@ void main() {
 
         expect(find.text(note), findsOneWidget);
         for (final label in allButtons) {
-          expect(find.text(label), findsNothing, reason: label);
+          expect(contactRow(label), findsNothing, reason: label);
         }
       });
     }
@@ -889,7 +1254,7 @@ void main() {
         await tester.pumpAndSettle();
 
         for (final label in allButtons) {
-          expect(find.text(label), findsNothing, reason: label);
+          expect(contactRow(label), findsNothing, reason: label);
         }
         expect(find.text(escrowNote), findsNothing);
         expect(find.text(acceptNote), findsNothing);
@@ -921,16 +1286,52 @@ void main() {
       states.add(SingleOrderLoaded(order: order));
       await tester.pumpAndSettle();
 
+      // ESC-23: the read on open is that one read.
       verify(() => sync.pullOrder('order-001')).called(1);
       // initState's load, then the reload after the pull.
       verify(() => orderBloc.add(any(that: isA<LoadOrderById>()))).called(2);
     });
 
-    testWidgets('an open order with its numbers is not read again',
+    testWidgets(
+        'an open order without numbers is read again once an unsent change '
+        'that held the first read back is gone', (tester) async {
+      tallView(tester);
+      stubAuth(UserRole.buyer, _buyerId);
+      final order = openOrder(contactOpen: null, withPhones: false);
+      final sync = MockMarketplaceSync();
+      // The read on open sends nothing while a change waits (null).
+      final answers = <Order?>[null, openOrder()];
+      when(() => sync.pullOrder('order-001'))
+          .thenAnswer((_) async => answers.removeAt(0));
+      final states = StreamController<OrderState>.broadcast();
+      addTearDown(states.close);
+      when(() => orderBloc.stream).thenAnswer((_) => states.stream);
+      when(() => orderBloc.isClosed).thenReturn(false);
+
+      await tester.pumpWidget(
+        Provider<MarketplaceSync?>.value(
+          value: sync,
+          child: buildScreen(order),
+        ),
+      );
+      await tester.pumpAndSettle();
+      states.add(SingleOrderLoaded(order: order));
+      await tester.pumpAndSettle();
+      states.add(SingleOrderLoaded(order: order));
+      await tester.pumpAndSettle();
+
+      verify(() => sync.pullOrder('order-001')).called(2);
+      expect(answers, isEmpty);
+    });
+
+    testWidgets('an open order with its numbers is read once, on open (ESC-23)',
         (tester) async {
       tallView(tester);
       stubAuth(UserRole.buyer, _buyerId);
       final sync = MockMarketplaceSync();
+      when(() => sync.pullOrder('order-001'))
+          .thenAnswer((_) async => openOrder());
+      when(() => orderBloc.isClosed).thenReturn(false);
       final states = StreamController<OrderState>.broadcast();
       addTearDown(states.close);
       when(() => orderBloc.stream).thenAnswer((_) => states.stream);
@@ -944,7 +1345,7 @@ void main() {
       states.add(SingleOrderLoaded(order: openOrder()));
       await tester.pumpAndSettle();
 
-      verifyNever(() => sync.pullOrder(any()));
+      verify(() => sync.pullOrder('order-001')).called(1);
     });
 
     testWidgets('an admin override refund closes an open status',
@@ -960,6 +1361,448 @@ void main() {
 
       expect(find.text('Contact Farmer'), findsNothing);
       expect(find.textContaining('911000002'), findsNothing);
+    });
+  });
+
+  // LT-11: the buyer and the farmer follow the truck from the order; the
+  // trucker never gets the buyer's map here.
+  group('OrderDetailScreen live trip (LT-11)', () {
+    Order tripOrder({OrderStatus status = OrderStatus.inTransit}) => _makeOrder(
+          status: status,
+          tripId: _tripId,
+          truckerId: _truckerId,
+          truckerName: 'Trucker Tesfaye',
+        );
+
+    for (final (role, userId) in [
+      (UserRole.buyer, _buyerId),
+      (UserRole.farmer, _farmerId),
+    ]) {
+      testWidgets('${role.name} sees Live trip once the truck has the crop',
+          (tester) async {
+        stubAuth(role, userId);
+        activeDelivery = _makeDelivery(
+          status: DeliveryStatus.inTransit,
+          truckerId: _truckerId,
+        );
+        await tester.pumpWidget(buildScreen(tripOrder()));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('order_delivery_live_trip')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('order_live_trip_hint')), findsNothing);
+      });
+
+      testWidgets('${role.name} is told where the map will be before pickup',
+          (tester) async {
+        stubAuth(role, userId);
+        await tester.pumpWidget(
+          buildScreen(tripOrder(status: OrderStatus.accepted)),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('order_live_trip_hint')), findsOneWidget);
+        expect(
+          find.byKey(const Key('order_delivery_live_trip')),
+          findsNothing,
+        );
+      });
+    }
+
+    testWidgets('the trucker gets neither the button nor the hint',
+        (tester) async {
+      stubAuth(UserRole.trucker, _truckerId);
+      activeDelivery = _makeDelivery(
+        status: DeliveryStatus.inTransit,
+        truckerId: _truckerId,
+      );
+      await tester.pumpWidget(buildScreen(tripOrder()));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('order_delivery_live_trip')), findsNothing);
+      expect(find.byKey(const Key('order_live_trip_hint')), findsNothing);
+    });
+
+    testWidgets('a self-pickup has no truck to follow', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      activeDelivery = _makeDelivery(status: DeliveryStatus.delivered);
+      await tester.pumpWidget(
+        buildScreen(_makeOrder(status: OrderStatus.delivered)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('order_delivery_live_trip')), findsNothing);
+    });
+  });
+
+  // E-5 and E-6: an answer says whether it was sent or waits on the phone,
+  // and an action that fails keeps the order on screen.
+  group('OrderDetailScreen answers and failures', () {
+    late StreamController<OrderState> orderStream;
+    late MockConnectivityMonitor monitor;
+
+    setUp(() {
+      orderStream = StreamController<OrderState>.broadcast();
+      when(() => orderBloc.stream).thenAnswer((_) => orderStream.stream);
+      monitor = MockConnectivityMonitor();
+      when(() => monitor.isConnected()).thenAnswer((_) async => true);
+    });
+
+    tearDown(() => orderStream.close());
+
+    /// The detail pushed over a home page, as the orders list opens it.
+    Future<void> openDetail(WidgetTester tester, Order order) async {
+      when(() => orderBloc.state).thenReturn(SingleOrderLoaded(order: order));
+      await tester.pumpWidget(
+        Provider<ConnectivityMonitor>.value(
+          value: monitor,
+          child: MultiBlocProvider(
+            providers: [
+              BlocProvider<OrderBloc>.value(value: orderBloc),
+              BlocProvider<AuthBloc>.value(value: authBloc),
+              BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
+              BlocProvider<RatingBloc>.value(value: ratingBloc),
+            ],
+            child: MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) => TextButton(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) =>
+                            const OrderDetailScreen(orderId: 'order-001'),
+                      ),
+                    ),
+                    child: const Text('open'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    final en = lookupAppLocalizations(const Locale('en'));
+    final hero = find.byKey(const Key('order_summary_hero'));
+
+    testWidgets('a failed accept keeps the order and says why', (tester) async {
+      stubAuth(UserRole.farmer, _farmerId);
+      await openDetail(tester, _makeOrder(status: OrderStatus.funded));
+      expect(hero, findsOneWidget);
+
+      orderStream.add(const OrderLoading());
+      await tester.pump();
+      await tester.pump();
+      expect(hero, findsOneWidget);
+      expect(find.byKey(const Key('order_detail_busy')), findsOneWidget);
+
+      orderStream.add(
+        const OrderError(message: 'offline', code: AppErrorCode.network),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(hero, findsOneWidget);
+      expect(find.byKey(const Key('order_detail_busy')), findsNothing);
+      expect(
+        find.text(localizeErrorCode(AppErrorCode.network, en)),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('while an action runs: no second answer, Back still works',
+        (tester) async {
+      stubAuth(UserRole.farmer, _farmerId);
+      await openDetail(tester, _makeOrder(status: OrderStatus.funded));
+
+      orderStream.add(const OrderLoading());
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const Key('order_detail_busy')), findsOneWidget);
+
+      clearInteractions(orderBloc);
+      await tester.tap(find.text(en.acceptOrder), warnIfMissed: false);
+      await tester.tap(find.text(en.rejectOrder), warnIfMissed: false);
+      await tester.pump();
+      verifyNever(() => orderBloc.add(any(that: isA<AcceptOrder>())));
+      expect(find.text(en.farmerRejectRefundNote), findsNothing);
+
+      await tester.tap(find.byType(FwBackButton).first);
+      await tester.pumpAndSettle();
+      expect(find.byType(OrderDetailScreen), findsNothing);
+    });
+
+    for (final (online, accepted, message) in [
+      (true, true, en.orderAcceptedSent),
+      (true, false, en.orderRejectedSent),
+      (false, true, en.savedOnPhoneWillSend),
+      (false, false, en.savedOnPhoneWillSend),
+    ]) {
+      testWidgets(
+          '${accepted ? 'accept' : 'reject'} ${online ? 'online' : 'offline'}'
+          ': "$message", back on the list', (tester) async {
+        when(() => monitor.isConnected()).thenAnswer((_) async => online);
+        stubAuth(UserRole.farmer, _farmerId);
+        await openDetail(tester, _makeOrder(status: OrderStatus.funded));
+
+        orderStream.add(
+          accepted ? const OrderAccepted() : const OrderRejected(),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(OrderDetailScreen), findsNothing);
+        expect(find.text(message), findsOneWidget);
+      });
+    }
+
+    testWidgets('a trucker answer saved offline says it waits', (tester) async {
+      when(() => monitor.isConnected()).thenAnswer((_) async => false);
+      stubAuth(UserRole.trucker, _truckerId);
+      await openDetail(
+        tester,
+        _makeOrder(
+          status: OrderStatus.funded,
+          tripId: _tripId,
+          truckerId: _truckerId,
+          truckerName: 'Trucker Tesfaye',
+        ),
+      );
+
+      orderStream.add(const TruckerResponded(accepted: true));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(OrderDetailScreen), findsOneWidget);
+      expect(find.text(en.savedOnPhoneWillSend), findsOneWidget);
+    });
+  });
+
+  // ESC-23: the order detail shows what the device holds at once and reads
+  // the server's copy once behind it (mobile; web has no MarketplaceSync and
+  // its order load is the server read).
+  group('ESC-23 server read on open', () {
+    late MockMarketplaceSync sync;
+
+    setUp(() {
+      sync = MockMarketplaceSync();
+      when(() => orderBloc.isClosed).thenReturn(false);
+    });
+
+    Widget withSync(Widget child) =>
+        Provider<MarketplaceSync?>.value(value: sync, child: child);
+
+    Order trucked({OrderStatus status = OrderStatus.funded, int version = 1}) =>
+        _makeOrder(
+          status: status,
+          tripId: _tripId,
+          truckerId: _truckerId,
+          truckerName: 'Trucker Tesfaye',
+        )..version = version;
+
+    List<LoadOrderById> loads() => verify(() => orderBloc.add(captureAny()))
+        .captured
+        .whereType<LoadOrderById>()
+        .toList();
+
+    for (final (role, userId) in [
+      (UserRole.buyer, _buyerId),
+      (UserRole.farmer, _farmerId),
+      (UserRole.trucker, _truckerId),
+    ]) {
+      testWidgets(
+          '${role.name}: the stored order shows while the read runs, then a '
+          'quiet reload follows it', (tester) async {
+        stubAuth(role, userId);
+        final answer = Completer<Order?>();
+        when(() => sync.pullOrder('order-001'))
+            .thenAnswer((_) => answer.future);
+
+        await tester.pumpWidget(withSync(buildScreen(trucked())));
+        await tester.pump();
+
+        // The read has not answered: the order is on screen, not a spinner,
+        // and nothing is marked busy.
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.byKey(const Key('order_detail_busy')), findsNothing);
+        expect(
+          find.byKey(const Key('order_detail_refresh')),
+          findsOneWidget,
+        );
+        verify(() => sync.pullOrder('order-001')).called(1);
+
+        answer.complete(trucked(status: OrderStatus.accepted, version: 2));
+        await tester.pumpAndSettle();
+
+        final added = loads();
+        expect(added, hasLength(2));
+        expect(added.first.quiet, isFalse, reason: 'the load on open');
+        expect(added.last.quiet, isTrue, reason: 'the reload after the read');
+        expect(added.last.orderId, 'order-001');
+      });
+    }
+
+    testWidgets('the server row replaces the stored one on screen',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      final en = lookupAppLocalizations(const Locale('en'));
+      final repo = MockOrderRepository();
+      var stored = trucked();
+      when(() => repo.getOrderById('order-001'))
+          .thenAnswer((_) async => stored);
+      final answer = Completer<Order?>();
+      when(() => sync.pullOrder('order-001')).thenAnswer((_) async {
+        final server = await answer.future;
+        if (server != null) stored = server;
+        return server;
+      });
+      final bloc = OrderBloc(repository: repo);
+      addTearDown(bloc.close);
+
+      await tester.pumpWidget(
+        withSync(
+          MultiBlocProvider(
+            providers: [
+              BlocProvider<OrderBloc>.value(value: bloc),
+              BlocProvider<AuthBloc>.value(value: authBloc),
+              BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
+              BlocProvider<RatingBloc>.value(value: ratingBloc),
+            ],
+            child: const MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: Locale('en'),
+              home: OrderDetailScreen(orderId: 'order-001'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('order_detail_refresh')),
+        findsOneWidget,
+      );
+      expect(find.text(en.statusInTransit), findsNothing);
+
+      answer.complete(trucked(status: OrderStatus.inTransit, version: 2));
+      await tester.pumpAndSettle();
+
+      expect(find.text(en.statusInTransit), findsWidgets);
+      verify(() => sync.pullOrder('order-001')).called(1);
+      // The load on open, then the quiet reload.
+      verify(() => repo.getOrderById('order-001')).called(2);
+    });
+
+    testWidgets('an unsent change of the order: nothing is reloaded over it',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      // The pull answers null, without a request, while a change waits.
+      when(() => sync.pullOrder('order-001')).thenAnswer((_) async => null);
+
+      await tester.pumpWidget(withSync(buildScreen(trucked())));
+      await tester.pumpAndSettle();
+
+      verify(() => sync.pullOrder('order-001')).called(1);
+      expect(loads().where((e) => e.quiet), isEmpty);
+      expect(
+        find.byKey(const Key('order_detail_refresh')),
+        findsOneWidget,
+      );
+    });
+
+    for (final (name, error) in <(String, Object)>[
+      ('offline', const NetworkException()),
+      ('a timeout', const TimeoutException()),
+      ('a server error', const ServerException('boom', 500)),
+      ('404, not on the server', const NotFoundException()),
+      ('403, not a party', const AuthException('Forbidden', 403)),
+    ]) {
+      testWidgets('$name: the stored order stays, nothing is said',
+          (tester) async {
+        stubAuth(UserRole.farmer, _farmerId);
+        when(() => sync.pullOrder('order-001')).thenThrow(error);
+
+        await tester.pumpWidget(withSync(buildScreen(trucked())));
+        await tester.pumpAndSettle();
+
+        verify(() => sync.pullOrder('order-001')).called(1);
+        expect(tester.takeException(), isNull);
+        expect(find.byType(SnackBar), findsNothing);
+        expect(find.byType(OrderDetailScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('order_detail_refresh')),
+          findsOneWidget,
+        );
+        expect(loads().where((e) => e.quiet), isEmpty);
+      });
+    }
+
+    testWidgets('one read per open, however often the order is loaded again',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      final order = trucked();
+      final states = StreamController<OrderState>.broadcast();
+      addTearDown(states.close);
+      when(() => orderBloc.stream).thenAnswer((_) => states.stream);
+      when(() => sync.pullOrder('order-001')).thenAnswer((_) async => order);
+
+      await tester.pumpWidget(withSync(buildScreen(order)));
+      await tester.pumpAndSettle();
+      for (var i = 0; i < 3; i++) {
+        states.add(const OrderLoading());
+        await tester.pump();
+        states.add(SingleOrderLoaded(order: trucked()));
+        await tester.pumpAndSettle();
+      }
+
+      verify(() => sync.pullOrder('order-001')).called(1);
+    });
+
+    testWidgets('pull to refresh reads the server again', (tester) async {
+      stubAuth(UserRole.trucker, _truckerId);
+      when(() => sync.pullOrder('order-001'))
+          .thenAnswer((_) async => trucked());
+
+      await tester.pumpWidget(withSync(buildScreen(trucked())));
+      await tester.pumpAndSettle();
+      verify(() => sync.pullOrder('order-001')).called(1);
+
+      await tester.fling(
+        find.byKey(const Key('order_detail_refresh')),
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+
+      verify(() => sync.pullOrder('order-001')).called(1);
+      expect(loads().where((e) => e.quiet), hasLength(2));
+    });
+
+    testWidgets(
+        'web (no MarketplaceSync): no extra read on open, pull to refresh '
+        'loads the order again', (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+
+      await tester.pumpWidget(
+        Provider<MarketplaceSync?>.value(
+          value: null,
+          child: buildScreen(trucked()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(loads(), hasLength(1));
+
+      await tester.fling(
+        find.byKey(const Key('order_detail_refresh')),
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+
+      final added = loads();
+      expect(added, hasLength(1));
+      expect(added.single.quiet, isTrue);
     });
   });
 }

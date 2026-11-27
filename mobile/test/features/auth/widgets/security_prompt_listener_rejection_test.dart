@@ -186,6 +186,27 @@ void main() {
     expect(find.text(en.fraudDuplicateListing), findsOneWidget);
   });
 
+  testWidgets(
+      'a refused duplicate trip says a trip on that route and day exists, '
+      'not the listing wording', (tester) async {
+    await tester.pumpWidget(host());
+
+    events.emit(
+      const SyncOperationRejected(
+        entityType: 'trip',
+        entityId: 'trip-1',
+        action: 'create',
+        message: 'FRAUD_DUPLICATE_LISTING: You already have a trip on this '
+            'route on that day. Please update your existing trip instead.',
+        userId: 'farmer-1',
+      ),
+    );
+    await settle(tester);
+
+    expect(find.text(en.errorDuplicateTrip), findsOneWidget);
+    expect(find.text(en.fraudDuplicateListing), findsNothing);
+  });
+
   testWidgets('any other refused change says it was not saved', (tester) async {
     await tester.pumpWidget(host());
 
@@ -322,6 +343,28 @@ void main() {
         'trip',
         'create',
         'REPUTATION_RESTRICTED: restricted',
+        (l) => l.errorReputationRestricted,
+      ),
+      // ESC-31: the refusal's `until=` names the day the restriction ends.
+      (
+        'trip',
+        'create',
+        'REPUTATION_RESTRICTED: until=2026-11-21T09:00:00.000Z: Your '
+            "account can't take new orders until 21 Nov 2026.",
+        (l) => l.errorReputationRestrictedUntil('Nov 21, 2026'),
+      ),
+      (
+        'order',
+        'update',
+        'REPUTATION_RESTRICTED: until=2026-11-21T09:00:00.000Z: Your '
+            "account can't take new orders until 21 Nov 2026.",
+        (l) => l.errorReputationRestrictedUntil('Nov 21, 2026'),
+      ),
+      (
+        'crop_listing',
+        'create',
+        "REPUTATION_RESTRICTED: until=review: Your account can't take new "
+            'orders for now.',
         (l) => l.errorReputationRestricted,
       ),
       (

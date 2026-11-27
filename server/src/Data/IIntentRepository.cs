@@ -37,4 +37,10 @@ public interface IIntentRepository
     /// Used by the match-on-insert stream Lambda.
     /// </summary>
     Task<List<Dictionary<string, object>>> QueryActiveByCropTypeAsync(string cropType);
+
+    /// <summary>
+    /// SIM-56: every intent row of one buyer (the table's partition), whatever its status.
+    /// <c>GET /intents</c> reads it for the caller's own id only.
+    /// </summary>
+    Task<List<Dictionary<string, object>>> QueryByBuyerAsync(string buyerId);
 }

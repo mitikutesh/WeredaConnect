@@ -70,6 +70,74 @@ public sealed class EscrowRepository : IEscrowRepository
 
     /// <inheritdoc />
     public async Task UpdateStatusAsync(string escrowId, string createdAt, string newStatus, string? expectedCurrentStatus = null, Dictionary<string, object>? additionalFields = null)
+        => await _dynamoDb.UpdateItemAsync(BuildStatusUpdate(escrowId, createdAt, newStatus, expectedCurrentStatus, additionalFields));
+
+    /// <inheritdoc />
+    public async Task<EscrowLinkedWriteOutcome> TryUpdateStatusWithAsync(
+        string escrowId, string createdAt, string newStatus, string expectedCurrentStatus,
+        Dictionary<string, object>? additionalFields, IReadOnlyList<TransactWriteItem> linkedItems)
+    {
+        var update = BuildStatusUpdate(escrowId, createdAt, newStatus, expectedCurrentStatus, additionalFields);
+        var items = new List<TransactWriteItem>
+        {
+            new()
+            {
+                Update = new Update
+                {
+                    TableName = update.TableName,
+                    Key = update.Key,
+                    UpdateExpression = update.UpdateExpression,
+                    ConditionExpression = update.ConditionExpression,
+                    ExpressionAttributeNames = update.ExpressionAttributeNames,
+                    ExpressionAttributeValues = update.ExpressionAttributeValues
+                }
+            }
+        };
+        items.AddRange(linkedItems);
+
+        try
+        {
+            await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest { TransactItems = items });
+            return EscrowLinkedWriteOutcome.Written;
+        }
+        catch (TransactionCanceledException ex)
+        {
+            // Reasons are per item, in request order: 0 is the escrow. The escrow's own refusal
+            // decides (its answers are the existing ones); a linked item's alone is reported as such.
+            if (IsConditionFailure(ex.CancellationReasons, 0))
+            {
+                return EscrowLinkedWriteOutcome.EscrowRefused;
+            }
+
+            for (var index = 1; index < items.Count; index++)
+            {
+                if (IsConditionFailure(ex.CancellationReasons, index))
+                {
+                    return EscrowLinkedWriteOutcome.LinkedItemRefused;
+                }
+            }
+
+            // A conflicting transaction or throttling: nothing was written.
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public TransactWriteItem BuildStatusCheck(string escrowId, string createdAt, string status) => new()
+    {
+        ConditionCheck = new ConditionCheck
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            ConditionExpression = "#status = :status",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#status", "status" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":status", new AttributeValue { S = status } } }
+        }
+    };
+
+    /// <summary>The status write of <see cref="UpdateStatusAsync"/>, shared with <see cref="TryUpdateStatusWithAsync"/>.</summary>
+    private UpdateItemRequest BuildStatusUpdate(
+        string escrowId, string createdAt, string newStatus, string? expectedCurrentStatus, Dictionary<string, object>? additionalFields)
     {
         var now = DateTime.UtcNow.ToString("o");
 
@@ -95,8 +163,8 @@ public sealed class EscrowRepository : IEscrowRepository
                     continue;
                 }
 
-                // ESC-07: a dispute adds to the version below; a caller's read + 1 is never written.
-                if (kvp.Value == null || (newStatus == "disputed" && kvp.Key == "version"))
+                // ESC-07, SIM-29: every write adds to the version below; a caller's read + 1 is never written.
+                if (kvp.Value == null || kvp.Key == "version")
                 {
                     continue;
                 }
@@ -125,12 +193,12 @@ public sealed class EscrowRepository : IEscrowRepository
 
         // ESC-07: the dispute freeze is conditioned on the status, the marker and the lock, not on
         // the version, so the version is added to (a row without one gets 1), never set from a read.
-        if (newStatus == "disputed")
-        {
-            request.UpdateExpression += " ADD #version :one";
-            request.ExpressionAttributeNames["#version"] = "version";
-            request.ExpressionAttributeValues[":one"] = new AttributeValue { N = "1" };
-        }
+        // SIM-29: so is every other write here (a self-transition such as the delivery link, the
+        // confirmation stamp or a scheduled refund too). None is conditioned on the version, and a
+        // version set from an earlier read would go back once one of these lands in between.
+        request.UpdateExpression += " ADD #version :one";
+        request.ExpressionAttributeNames["#version"] = "version";
+        request.ExpressionAttributeValues[":one"] = new AttributeValue { N = "1" };
 
         // ESC-10: a settled escrow is no longer blocked; its block reason goes with the settlement.
         if (newStatus is "released" or "refunded")
@@ -175,6 +243,9 @@ public sealed class EscrowRepository : IEscrowRepository
             request.ExpressionAttributeNames["#lock"] = "settlementLock";
             conditions.Add("attribute_not_exists(#refundReason)");
             request.ExpressionAttributeNames["#refundReason"] = "refundReason";
+            // ESC-20: nor on a ledger escrow whose crop leg is already decided (its rows are moving the money).
+            conditions.Add(LedgerCropHeldCondition);
+            AddLedgerCropHeldNames(request.ExpressionAttributeNames, request.ExpressionAttributeValues);
         }
 
         if (conditions.Count > 0)
@@ -182,22 +253,57 @@ public sealed class EscrowRepository : IEscrowRepository
             request.ConditionExpression = string.Join(" AND ", conditions);
         }
 
-        await _dynamoDb.UpdateItemAsync(request);
+        return request;
+    }
+
+
+    /// <summary>
+    /// ESC-20: the condition that a ledger escrow's crop leg is still held (a 1.x escrow has no
+    /// <c>legStatus</c> and always passes). Once a release, refund or split is decided the escrow can
+    /// still read <c>escrowed</c> while its rows are open; nothing that assumes the money is still
+    /// held (a dispute, a hold, a scheduled refund, a sweep) may land on it then.
+    /// </summary>
+    internal const string LedgerCropHeldCondition = "(attribute_not_exists(#ledgerLegs) OR #ledgerLegs.#ledgerCrop = :ledgerHeld)";
+
+    internal static void AddLedgerCropHeldNames(Dictionary<string, string> names, Dictionary<string, AttributeValue> values)
+    {
+        names["#ledgerLegs"] = LedgerEscrowFields.LegStatus;
+        names["#ledgerCrop"] = LedgerEscrowFields.LegCrop;
+        values[":ledgerHeld"] = new AttributeValue { S = LedgerEscrowFields.Held };
     }
 
     /// <inheritdoc />
-    public TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt) => new()
+    public TransactWriteItem BuildRefundArm(
+        string escrowId, string createdAt, string reason, string scheduledAt, bool allowConfirmedDelivery = false)
+    {
+        var item = BuildPlainHoldRefundArm(escrowId, createdAt, reason, scheduledAt);
+        if (allowConfirmedDelivery)
+        {
+            // FUP-53: the admin refund's arm. DynamoDB refuses names and values the expression does not use.
+            var update = item.Update;
+            update.ConditionExpression = "#status = :escrowed AND attribute_not_exists(#lock) "
+                + "AND attribute_not_exists(#manualPayout) AND " + LedgerCropHeldCondition;
+            update.ExpressionAttributeNames.Remove("#confirmed");
+            update.ExpressionAttributeValues.Remove(":zero");
+        }
+
+        return item;
+    }
+
+    private TransactWriteItem BuildPlainHoldRefundArm(string escrowId, string createdAt, string reason, string scheduledAt) => new()
     {
         Update = new Update
         {
             TableName = _tableName,
             Key = EscrowKey(escrowId, createdAt),
-            UpdateExpression = "SET #expiresAt = :at, #refundReason = :reason, #updated = :at",
+            // SIM-29: the scheduled refund is part of what the escrow reads return, so it adds to the version.
+            UpdateExpression = "SET #expiresAt = :at, #refundReason = :reason, #updated = :at ADD #version :one",
             // EscrowService.IsPlainEscrowed, as a condition: a dispute, a settlement or a confirmed
             // delivery that took the money since it was read refuses the whole transaction.
             ConditionExpression = "#status = :escrowed AND attribute_not_exists(#lock) "
                 + "AND attribute_not_exists(#manualPayout) "
-                + "AND (attribute_not_exists(#confirmed) OR size(#confirmed) = :zero)",
+                + "AND (attribute_not_exists(#confirmed) OR size(#confirmed) = :zero) "
+                + "AND " + LedgerCropHeldCondition,
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#expiresAt", "expiresAt" },
@@ -206,17 +312,50 @@ public sealed class EscrowRepository : IEscrowRepository
                 { "#status", "status" },
                 { "#lock", SettlementLockFields.Lock },
                 { "#manualPayout", ManualPayoutFields.Marker },
-                { "#confirmed", "deliveryConfirmedAt" }
+                { "#confirmed", "deliveryConfirmedAt" },
+                { "#version", "version" },
+                { "#ledgerLegs", LedgerEscrowFields.LegStatus },
+                { "#ledgerCrop", LedgerEscrowFields.LegCrop }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":at", new AttributeValue { S = scheduledAt } },
                 { ":reason", new AttributeValue { S = reason } },
                 { ":escrowed", new AttributeValue { S = "escrowed" } },
-                { ":zero", new AttributeValue { N = "0" } }
+                { ":zero", new AttributeValue { N = "0" } },
+                { ":one", new AttributeValue { N = "1" } },
+                { ":ledgerHeld", new AttributeValue { S = LedgerEscrowFields.Held } }
             }
         }
     };
+
+    /// <summary>FUP-53: writes per call when a transaction is in flight on the row (the first one and two retries).</summary>
+    internal const int TransactionConflictAttempts = 3;
+
+    /// <summary>
+    /// FUP-53: a conditional single-row write that meets a transaction in flight on its row (an order
+    /// cancel arming the refund, a dispute checking its order) is rejected with
+    /// <see cref="TransactionConflictException"/>, which the SDK does not retry. Nothing was written,
+    /// so the same request is sent again after a short pause, at most
+    /// <see cref="TransactionConflictAttempts"/> times in all: its condition is evaluated against the row
+    /// as the transaction left it, which is the re-read. Only for requests whose condition makes a
+    /// repeat safe. The last conflict is thrown, as before.
+    /// </summary>
+    private async Task UpdateRetryingTransactionConflictAsync(UpdateItemRequest request)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _dynamoDb.UpdateItemAsync(request);
+                return;
+            }
+            catch (TransactionConflictException) when (attempt < TransactionConflictAttempts)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(40 * attempt));
+            }
+        }
+    }
 
     /// <inheritdoc />
     public async Task<bool> TryExtendExpiryAsync(string escrowId, string createdAt, string expiresAt)
@@ -225,7 +364,8 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             TableName = _tableName,
             Key = EscrowKey(escrowId, createdAt),
-            UpdateExpression = "SET #expiresAt = :expiresAt, #updated = :updated",
+            // SIM-29: expiresAt is part of what the escrow reads return, so the version moves with it.
+            UpdateExpression = "SET #expiresAt = :expiresAt, #updated = :updated ADD #version :one",
             ConditionExpression = "#status = :escrowed AND attribute_not_exists(#refundReason) "
                 + "AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout)",
             ExpressionAttributeNames = new Dictionary<string, string>
@@ -235,19 +375,21 @@ public sealed class EscrowRepository : IEscrowRepository
                 { "#status", "status" },
                 { "#refundReason", "refundReason" },
                 { "#lock", SettlementLockFields.Lock },
-                { "#manualPayout", ManualPayoutFields.Marker }
+                { "#manualPayout", ManualPayoutFields.Marker },
+                { "#version", "version" }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":expiresAt", new AttributeValue { S = expiresAt } },
                 { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
-                { ":escrowed", new AttributeValue { S = "escrowed" } }
+                { ":escrowed", new AttributeValue { S = "escrowed" } },
+                { ":one", new AttributeValue { N = "1" } }
             }
         };
 
         try
         {
-            await _dynamoDb.UpdateItemAsync(request);
+            await UpdateRetryingTransactionConflictAsync(request);
             return true;
         }
         catch (ConditionalCheckFailedException)
@@ -316,7 +458,7 @@ public sealed class EscrowRepository : IEscrowRepository
 
         try
         {
-            await _dynamoDb.UpdateItemAsync(request);
+            await UpdateRetryingTransactionConflictAsync(request);
             return true;
         }
         catch (ConditionalCheckFailedException)
@@ -361,14 +503,18 @@ public sealed class EscrowRepository : IEscrowRepository
         const string updateExpression = "SET #status = :held, #reason = :reason, #heldAt = :heldAt, #heldBy = :system, "
                                         + "#heldFrom = :from, #heldFor = :for, #updated = :heldAt ADD #version :one";
         // A settlement in progress (its lock) or waiting for an admin (the queue) wins over the hold.
-        const string condition = "#status = :from AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout)";
+        // ESC-20: and a ledger escrow whose crop leg is decided is past holding (its rows are moving the money).
+        const string condition = "#status = :from AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout) AND "
+                                 + LedgerCropHeldCondition;
+        AddLedgerCropHeldNames(names, values);
 
         var orderChanged = false;
         try
         {
             if (fence == null)
             {
-                await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+                // FUP-53: a cancel's transaction in flight on the row is retried, then transient below.
+                await UpdateRetryingTransactionConflictAsync(new UpdateItemRequest
                 {
                     TableName = _tableName,
                     Key = EscrowKey(escrowId, createdAt),
@@ -436,9 +582,11 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             // The plain write lost its condition; the re-read below decides.
         }
-        catch (Exception ex) when (ex is ProvisionedThroughputExceededException or RequestLimitExceededException)
+        catch (Exception ex) when (ex is ProvisionedThroughputExceededException or RequestLimitExceededException
+                                       or TransactionConflictException)
         {
-            // A throttle that outlived the SDK's retries: nothing was written, the next run retries.
+            // A throttle that outlived the SDK's retries, or a transaction still in flight on the row
+            // after our retries (FUP-53): nothing was written, the next run retries.
             return EscrowHoldWrite.Conflict;
         }
         catch (TransactionCanceledException ex)
@@ -517,9 +665,18 @@ public sealed class EscrowRepository : IEscrowRepository
     /// <inheritdoc />
     public async Task<bool> TryQueueManualPayoutAsync(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
-        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt)
+        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string? releaseOrigin = null)
     {
         var request = BuildQueueRequest(escrowId, createdAt, op, reason, fromStatus, legs, queuedAt);
+        if (!string.IsNullOrEmpty(releaseOrigin))
+        {
+            // FUP-137: who started the queued release, in the queue write itself, so the close that
+            // records the payout can tell an auto-release from an admin's (the clean-delivery credit).
+            request.UpdateExpression = request.UpdateExpression.Replace("SET ", "SET #origin = :origin, ");
+            request.ExpressionAttributeNames["#origin"] = ReleaseOriginFields.Field;
+            request.ExpressionAttributeValues[":origin"] = new AttributeValue { S = releaseOrigin };
+        }
+
         // Only the settlement that holds the lock may queue, and only once. The lock
         // stays in place on purpose: a queued escrow must not be settled by anyone else.
         request.ExpressionAttributeNames["#lock"] = SettlementLockFields.Lock;
@@ -645,7 +802,7 @@ public sealed class EscrowRepository : IEscrowRepository
     /// <inheritdoc />
     public async Task<bool> TryMarkManualLegPaidAsync(
         string escrowId, string createdAt, string op, string leg, string externalRef,
-        string paidBy, string paidAt, string? otherLegMustBePending)
+        string paidBy, string paidAt, string? otherLegMustBePending, PayoutReferenceRecord? reference = null)
     {
         var names = new Dictionary<string, string>
         {
@@ -676,25 +833,90 @@ public sealed class EscrowRepository : IEscrowRepository
             condition += " AND #otherStatus = :pending";
         }
 
+        var claimRemoves = AddLegClaimGuard(names, ref condition, leg);
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
             Key = EscrowKey(escrowId, createdAt),
             UpdateExpression =
                 "SET #legStatus = :paid, #legRef = :ref, #legPaidBy = :paidBy, #legPaidAt = :paidAt, #updated = :paidAt "
-                + "ADD #version :one",
+                + "REMOVE " + claimRemoves + " ADD #version :one",
             ConditionExpression = condition,
             ExpressionAttributeNames = names,
             ExpressionAttributeValues = values
         };
 
+        return await WriteManualRecordAsync(request, reference);
+    }
+
+    /// <summary>
+    /// FUP-05: a leg is recorded only when no other admin holds a live claim on it (the recording admin's
+    /// own claim, an expired one or none), and the record ends the leg's claim. The claim condition judges
+    /// expiry at the record's own paid time (<c>:paidAt</c>) and the holder by the recording admin
+    /// (<c>:paidBy</c>). Returns the REMOVE list of the leg's claim attributes.
+    /// </summary>
+    private static string AddLegClaimGuard(Dictionary<string, string> names, ref string condition, string leg)
+    {
+        names["#claimBy"] = ManualPayoutClaimFields.ClaimedByAttr(leg);
+        names["#claimAt"] = ManualPayoutClaimFields.ClaimedAtAttr(leg);
+        names["#claimExp"] = ManualPayoutClaimFields.ClaimExpiresAtAttr(leg);
+        condition += " AND (attribute_not_exists(#claimBy) OR #claimBy = :paidBy OR #claimExp < :paidAt)";
+        return "#claimBy, #claimAt, #claimExp";
+    }
+
+    /// <summary>
+    /// FUP-05: the record write, with its reference item in the same transaction when a reference table is
+    /// wired. False when the escrow condition failed (the caller reads again); a transaction that failed only on
+    /// the reference item throws <see cref="PayoutReferenceTakenException"/>.
+    /// </summary>
+    private async Task<bool> WriteManualRecordAsync(UpdateItemRequest request, PayoutReferenceRecord? reference)
+    {
+        if (reference == null)
+        {
+            try
+            {
+                await _dynamoDb.UpdateItemAsync(request);
+                return true;
+            }
+            catch (ConditionalCheckFailedException)
+            {
+                return false;
+            }
+        }
+
+        var items = new List<TransactWriteItem>
+        {
+            new()
+            {
+                Update = new Update
+                {
+                    TableName = request.TableName,
+                    Key = request.Key,
+                    UpdateExpression = request.UpdateExpression,
+                    ConditionExpression = request.ConditionExpression,
+                    ExpressionAttributeNames = request.ExpressionAttributeNames,
+                    ExpressionAttributeValues = request.ExpressionAttributeValues
+                }
+            },
+            PayoutReferenceFields.BuildPut(reference)
+        };
         try
         {
-            await _dynamoDb.UpdateItemAsync(request);
+            await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest { TransactItems = items });
             return true;
         }
-        catch (ConditionalCheckFailedException)
+        catch (TransactionCanceledException ex)
         {
+            var reasons = ex.CancellationReasons ?? new List<CancellationReason>();
+            var escrowFailed = reasons.Count > 0 && reasons[0]?.Code == "ConditionalCheckFailed";
+            var referenceFailed = reasons.Count > 1 && reasons[1]?.Code == "ConditionalCheckFailed";
+            if (referenceFailed && !escrowFailed)
+            {
+                throw new PayoutReferenceTakenException(reference.ExternalRef);
+            }
+
+            // The escrow changed (another leg, a claim, the queue closed) or a concurrent transaction on the
+            // same items: nothing was written, and the caller reads again.
             return false;
         }
     }
@@ -703,7 +925,7 @@ public sealed class EscrowRepository : IEscrowRepository
     public async Task<bool> TryCloseManualPayoutAsync(
         string escrowId, string createdAt, string op, string leg, string externalRef,
         string paidBy, string paidAt, IReadOnlyList<string> otherLegsMustBePaid,
-        string newStatus, Dictionary<string, object> settlementFields)
+        string newStatus, Dictionary<string, object> settlementFields, PayoutReferenceRecord? reference = null)
     {
         var sets = new List<string>
         {
@@ -752,6 +974,16 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             names[$"#other{i}"] = ManualPayoutFields.StatusAttr(other);
             condition += $" AND #other{i} = :paid";
+            // FUP-218: a settlement reference copied from another leg's reference requires that leg to still carry
+            // it, so a correction of that reference between the caller's read and this write is never overwritten.
+            if (settlementFields.TryGetValue(ManualPayoutFields.SettlementRefAttr(other), out var copied)
+                && copied is string copiedRef && copiedRef.Length > 0)
+            {
+                names[$"#otherRef{i}"] = ManualPayoutFields.RefAttr(other);
+                values[$":otherRef{i}"] = new AttributeValue { S = copiedRef };
+                condition += $" AND #otherRef{i} = :otherRef{i}";
+            }
+
             i++;
         }
 
@@ -784,6 +1016,7 @@ public sealed class EscrowRepository : IEscrowRepository
             removes += ", #tPending, #tBlock, #tBlockAt, #tLockId, #tLockAt";
         }
 
+        removes += ", " + AddLegClaimGuard(names, ref condition, leg);
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
@@ -794,15 +1027,7 @@ public sealed class EscrowRepository : IEscrowRepository
             ExpressionAttributeValues = values
         };
 
-        try
-        {
-            await _dynamoDb.UpdateItemAsync(request);
-            return true;
-        }
-        catch (ConditionalCheckFailedException)
-        {
-            return false;
-        }
+        return await WriteManualRecordAsync(request, reference);
     }
 
     /// <inheritdoc />
@@ -840,6 +1065,72 @@ public sealed class EscrowRepository : IEscrowRepository
         var items = response.Items.Select(CropRepository.FromItem).ToList();
         return (items, response.LastEvaluatedKey.Count > 0 ? response.LastEvaluatedKey : null);
     }
+
+    /// <inheritdoc />
+    public Task<bool> TryMarkManualPayoutOverdueLoggedAsync(string escrowId, string createdAt, string queuedAt)
+        => TryConditionalUpdateAsync(new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #logged = :queuedAt",
+            ConditionExpression = "#marker = :open AND #queuedAt = :queuedAt"
+                                  + " AND (attribute_not_exists(#logged) OR #logged <> :queuedAt)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#marker", ManualPayoutFields.Marker },
+                { "#queuedAt", ManualPayoutFields.QueuedAt },
+                { "#logged", ManualPayoutFields.OverdueLoggedFor }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":open", new AttributeValue { S = ManualPayoutFields.MarkerOpen } },
+                { ":queuedAt", new AttributeValue { S = queuedAt } }
+            }
+        });
+
+    /// <inheritdoc />
+    public Task<bool> TryMarkTruckerPayoutOverdueLoggedAsync(string escrowId, string createdAt, string pendingSince)
+        => TryConditionalUpdateAsync(new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #logged = :since",
+            ConditionExpression = "#pending = :true AND #since = :since"
+                                  + " AND (attribute_not_exists(#logged) OR #logged <> :since)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#pending", TruckerPayoutFields.Pending },
+                { "#since", TruckerPayoutFields.PendingSince },
+                { "#logged", TruckerPayoutFields.OverdueLoggedFor }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":true", new AttributeValue { BOOL = true } },
+                { ":since", new AttributeValue { S = pendingSince } }
+            }
+        });
+
+    /// <inheritdoc />
+    public Task<bool> TryMarkSettlementBlockOverdueLoggedAsync(string escrowId, string createdAt, string reason, string reasonAt)
+        => TryConditionalUpdateAsync(new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #logged = :at",
+            ConditionExpression = "#reason = :reason AND #reasonAt = :at"
+                                  + " AND (attribute_not_exists(#logged) OR #logged <> :at)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#reason", SettlementBlockFields.Reason },
+                { "#reasonAt", SettlementBlockFields.ReasonAt },
+                { "#logged", SettlementBlockFields.OverdueLoggedFor }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":reason", new AttributeValue { S = reason } },
+                { ":at", new AttributeValue { S = reasonAt } }
+            }
+        });
 
     private static Dictionary<string, AttributeValue> EscrowKey(string escrowId, string createdAt) => new()
     {
@@ -1142,6 +1433,11 @@ public sealed class EscrowRepository : IEscrowRepository
         request.ExpressionAttributeNames["#manualPayout"] = ManualPayoutFields.Marker;
         request.ExpressionAttributeNames["#truckerPending"] = TruckerPayoutFields.Pending;
 
+        // ESC-20: a ledger escrow whose crop leg is decided belongs to the ledger sweep (its rows), so no
+        // status sweep releases, refunds or crash-completes it again; it must not fill the window either.
+        filters.Add(LedgerCropHeldCondition);
+        AddLedgerCropHeldNames(request.ExpressionAttributeNames, request.ExpressionAttributeValues);
+
         // ESC-06: an order escrow held to its 21-day cap keeps that expiresAt and its order waits in
         // the admin queue, which owns it; it would sit at the head of both sweep windows for good.
         // It comes back once a refund is scheduled or its delivery is confirmed. Escrowed rows only:
@@ -1289,6 +1585,43 @@ public sealed class EscrowRepository : IEscrowRepository
     }
 
     /// <inheritdoc />
+    public async Task<bool> TryRecordDoubleEscrowRefundAsync(
+        string escrowId, string createdAt, string orderId, string by, string reason, string at, string orderEscrowStatus)
+    {
+        // An admin decision kept on the row for the replay; no read returns it, so the version does not move (1.38.0).
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = EscrowKey(escrowId, createdAt),
+            UpdateExpression = "SET #by = :by, #at = :at, #reason = :reason, #orderEscrowStatus = :orderEscrowStatus",
+            ConditionExpression =
+                "#status = :escrowed AND #orderId = :orderId AND attribute_not_exists(#at) "
+                + "AND attribute_not_exists(#lock) AND attribute_not_exists(#manualPayout)",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#by", DoubleEscrowFields.RefundBy },
+                { "#at", DoubleEscrowFields.RefundAt },
+                { "#reason", DoubleEscrowFields.RefundReason },
+                { "#orderEscrowStatus", DoubleEscrowFields.OrderEscrowStatus },
+                { "#status", "status" },
+                { "#orderId", "orderId" },
+                { "#lock", SettlementLockFields.Lock },
+                { "#manualPayout", ManualPayoutFields.Marker }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":by", new AttributeValue { S = by } },
+                { ":at", new AttributeValue { S = at } },
+                { ":reason", new AttributeValue { S = reason } },
+                { ":orderEscrowStatus", new AttributeValue { S = orderEscrowStatus } },
+                { ":escrowed", new AttributeValue { S = "escrowed" } },
+                { ":orderId", new AttributeValue { S = orderId } }
+            }
+        };
+        return await TryConditionalUpdateAsync(request);
+    }
+
+    /// <inheritdoc />
     public async Task<bool> TryClearSettlementBlockReasonAsync(string escrowId, string createdAt, string storedReason)
     {
         var request = new UpdateItemRequest
@@ -1350,17 +1683,20 @@ public sealed class EscrowRepository : IEscrowRepository
         {
             TableName = _tableName,
             Key = EscrowKey(escrowId, createdAt),
-            UpdateExpression = "SET #truckerId = :truckerId, #updated = :now",
+            // SIM-29: truckerId is part of what the escrow reads return, so the version moves with it.
+            UpdateExpression = "SET #truckerId = :truckerId, #updated = :now ADD #version :one",
             ConditionExpression = "attribute_exists(escrowId) AND attribute_not_exists(#truckerId)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#truckerId", "truckerId" },
-                { "#updated", "updatedAt" }
+                { "#updated", "updatedAt" },
+                { "#version", "version" }
             },
             ExpressionAttributeValues = new Dictionary<string, AttributeValue>
             {
                 { ":truckerId", new AttributeValue { S = truckerId } },
-                { ":now", new AttributeValue { S = DateTime.UtcNow.ToString("o") } }
+                { ":now", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+                { ":one", new AttributeValue { N = "1" } }
             }
         };
         return await TryConditionalUpdateAsync(request);

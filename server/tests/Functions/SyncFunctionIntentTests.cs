@@ -318,7 +318,7 @@ public class SyncFunctionIntentTests
         _meta.IdempotencyKeyExistsAsync(Arg.Any<string>())
             .Returns(ci => Task.FromResult(stored.Contains(ci.ArgAt<string>(0))));
         _meta.When(x => x.StoreIdempotencyKeyAsync(
-                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>()))
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>()))
             .Do(ci => stored.Add(ci.ArgAt<string>(0)));
 
         var victimOp = IntentOp();

@@ -55,6 +55,16 @@ class OrderRejected extends OrderState {
   const OrderRejected();
 }
 
+/// ESC-15: state after the trucker answered a transport request.
+class TruckerResponded extends OrderState {
+  final bool accepted;
+
+  const TruckerResponded({required this.accepted});
+
+  @override
+  List<Object?> get props => [accepted];
+}
+
 /// State after a new order has been created.
 class OrderCreated extends OrderState {
   final Order order;
@@ -73,6 +83,31 @@ class PaymentSubmitted extends OrderState {
 /// State after an order has been cancelled.
 class OrderCancelled extends OrderState {
   const OrderCancelled();
+}
+
+/// LT-12: state after the buyer's drop-off landmark was saved (sent, or
+/// queued on the phone).
+class DropoffNoteSaved extends OrderState {
+  const DropoffNoteSaved();
+}
+
+/// LT-14: state after the order's drop-off point was saved (sent, or queued
+/// on the phone).
+class DeliveryLocationSaved extends OrderState {
+  const DeliveryLocationSaved();
+}
+
+/// ESC-34 (FUP-285): state after an arrival check-in was sent (web) or
+/// queued on the phone, or, with [alreadyGiven], found already given (a
+/// repeat sends nothing).
+class CheckInSaved extends OrderState {
+  final String kind;
+  final bool alreadyGiven;
+
+  const CheckInSaved({required this.kind, this.alreadyGiven = false});
+
+  @override
+  List<Object?> get props => [kind, alreadyGiven];
 }
 
 /// State when a single order has been loaded.

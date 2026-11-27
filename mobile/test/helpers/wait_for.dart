@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter_test/flutter_test.dart';
+
 /// Polls [condition] every 10ms until it holds or [timeout] passes.
 ///
 /// Use this instead of a fixed sleep before asserting on an async side effect
@@ -22,3 +24,21 @@ Future<void> waitFor(
 /// emissions.
 Future<void> waitForStates<T>(List<T> states, int count) =>
     waitFor(() => states.length >= count);
+
+/// Like [waitFor], but fails the test if [condition] has not held by [timeout]
+/// instead of falling through. Use when the assertion that follows relies on
+/// the condition already being true, so a timeout should surface as its own
+/// clear failure rather than a confusing downstream expect.
+Future<void> waitForOrFail(
+  FutureOr<bool> Function() condition, {
+  Duration timeout = const Duration(seconds: 10),
+  String? reason,
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!await condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail(reason ?? 'waitForOrFail timed out after $timeout');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}

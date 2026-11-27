@@ -94,6 +94,20 @@ Steps performed by `deploy.sh`:
 4. `./scripts/seed-ssm-secrets.sh $ENV` (non-prod) — seed/verify SSM SecureString secrets
 5. `npx cdk deploy --all --context environment=$ENV --require-approval broadening`
 
+The step 2 binary is a compile check only: without `LAMBDA_BOOTSTRAP_PATH`, CDK
+bundles its own bootstrap in the `provided.al2023` build image (glibc 2.34).
+
+**CI builds the bootstrap against an old glibc.** `deploy-server.yml` cross-compiles
+in `mcr.microsoft.com/dotnet-buildtools/prereqs:azurelinux-3.0-net10.0-cross-arm64`
+against its arm64 sysroot (`-p:SysRoot=/crossrootfs/arm64 -p:LinkerFlavor=lld`), then
+refuses any bootstrap that needs glibc above 2.34, before anything is deployed.
+Lambda `provided.al2023` has glibc 2.34. Linked against the runner's 2.39,
+ImageSharp's `fmod` bound to `GLIBC_2.38`, and on 2026-10-31 every dev function
+failed at init (`Runtime.ExitError ... exit status 1`, API 500s). The
+`aot-validation` job in `server-tests.yml` runs the same build and also boots the
+health check in the `provided.al2023` image. To check a binary by hand:
+`readelf -W --version-info bootstrap | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -1`.
+
 ### 3. Manual Backend Deploy (without script)
 
 ```bash
@@ -139,6 +153,29 @@ python3 scripts/e2e_admin.py   # dev defaults; --base-url / --client-id to overr
 ```
 
 Staging and prod are never auto-seeded: create admins by hand (prod requires MFA).
+
+### 3b2. Manual on dev: three-party acceptance (ESC-15, ESC-21)
+
+After a dev deploy that touches orders, trips, deliveries, escrows or the notification
+pipeline, run the three-party acceptance with the dev test users (`.ai/test-users.md`):
+
+```bash
+python3 scripts/e2e_three_party.py                 # all scenarios, about 5 minutes
+python3 scripts/e2e_three_party.py --only A,B      # some of them
+python3 scripts/e2e_three_party.py --cron-function wereda-connect-dev-order-cron  # with AWS credentials
+```
+
+It walks the sequential commitments (`order-lifecycle.md` 2.0.0) and checks after each
+step what the server holds and what each party's inbox (`GET /notifications`) says:
+A happy path (the trucker cannot answer before the farmer; the farmer accepts, then the
+trucker; the trip's room goes down; the trucker creates the delivery), B the trucker
+declines and the buyer cancels for a refund, C no buyer cancel on a funded order, D
+self-pickup, E the farmer declines, F a trip without room refuses the second payment,
+G the trucker cancels a trip with orders on it, H the farmer's deadline stamp (and,
+with `--cron-function`, one `commitment_deadlines` run). With `COMMITMENTS_ENABLED` off
+it runs only the legacy accept and skips the rest; without the notifications pipeline
+it skips the inbox checks. It is not in CI (it writes orders, trips and listings under
+the three test users, and the Actions budget is small). Exit code 1 on a failed check.
 
 ### 3c. Post-deploy on every environment: legacy trucker legs (ESC-04)
 
@@ -237,6 +274,123 @@ aws dynamodb delete-item --table-name wereda-connect-<env>-escrow-idempotency \
   --key '{"idempotencyKey":{"S":"migration:esc-04:park_legacy_trucker_legs"}}'
 ```
 
+### 3d. Manual, once per environment: payout reference backfill (FUP-215)
+
+Since escrow-protocol 2.12.0 (FUP-05) every admin record of a manual payout writes a
+`payout-ref#{REFERENCE}` item in escrow-idempotency, so one Telebirr portal reference
+records one leg (`409 ESCROW_047` for a second). References recorded before 2.12.0
+have no item. escrow-cron's `backfill_payout_references` action writes them (escrow-protocol
+2.14.0): every admin-recorded 1.x leg (`manual{Leg}Ref` with `manual{Leg}PaidBy` other than
+`gateway`) and every ledger row done by an admin. It is not scheduled and not in the
+deploy workflow: run it by hand once per environment (dev, staging, prod) after the
+deploy that ships it. It moves no money and changes no escrow, ledger row or audit
+row; every put is conditional, so a rerun is safe.
+
+Cost: one Scan of the escrows table (every row read once, about one read unit per 8 KB),
+one Query per ledger escrow and one put per recorded leg. A run stops after 4 minutes
+of the 5 minute Lambda, so pass `--cli-read-timeout 330` (the default 60 seconds would
+cut the answer off, and the CLI may send the invoke again). A throttled invoke means
+escrow-cron's reserved concurrency of 2 is busy with a scheduled run: wait a minute.
+
+```bash
+aws lambda invoke --function-name wereda-connect-<env>-escrow-cron \
+  --cli-binary-format raw-in-base64-out --cli-read-timeout 330 \
+  --payload '{"body":"{\"action\":\"backfill_payout_references\"}"}' out.json && cat out.json
+```
+
+Read the answer's body:
+
+- `outcome: ok`: done. `marker: done` (or `skipped: true` on a later run: the marker
+  in escrow-idempotency, `migration:fup-215:backfill_payout_references`, 30-day TTL,
+  stops further reads).
+- `scanCursor` present: the run stopped on time. Run again with it, until `outcome` is
+  `ok`: `--payload '{"body":"{\"action\":\"backfill_payout_references\",\"scanFrom\":\"<scanCursor>\"}"}'`.
+- `failed` above 0 (a throttled page or put): `marker: retry`. Run again without
+  `scanFrom` (a chain resumed after a failure cannot finish; the run from the start
+  writes `marker: pending`, and then it or its resumed runs can finish as above); the
+  log names each one (`PAYOUT_REF_BACKFILL_FAILED`).
+- `conflicts` above 0: one portal reference was recorded on two legs before 2.12.0. The
+  first leg the Scan met keeps the item; nothing is overwritten. List them:
+
+```bash
+aws logs filter-log-events --log-group-name /aws/lambda/wereda-connect-<env>-escrow-cron \
+  --filter-pattern '"PAYOUT_REF_BACKFILL_CONFLICT"' --query 'events[].message' --output text
+```
+
+  Each line names the reference, the leg that holds it (`heldBy=<escrowId>/<leg or ledger
+  ref>`) and the other one (`alsoOn=`), with the admins who recorded them (a ledger ref
+  shows `:` for `#`). Check both payments in the merchant portal. The leg whose record is
+  wrong is corrected by an admin on its escrow page (Correct reference, escrow-protocol
+  2.18.0); a leg that was never paid at all still follows the escalation of 2.12.0 (known
+  limits). Never delete or edit the reference item by hand to make room. When the leg
+  corrected was the one holding the item, the other leg has no item until the backfill
+  reads it again: remove the marker (below) and run it once more.
+- `skippedLegs` above 0: a recorded leg without a readable `manual{Leg}PaidAt`
+  (`PAYOUT_REF_BACKFILL_SKIPPED`, bad data only); escalate it.
+
+Read again later (removes the marker):
+
+```bash
+aws dynamodb delete-item --table-name wereda-connect-<env>-escrow-idempotency \
+  --key '{"idempotencyKey":{"S":"migration:fup-215:backfill_payout_references"}}'
+```
+
+### 3e. Manual, once per environment: delivery photo copies, then the uploads expiry (FUP-140)
+
+Since delivery-verification-api 2.14.0 the `delivery_photo` attach copies each handoff photo
+to `evidence/photos/` (never expired) and the reads sign that copy. `uploads/photos/` then only
+holds uploads, and the lifecycle rule `DeliveryPhotoUploadsExpiry` (current versions after 30
+days, noncurrent after 1 day) clears the ones never attached. Photos attached before 2.14.0 have
+no copy: their reads still sign the upload key, so the rule would delete evidence. The rule is
+deployed disabled; it goes on per environment only after the backfill below ran there.
+
+Order, per environment (dev, then staging, then prod):
+
+1. Deploy the release that ships 2.14.0 (the rule deploys disabled: `deliveryPhotoUploadExpiry:
+   false` in `infra/lib/config/environments.ts`). From then on every new attach makes its copy.
+2. Run order-cron's `backfill_delivery_photo_copies` until it answers `outcome: ok` (below).
+3. In a reviewed PR, set `deliveryPhotoUploadExpiry: true` for that environment only, and deploy.
+   Check in the S3 console (uploads bucket, Management) that `DeliveryPhotoUploadsExpiry` shows
+   Enabled, and that no rule names `evidence/`.
+
+The backfill is not scheduled and not in the deploy workflow. It reads the deliveries table with
+one filtered Scan (every row read once, about one read unit per 8 KB), and for each photo without
+a copy makes one S3 copy (at most 200 KiB, inside the bucket) and one conditional update that
+moves neither the row's `version` nor `updatedAt` (no phone conflict, no push). A run stops
+after 4 minutes of the 5 minute Lambda, so pass `--cli-read-timeout 330`. A throttled invoke
+means order-cron's reserved concurrency of 6 is busy with scheduled runs: wait a minute.
+
+```bash
+aws lambda invoke --function-name wereda-connect-<env>-order-cron \
+  --cli-binary-format raw-in-base64-out --cli-read-timeout 330 \
+  --payload '{"body":"{\"action\":\"backfill_delivery_photo_copies\"}"}' out.json && cat out.json
+```
+
+Read the answer's body:
+
+- `outcome: ok`: this run read to the end of the table with no failure. `copied` photos got their
+  copy now; a row that has one is no longer read, so a rerun answers `copied: 0`.
+- `scanCursor` present: the run stopped on time. Run again with it until the answer has no
+  `scanCursor`: `--payload '{"body":"{\"action\":\"backfill_delivery_photo_copies\",\"scanFrom\":\"<scanCursor>\"}"}'`.
+- `failed` above 0 (a throttled page, a copy or a write that failed; the log names each one,
+  `DELIVERY_PHOTO_BACKFILL_FAILED step=..`): run again from the start, without `scanFrom`.
+- The backfill is done when one run from the start, or a chain of runs (the start, then each
+  `scanFrom`) where every run had `failed: 0`, ends without `scanCursor`. To be sure, one more
+  run from the start must answer `outcome: ok` with `copied: 0`. Record the answers in the PR
+  that turns the rule on.
+- `missing` above 0: a row names a photo whose object (or version) is not in the bucket
+  (`DELIVERY_PHOTO_BACKFILL_MISSING`, for example a photo that never went up before FRD-12): its
+  read was already dead, and nothing is lost by the rule. Not a failure.
+- `skipped` above 0: a row names a key without that delivery's shape for its type
+  (`DELIVERY_PHOTO_BACKFILL_SKIPPED`, a value written before 1.25.0): no read signs it. Not a
+  failure.
+- `outcome: unconfigured`: the Lambda has no `UPLOADS_BUCKET` or `DELIVERIES_TABLE`; the deploy
+  that ships 2.14.0 sets both.
+
+Rolling back the rule: set `deliveryPhotoUploadExpiry: false` and deploy; it stops new
+expirations. Objects already expired are gone (the bucket keeps no version past the rule), but
+each attached photo is read from its copy, so only unattached uploads were removed.
+
 ### 4. Web App Deploys (CI/CD)
 
 Automatic on push to `main` when files change in the relevant directory:
@@ -304,7 +458,7 @@ flutter build appbundle --release
 | **ApiStack** | `{prefix}-api` | 14 Lambdas, API Gateway, 2 Cognito pools, EventBridge rules, Secrets Manager (prod) / SSM SecureString refs (dev+staging), SSM params |
 | **WebStack** | `{prefix}-web` | 3 S3 buckets + 3 CloudFront distributions (website, webapp, admin) |
 | **CertificateStack** | `{prefix}-cert` | ACM wildcard cert (`*.weredaconnect.com`) in us-east-1 |
-| **MonitoringStack** | `{prefix}-monitoring` | CloudWatch dashboard + alarms |
+| **MonitoringStack** | `{prefix}-monitoring` | CloudWatch dashboard + alarms. Not deployed in dev (`monitoringEnabled: false` in `infra/lib/config/environments.ts`, saves about $15 a month); `-c monitoringEnabled=true` deploys it there |
 
 Stack source: `infra/lib/stacks/`
 
@@ -474,12 +628,13 @@ POST /escrow/refund
 |--------|------|---------|
 | GET | `/admin/dashboard/stats` | Platform statistics |
 | GET | `/admin/escrows` | List all escrows |
+| GET | `/admin/escrows/held` | Held queue: escrows frozen for fraud review, oldest first, a Query on `StatusExpiresIndex` (FRD-07); release or refund them through `POST /escrow/release` and `POST /escrow/refund` with a reason |
 | GET | `/admin/escrows/{id}` | Single escrow details |
 | GET | `/admin/escrows/{id}/audit` | Escrow audit trail |
 | GET | `/admin/disputes` | List disputes |
-| GET | `/admin/fraud-signals` | List fraud signals |
+| GET | `/admin/fraud-signals` | List fraud signals of one status (`pending` by default, or `reviewed`) from the fraud-signals `StatusCreatedAtIndex`, newest first, with each user's risk score (FRD-07) |
 | GET | `/admin/users` | List users |
-| GET | `/admin/users/{id}` | Single user details |
+| GET | `/admin/users/{id}` | Single user details, with `suspendReason` beside the user (FRD-07) and the newest 50 profile edits as `profileHistory` and `profileHistoryMore`, or `profileHistoryHidden` for a deleting or deleted account (FUP-317, `user-entity.md` 2.3.0) |
 | GET | `/admin/health/overview` | System health |
 | GET | `/admin/compliance/summary` | Compliance metrics |
 | GET | `/admin/analytics/revenue` | Revenue analytics |
@@ -489,6 +644,7 @@ POST /escrow/refund
 | POST | `/admin/fraud-signals/{id}/action` | Review a fraud signal: `approve`, `reject` (suspends the user, `fraud_confirmed`) or `whitelist` (FRD-05) |
 | POST | `/admin/users/{id}/action` | Suspend, unsuspend, verify or change role (`fraud_confirmed` is not an accepted suspend reason) |
 | POST | `/admin/payouts/{escrowId}/{ref}/complete` | Record an admin-paid manual payout leg (`{externalRef}`, admin group only) |
+| POST | `/admin/deliveries/{id}/cancel` | Cancel a delivery picked up and never delivered, once every escrow behind it is settled (`{reason, expectedVersion}`, admin group only; moves no money or order status; FUP-19) |
 
 #### Manual payout queue (live mode runbook, ESC-02)
 
@@ -539,7 +695,10 @@ mock mode (`TELEBIRR_MOCK=true`, dev) too.
 5. Alarm: the hourly escrow-cron logs `MANUAL_PAYOUT_OVERDUE` for every pending
    leg queued more than 24 hours ago, which feeds
    `${prefix}-manual-payouts-overdue` (ESC-13, see Monitoring below; it needs a
-   subscriber on the alarm topic). The cron also logs `ESCROW_MANUAL_PAYOUT_WAITING` for
+   subscriber on the alarm topic). The first run that reports a leg also logs
+   `MANUAL_PAYOUT_NEWLY_OVERDUE` once for it (FUP-06), which feeds
+   `${prefix}-manual-payouts-newly-overdue`, so a new leg notifies even while the
+   first alarm is already in ALARM. The cron also logs `ESCROW_MANUAL_PAYOUT_WAITING` for
    every queued escrow a sweep skips, and the service logs
    `ESCROW_MANUAL_PAYOUT_QUEUED` when one enters the queue.
 
@@ -626,6 +785,8 @@ All functions receive:
 Dev-only flags (blocked in prod by CDK guard):
 - `DEV_FAYDA_BYPASS=true` — skip real Fayda verification
 - `TELEBIRR_MOCK=true` — use mock Telebirr gateway
+- `FAYDA_MOCK=true`: the mock Fayda eSignet provider is in use (`faydaMode: 'mock'`); also unlocks the web callback pages in `FAYDA_MOCK_WEB_REDIRECT_URIS`
+- `FAYDA_SANDBOX=true` + `FAYDA_SANDBOX_REDIRECT_URI`: the real VeriFayda sandbox with its shared test client (`-c faydaMode=sandbox`); the provider is given the test client's redirect and a local relay forwards the callback (`specs/features/fayda-mock-server.md`, "Sandbox mode")
 
 ---
 
@@ -748,7 +909,10 @@ aws iam update-assume-role-policy --role-name wereda-connect-dev-github-deploy -
 | Static assets (JS, CSS, images) | `max-age=31536000, immutable` | No (content-hashed) |
 | `index.html` | `max-age=0, must-revalidate` | Yes |
 | `flutter_service_worker.js` | `max-age=0, must-revalidate` | Yes |
-| `version.json` | `max-age=0, must-revalidate` | Yes |
+| `flutter_bootstrap.js` | `max-age=0, must-revalidate` | Yes |
+| `fayda-callback.html`, `fayda-callback.js` | `max-age=0, must-revalidate` | Yes |
+
+The webapp deploy invalidates `/*`. `version.json` is uploaded but never served: the webapp CloudFront distribution answers `/version.json` with 404 on purpose (T-SEC-05), and the app does not read it. Details: `docs/developer/deployment.md`, "S3 Cache Strategy".
 
 ---
 
@@ -789,15 +953,30 @@ aws logs filter-log-events \
   --start-time $(date -u -v-1H +%s)000
 ```
 
-Key alarms (CloudWatch). Every alarm notifies the `wereda-connect-<env>-alarms` SNS topic;
-the stack only outputs the ARN, so subscribe an email or phone to it or the alarms fire into
-nothing.
+Key alarms (CloudWatch). Every alarm notifies the `wereda-connect-<env>-alarms` SNS topic
+(the stack outputs its ARN as `AlarmTopicArn`). Without a confirmed subscriber the alarms fire
+into nothing. FUP-06: `alarmEmails` in `infra/lib/config/environments.ts` subscribes email
+addresses in code (default empty: no subscription is made and one added by hand is left alone).
+Use a shared operations address, never a personal one, and set it there rather than with `-c`
+(the CI deploy passes only `environment`, so a context value would be dropped by the next
+deploy). Each address gets an AWS confirmation mail and receives nothing until it is confirmed.
+Check each environment after a deploy (staging and prod; dev only when deployed with
+`-c monitoringEnabled=true`):
+
+```bash
+TOPIC=$(aws cloudformation describe-stacks --region <region> --stack-name wereda-connect-<env>-monitoring \
+  --query "Stacks[0].Outputs[?OutputKey=='AlarmTopicArn'].OutputValue" --output text)
+# At least one row whose SubscriptionArn is an ARN, not PendingConfirmation
+aws sns list-subscriptions-by-topic --region <region> --topic-arn "$TOPIC" \
+  --query 'Subscriptions[].[Protocol,Endpoint,SubscriptionArn]' --output table
+```
 
 - Platform: Lambda errors across the critical functions, API Gateway 5xx rate, DynamoDB
   throttles, cold start duration, order-cron errors, auth brute force, escrow dispute rate.
 - `<prefix>-escrow-dispute-rate`: more than 5 disputes in one hour. It counts every
-  `POST /escrow/dispute` request (the escrow Lambda's `ESCROW`/`DISPUTE` audit line, any outcome)
-  and, since FUP-27, every delivery dispute through sync that froze an escrow
+  `POST /escrow/dispute` that froze an escrow (the escrow Lambda's `ESCROW`/`DISPUTE` audit line
+  with outcome `success`, since FUP-81; a refused request is not counted, a replay of the same
+  idempotency key is) and, since FUP-27, every delivery dispute through sync that froze an escrow
   (`DELIVERY_DISPUTE_FROZEN escrowId=.. orderId=.. deliveryId=..` in the sync log group; an escrow
   already disputed, a refused dispute and escrow-cron's freeze of an old disputed trade are not
   counted). First action: look for one account or one trip behind most lines (fraud, or a trucker
@@ -810,14 +989,26 @@ nothing.
 | `<prefix>-escrow-settlement-failures` | a release, refund or trucker leg failed, or a sweep hit an exception (`ESCROW_SETTLEMENT_FAILED` in the escrow or escrow-cron log group); a payout queued for an admin (`202 ESCROW_034`) is not counted | find the line by escrowId. `outcome=failed` (a definite refusal, a failure before the settlement lock, or a bookkeeping failure after the payout was recorded: the escrow row is `released` or `refunded`, and the crash recovery completes a `released` one): `release_failed` and `refund_failed`: the next sweep retries; `trucker_release_failed`: the farmer is paid and the escrow stays `released` with `truckerPayoutPending`; the hourly trucker retry pays the leg with the same reference (ESC-04), so do not pay the trucker by hand (`<prefix>-trucker-payouts-overdue` fires if it is still owed after 24 hours). `outcome=unknown`: see the next row |
 | `<prefix>-escrow-settlement-unknown-outcomes` | (ESC-05) a line above with `outcome=unknown`: a Telebirr timeout or lost answer, a gateway call that threw, a queue write that failed after the gateway answered, an exception after the settlement lock, or a stale lock parked by the recovery step (`action=stale_lock_parked`); the money may have moved and nothing retries it | never release or refund it by hand. Open Manual Payouts (`/payouts`): the escrow is there as `GATEWAY_OUTCOME_UNKNOWN` (or `GATEWAY_REF_MISSING`), or will be within about 75 minutes. Search the portal for the row's gateway reference, record it if found, pay only if it is still missing (runbook above). `ESCROW_SETTLEMENT_PAID_UNRECORDED` lines in the same log group carry the gateway references of a payout that was made but not recorded |
 | `<prefix>-escrow-cron-errors` | escrow-cron was killed (5 minute timeout, out of memory) or crashed; a run killed mid-settlement logs no token; 4 periods of 5 minutes, clears 20 to 25 minutes after the last error | find the failed RequestId (REPORT line, "Task timed out") and the last escrowId it logged. An escrow left holding its settlement lock is parked in Manual Payouts by the next hourly run once the lock is 15 minutes old (ESC-05, `stale_lock_parked` line and the unknown-outcomes alarm); treat it as an unknown outcome |
-| `<prefix>-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `_LINK_FAILED` or `_REFUND_SCHEDULE_FAILED` in the sync Lambda; since ESC-06 also `ORDER_TRANSPORT_CANCEL_LATE_DELIVERY orderId=.. deliveryId=.. status=..` (a buyer cancelled an accepted order after a transport failure and a delivery that was not pending held its slot right after) and `ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED orderId=.. deliveryId=.. status=..` (a pickup synced after that cancel had already cancelled the delivery: the reverse offline race); since FUP-42 also `QR_GATE_UNDECIDED deliveryId=.. orderId=.. reason=.. detail=..` (a delivery pickup or confirm with no QR on record could not read the escrow that decides whether it needs one; the op is answered `deferred` and is never failed, so only this alarm shows it is stuck) | create self-heals at delivery linkage; link: tie the delivery to the order escrow by hand; refund schedule: set the escrow expiry by hand so the sweep refunds; late delivery: if `status=pickedUp` (or later) the goods left the farm on an order being refunded: call the trucker, farmer and buyer before the refund lands, and decide by hand; `status=unknown`: read the order's `activeDeliveryId` and its delivery; pickup refused: the trucker has the goods of a cancelled order: call the trucker, farmer and buyer and arrange the return or a new order by hand; QR gate undecided: one line is a transient read error that the device's next sync clears; repeated lines for the same `deliveryId` mean the escrows table read keeps failing (read `reason` and `detail`: throttling, IAM, a missing table), fix that and the queued op then passes, or defers on the QR as usual |
-| `<prefix>-manual-payouts-overdue` | a manual payout leg (ESC-02) has waited more than 24 hours (`MANUAL_PAYOUT_OVERDUE ... ref=<op>:<leg>`) | open Manual Payouts (`/payouts`), check the reason before paying (runbook above) and record the portal transaction id |
-| `<prefix>-trucker-payouts-overdue` | (ESC-04) a trucker leg is still owed more than 24 hours after the farmer was paid (`TRUCKER_PAYOUT_OVERDUE escrowId=.. reason=.. ageHours=..` in the escrow-cron log group); the escrow stays `released` and the hourly retry keeps trying | `reason=phone_unverified` or `fayda_required`: ask the trucker to verify; the next hourly run pays the leg (with the live gateway it moves to Manual Payouts). `reason=no_trucker`, `profile_missing` or `trucker_mismatch`: the escrow has no payable trucker. The hourly run copies the truckerId from the order when the delivery names the same trucker; if the order has none, the leg has no payee until ESC-20. Escalate, and never edit the escrow row by hand. `reason=gateway_refused` or `queue_failed`: see the settlement-failures row |
+| `<prefix>-order-escrow-problems` | `ORDER_ESCROW_CREATE_FAILED`, `_LINK_FAILED` or `_REFUND_SCHEDULE_FAILED` in the sync Lambda (since ESC-18 `_REFUND_SCHEDULE_FAILED` also from the Telebirr webhook, for an order cancelled because its listing's stock was gone at funding); since ESC-06 also `ORDER_TRANSPORT_CANCEL_LATE_DELIVERY orderId=.. deliveryId=.. status=..` (a buyer cancelled an accepted order after a transport failure and a delivery that was not pending held its slot right after) and `ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED orderId=.. deliveryId=.. status=..` (a pickup synced after that cancel had already cancelled the delivery: the reverse offline race); since FUP-42 also `QR_GATE_UNDECIDED deliveryId=.. orderId=.. reason=.. detail=..` (a delivery pickup or confirm with no QR on record could not read the escrow that decides whether it needs one; the op is answered `deferred` and is never failed, so only this alarm shows it is stuck) | create self-heals at delivery linkage; link: tie the delivery to the order escrow by hand; refund schedule: set the escrow expiry by hand so the sweep refunds (`reason=no_escrow`: the order is cancelled and its money has no escrow record; refund the Telebirr payment by hand and record it); late delivery: if `status=pickedUp` (or later) the goods left the farm on an order being refunded: call the trucker, farmer and buyer before the refund lands, and decide by hand; `status=unknown`: read the order's `activeDeliveryId` and its delivery; pickup refused: the trucker has the goods of a cancelled order: call the trucker, farmer and buyer and arrange the return or a new order by hand; with `reason=late_pickup_evidence` (ESC-34) the scan reached the server after the pickup judgement: reconcile with the parties, then, while the order is still `accepted` (both present or an unmeasured arrival), re-open it from its transaction page (Pickup judgement, "Re-open the pickup", FUP-287: back to pending with a new deadline, or the handoff confirmed); a no-show judgement is not re-opened there (the refund paths, and a wrong `NO_SHOW` excused on the party's reputation); QR gate undecided: one line is a transient read error that the device's next sync clears; repeated lines for the same `deliveryId` mean the escrows table read keeps failing (read `reason` and `detail`: throttling, IAM, a missing table), fix that and the queued op then passes, or defers on the QR as usual |
+| `<prefix>-manual-payouts-overdue` | a manual payout leg (ESC-02) has waited more than 24 hours (`MANUAL_PAYOUT_OVERDUE ... ref=<op>:<leg>`, one line per leg per run); it stays in ALARM while any leg is overdue, so a later leg notifies through the next row instead | open Manual Payouts (`/payouts`), check the reason before paying (runbook above) and record the portal transaction id |
+| `<prefix>-manual-payouts-newly-overdue` | (FUP-06) a manual payout leg has just passed 24 hours in the queue (`MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=.. ref=.. ageHours=..` in the escrow-cron log group, once per leg: `ref=<op>:<leg>` from the hourly report for a 1.x payout, the ledger ref with `#` as `.` from the 15 minute ledger sweep). Edge-triggered: it fires even while `manual-payouts-overdue` is in ALARM and clears by itself 5 to 15 minutes later; that OK says nothing about the payout | the same as the row above for that escrow: open Manual Payouts (`/payouts`), check the reason, pay and record. Several legs in one run are one notification, so read the lines. The same leg announced again on a later run means its marker could not be written (a warning line next to it says the newly overdue marker of that escrow was not written, with the exception type): fix the throttling or IAM on the escrows or escrow-ledger table |
+| `<prefix>-trucker-payouts-overdue` | (ESC-04) a trucker leg is still owed more than 24 hours after the farmer was paid (`TRUCKER_PAYOUT_OVERDUE escrowId=.. reason=.. ageHours=..` in the escrow-cron log group); the escrow stays `released` and the hourly retry keeps trying | `reason=phone_unverified` or `fayda_required`: ask the trucker to verify; the next hourly run pays the leg (with the live gateway it moves to Manual Payouts). `reason=no_trucker`, `profile_missing` or `trucker_mismatch`: the escrow has no payable trucker. The hourly run copies the truckerId from the order when the delivery names the same trucker; if the order has none, the leg has no payee until ESC-20. Escalate, and never edit the escrow row by hand. `reason=gateway_refused` or `queue_failed`: see the settlement-failures row. It stays in ALARM while any leg is overdue, so a later leg notifies through the next row |
+| `<prefix>-trucker-payouts-newly-overdue` | (FUP-436) a trucker leg has just passed 24 hours owed (`TRUCKER_PAYOUT_NEWLY_OVERDUE escrowId=.. reason=.. ageHours=..` in the escrow-cron log group, once per leg: a 1.x leg keyed on `truckerPayoutPendingSince`, a ledger escrow's transport leg on its `releasedAt`). Edge-triggered: it fires even while `trucker-payouts-overdue` is in ALARM and clears by itself 5 to 15 minutes later; that OK says nothing about the payout | the same as the row above for that escrow. Several legs in one run are one notification, so read the lines. The same leg announced again on a later run means its marker could not be written (a warning line next to it says the newly overdue marker of that escrow was not written, with the exception type): fix the throttling or IAM on the escrows table |
+| `<prefix>-releases-blocked-overdue` | (FUP-41) a release the payout identity gate blocks has waited more than 24 hours (`RELEASE_BLOCKED_OVERDUE escrowId=.. leg=farmer\|trucker reason=.. ageHours=..` in the escrow-cron log group, one line per escrow per hourly run while it lasts; `ageHours` counts from when the gate first gave that reason). `leg=farmer`: the farmer release (1.x or ledger, or the farmer of a split verdict); `leg=trucker`: the trucker of a split verdict. No money moved; the escrow stays `escrowed` (or `dispute_resolved`) and the sweep tries every hour. Level-triggered: one notification per episode, it clears 75 to 90 minutes after the last line, and a second escrow that becomes overdue meanwhile notifies through the next row | open `/escrows/<escrowId>`: the "Sweep block" row shows the stored reason and since when. `reason=phone_unverified` or `fayda_required`: ask that party to verify the phone or Fayda in the app; the next hourly run pays (with the live gateway it moves to Manual Payouts). `reason=profile_missing`: the payee's account is gone; escalate (FUP-346). A suspended or CRITICAL payee is the `risk-settlement-skipped` row instead. Never edit the escrow row by hand, and never release by hand: an admin release meets the same gate |
+| `<prefix>-releases-blocked-newly-overdue` | (FUP-436) a release the payout identity gate blocks has just passed 24 hours (`RELEASE_BLOCKED_NEWLY_OVERDUE escrowId=.. leg=.. reason=.. ageHours=..` in the escrow-cron log group, once per stored block, keyed on `settlementBlockReasonAt`: a reason that changes, or a block stored again after the gate passed, is announced again). Edge-triggered: it fires even while `releases-blocked-overdue` is in ALARM and clears by itself 5 to 15 minutes later; that OK says nothing about the payee | the same as the row above for that escrow. The same block announced again on a later run means its marker could not be written (a stdout line says the newly overdue marker of that escrow was not written, with the exception type): fix the throttling or IAM on the escrows table |
+| `<prefix>-ledger-rows-newly-overdue` | (FUP-436) an escrow ledger row has just passed 24 hours open in `pending`, `sent` or `failed` (`LEDGER_ROW_NEWLY_OVERDUE escrowId=.. ref=.. status=.. ageHours=..` in the escrow-cron log group, from the 15 minute ledger sweep, once per row, keyed on its `createdAt`, so a move between those statuses is not announced again). Edge-triggered: it fires even while `ledger-rows-overdue` (the same line without `NEWLY`, every sweep) is in ALARM and clears by itself 5 to 15 minutes later; that OK says nothing about the row | `status=pending`: the payee fails the identity gate (`lastCode` `PAYEE_BLOCKED`) or the sweep cannot call; ask the payee to verify. `status=sent`: the gateway outcome is unknown; do NOT pay by hand, search the merchant portal for the row's `gatewayRef` first. `status=failed`: the gateway keeps refusing; after 3 refusals the row moves to Manual Payouts. Never edit a ledger row or the escrow by hand. A row announced again means its marker could not be written: fix the throttling or IAM on the escrow-ledger table |
 | `<prefix>-admin-queue-overdue` | an order escrow held 21 days after funding (ESC-06) has been due in the admin stuck-order queue for 24 hours (`ADMIN_QUEUE_OVERDUE orderId=.. reason=.. ageHours=..`, `ageHours` counts from when it became due); nothing moves the money by itself | open `/transactions/<orderId>` in the admin app (it shows the queue reason and the pickup deadline). Exits by case: **`accepted` past its pickup deadline**: the buyer can cancel in the app for a full refund; ask them to. If the buyer cannot be reached, an admin-group refund (`POST /escrow/refund`, trigger `admin_override`) is safe since ESC-09: it cancels the order (and its pending delivery) first, gives the stock back, then refunds; it refuses with `422` once the goods were picked up. **`pickup_confirmed` or `in_transit`** (goods moving): the buyer or the farmer opens a dispute (`/escrow/dispute`) and the admin verdict settles it (ESC-03), or the delivery gets confirmed. **`disputed` with an `escrowed` escrow** (a legacy order-level dispute) or **`payment_submitted`**: escalate (manual path, ESC-24). **`reason=order_missing`** (the escrow names an order that does not exist): escalate. The entry clears itself within the hour once the escrow is refunded, released, disputed, confirmed or in Manual Payouts |
 | `<prefix>-dispute-verdict-settlement-blocked` | a dispute verdict's settlement failed closed in three of the last four hourly periods (1 hour periods, 3 of 4 datapoints, so sweep jitter that leaves one hour empty does not hide it) (`DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=.. op=.. legs=..` in the escrow-cron log group, ESC-03): `read:<error>` (the order or delivery cannot be read), `cancel:<reason>` or `restock:<reason>` (a `buyer_wins` order could not be cancelled or its stock given back before the refund); no money moved | find the escrow (escrow-audit row `dispute_settlement_blocked` has the legs), fix the cause (Lambda permissions, throttling, the order or listing row), and let the next sweep settle it; it clears once a sweep is no longer blocked |
-| `<prefix>-dispute-verdict-order-mismatch` | a dispute verdict was not settled because its order or delivery is in a status the verdict cannot follow (`DISPUTE_VERDICT_ORDER_MISMATCH escrowId=.. op=.. legs=..` in the escrow or escrow-cron log group, ESC-03); usually a dispute raised while the goods were moving, or a `farmer_wins` before delivery; no money moved and the hourly sweep retries | find the escrow by escrowId (the escrow-audit row `dispute_verdict_mismatch` carries the legs). `farmer_wins`: it settles by itself once the delivery is confirmed and the order reaches `delivered`. `buyer_wins` with the goods moving: confirm the delivery, or refund by hand with `POST /escrow/refund` (admin group) and `{"escrowId": ..., "trigger": "dispute_resolved", "reason": "<10-500 chars>", "overrideOrderMismatch": true, "idempotencyKey": ...}`; the override is audited with your id and reason and the order is flagged (`disputeOverrideBy`) |
+| `<prefix>-dispute-verdict-order-mismatch` | a dispute verdict was not settled because its order or delivery is in a status the verdict cannot follow (`DISPUTE_VERDICT_ORDER_MISMATCH escrowId=.. op=.. legs=..` in the escrow or escrow-cron log group, ESC-03); usually a dispute raised while the goods were moving, or a `farmer_wins` before delivery; no money moved and the hourly sweep retries | find the escrow by escrowId (the escrow-audit row `dispute_verdict_mismatch` carries the legs). `farmer_wins`: it settles by itself once the delivery is confirmed and the order reaches `delivered`. `buyer_wins` with the goods moving: choose `return_to_farmer` or `delivered_anyway` in Disputes > Awaiting settlement. No goods choice fits (a missing order or delivery row, another verdict on the delivery, an order closed or paid out): choose "Settle as it is" (`settle_as_is`, FUP-64) with a reason; the next sweep settles it. `overrideOrderMismatch` no longer settles a verdict (escrow-protocol 2.21.0). If even `settle_as_is` is refused (`ADMIN_016`: a `farmer_wins` whose goods never left the farm, came back, or whose order shows a payout), escalate |
+| `<prefix>-dispute-verdict-wait-overdue` | a `farmer_wins` verdict whose admin chose `wait_for_delivery` has waited seven days or more and its order is still not delivered (`DISPUTE_VERDICT_WAIT_OVERDUE escrowId=.. op=.. ageDays=.. legs=..` in the escrow-cron log group, one line per escrow per hourly sweep, FUP-64); no money moved | open Disputes > Awaiting settlement and the order in `/transactions/<orderId>`: once the goods were picked up and the trucker stopped, choose `settle_now`; otherwise keep waiting. An order cancelled meanwhile alarms on dispute-verdict-order-mismatch instead (`settle_as_is` is the exit). The alarm stays in ALARM while any wait is overdue |
 | `<prefix>-dispute-propagation-failed` | (FUP-27) a dispute froze the escrow but its delivery or order did not follow (`DISPUTE_PROPAGATION_FAILED escrowId=.. orderId=.. deliveryId=.. legs=..` in the escrow, sync or escrow-cron log group, one line per failed mirror call; the escrow-audit row `dispute_propagation_failed` has the raw legs). `legs`: `lookup:<error>` or `delivery:<error>` (a read or write failed: throttling, IAM), `order:conflict` (three version conflicts in a row), `order:<code>` (the order write was refused). The money is frozen, so nothing pays out, but the order may still show `delivered` and stay open to ratings | fix the cause first (an IAM or throttling error repeats on the next dispute). Then open `/transactions/<orderId>` in the admin app and check the order and delivery status. Operators cannot re-run the mirror: only a party's repeated dispute does (the buyer or farmer sends `POST /escrow/dispute` again on the disputed escrow, or the app resends the delivery dispute through sync), and that repair is skipped while a manual payout or a settlement lock is open on the escrow. Your lever is the admin verdict (`POST /admin/disputes/{id}/resolve`, ESC-03): it moves the order and the delivery with the verdict, and again before it settles. Never edit the order, delivery or escrow rows by hand |
+| `<prefix>-escrow-delivery-stamp-failures` | (ESC-16) a delivery was confirmed but its escrow was not stamped `deliveryConfirmedAt` (`ESCROW_DELIVERY_STAMP_FAILED deliveryId=.. source=sync reason=[..]` when the buyer's confirmation could not stamp it, `... escrowId=.. source=escrow-cron` when the hourly repair failed too). Until the stamp lands the auto-release never pays the farmer or the trucker; with the commitments on the refund sweep does not look at the escrow again before its 21 day cap | `source=sync` alone: wait for the next escrow-cron run, whose order-money sweep stamps it (its summary counts `deliveryStampsRepaired`). `source=escrow-cron`: the repair keeps failing; fix the cause (throttling, IAM on the escrows table) and check the trade in `/transactions/<orderId>`. Never release by hand while the stamp is missing, and never edit the escrow row by hand |
 | `<prefix>-order-money-mismatch` | (ESC-09) an order does not show what its escrow's money says and the hourly order-money sweep could not fix it (`ORDER_MONEY_MISMATCH orderId=.. escrowId=.. orderStatus=.. escrowStatus=.. reason=..` in the escrow-cron log group) | `reason=write_failed`: the order could follow but its writes keep failing (throttling, IAM on the orders table); fix the cause, the next hourly run retries. `reason=cannot_follow` (money moved that the order cannot show, for example a refund behind a `delivered` order) or `order_ahead` (the order is `disbursing` or `settled` over money that did not move): logged once per escrow (escrow-audit row `order_money_mismatch` or `order_money_ahead`, and a row on the order's timeline in `/transactions/<orderId>`); read the escrow audit, never edit the order or escrow rows by hand, escalate (FUP-16 admin actions). `reason=sweep_truncated`: a sweep cycle (several runs of 30 s or 2,000 orders each, resumed from a cursor) is still unfinished 24 hours after it started: check escrow-cron duration and throttles; persistent, it needs ESC-16's deadline index. `reason=sweep_failed`: a page query failed (throttling, permissions) |
+| `<prefix>-risk-settlement-skipped` | (FRD-03, FUP-29, FUP-176) the fraud risk gate left money unmoved (`RISK_SETTLEMENT_SKIPPED escrowId=.. sweep=.. reason=.. holdReason=..` in the escrow-cron log group, one line on every run that asks). Two sources: a settlement sweep left an escrow unsettled (`sweep=auto-release`, `auto-refund` or `dispute`; `reason=flag_off` while `FRAUD_HOLD_ENABLED` is off), or the payout gate (escrow-protocol 2.6.0) left a farmer or trucker leg unpaid (`sweep=payout-farmer` or `payout-trucker`, `reason=payee_flagged`). `holdReason` says why: `fraud_confirmed` (rejected in Fraud Review), `account_suspended` or `risk_critical`. No money moved | find the party from the escrow in the admin app. Exits: unsuspend the party if the suspension was not about fraud, or review the signals behind the tier in Fraud Review (approve the false ones); the next run settles or pays as before. A skipped sweep can also be settled by hand (`POST /escrow/release` or `/escrow/refund`, admin group); a blocked trucker leg on a `released` escrow waits for the unsuspend or the review (FUP-175). `reason=user_read_failed` or `score_unavailable`: a party row or risk score could not be read (IAM, throttling on the users or fraud-signals table); fix the cause and the next run decides again |
+| `<prefix>-order-deadline-refund-stalled` | (FUP-231) an order cancel or refund the crons keep retrying, a line in three of the last four hourly periods (one metric, `OrderDeadlineRefundStalled`): `ORDER_DEADLINE_ROW_FAILED orderId=.. reason=[..]` (order-cron, every 15 minute run: a due order's deadline decision throws and the row stays due), `ORDER_DEADLINE_REFUND_WAITING orderId=.. cancelReason=.. reason=escrow_busy\|escrow_changed` (order-cron, FUP-210: a paid order's deadline cancel waits because its refund cannot be armed with it; nothing is written and the row comes back an hour later) and `ORDER_STOCK_RESTORE_FAILED orderId=.. listingId=..` (escrow-cron: a cancelled order's quintals could not go back on its listing, so the hourly sweep defers its refund). The buyer is still waiting for the cancel or the refund | read the lines: one `orderId` again and again is one stuck order, many ids are a shared cause. Row failed: the exception type names it (throttling, IAM, a table missing from the order-cron env); fix it and the next run decides the row. Refund waiting: open `/transactions/<orderId>`; `escrow_busy` means the money is disputed, under a settlement lock or in Manual Payouts: settle that first (the dispute verdict, the payout) and the next look cancels and arms the refund in one write. Stock restore failed: `reason=restock:conflict` is a listing that keeps changing, `restock:[<exception>]` a failed write; check the listing row and the crops table grants. Fix the restore rather than refunding by hand (a refund by hand leaves the quintals off the listing), and never edit the order, escrow or listing rows by hand |
+| `<prefix>-order-deadline-unstamped` | (FUP-255) any line in an hour (one metric, `OrderDeadlineUnstamped`): `ORDER_DEADLINE_STAMP_FAILED orderId=.. reason=[..]` (raw stdout of `OrderRepository`, in the log group of any Lambda that writes orders: admin, deliveries, escrow, escrow-cron, messages, order-cron, orders, reputation-stream, sync, and the webhook when live: the row's next deadline was not stamped, so the order is off `DeadlineIndex` and no sweep sees it until the repair) or `ORDER_DEADLINE_REPAIR_FAILED reason=[..]` (order-cron: the repair pass `commitment_deadlines` runs once a day per container threw; every 15 minute run tries again). A failed stamp with a failing repair leaves a paid order's farmer, trucker or buyer deadline unsettled | stamp failed: the exception type names the cause (throttling, IAM, a table missing from that Lambda's env); fix it, then invoke order-cron with the payload `{"body":"{\"action\":\"deadline_repair\"}"}` (the invoke of section 3e) and check its summary stamped the order. Repair failed: fix the cause and the next run repairs; with both lines, invoke the repair by hand once the fix is in. Never edit the order rows by hand |
+| `<prefix>-order-deadline-stuck` | (FUP-255) a due order deadline the commitment sweep could not act on, a line in three of the last four hourly periods (`OrderDeadlineStuck`): `ORDER_DEADLINE_STUCK orderId=.. kind=.. at=..` (order-cron: the row was due and the sweep decided nothing, so it moved it one hour on). The party the deadline protects is still waiting | read the lines: one `orderId` again and again is one stuck order. Open `/transactions/<orderId>` and check its status, escrow and the `kind`; fix what holds it (a dispute, a settlement lock, a row another write keeps changing) and the next run decides it. Never edit the rows by hand |
+| `<prefix>-delivery-photo-keep-failed` | (FUP-405) three or more lines in 15 minutes (`DeliveryPhotoKeepFailed`): `DELIVERY_PHOTO keep failed for <deliveryId>: [<exception>]` (sync: the attach could not copy an uploaded handoff photo from `uploads/photos/` to `evidence/photos/`, answered `deferred`, and the phone retries). Every handoff photo waits until the copy works | check the sync Lambda's grants on the uploads bucket (read on `uploads/photos/*`, put on `evidence/photos/*`), the bucket policy and the exception type (`AccessDenied`, throttling). The photos attach on their own at the phones' next sync once it works; nothing to replay |
 
 
 ESC-10 lines on these alarms (escrow-cron log group; `specs/contracts/escrow-protocol.md`, "Additions in 1.15.0"):
@@ -833,14 +1024,32 @@ ESC-10 lines on these alarms (escrow-cron log group; `specs/contracts/escrow-pro
   Lambda lacks `DELIVERIES_TABLE` or `ORDERS_TABLE` (deploy). `dispute_resolved`, `order_<status>`,
   `delivery_<status>`, `delivery_missing`, `order_missing`, `double_escrow`, `freeze_*`: the trade and the money
   disagree; decide in the admin app, never by editing the escrow row. `delivery_moving`: goods are on the road
-  behind an order that ended; a dispute and its verdict settle it.
+  behind an order that ended; a dispute and its verdict settle it. `double_escrow` (an `/escrow/initiate` escrow
+  next to the order's own escrow, which holds or paid the money, a `completed` one included since FUP-41): open
+  `/escrows/<escrowId>`; the "Second payment for this order" card refunds this escrow to the buyer (admin group, a
+  reason, a confirm step). The order, its delivery and the order's own escrow do not change. With the live gateway
+  the refund waits in Manual Payouts like any refund. A second escrow blocked before the FUP-41 deploy with another
+  reason (for example `order_settled` next to a `completed` order escrow) is blocked again as `double_escrow` on the
+  next run (one more alarm line) and the page offers the same card.
 - `ESCROW_SETTLEMENT_FAILED escrowId=<id> action=reconciliation_exception`: one initiated escrow's cancel failed; the
   next reconciliation retries it.
 - `ADMIN_QUEUE_OVERDUE orderId=- reason=no_order ageHours=<n> escrowId=<id>` (admin queue overdue): an
   `/escrow/initiate` escrow without an order has held goods on the road for 21 days plus 24 hours; there is no
   queue entry. Open the escrow by id; a dispute and its verdict, or a confirmed delivery, end it.
 - `ESCROW_RELEASE_BLOCKED escrowId=<id> code=ESCROW_029` (Information, no alarm): the farmer must verify (phone or
-  Fayda); the next hourly run pays once they have. Audited once per reason (`release_blocked_kyc`).
+  Fayda); the next hourly run pays once they have. Audited once per reason (`release_blocked_kyc`). Once the same
+  reason is 24 hours old the release logs `RELEASE_BLOCKED_OVERDUE` every run (alarm row above, FUP-41).
+
+Order notifications (ESC-21; contract `specs/contracts/notifications-api.md`). The
+`<prefix>-order-notify-stream` Lambda reads the orders, deliveries and escrows streams, writes each
+party's inbox row, then sends the FCM message. A lost FCM message is not alarmed (the inbox and the
+app's Action-needed cards still show it); a lost inbox row is:
+
+| Alarm | Meaning | First action |
+|---|---|---|
+| `<prefix>-notify-dlq-messages` | a stream batch failed every retry (3 attempts, bisected) or aged past 24 hours, and its shard and sequence range landed in `<prefix>-notify-dlq`. The message holds that metadata, not the records, and stream retention is 24 hours, so the records cannot be replayed from the queue | read the stream Lambda's log group for the failing record (inbox write or rule error) and fix the cause. The parties still see the order state in the app; their inbox misses those rows. Delete the queue messages once handled |
+| `<prefix>-notify-stream-iterator-age` | the stream Lambda is more than 15 minutes behind on a stream: it keeps failing a batch, is throttled, or the table had a burst | check the Lambda's errors and throttles; a poison record retries until it is bisected out or 24 hours old (then it goes to the queue above) |
+| `<prefix>-notify-stream-errors` | the stream Lambda crashed or timed out (30 s); a failed record reported back to Lambda is not an error | find the RequestId in the log group and fix the cause; Lambda retries the batch |
 
 Live Telebirr webhook (ESC-45; only with `enableTelebirrLive`; contract `escrow-protocol.md` "Additions in 1.16.0",
 decision record `specs/decisions/telebirr-webhook-delivery-and-recovery.md`):
@@ -848,6 +1057,8 @@ decision record `specs/decisions/telebirr-webhook-delivery-and-recovery.md`):
 | Alarm | Meaning | First action |
 |---|---|---|
 | `<prefix>-order-payment-problems` with `reason=replay_exhausted` | a verified order payment was replayed 8 times (about 4 h 20 min) and never applied; its inbox row is in the `exhausted` partition of `InboxReplayIndex` and the order hold lapses within about 75 minutes, after which the hourly order cron can fail the order | read the line's `cause=`, fix it (permissions, throttling, a bad row), then requeue the row (below) before the hold lapses. To refund instead, first read the order: if its `telebirrPaymentOrderId` is this payment it is funded, never refund it; refund only once the order has left that payment attempt |
+| `<prefix>-order-payment-problems` with `ORDER_PAYMENT_QUERY_UNRESOLVED` (escrow-cron) | (FUP-37) the 15-minute queryOrder reconciliation (`order_payment_reconcile`) asked Telebirr about a checkout of an order near or past its payment deadline and the answer settled nothing: a gateway error (`error=`), a payment still payable or refunded (`state=Pending`, `Refunded`), an unknown status, a paid answer without its payment id or that could not be written to the inbox, or more than 10 checkouts in the attempt. The order stays `payment_submitted` and is asked again every run; `reason=gave_up` a day past the deadline means the order may now fail (escrow audit `order_payment_query_gave_up`) | look up the line's `merchOrderId` in the merchant portal. Not paid: nothing to do (it fails after a `not_paid` verdict, or after `gave_up`). Paid: a later run hands it to the inbox, which funds the order; after `gave_up`, refund it by hand only once the order has left that payment attempt, and never if the order's `telebirrPaymentOrderId` is this payment. A gateway error on every line: check the Telebirr credentials, the egress IP and the token |
+| `<prefix>-order-payment-problems` with `ORDER_PAYMENT_QUERY_OVERDUE` (order-cron) | (FUP-37) an order with a Telebirr checkout is more than 2 hours past its payment deadline with no current queryOrder verdict on its checkout slot, so the hourly payment-failed step keeps waiting: the reconciliation is not reaching it | check the rule `<prefix>-escrow-cron-payment-reconcile` and the escrow-cron log group (`ORDER_PAYMENT_RECONCILE_RUN` with `truncated=true`, `ORDER_PAYMENT_RECONCILE_UNCONFIGURED`, "could not be read"). A paid checkout found by the reconciliation shows as `ORDER_PAYMENT_RECONCILED` and is funded by the inbox sweep |
 | `<prefix>-telebirr-inbox-replay-stalled` | no `TELEBIRR_INBOX_REPLAY_RUN` line in the webhook log group for 30 minutes: the 5-minute rule is disabled, the Lambda fails, or the `InboxReplayIndex` query fails | check the rule `<prefix>-telebirr-inbox-replay`, the webhook log group ("inbox index could not be read") and the index; pending payments are not applied until it runs again |
 | `<prefix>-telebirr-webhook-5xx` | (FUP-39) the webhook route answered 5 or more `5xx` in 15 minutes. One `500` is normal (ESC-45 D1: a verified payment not yet recorded or applied, so Telebirr sends it again, and the inbox sweep applies it); five means several payments failing, or one failing again and again | in the webhook log group: `ORDER_PAYMENT_UNPROCESSED` (no inbox row; `order-payment-problems` fires too), `ORDER_PAYMENT_REPLAY_PENDING` (the sweep retries; find the shared cause, such as throttling or permissions), "answered 500 for a retry" (the `/escrow/initiate` path, no inbox row), or no line for the request (API Gateway could not invoke the Lambda: check the route's integration, the Lambda permission and throttling in the access log `/aws/apigateway/<prefix>-http-api/access`, `routeKey` `POST /webhooks/telebirr`). A payment with no inbox row comes back only through Telebirr's retries, whose schedule is undocumented |
 | `<prefix>-telebirr-webhook-errors` | (FUP-39) the webhook Lambda failed: a crash, the 15 second timeout or an out-of-memory kill, on the public route or the 5-minute replay sweep; a deliberate `500` never counts; 3 periods of 5 minutes, it clears 10 to 15 minutes after the last error | find the RequestId in the webhook log group (REPORT line, "Task timed out"), fix the cause, then check `order-payment-problems` and the `exhausted` partition of `InboxReplayIndex` |
@@ -892,7 +1103,15 @@ aws dynamodb update-item --table-name "$P-escrow-idempotency" \
 
 The settlement-failure, the unknown-outcome, the verdict-mismatch, the dispute-propagation, the trucker-payouts and the two queue alarms evaluate 5 periods of 15 minutes, so an
 hourly producer keeps them in ALARM without flapping; they clear by themselves 75 to 90
-minutes after the last line. Order escrow problems uses one 15 minute period.
+minutes after the last line. The newly overdue twins (FUP-06, FUP-436: manual payouts, trucker payouts, releases
+blocked, ledger rows) evaluate 2 periods of 5 minutes on a line logged once per item, so each new overdue item
+notifies within minutes, also while its level alarm is in ALARM, and they clear 5 to 15 minutes later.
+Order escrow problems uses one 15 minute period. The settlement-blocked and
+order-deadline-refund-stalled alarms (FUP-231) and order-deadline-stuck (FUP-255) need a line in three of four
+1 hour periods, so one failed run never fires them; they clear once fewer than three of the last four hours have
+a line. Order-deadline-unstamped (FUP-255) fires on any line in an hour and clears the next quiet hour.
+`DELIVERY_FIELD_DROPPED` (FUP-267, sync: a `gpsPickup` or `gpsDropoff` a crafted client sent outside its own
+handoff, dropped) is counted as `DeliveryFieldDropped` with no alarm: a crafted client controls its volume.
 
 Synthetic test of the money alarms (after a deploy; needs AWS credentials, see the script
 header for the exact permissions):
@@ -905,6 +1124,47 @@ scripts/money_alarms_synthetic.sh --env dev
 # (no money moves; subscribers get one ALARM and later one OK per alarm), then wait for them to clear
 # (up to 2 hours). An alarm already in ALARM is reported as not proven and the run fails.
 scripts/money_alarms_synthetic.sh --env dev --fire --wait-clear
+```
+
+Fraud signals and risk alarms (FRD-16; design, metrics and cost in
+`specs/architecture/fraud-detection-architecture.md` section 23.1). The dashboard row "Fraud Signals"
+shows the 15 minute total with its anomaly band, the signal types (metric `FraudSignalsByType`,
+dimension `SignalType`) and the risk lines:
+
+| Alarm | Meaning | First action |
+|---|---|---|
+| `<prefix>-fraud-signal-volume-spike` | (composite of `-fraud-signal-volume-anomaly` and `-fraud-signal-volume-floor`, which notify nothing themselves) the fraud signal rows written in one 15 minute period (`FRAUD_SIGNAL_RECORDED` lines) are above the learned band and at least 10; each row is one user, one type, one hour | find the type in "Fraud Signals by Type". One type from many users after a release (`ROLE_FORBIDDEN`, `IMMUTABLE_FIELD_CHANGE`, `STALE_VERSION_BURST`, `QR_HANDOFF_FAILURE`): a client bug, roll it back. New accounts, a relationship type or `IDOR_CREATE_CONFLICT` probes: open Fraud Review. A run of `scripts/e2e_fraud_personas.py` or the synthetic script fires it too. Nothing acts automatically on this alarm; the per-user risk tiers do |
+| `<prefix>-risk-score-unavailable` | a risk score read failed (`RISK_SCORE_UNAVAILABLE userId=.. error=..`); at a sync or escrow gate the user was scored LOW (only the baseline step-up applied), in a sweep the escrow was skipped | `error=EmptyUserId`: a caller bug. Otherwise check throttling on the fraud-signals table, the Lambda role's `dynamodb:Query` and its `FRAUD_SIGNALS_TABLE` |
+| `<prefix>-risk-score-truncated` | a user's signal rows did not fit in `RISK_MAX_PAGES` pages, so the user is CRITICAL (held, `FRAUD_ACCOUNT_HELD`) | Fraud Review: reject if it is abuse. Honest rows (a client bug): raise `RISK_MAX_PAGES` (at most 10) on sync, escrow, escrow-cron and admin; otherwise the tier holds until rows leave the 30 day window. Never delete rows by hand |
+| `<prefix>-risk-score-unknown-record` | a score read counted rows with an unknown `recordType` as signals | deploy one server build to every Lambda; a kind not in section 20 of the fraud spec: find who wrote it |
+| `<prefix>-risk-hold-order-mismatch` | an admin refund of a held escrow was refused (422) because its order cannot follow it (`RISK_HOLD_ORDER_MISMATCH escrowId=.. heldFor=.. legs=order:<status>`); nothing moved | open `/transactions/<orderId>`, reconcile the order with the parties, then release instead (goods delivered) or refund again once the order can be cancelled |
+| `<prefix>-risk-table-unconfigured` | escrow-cron's settlement gate reads no risk tier (`FRAUD_SIGNALS_TABLE` empty), so a CRITICAL party is paid as if LOW; logged once per hourly run | check the escrow-cron configuration and deploy the api stack |
+| `<prefix>-outcome-label-failed` | (FUP-142) an FRD-18 outcome label row was not written (`OUTCOME_LABEL_FAILED case=.. outcome=.. caseId=.. error=..` in the admin, escrow or escrow-cron log group); the decision itself stands, only the label is missing from `scripts/export_outcome_labels.py` | check throttling and `dynamodb:PutItem` on the transaction-audit table and the Lambda's `TRANSACTION_AUDIT_TABLE`. A dispute verdict heals when the admin sends the same verdict again; a Fraud Review decision or a held exit does not repeat: once the cause is fixed, run `scripts/backfill_outcome_labels.py --env <env>` (dry run, then `--apply`; `.ai/testing.md`, "Outcome label backfill"), which writes the missing labels and skips the ones already there |
+| `<prefix>-label-snapshot-failed` | (FUP-158) a Fraud Review label was written without its FRD-20 feature snapshot (`LABEL_SNAPSHOT_FAILED` in the admin log group): `userId=.. error=..`, a snapshot read failed (the user's fraud-signals rows, the users row or the role's escrow index); `caseId=.. stage=write error=..`, the label row was refused with the snapshot and written again without it. The decision and its label stand | check throttling and the admin Lambda's `dynamodb:Query` on fraud-signals and the escrows party indexes and `GetItem` on users; for `stage=write`, the row's size. Nothing backfills a snapshot (it is the state at decision time), so note the time; a steady rate thins the FRD-20 dataset |
+| `<prefix>-reputation-fraud-hook-failed` | (FUP-201, ESC-33; only with `reputationPenalties` on) a fraud signal a recorded reputation event should have written was lost (`REPUTATION_FRAUD_HOOK_FAILED hook=reliability\|buyer_decline code=.. [..]` in the reputation-stream or order-cron log group). The event and its points stand; the hook never runs again for it | fix the cause: throttling or IAM on the fraud-signals table (`PutItem`, `Query`) or the orders `BuyerIdCreatedAtIndex`, or `FRAUD_SIGNALS_TABLE` or `ORDERS_TABLE` missing from the Lambda. The line has no ids: if the party matters, find the event by its code and time in the admin reputation history and review the party in Fraud Review by hand |
+
+`CLEAN_DELIVERY_CREDIT_FAILED` (FRD-10) is a dashboard metric only, by design (a lost credit only leaves a party's
+risk score higher), counted in the escrow-cron and (FUP-155) admin log groups. escrow-cron's next hourly run tries its
+own failures again from the journal. The admin's (the credit after a manual payout close, `escrowId=..` in the line)
+is not retried, and neither is a credit an admin Lambda timeout cut off after the close: to heal one, record the same
+leg again with the same reference (`POST /admin/payouts/<escrowId>/<leg>/complete` with `{"externalRef": "<ref>"}`
+as an admin-group user; it answers `Already recorded`, moves no money and writes only the missing credit rows). The
+admin page lists only open legs, so this is an API call. The attribution guard's
+`FRAUD_ATTRIBUTED_SIGNAL_SKIPPED signalType=.. reason=..` (FUP-201, sync) is a dashboard metric only too: the graph "Attributed Signals Skipped by
+Reason (hourly)" counts each reason; a rising `SourceCapped` or `TargetCapped` is one buyer, or a ring, hammering one
+trucker (open Fraud Review on that trucker's `GPS_ANOMALY` rows). The risk alarms use the
+money alarm shape (clear 75 to 90 minutes after the last line); the spike clears 15 to 30 minutes after
+the burst. The spike needs a trained anomaly model, so fire it a day or more after the first FRD-16
+deploy.
+
+```bash
+# Read-only: deployed filters match the server's exact lines (bare and behind the runtime prefix),
+# the per-type dimension, the spike alarm's wiring, alarm and anomaly model states
+scripts/fraud_alarms_synthetic.sh --env dev
+
+# Fire every fraud alarm once (30 synthetic signal lines plus one line per risk alarm; no
+# fraud-signals row, no money), then wait for them to clear (up to 2 hours)
+scripts/fraud_alarms_synthetic.sh --env dev --fire --wait-clear
 ```
 
 ---

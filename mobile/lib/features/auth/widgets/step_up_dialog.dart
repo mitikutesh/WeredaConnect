@@ -28,10 +28,14 @@ typedef StepUpAuthenticator = Future<AuthResult> Function(
 /// [SecurityEvents.stepUpCompleted] so queued money ops retry.
 ///
 /// [authenticate] defaults to the AuthBloc's AuthService (tests inject one).
+/// [message] replaces the explanation, which names a payment, for an action
+/// that is not one: a dispute, or the neutral `stepUpOtherMessage` for a
+/// drop-out or deleting the account (FUP-167).
 Future<bool> showStepUpDialog(
   BuildContext context, {
   StepUpAuthenticator? authenticate,
   SecurityEvents? securityEvents,
+  String? message,
 }) async {
   final bloc = context.read<AuthBloc>();
   final authState = bloc.state;
@@ -46,6 +50,7 @@ Future<bool> showStepUpDialog(
       value: bloc,
       child: _StepUpDialog(
         phoneNumber: phone,
+        message: message,
         authenticate: authenticate ??
             (p, pw) =>
                 bloc.authService.loginOnline(phoneNumber: p, password: pw),
@@ -53,7 +58,8 @@ Future<bool> showStepUpDialog(
     ),
   );
   if (ok == true) {
-    (securityEvents ?? SecurityEvents.instance).stepUpCompleted();
+    (securityEvents ?? SecurityEvents.instance)
+        .stepUpCompleted(method: StepUpMethod.password);
     return true;
   }
   return false;
@@ -81,11 +87,14 @@ enum StepUpOutcome {
 /// retries, and [SecurityEvents.stepUpCompleted] fires so queued money ops
 /// retry too.
 ///
-/// [verificationScreen] replaces the Fayda screen (tests).
+/// [verificationScreen] replaces the Fayda screen (tests). [message]
+/// replaces the explanation, which names a payment, for an action that is
+/// not one (a dispute).
 Future<StepUpOutcome> showFaydaStepUpDialog(
   BuildContext context, {
   SecurityEvents? securityEvents,
   WidgetBuilder? verificationScreen,
+  String? message,
 }) async {
   final l10n = AppLocalizations.of(context)!;
   final wantsVerify = await showDialog<bool>(
@@ -93,13 +102,16 @@ Future<StepUpOutcome> showFaydaStepUpDialog(
     builder: (dialogContext) => AlertDialog(
       icon: const Icon(Icons.verified_user_outlined),
       title: Text(l10n.stepUpTitle),
-      content: Text(l10n.faydaStepUpMessage),
+      content: Text(message ?? l10n.faydaStepUpMessage),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(false),
           child: Text(l10n.cancel),
         ),
         FilledButton.icon(
+          // Beside Cancel, not stacked under it: the theme's button is
+          // full width.
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
           key: const Key('fayda_step_up_verify_button'),
           onPressed: () => Navigator.of(dialogContext).pop(true),
           icon: const Icon(Icons.fingerprint),
@@ -117,7 +129,8 @@ Future<StepUpOutcome> showFaydaStepUpDialog(
     ),
   );
   if (verified != true) return StepUpOutcome.notVerified;
-  (securityEvents ?? SecurityEvents.instance).stepUpCompleted();
+  (securityEvents ?? SecurityEvents.instance)
+      .stepUpCompleted(method: StepUpMethod.fayda);
   return StepUpOutcome.verified;
 }
 
@@ -125,7 +138,14 @@ class _StepUpDialog extends StatefulWidget {
   final String phoneNumber;
   final StepUpAuthenticator authenticate;
 
-  const _StepUpDialog({required this.phoneNumber, required this.authenticate});
+  /// Replaces the explanation that names a payment.
+  final String? message;
+
+  const _StepUpDialog({
+    required this.phoneNumber,
+    required this.authenticate,
+    this.message,
+  });
 
   @override
   State<_StepUpDialog> createState() => _StepUpDialogState();
@@ -198,7 +218,7 @@ class _StepUpDialogState extends State<_StepUpDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(l10n.stepUpRequiredMessage),
+          Text(widget.message ?? l10n.stepUpRequiredMessage),
           const SizedBox(height: 12),
           Text(
             l10n.stepUpPhoneLabel(widget.phoneNumber),
@@ -220,6 +240,7 @@ class _StepUpDialogState extends State<_StepUpDialog> {
               errorText: _error,
               errorMaxLines: 3,
               suffixIcon: IconButton(
+                tooltip: _obscure ? l10n.showPassword : l10n.hidePassword,
                 icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
                 onPressed: () => setState(() => _obscure = !_obscure),
               ),
@@ -233,6 +254,9 @@ class _StepUpDialogState extends State<_StepUpDialog> {
           child: Text(l10n.cancel),
         ),
         FilledButton(
+          // Beside Cancel, not stacked under it: the theme's button is
+          // full width.
+          style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
           key: const Key('step_up_confirm_button'),
           onPressed:
               (_busy || _passwordController.text.isEmpty) ? null : _confirm,

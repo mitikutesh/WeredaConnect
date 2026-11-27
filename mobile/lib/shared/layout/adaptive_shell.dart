@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -13,14 +14,18 @@ import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
 /// Adaptive shell that switches between sidebar, rail, and bottom navigation.
 ///
-/// - Desktop (>1024px): Full sidebar (260px) with labels, user profile
-/// - Tablet (600–1024px): Collapsed NavigationRail (72px) with icons
-/// - Mobile (<600px): BottomNavigationBar
+/// - Desktop (>1024px): Full sidebar (260px) with labels, the role's create
+///   button and the user card (Web · Buyer deliveries board)
+/// - Tablet (600–1024px): Collapsed rail (72px) with icons; the create
+///   button floats over the content as on the phone
+/// - Mobile (<600px): the same [RoleNavBar] and floating [RoleCreateButton]
+///   the device shell draws, so the browser matches the phone boards
 ///
 /// Navigation is **role-shaped** and comes from [tabsForRole] — the same
 /// single source of truth the mobile shell uses, so both platforms always
@@ -31,7 +36,8 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// The role FAB shows only on a tab root: it hides on non-tab routes
 /// (profile, settings) and while [pushedRoutes] reports a screen pushed on
 /// top of the shell's navigator, so it never covers that screen's own
-/// actions (SIM-44).
+/// actions (SIM-44). Floating, it folds to its plus while the tab page
+/// scrolls toward its end, as on the device (BUG-27).
 class AdaptiveShell extends StatelessWidget {
   final Widget child;
 
@@ -81,6 +87,15 @@ class AdaptiveShell extends StatelessWidget {
     return -1;
   }
 
+  /// Whether the location is a tab's own page, not a page under it: the
+  /// bar highlights Orders on `/orders/{id}`, but that is a detail screen
+  /// (no create button, no bar, as on the boards).
+  bool _onTabRoot(BuildContext context, List<_NavDestination> dests) {
+    final location = GoRouterState.of(context).matchedLocation;
+    final path = location.isEmpty ? '/' : location;
+    return dests.any((d) => d.route == path);
+  }
+
   void _onDestinationSelected(
     BuildContext context,
     int index,
@@ -117,30 +132,23 @@ class AdaptiveShell extends StatelessWidget {
 
   Widget _fab(
     BuildContext context,
-    AppLocalizations l10n,
     UserRole role, {
     required bool onTabRoot,
+    bool expanded = false,
+    bool floating = false,
   }) {
     return ValueListenableBuilder<int>(
       valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
       builder: (context, pushed, _) {
         if (!onTabRoot || pushed > 0) return const SizedBox.shrink();
-        return FloatingActionButton.extended(
+        return RoleCreateButton(
+          role: role,
+          expanded: expanded,
+          floating: floating,
           onPressed: () => _onFabPressed(context, role),
-          shape: const StadiumBorder(),
-          icon: const Icon(Icons.add),
-          label: Text(_fabTooltip(l10n, role)),
         );
       },
     );
-  }
-
-  String _fabTooltip(AppLocalizations l10n, UserRole role) {
-    return switch (role) {
-      UserRole.farmer => l10n.sellCrops,
-      UserRole.trucker => l10n.postTrip,
-      UserRole.buyer => l10n.newBuyingIntent,
-    };
   }
 
   // ── Build ────────────────────────────────────────────────────────────
@@ -154,70 +162,95 @@ class AdaptiveShell extends StatelessWidget {
     final role =
         authState is AuthAuthenticated ? authState.role : UserRole.farmer;
 
-    // Role identity accent — decorative only; picks the variant with
-    // ≥3:1 icon contrast for the ground it sits on.
-    final isDarkTheme = Theme.of(context).brightness == Brightness.dark;
-    final navAccent =
-        isDarkTheme ? AppTheme.darkRoleAccent(role) : AppTheme.roleAccent(role);
-    // The sidebar ground is the dark teal rail in both themes.
-    final sidebarAccent = AppTheme.darkRoleAccent(role);
-
     if (windowClass == WindowClass.mobile) {
       final dests = _destinations(l10n, role, includeSidebarExtras: false);
       final selectedIndex = _currentIndex(context, dests);
+      final onTabRoot = _onTabRoot(context, dests);
+      // A detail page under a tab (`/orders/{id}`) and a pushed screen are
+      // full pages on the boards: no bar under them, no create button over
+      // their own pinned actions.
+      final detailRoute = selectedIndex >= 0 && !onTabRoot;
 
-      // BottomNavigationBar requires currentIndex in [0, items.length).
-      // Clamp to 0 when on non-nav routes (settings, profile) to avoid crash.
-      final clampedIndex = selectedIndex < 0 ? 0 : selectedIndex;
-
-      return Scaffold(
-        body: child,
-        floatingActionButton:
-            _fab(context, l10n, role, onTabRoot: selectedIndex >= 0),
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: clampedIndex,
-          onTap: (i) => _onDestinationSelected(context, i, dests),
-          type: BottomNavigationBarType.fixed,
-          selectedItemColor: selectedIndex < 0 ? AppTheme.textMuted : navAccent,
-          unselectedItemColor: AppTheme.textMuted,
-          items: dests
-              .map(
-                (d) => BottomNavigationBarItem(
-                  icon: Icon(d.icon),
-                  activeIcon: Icon(d.selectedIcon),
-                  label: d.label,
-                ),
-              )
-              .toList(),
+      return CreateButtonScrollScope(
+        resetKey: selectedIndex,
+        child: ValueListenableBuilder<int>(
+          valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
+          builder: (context, pushed, _) {
+            final fullPage = detailRoute || pushed > 0;
+            return Scaffold(
+              body: CreateButtonScrollBody(
+                enabled: onTabRoot && pushed == 0,
+                child: child,
+              ),
+              bottomNavigationBar: fullPage
+                  ? null
+                  : RoleNavBar(
+                      role: role,
+                      tabs: [for (final d in dests) d.tab],
+                      // Profile and settings sit outside the bar: nothing
+                      // selected.
+                      currentIndex: selectedIndex < 0 ? null : selectedIndex,
+                      onSelected: (i) =>
+                          _onDestinationSelected(context, i, dests),
+                      // The create verb belongs to a tab's own page.
+                      onCreate:
+                          onTabRoot ? () => _onFabPressed(context, role) : null,
+                    ),
+            );
+          },
         ),
       );
     }
 
-    // Tablet / Desktop — sidebar with 5 items
+    // Tablet / Desktop: sidebar with the bar's tabs plus the extras
     final isDesktop = windowClass == WindowClass.desktop;
     final dests = _destinations(l10n, role, includeSidebarExtras: true);
     final selectedIndex = _currentIndex(context, dests);
+    final onTabRoot = _onTabRoot(context, dests);
 
-    return Scaffold(
-      body: Row(
-        children: [
-          // Sidebar / Rail
-          _Sidebar(
+    return CreateButtonScrollScope(
+      resetKey: selectedIndex,
+      child: Scaffold(
+        backgroundColor: AppTheme.ground,
+        // The rail has no room for the labelled button: it floats over the
+        // content as on the phone.
+        floatingActionButton: isDesktop
+            ? null
+            : _fab(context, role, onTabRoot: onTabRoot, floating: true),
+        // Centred over the page, not over the page plus the rail.
+        floatingActionButtonLocation: const _CenterOfPageFloat(
+          Breakpoints.sidebarCollapsed,
+        ),
+        body: _SidebarThenPage(
+          sidebar: _Sidebar(
             expanded: isDesktop,
             selectedIndex: selectedIndex,
             destinations: dests,
-            accent: sidebarAccent,
+            accent: context.roleColors.dark,
             currentLocation: GoRouterState.of(context).matchedLocation,
             onSelected: (i) => _onDestinationSelected(context, i, dests),
             onProfileTap: () => context.go('/profile'),
             onSettingsTap: () => context.go('/settings'),
+            actionButton: isDesktop
+                ? _fab(context, role, onTabRoot: onTabRoot, expanded: true)
+                : null,
+            role: role,
           ),
-          // Content
-          Expanded(child: child),
-        ],
+          // Content: the sidebar lists the account pages, so headers leave
+          // out their account button. Only the page folds the floating
+          // button, not the rail beside it.
+          page: SidebarScope(
+            child: ValueListenableBuilder<int>(
+              valueListenable: pushedRoutes?.count ?? _noPushedRoutes,
+              child: child,
+              builder: (context, pushed, page) => CreateButtonScrollBody(
+                enabled: onTabRoot && pushed == 0,
+                child: page!,
+              ),
+            ),
+          ),
+        ),
       ),
-      floatingActionButton:
-          _fab(context, l10n, role, onTabRoot: selectedIndex >= 0),
     );
   }
 }
@@ -275,21 +308,140 @@ class ShellPushedRoutesObserver extends NavigatorObserver {
 // Private widgets
 // ═══════════════════════════════════════════════════════════════════════
 
+/// [FloatingActionButtonLocation.centerFloat], moved half the rail's width
+/// toward the page so the button is centred over the content.
+class _CenterOfPageFloat extends FloatingActionButtonLocation {
+  final double railWidth;
+
+  const _CenterOfPageFloat(this.railWidth);
+
+  @override
+  Offset getOffset(ScaffoldPrelayoutGeometry scaffoldGeometry) {
+    final centre =
+        FloatingActionButtonLocation.centerFloat.getOffset(scaffoldGeometry);
+    final shift = railWidth / 2;
+    return switch (scaffoldGeometry.textDirection) {
+      TextDirection.ltr => centre.translate(shift, 0),
+      TextDirection.rtl => centre.translate(-shift, 0),
+    };
+  }
+}
+
+/// The sidebar beside the page, in that order for a screen reader and for
+/// Tab (A-7).
+///
+/// The tab's navigator puts a modal barrier under its page, and a barrier
+/// hides from screen readers everything painted before it in its semantics
+/// container: without a container of its own, the page hid the whole
+/// sidebar. The navigator also focuses the page's scope on every push, so
+/// the first Tab would stay in the page: while nothing is focused, Tab
+/// starts at the sidebar instead.
+class _SidebarThenPage extends StatefulWidget {
+  final Widget sidebar;
+  final Widget page;
+
+  const _SidebarThenPage({required this.sidebar, required this.page});
+
+  @override
+  State<_SidebarThenPage> createState() => _SidebarThenPageState();
+}
+
+class _SidebarThenPageState extends State<_SidebarThenPage> {
+  final FocusNode _sidebar = FocusNode(
+    debugLabel: 'sidebar',
+    skipTraversal: true,
+    canRequestFocus: false,
+  );
+
+  late final Map<Type, Action<Intent>> _actions = {
+    NextFocusIntent: _StartAtSidebarAction(_sidebar),
+  };
+
+  @override
+  void dispose() {
+    _sidebar.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Actions(
+      actions: _actions,
+      child: FocusTraversalGroup(
+        policy: OrderedTraversalPolicy(),
+        child: Row(
+          children: [
+            FocusTraversalOrder(
+              order: const NumericFocusOrder(0),
+              child: FocusTraversalGroup(
+                child: Focus(
+                  focusNode: _sidebar,
+                  child: Semantics(
+                    container: true,
+                    sortKey: const OrdinalSortKey(0),
+                    child: widget.sidebar,
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: FocusTraversalOrder(
+                order: const NumericFocusOrder(1),
+                child: FocusTraversalGroup(
+                  child: Semantics(
+                    container: true,
+                    sortKey: const OrdinalSortKey(1),
+                    child: widget.page,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tab with no item focused on a page (only the page's scope) moves to the
+/// sidebar's first item; any other Tab moves on as usual. A sheet or dialog
+/// on the tab's navigator is not a page: Tab stays in it.
+class _StartAtSidebarAction extends NextFocusAction {
+  final FocusNode sidebar;
+
+  _StartAtSidebarAction(this.sidebar);
+
+  @override
+  bool invoke(NextFocusIntent intent) {
+    final scope = primaryFocus;
+    final scopeContext = scope?.context;
+    if (scope is FocusScopeNode &&
+        scopeContext != null &&
+        ModalRoute.of(scopeContext) is PageRoute) {
+      final first = ReadingOrderTraversalPolicy()
+          .sortDescendants(sidebar.traversalDescendants, sidebar)
+          .firstOrNull;
+      if (first != null) {
+        first.requestFocus();
+        return true;
+      }
+    }
+    return super.invoke(intent);
+  }
+}
+
 /// Full sidebar (desktop) or compact rail (tablet).
 class _Sidebar extends StatelessWidget {
   final bool expanded;
   final int selectedIndex;
   final List<_NavDestination> destinations;
-
-  /// Role identity accent (decorative) for the logo tile and the
-  /// selected item — always a dark-ground variant, since the rail is
-  /// dark teal in both themes.
   final Color accent;
-
   final String currentLocation;
   final ValueChanged<int> onSelected;
   final VoidCallback onProfileTap;
   final VoidCallback onSettingsTap;
+  final Widget? actionButton;
+  final UserRole role;
 
   const _Sidebar({
     required this.expanded,
@@ -300,6 +452,8 @@ class _Sidebar extends StatelessWidget {
     required this.onSelected,
     required this.onProfileTap,
     required this.onSettingsTap,
+    required this.role,
+    this.actionButton,
   });
 
   @override
@@ -307,28 +461,25 @@ class _Sidebar extends StatelessWidget {
     final width =
         expanded ? Breakpoints.sidebarExpanded : Breakpoints.sidebarCollapsed;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
+    return Container(
       width: width,
       decoration: const BoxDecoration(
-        color: AppTheme.primaryGreenDark,
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x1A000000),
-            blurRadius: 8,
-            offset: Offset(2, 0),
+        color: Colors.white,
+        border: Border(
+          right: BorderSide(
+            color: AppTheme.line,
           ),
-        ],
+        ),
       ),
       child: Column(
         children: [
           // App branding
-          _SidebarHeader(expanded: expanded, accent: accent),
-          const SizedBox(height: 8),
+          _SidebarHeader(expanded: expanded),
+          const SizedBox(height: 20),
           // Navigation items
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: EdgeInsets.symmetric(horizontal: expanded ? 20 : 12),
               children: [
                 for (int i = 0; i < destinations.length; i++)
                   _SidebarItem(
@@ -338,13 +489,18 @@ class _Sidebar extends StatelessWidget {
                     accent: accent,
                     onTap: () => onSelected(i),
                   ),
+                if (expanded && actionButton != null) ...[
+                  const SizedBox(height: 24),
+                  actionButton!,
+                ],
               ],
             ),
           ),
-          // Bottom section: profile + settings
-          const Divider(color: Colors.white12, height: 1),
+          // Bottom section: settings, then the user card (the board has no
+          // rule above it).
           _SidebarFooter(
             expanded: expanded,
+            role: role,
             isSettingsActive: currentLocation.startsWith('/settings'),
             isProfileActive: currentLocation.startsWith('/profile'),
             onProfileTap: onProfileTap,
@@ -359,64 +515,53 @@ class _Sidebar extends StatelessWidget {
 class _SidebarHeader extends StatelessWidget {
   final bool expanded;
 
-  /// Role identity accent for the logo tile (decorative only).
-  final Color accent;
-
-  const _SidebarHeader({required this.expanded, required this.accent});
+  const _SidebarHeader({required this.expanded});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: EdgeInsets.fromLTRB(
         expanded ? 20 : 12,
-        MediaQuery.of(context).padding.top + 20,
+        MediaQuery.of(context).padding.top + 28,
         expanded ? 20 : 12,
-        16,
+        8,
       ),
       child: Row(
+        mainAxisAlignment:
+            expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
         children: [
+          // The Web board's mark: 40 px, the role's colour, the tractor.
           Container(
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: accent,
-              borderRadius: BorderRadius.circular(10),
+              color: context.roleColors.primary,
+              borderRadius: BorderRadius.circular(12),
             ),
-            // Dark-teal glyph: ≥3.65:1 on every role accent (computed);
-            // white would fail on these light dark-ground tints.
             child: const Icon(
               Icons.agriculture,
-              color: AppTheme.primaryDeep,
-              size: 24,
+              color: Colors.white,
+              size: 25,
             ),
           ),
           if (expanded) ...[
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    AppLocalizations.of(context)!.appName,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.3,
-                    ),
+              // The board's 18 px name; it shrinks before it is cut where
+              // the sidebar or large text leaves less room.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  AppLocalizations.of(context)!.appName,
+                  style: const TextStyle(
+                    color: AppTheme.ink,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.36,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    AppLocalizations.of(context)!.aboutTagline,
-                    style: const TextStyle(
-                      color: Colors.white54,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w400,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+                  maxLines: 1,
+                ),
               ),
             ),
           ],
@@ -426,14 +571,85 @@ class _SidebarHeader extends StatelessWidget {
   }
 }
 
-class _SidebarItem extends StatefulWidget {
+/// A sidebar entry a keyboard and a screen reader can reach (A-7): it takes
+/// focus in Tab order, Enter or Space opens it, and a 2 px ring in
+/// [focusColor] shows keyboard focus. [builder] draws the entry, told
+/// whether the mouse is over it.
+class _SidebarButton extends StatefulWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final BorderRadius borderRadius;
+  final Color focusColor;
+  final Widget Function(BuildContext context, bool hovered) builder;
+
+  const _SidebarButton({
+    required this.label,
+    required this.onTap,
+    required this.borderRadius,
+    required this.focusColor,
+    required this.builder,
+    this.selected = false,
+  });
+
+  @override
+  State<_SidebarButton> createState() => _SidebarButtonState();
+}
+
+class _SidebarButtonState extends State<_SidebarButton> {
+  bool _hovered = false;
+  bool _focused = false;
+
+  // Enter is a ButtonActivateIntent on the web, Space an ActivateIntent.
+  late final Map<Type, Action<Intent>> _actions = {
+    ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: _activate),
+    ButtonActivateIntent: CallbackAction<ButtonActivateIntent>(
+      onInvoke: _activate,
+    ),
+  };
+
+  Object? _activate(Intent _) {
+    widget.onTap();
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FocusableActionDetector(
+      actions: _actions,
+      mouseCursor: SystemMouseCursors.click,
+      onShowHoverHighlight: (value) => setState(() => _hovered = value),
+      onShowFocusHighlight: (value) => setState(() => _focused = value),
+      child: Semantics(
+        button: true,
+        selected: widget.selected,
+        label: widget.label,
+        onTap: widget.onTap,
+        excludeSemantics: true,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          child: DecoratedBox(
+            position: DecorationPosition.foreground,
+            decoration: BoxDecoration(
+              borderRadius: widget.borderRadius,
+              border: _focused
+                  ? Border.all(color: widget.focusColor, width: 2)
+                  : null,
+            ),
+            child: widget.builder(context, _hovered),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarItem extends StatelessWidget {
   final _NavDestination item;
   final bool selected;
   final bool expanded;
-
-  /// Role identity accent for the selected icon/left border (decorative).
   final Color accent;
-
   final VoidCallback onTap;
 
   const _SidebarItem({
@@ -444,30 +660,21 @@ class _SidebarItem extends StatefulWidget {
     required this.onTap,
   });
 
-  @override
-  State<_SidebarItem> createState() => _SidebarItemState();
-}
-
-class _SidebarItemState extends State<_SidebarItem> {
-  bool _hovered = false;
-
-  /// The item's icon; the Messages item carries an unread-count badge
-  /// whenever the inbox has unread messages.
   Widget _icon(Color color, double size) {
     final icon = Icon(
-      widget.selected ? widget.item.selectedIcon : widget.item.icon,
+      selected ? item.selectedIcon : item.icon,
       color: color,
       size: size,
     );
-    if (widget.item.tab != RoleTab.messages) return icon;
+    if (item.tab != RoleTab.messages) return icon;
     return BlocBuilder<InboxBloc, InboxState>(
       builder: (context, state) {
         final unread = state is InboxLoaded ? state.totalUnread : 0;
         if (unread <= 0) return icon;
         return Badge(
           label: Text('$unread'),
-          backgroundColor: AppTheme.accentGold,
-          textColor: Colors.black87,
+          backgroundColor: AppTheme.statusWarning,
+          textColor: Colors.white,
           child: icon,
         );
       },
@@ -476,70 +683,62 @@ class _SidebarItemState extends State<_SidebarItem> {
 
   @override
   Widget build(BuildContext context) {
-    final bgColor = widget.selected
-        ? Colors.white.withAlpha(25)
-        : _hovered
-            ? Colors.white.withAlpha(13)
-            : Colors.transparent;
-    final iconColor =
-        widget.selected ? widget.accent : Colors.white.withAlpha(180);
-    final textColor =
-        widget.selected ? Colors.white : Colors.white.withAlpha(180);
+    // The role's dark shade on the board's warm ground: the plain role
+    // colour falls under 4.5:1 there for the farmer and the buyer.
+    final iconColor = selected ? accent : AppTheme.inkSoft;
+    final textColor = selected ? accent : AppTheme.inkSoft;
+    final borderRadius = BorderRadius.circular(12);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
-      child: Semantics(
-        button: true,
-        label: widget.item.label,
-        selected: widget.selected,
-        child: MouseRegion(
-          onEnter: (_) => setState(() => _hovered = true),
-          onExit: (_) => setState(() => _hovered = false),
-          child: GestureDetector(
-            onTap: widget.onTap,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              padding: EdgeInsets.symmetric(
-                horizontal: widget.expanded ? 14 : 0,
-                vertical: 12,
-              ),
-              decoration: BoxDecoration(
-                color: bgColor,
-                borderRadius: BorderRadius.circular(10),
-                border: widget.selected
-                    ? Border(
-                        left: BorderSide(
-                          color: widget.accent,
-                          width: widget.expanded ? 3 : 0,
+      child: _SidebarButton(
+        label: item.label,
+        selected: selected,
+        onTap: onTap,
+        borderRadius: borderRadius,
+        focusColor: accent,
+        builder: (context, hovered) => AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          height: 44,
+          padding: EdgeInsets.symmetric(
+            horizontal: expanded ? 12 : 0,
+          ),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppTheme.sidebarSelected
+                : hovered
+                    ? AppTheme.paper
+                    : Colors.transparent,
+            borderRadius: borderRadius,
+          ),
+          child: expanded
+              ? Row(
+                  children: [
+                    _icon(iconColor, 20),
+                    const SizedBox(width: 12),
+                    // A long Amharic or Afaan Oromoo label ends in an
+                    // ellipsis instead of pushing out of the sidebar.
+                    Expanded(
+                      child: Text(
+                        item.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 14,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.w600,
                         ),
-                      )
-                    : null,
-              ),
-              child: widget.expanded
-                  ? Row(
-                      children: [
-                        _icon(iconColor, 22),
-                        const SizedBox(width: 14),
-                        Text(
-                          widget.item.label,
-                          style: TextStyle(
-                            color: textColor,
-                            fontSize: 14,
-                            fontWeight: widget.selected
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                          ),
-                        ),
-                      ],
-                    )
-                  : Center(
-                      child: Tooltip(
-                        message: widget.item.label,
-                        child: _icon(iconColor, 24),
                       ),
                     ),
-            ),
-          ),
+                  ],
+                )
+              : Center(
+                  child: Tooltip(
+                    message: item.label,
+                    child: _icon(iconColor, 22),
+                  ),
+                ),
         ),
       ),
     );
@@ -548,6 +747,7 @@ class _SidebarItemState extends State<_SidebarItem> {
 
 class _SidebarFooter extends StatelessWidget {
   final bool expanded;
+  final UserRole role;
   final bool isSettingsActive;
   final bool isProfileActive;
   final VoidCallback onProfileTap;
@@ -557,6 +757,7 @@ class _SidebarFooter extends StatelessWidget {
     required this.expanded,
     required this.onProfileTap,
     required this.onSettingsTap,
+    required this.role,
     this.isSettingsActive = false,
     this.isProfileActive = false,
   });
@@ -565,16 +766,33 @@ class _SidebarFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     final authState = context.watch<AuthBloc>().state;
     final name = authState is AuthAuthenticated ? authState.userName : '';
-    final initials = name.isNotEmpty ? name[0].toUpperCase() : '?';
+    final woreda =
+        authState is AuthAuthenticated ? (authState.woreda ?? '') : '';
+    final initials = name.isNotEmpty
+        ? (name.length > 1
+            ? name.substring(0, 2).toUpperCase()
+            : name[0].toUpperCase())
+        : 'WC';
+    final l10n = AppLocalizations.of(context)!;
+    final roleName = switch (role) {
+      UserRole.farmer => l10n.farmer,
+      UserRole.trucker => l10n.trucker,
+      UserRole.buyer => l10n.buyer,
+    };
+    // What the user does and where, as on the Web board: "Buyer · Merkato".
+    // The role comes first so a long place name is what gets cut.
+    final subtitle = woreda.isNotEmpty ? '$roleName · $woreda' : roleName;
 
     return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: expanded ? 16 : 8,
-        vertical: 12,
+      padding: EdgeInsets.fromLTRB(
+        expanded ? 20 : 12,
+        12,
+        expanded ? 20 : 12,
+        20,
       ),
       child: Column(
         children: [
-          // Settings
+          // Settings Row
           _SidebarFooterButton(
             icon: Icons.settings_outlined,
             selectedIcon: Icons.settings,
@@ -584,75 +802,94 @@ class _SidebarFooter extends StatelessWidget {
             onTap: onSettingsTap,
           ),
           const SizedBox(height: 8),
-          // User profile
-          Semantics(
-            button: true,
+          // User profile tile
+          _SidebarButton(
             label: name.isEmpty ? AppLocalizations.of(context)!.profile : name,
-            child: GestureDetector(
-              onTap: onProfileTap,
-              child: MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: Container(
-                  padding: EdgeInsets.all(expanded ? 10 : 8),
-                  decoration: BoxDecoration(
-                    color: isProfileActive
-                        ? Colors.white.withAlpha(25)
-                        : Colors.white.withAlpha(13),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: expanded
-                      ? Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 16,
-                              backgroundColor: AppTheme.accentGold,
-                              child: Text(
-                                initials,
+            selected: isProfileActive,
+            onTap: onProfileTap,
+            borderRadius: BorderRadius.circular(12),
+            focusColor: context.roleColors.dark,
+            builder: (context, _) => Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: expanded ? 8 : 0,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: isProfileActive
+                    ? AppTheme.sidebarSelected
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: expanded
+                  ? Row(
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppTheme.segmentTrack,
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            initials,
+                            style: const TextStyle(
+                              color: AppTheme.slate,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name.isNotEmpty ? name : roleName,
                                 style: const TextStyle(
-                                  color: Colors.white,
+                                  color: AppTheme.ink,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                 ),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                name,
+                              Text(
+                                subtitle,
                                 style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
+                                  color: AppTheme.slate,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w500,
                                 ),
                                 overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                            Icon(
-                              Icons.chevron_right,
-                              size: 18,
-                              color: Colors.white.withAlpha(120),
-                            ),
-                          ],
-                        )
-                      : Center(
-                          child: Tooltip(
-                            message: name,
-                            child: CircleAvatar(
-                              radius: 16,
-                              backgroundColor: AppTheme.accentGold,
-                              child: Text(
-                                initials,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )
+                  : Center(
+                      child: Tooltip(
+                        message: name,
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppTheme.segmentTrack,
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            initials,
+                            style: const TextStyle(
+                              color: AppTheme.slate,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                         ),
-                ),
-              ),
+                      ),
+                    ),
             ),
           ),
         ],
@@ -661,7 +898,7 @@ class _SidebarFooter extends StatelessWidget {
   }
 }
 
-class _SidebarFooterButton extends StatefulWidget {
+class _SidebarFooterButton extends StatelessWidget {
   final IconData icon;
   final IconData? selectedIcon;
   final String label;
@@ -679,64 +916,56 @@ class _SidebarFooterButton extends StatefulWidget {
   });
 
   @override
-  State<_SidebarFooterButton> createState() => _SidebarFooterButtonState();
-}
-
-class _SidebarFooterButtonState extends State<_SidebarFooterButton> {
-  bool _hovered = false;
-
-  @override
   Widget build(BuildContext context) {
-    final iconColor =
-        widget.isActive ? AppTheme.accentGold : Colors.white.withAlpha(180);
-    final textColor =
-        widget.isActive ? Colors.white : Colors.white.withAlpha(180);
-    final displayIcon =
-        widget.isActive ? (widget.selectedIcon ?? widget.icon) : widget.icon;
-    final bgColor = widget.isActive
-        ? Colors.white.withAlpha(25)
-        : _hovered
-            ? Colors.white.withAlpha(13)
-            : Colors.transparent;
+    final color = isActive ? context.roleColors.dark : AppTheme.inkSoft;
+    final displayIcon = isActive ? (selectedIcon ?? icon) : icon;
+    final borderRadius = BorderRadius.circular(12);
 
-    return Semantics(
-      button: true,
-      label: widget.label,
-      selected: widget.isActive,
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: widget.expanded ? 14 : 0,
-              vertical: 10,
-            ),
-            decoration: BoxDecoration(
-              color: bgColor,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: widget.expanded
-                ? Row(
-                    children: [
-                      Icon(displayIcon, color: iconColor, size: 20),
-                      const SizedBox(width: 14),
-                      Text(
-                        widget.label,
-                        style: TextStyle(color: textColor, fontSize: 13),
+    return _SidebarButton(
+      label: label,
+      selected: isActive,
+      onTap: onTap,
+      borderRadius: borderRadius,
+      focusColor: context.roleColors.dark,
+      builder: (context, hovered) => Container(
+        height: 44,
+        padding: EdgeInsets.symmetric(
+          horizontal: expanded ? 12 : 0,
+        ),
+        decoration: BoxDecoration(
+          color: isActive
+              ? AppTheme.sidebarSelected
+              : hovered
+                  ? AppTheme.paper
+                  : Colors.transparent,
+          borderRadius: borderRadius,
+        ),
+        child: expanded
+            ? Row(
+                children: [
+                  Icon(displayIcon, color: color, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 14,
+                        fontWeight:
+                            isActive ? FontWeight.w700 : FontWeight.w600,
                       ),
-                    ],
-                  )
-                : Center(
-                    child: Tooltip(
-                      message: widget.label,
-                      child: Icon(displayIcon, color: iconColor, size: 22),
                     ),
                   ),
-          ),
-        ),
+                ],
+              )
+            : Center(
+                child: Tooltip(
+                  message: label,
+                  child: Icon(displayIcon, color: color, size: 22),
+                ),
+              ),
       ),
     );
   }

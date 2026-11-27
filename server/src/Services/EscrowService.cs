@@ -13,7 +13,7 @@ namespace WeredaConnect.Server.Services;
 /// disputes, and refunds via Telebirr integration.
 /// AOT-compatible — no reflection used.
 /// </summary>
-public sealed class EscrowService
+public sealed partial class EscrowService
 {
     private readonly IEscrowRepository _escrowRepo;
     private readonly IEscrowAuditRepository _auditRepo;
@@ -91,10 +91,19 @@ public sealed class EscrowService
     /// </summary>
     private static readonly TimeSpan OrderPaymentAcceptWindow = TimeSpan.FromHours(20);
 
+    /// <summary>
+    /// ESC-16: when the last checkout of a payment attempt closes, counted from
+    /// <c>paymentSubmittedAt</c>: a new checkout is refused after <see cref="OrderPaymentAcceptWindow"/>,
+    /// and one opened just before stays payable for <see cref="OrderCheckoutWindow"/> plus the margin
+    /// (22h10m). The order cron's payment-failed timing (T2, <c>OrderTimings.PaymentVerification</c>)
+    /// never goes below it, so no order is failed while a checkout can still take its money.
+    /// </summary>
+    internal static TimeSpan LastCheckoutClosesAfter => OrderPaymentAcceptWindow + OrderCheckoutWindow + OrderCheckoutSafetyMargin;
+
     /// <summary>ESC-01: order statuses in which the buyer's money is already held.</summary>
     private static readonly HashSet<string> FundedOrderStatuses = new()
     {
-        "funded", "accepted", "pickup_confirmed", "in_transit", "delivered",
+        "funded", OrderCommitment.AwaitingTransportStatus, "accepted", "pickup_confirmed", "in_transit", "delivered",
         "disbursing", "settled", "disputed", "dispute_resolved"
     };
 
@@ -199,7 +208,8 @@ public sealed class EscrowService
         IDeliveryRepository? deliveryRepo = null,
         IOrderCheckoutRepository? orderCheckoutRepo = null,
         ITransactionAuditRepository? transactionAuditRepo = null,
-        ICropRepository? cropRepo = null)
+        ICropRepository? cropRepo = null,
+        ITripRepository? tripRepo = null)
     {
         _escrowRepo = escrowRepo ?? throw new ArgumentNullException(nameof(escrowRepo));
         _auditRepo = auditRepo ?? throw new ArgumentNullException(nameof(auditRepo));
@@ -210,7 +220,7 @@ public sealed class EscrowService
         _deliveryRepo = deliveryRepo;
         _orderCheckoutRepo = orderCheckoutRepo;
         _transactionAuditRepo = transactionAuditRepo;
-        _verdictMirror = new DisputeVerdictMirror(orderRepo, deliveryRepo, transactionAuditRepo, cropRepo);
+        _verdictMirror = new DisputeVerdictMirror(orderRepo, deliveryRepo, transactionAuditRepo, cropRepo, tripRepo, escrowRepo);
         _orderMoneyMirror = new OrderMoneyMirror(orderRepo, deliveryRepo, transactionAuditRepo, _verdictMirror);
     }
 
@@ -616,6 +626,11 @@ public sealed class EscrowService
             }
         }
 
+        // FUP-129: the stored rate follows the commission actually used, the same way the
+        // order-funded path stores it. Display metadata only, no money is computed from it.
+        var commissionRate = StoredCommissionRate(
+            linkedOrder, orderCommissionAmount.HasValue, commission, farmerPayout);
+
         var escrowRecord = new Dictionary<string, object>
         {
             { "escrowId", escrowId },
@@ -624,7 +639,7 @@ public sealed class EscrowService
             { "farmerId", request.FarmerId },
             { "amount", request.Amount },
             { "commission", commission },
-            { "commissionRate", DefaultCommissionRate },
+            { "commissionRate", commissionRate },
             { "farmerPayout", farmerPayout },
             { "currency", "ETB" },
             { "status", "initiated" },
@@ -712,6 +727,7 @@ public sealed class EscrowService
                 FarmerId = request.FarmerId,
                 Amount = request.Amount,
                 Commission = commission,
+                CommissionRate = commissionRate,
                 FarmerPayout = farmerPayout,
                 Currency = "ETB",
                 Status = "initiated",
@@ -731,8 +747,7 @@ public sealed class EscrowService
                 new Dictionary<string, object>
                 {
                     { "telebirrRef", holdRef },
-                    { "telebirrHoldRef", holdRef },
-                    { "version", 2 }
+                    { "telebirrHoldRef", holdRef }
                 });
 
             await AppendAuditAsync(escrowId, "hold_success", "initiated", "escrowed",
@@ -749,6 +764,7 @@ public sealed class EscrowService
                 FarmerId = request.FarmerId,
                 Amount = request.Amount,
                 Commission = commission,
+                CommissionRate = commissionRate,
                 FarmerPayout = farmerPayout,
                 Currency = "ETB",
                 Status = "escrowed",
@@ -829,8 +845,10 @@ public sealed class EscrowService
         var truckerPayout = RoundMoney(Math.Clamp(GetDecimalOrNull(order, "transportCost") ?? 0m, 0m, amount));
         var truckerId = GetStringOrNull(order, "truckerId");
         var farmerPayout = RoundMoney(GetDecimalOrNull(order, "cropCost") ?? 0m);
+        var orderSplitUsed = true;
         if (farmerPayout <= 0m || farmerPayout + truckerPayout > amount)
         {
+            orderSplitUsed = false;
             // Legacy/inconsistent split: default commission rule, farmer takes the rest.
             var defaultCommission = RoundMoney(Math.Max(amount * DefaultCommissionRate, MinCommission));
             farmerPayout = Math.Max(amount - truckerPayout - defaultCommission, 0m);
@@ -874,7 +892,7 @@ public sealed class EscrowService
             { "farmerId", farmerId },
             { "amount", amount },
             { "commission", commission },
-            { "commissionRate", GetDecimalOrNull(order, "commissionRate") ?? DefaultCommissionRate },
+            { "commissionRate", StoredCommissionRate(order, orderSplitUsed, commission, farmerPayout) },
             { "farmerPayout", farmerPayout },
             { "currency", "ETB" },
             { "status", "escrowed" },
@@ -897,6 +915,16 @@ public sealed class EscrowService
         if (!string.IsNullOrEmpty(truckerId))
         {
             record["truckerId"] = truckerId;
+        }
+
+        // ESC-20: behind ESCROW_LEDGER_ENABLED (and only with the table wired) a new order escrow is born on
+        // the ledger: every leg with money held, nothing refunded or released yet (escrow-protocol.md 2.2.0, P.2).
+        if (LedgerBirthEnabled && LedgerRepo != null)
+        {
+            record[LedgerEscrowFields.SettlementModel] = LedgerEscrowFields.ModelLedger;
+            record[LedgerEscrowFields.LegStatus] = EscrowLedgerBook.BirthLegs(farmerPayout, truckerPayout, commission);
+            record[LedgerEscrowFields.RefundedTotal] = 0m;
+            record[LedgerEscrowFields.ReleasedTotal] = 0m;
         }
 
         var buyerName = GetStringOrNull(order, "buyerName");
@@ -1513,7 +1541,19 @@ public sealed class EscrowService
             return write;
         }
 
-        foreach (var escrow in held)
+        await AuditRefundArmsAsync(orderId, held, reason, actor);
+        return write;
+    }
+
+    /// <summary>
+    /// One <c>refund_scheduled</c> audit row per escrow a transaction armed. Best-effort: the refund is
+    /// armed and the sweep writes its own rows, so a failed row is logged as
+    /// <c>ORDER_ESCROW_REFUND_AUDIT_FAILED</c> and nothing else changes.
+    /// </summary>
+    private async Task AuditRefundArmsAsync(
+        string orderId, IReadOnlyList<Dictionary<string, object>> armed, string reason, string actor)
+    {
+        foreach (var escrow in armed)
         {
             var escrowId = GetString(escrow, "escrowId");
             try
@@ -1526,7 +1566,126 @@ public sealed class EscrowService
                     $"ORDER_ESCROW_REFUND_AUDIT_FAILED orderId={MoneyAlarmLog.LogId(orderId)} escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
             }
         }
+    }
 
+    /// <summary>
+    /// FUP-53: what a funded order's reject or cancel finds for its money, read strongly consistent and
+    /// with nothing written (unlike <see cref="PrepareOrderEscrowForCancelAsync"/>, a missing record is
+    /// not created: such a close keeps its separate, best-effort refund scheduling). Every escrow the
+    /// order index lists as active and the order's own <c>escrow-order-{orderId}</c> is read:
+    /// <list type="bullet">
+    /// <item>a plain hold (<c>escrowed</c>, no settlement lock, no open manual payout, no confirmed
+    /// delivery, a ledger escrow's crop leg still held) is armed in the close's transaction;</item>
+    /// <item><c>held</c> for review (FRD-03) is left to its admin, and the close is fenced on it still
+    /// being held;</item>
+    /// <item><c>disputed</c>, <c>dispute_resolved</c>, or <c>escrowed</c> under a settlement, in the
+    /// manual payout queue or with a confirmed delivery: the money is frozen or moving, so the plan is
+    /// <see cref="OrderRefundReadiness.Busy"/> and the order must not be closed;</item>
+    /// <item>anything else (no record, <c>initiated</c>, an already settled record) holds nothing this
+    /// close could refund and is ignored, as before.</item>
+    /// </list>
+    /// </summary>
+    public async Task<OrderRefundPlan> PlanOrderRefundAsync(string orderId)
+    {
+        if (string.IsNullOrEmpty(orderId))
+        {
+            return OrderRefundPlan.Nothing;
+        }
+
+        var orderEscrowId = $"escrow-order-{orderId}";
+        var candidates = new List<string>();
+        foreach (var row in await _escrowRepo.QueryByOrderIdAsync(orderId) ?? new List<Dictionary<string, object>>())
+        {
+            var id = GetString(row, "escrowId");
+            if (id.Length > 0 && ActiveEscrowStatuses.Contains(GetString(row, "status")) && !candidates.Contains(id))
+            {
+                candidates.Add(id);
+            }
+        }
+
+        if (!candidates.Contains(orderEscrowId))
+        {
+            candidates.Add(orderEscrowId);
+        }
+
+        var held = new List<Dictionary<string, object>>();
+        var underReview = new List<Dictionary<string, object>>();
+        foreach (var escrowId in candidates)
+        {
+            var current = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+            if (current == null)
+            {
+                continue;
+            }
+
+            var status = GetString(current, "status");
+            if (status == EscrowHoldFields.Status)
+            {
+                underReview.Add(current);
+            }
+            else if (status is "disputed" or "dispute_resolved")
+            {
+                return OrderRefundPlan.Busy;
+            }
+            else if (status == "escrowed")
+            {
+                if (!IsPlainEscrowed(current) || !IsLedgerCropHeld(current))
+                {
+                    return OrderRefundPlan.Busy;
+                }
+
+                held.Add(current);
+            }
+        }
+
+        return held.Count == 0 && underReview.Count == 0
+            ? OrderRefundPlan.Nothing
+            : new OrderRefundPlan(OrderRefundReadiness.Ready, held, underReview);
+    }
+
+    /// <summary>ESC-20: a 1.x escrow, or a ledger escrow whose crop leg is still held (the arm's condition).</summary>
+    private static bool IsLedgerCropHeld(Dictionary<string, object> escrow)
+        => !IsLedgerEscrow(escrow)
+           || LedgerEscrow.From(escrow).LegState(LedgerEscrowFields.LegCrop) is not { } crop
+           || crop == LedgerEscrowFields.Held;
+
+    /// <summary>
+    /// FUP-53: close a funded order (reject or cancel) and schedule the refund of the money
+    /// <see cref="PlanOrderRefundAsync"/> found, in one DynamoDB transaction, as
+    /// <see cref="CancelOrderWithRefundAsync"/> does for the transport cancel: the order write (version
+    /// and <paramref name="expectedStatus"/> checked), the refund arm on each plain hold
+    /// (<see cref="IEscrowRepository.BuildRefundArm"/>) and a check that each escrow held for review is
+    /// still held. A dispute, a settlement, a hold or a hold's release that reached an escrow since the
+    /// plan refuses all of it (<see cref="OrderLinkedWriteOutcome.LinkedItemRefused"/>, nothing
+    /// written; the caller plans again). Once written, one <c>refund_scheduled</c> audit row per armed
+    /// escrow, best-effort. Throws when the transaction failed for another reason (nothing written).
+    /// </summary>
+    public async Task<OrderLinkedWriteResult> CloseOrderWithRefundAsync(
+        string orderId, Dictionary<string, object> closeFields, int expectedVersion, string expectedStatus,
+        OrderRefundPlan plan, string reason, string actor, AuditContext? auditContext = null)
+    {
+        _auditContext = auditContext;
+
+        if (_orderRepo == null || plan.Readiness != OrderRefundReadiness.Ready)
+        {
+            // Fail closed: this write exists to keep the order and its money together.
+            throw new InvalidOperationException("An order close that refunds needs the order repository and a ready plan.");
+        }
+
+        var scheduledAt = DateTime.UtcNow.ToString("o");
+        var linked = plan.Held
+            .Select(escrow => _escrowRepo.BuildRefundArm(
+                GetString(escrow, "escrowId"), GetString(escrow, "createdAt"), reason, scheduledAt))
+            .Concat(plan.UnderReview.Select(escrow => _escrowRepo.BuildStatusCheck(
+                GetString(escrow, "escrowId"), GetString(escrow, "createdAt"), EscrowHoldFields.Status)))
+            .ToList();
+        var write = await _orderRepo.TryUpdateWithAsync(orderId, closeFields, expectedVersion, expectedStatus, linked);
+        if (write.Outcome != OrderLinkedWriteOutcome.Written)
+        {
+            return write;
+        }
+
+        await AuditRefundArmsAsync(orderId, plan.Held, reason, actor);
         return write;
     }
 
@@ -1595,6 +1754,11 @@ public sealed class EscrowService
             MoneyAlarmLog.MarkSettlementInFlight(ex);
             throw;
         }
+        finally
+        {
+            // FRD-18: whatever the answer, a held exit whose money is committed gets its outcome label.
+            await LabelHeldExitAsync(progress);
+        }
     }
 
     /// <summary>
@@ -1608,7 +1772,14 @@ public sealed class EscrowService
         public bool Locked { get; set; }
 
         public bool Recorded { get; set; }
+
+        /// <summary>FRD-18: an admin exit of a held escrow whose decision row is written (section 20.1).</summary>
+        public HeldExitDecision? HeldExit { get; set; }
     }
+
+    /// <summary>FRD-18: the admin's exit of a held escrow, as read before its decision row, and who decided it when.</summary>
+    private sealed record HeldExitDecision(
+        Dictionary<string, object> Escrow, string Op, string Reason, string DecidedAt, AuditContext Context);
 
     private async Task<EscrowResult<ReleaseEscrowResponse>> ReleaseCoreAsync(
         ReleaseEscrowRequest request, string authenticatedUserId, string? role,
@@ -1664,6 +1835,16 @@ public sealed class EscrowService
                 404, "ESCROW_016", "Escrow not found.");
         }
 
+        // 3b. FUP-147: a release names the delivery it pays for; when the escrow is linked to one, they must agree.
+        //     FUP-139: the field is optional, so a missing or blank one is not compared.
+        var escrowDeliveryId = GetStringOrNull(escrowItem, "deliveryId");
+        if (!string.IsNullOrWhiteSpace(request.DeliveryId) && !string.IsNullOrEmpty(escrowDeliveryId)
+            && !string.Equals(request.DeliveryId, escrowDeliveryId, StringComparison.Ordinal))
+        {
+            return EscrowResult<ReleaseEscrowResponse>.Failure(
+                422, "ESCROW_VALIDATION", "deliveryId does not match the delivery this escrow pays for.", "deliveryId");
+        }
+
         // 4. Validate state transition: "escrowed", or "dispute_resolved" with a verdict that
         //    does not contradict a release (ESC-03). FRD-03: a held escrow leaves only through an admin
         //    in the admin group with a reason, and is then checked on the status it was held from.
@@ -1695,6 +1876,24 @@ public sealed class EscrowService
             return EscrowResult<ReleaseEscrowResponse>.Failure(heldAuditBlock.HttpStatus, heldAuditBlock.Code, heldAuditBlock.Message);
         }
 
+        if (heldExit)
+        {
+            progress.HeldExit = new HeldExitDecision(escrowItem, "release", request.Reason!.Trim(), DateTime.UtcNow.ToString("o"),
+                _auditContext ?? new AuditContext { Actor = authenticatedUserId, ActorRole = "admin" });
+        }
+
+        // 4a1b. ESC-20: the admin's release exit of a held split verdict settles the split (mirror, identity
+        //       gates, the three verdict rows), never a whole release.
+        if (heldExit && settleFrom == "dispute_resolved" && IsLedgerEscrow(escrowItem)
+            && GetStringOrNull(escrowItem, "disputeResolution") == DisputeVerdicts.PartialRefund)
+        {
+            var split = await SettleSplitVerdictAsync(request.EscrowId, authenticatedUserId, heldExit: true);
+            // The split is committed once its rows are decided (paid, queued or retried by the sweep): the held
+            // exit then gets its outcome label (FRD-18), and an exception is never an unrecorded settlement.
+            progress.Locked = progress.Recorded = split.IsSuccess || split.Error?.Code is "ESCROW_034" or "ESCROW_013";
+            return split;
+        }
+
         // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
         //      verdict they cannot follow is not settled.
         if (settleFrom == "dispute_resolved"
@@ -1711,11 +1910,18 @@ public sealed class EscrowService
             return EscrowResult<ReleaseEscrowResponse>.Failure(releaseBlock.HttpStatus, releaseBlock.Code, releaseBlock.Message);
         }
 
+        // 4a4. ESC-20: a ledger escrow settles leg by leg through write-ahead rows, never under the lock.
+        if (IsLedgerEscrow(escrowItem))
+        {
+            return await ReleaseLedgerAsync(request, escrowItem, currentStatus, authenticatedUserId, progress);
+        }
+
         var farmerPayout = GetDecimal(escrowItem, "farmerPayout");
         var commission = GetDecimal(escrowItem, "commission");
         var holdRef = GetStringOrNull(escrowItem, "telebirrHoldRef") ?? "";
         var createdAt = GetString(escrowItem, "createdAt");
-        var currentVersion = GetInt(escrowItem, "version");
+        // FUP-137: set only for the hourly auto-release, and stored by the write that settles or queues it.
+        var releaseOrigin = CleanDeliveryCreditService.OriginOf(authenticatedUserId, request.Trigger, settleFrom);
 
         // 4b. Payout destination and identity. Money goes to the farmer's registered
         //     phone (immutable since registration), and only to a farmer whose phone
@@ -1725,15 +1931,20 @@ public sealed class EscrowService
         //     ESC-10: the hourly sweeps audit a block once per reason (stored on the escrow), an
         //     admin's own attempt each time.
         var farmerId = GetString(escrowItem, "farmerId");
-        var (payout, payoutBlock) = await ResolvePayoutAsync(farmerId, GetDecimal(escrowItem, "amount"), "farmer");
+        var (payout, payoutBlock) = await ResolvePayoutAsync(
+            farmerId, GetDecimal(escrowItem, "amount"), "farmer", authenticatedUserId, request.EscrowId);
         if (!payout.IsSuccess)
         {
             var blockReason = payoutBlock ?? "unknown";
-            if (authenticatedUserId == SystemActor)
+            if (IsPayeeRiskBlock(payoutBlock))
+            {
+                // FUP-29: alarmed by the gate. Nothing is stored or audited, so no party is told.
+            }
+            else if (authenticatedUserId == SystemActor)
             {
                 await NoteSettlementBlockedAsync(escrowItem, currentStatus,
                     SettlementBlockFields.Value("release", SettlementBlockFields.GatePayout, blockReason),
-                    "release_blocked_kyc", PayoutBlockedMetadata(blockReason));
+                    "release_blocked_kyc", PayoutBlockedMetadata(blockReason), overdueLeg: ManualPayoutFields.LegFarmer);
             }
             else
             {
@@ -1763,8 +1974,12 @@ public sealed class EscrowService
         if (hasTruckerLeg)
         {
             (truckerPayoutDest, truckerBlockReason) = await ResolveTruckerPayeeAsync(
-                GetStringOrNull(escrowItem, "truckerId") ?? "", truckerPayoutAmount);
+                GetStringOrNull(escrowItem, "truckerId") ?? "", truckerPayoutAmount, authenticatedUserId, request.EscrowId);
         }
+
+        // FUP-29: a trucker the risk rules block is not called either; the leg stays pending with no
+        // stored reason and no audit row (both would tell the trucker), and the hourly retry asks again.
+        var truckerRiskBlocked = IsPayeeRiskBlock(truckerBlockReason);
 
         // 5. Acquire the settlement lock BEFORE the irreversible Telebirr call. This is the
         //    atomic mutual-exclusion guard: at most ONE settlement (release OR refund, across
@@ -1844,7 +2059,7 @@ public sealed class EscrowService
             var nothingMoved = farmerManualReason == ManualPayoutFields.ReasonPayoutNotSupported;
             if (await QueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRelease,
                     farmerManualReason, currentStatus, legs, authenticatedUserId,
-                    nothingMoved ? 1 : MaxSettlementWriteAttempts))
+                    nothingMoved ? 1 : MaxSettlementWriteAttempts, releaseOrigin: releaseOrigin))
             {
                 await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "manual_payout");
                 // ESC-09: the release is committed (the queue owns it), so the order is disbursing.
@@ -1941,7 +2156,8 @@ public sealed class EscrowService
                         new(ManualPayoutFields.LegTrucker, ManualPayoutFields.LegPending, null, null, null)
                     };
                     if (await QueueManualPayoutAsync(request.EscrowId, createdAt, ManualPayoutFields.OpRelease,
-                            truckerManualReason, currentStatus, legs, authenticatedUserId, MaxSettlementWriteAttempts))
+                            truckerManualReason, currentStatus, legs, authenticatedUserId, MaxSettlementWriteAttempts,
+                            releaseOrigin: releaseOrigin))
                     {
                         await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "manual_payout");
                         await FollowMoneyAsync(request.EscrowId, "release");
@@ -1969,13 +2185,21 @@ public sealed class EscrowService
 
         var now = DateTime.UtcNow.ToString("o");
 
-        // 6. Transition to "released" (optimistic concurrency on current status)
+        // 6. Transition to "released" (optimistic concurrency on current status). SIM-29: the
+        //    repository adds 1 to the version; one set from the read above would go back if a
+        //    confirmation stamp or a delivery link landed since.
         var releaseFields = new Dictionary<string, object>
         {
             { "telebirrReleaseRef", releaseResponse.TelebirrRef ?? "" },
             { "releasedAt", now },
-            { "version", currentVersion + 1 }
+            // FUP-147: the trigger is stored with the release it caused.
+            { "releaseTrigger", request.Trigger }
         };
+        if (releaseOrigin != null)
+        {
+            releaseFields[CleanDeliveryCreditService.OriginField] = releaseOrigin;
+        }
+
         if (!string.IsNullOrEmpty(truckerReleaseRef))
         {
             releaseFields["truckerTelebirrRef"] = truckerReleaseRef;
@@ -1985,7 +2209,7 @@ public sealed class EscrowService
         {
             releaseFields[TruckerPayoutFields.Pending] = true;
             releaseFields[TruckerPayoutFields.PendingSince] = now;
-            if (truckerBlockReason != null)
+            if (truckerBlockReason != null && !truckerRiskBlocked)
             {
                 releaseFields[TruckerPayoutFields.BlockReason] = truckerBlockReason;
                 releaseFields[TruckerPayoutFields.BlockReasonAt] = now;
@@ -2016,7 +2240,11 @@ public sealed class EscrowService
             // release_blocked_kyc: audited with its reason, no money alarm (the overdue alarm
             // fires after 24 hours), at the time the row stores with the reason, so the hourly
             // retry re-ensures a row this write lost. A gateway refusal is a settlement failure.
-            if (truckerBlockReason != null)
+            if (truckerRiskBlocked)
+            {
+                // FUP-29: the gate logged the alarm line; no audit row.
+            }
+            else if (truckerBlockReason != null)
             {
                 await EnsureAuditAsync(request.EscrowId, now, TruckerBlockedAuditAction, currentStatus, currentStatus,
                     SystemActor, metadata: PayoutBlockedMetadata(truckerBlockReason));
@@ -2055,16 +2283,16 @@ public sealed class EscrowService
             });
         }
 
-        // 8. Transition to "completed" (optimistic concurrency on "released")
-        await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "completed", "released",
-            new Dictionary<string, object>
-            {
-                { "completedAt", now },
-                { "version", currentVersion + 2 }
-            });
+        // 8. Transition to "completed" (optimistic concurrency on "released"). FUP-65: the hourly
+        //    crash recovery may write it first; the money is paid and recorded either way, so that
+        //    is this release's success, never a failure.
+        var completion = await CompleteOwnReleaseAsync(request.EscrowId, createdAt, now, releaseResponse.TelebirrRef ?? "");
 
-        // 9. Audit log
-        await AppendAuditAsync(request.EscrowId, "complete", "released", "completed", "system");
+        // 9. Audit log (the writer of the completed status writes its complete row).
+        if (completion == ReleaseCompletion.Written)
+        {
+            await AppendAuditAsync(request.EscrowId, "complete", "released", "completed", "system");
+        }
 
         await UpdateIdempotencyBestEffortAsync(request.IdempotencyKey, request.EscrowId, "completed");
 
@@ -2072,20 +2300,83 @@ public sealed class EscrowService
         await FollowMoneyAsync(request.EscrowId, "release");
 
         // 10. Return ReleaseEscrowResponse
+        var completed = completion != ReleaseCompletion.Deferred;
         return EscrowResult<ReleaseEscrowResponse>.Success(new ReleaseEscrowResponse
         {
             EscrowId = request.EscrowId,
-            Status = "completed",
+            Status = completed ? "completed" : "released",
             FarmerPayout = farmerPayout,
             TruckerPayout = truckerPayout,
             Commission = commission,
             TelebirrRef = releaseResponse.TelebirrRef,
             TruckerTelebirrRef = truckerReleaseRef,
             ReleasedAt = now,
-            Message = truckerPayout.HasValue
-                ? "Funds released: farmer, trucker, and platform commission split."
-                : "Funds released to farmer's Telebirr account."
+            Message = !completed
+                ? "Funds released. The escrow is marked completed by the hourly recovery."
+                : truckerPayout.HasValue
+                    ? "Funds released: farmer, trucker, and platform commission split."
+                    : "Funds released to farmer's Telebirr account."
         });
+    }
+
+    /// <summary>FUP-65: how the <c>completed</c> write of a release that paid every leg ended.</summary>
+    private enum ReleaseCompletion
+    {
+        /// <summary>This call wrote <c>completed</c>.</summary>
+        Written,
+
+        /// <summary>Another writer (the hourly crash recovery) completed this same release first.</summary>
+        AlreadyCompleted,
+
+        /// <summary>The row is still <c>released</c> (or could not be read): the crash recovery completes it.</summary>
+        Deferred
+    }
+
+    /// <summary>
+    /// FUP-65: <c>released</c> to <c>completed</c> for a release whose payout is already on record
+    /// (the <c>released</c> write landed with <paramref name="releaseRef"/>). The hourly crash
+    /// recovery completes any <c>released</c> row, so it can win this write: a failed condition is
+    /// decided by a strongly consistent re-read, and a row that is <c>completed</c> (or still
+    /// <c>released</c>) for this same payout reference is this release's success, and so is a re-read
+    /// that fails (the row was released by this call and something moved it on). A row that no longer
+    /// shows this release (another reference or status) still throws, and so does any other failure of
+    /// the write (ESC-05: a plain failure, the crash recovery completes the row). Never calls the gateway.
+    /// </summary>
+    private async Task<ReleaseCompletion> CompleteOwnReleaseAsync(
+        string escrowId, string createdAt, string completedAt, string releaseRef)
+    {
+        try
+        {
+            await _escrowRepo.UpdateStatusAsync(escrowId, createdAt, "completed", "released",
+                new Dictionary<string, object> { { "completedAt", completedAt } });
+            return ReleaseCompletion.Written;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            Dictionary<string, object>? latest;
+            try
+            {
+                latest = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(
+                    $"ESCROW_RELEASE_COMPLETE_DEFERRED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+                return ReleaseCompletion.Deferred;
+            }
+
+            var status = latest != null ? GetString(latest, "status") : "";
+            var sameRelease = latest != null
+                && string.Equals(GetString(latest, "telebirrReleaseRef"), releaseRef, StringComparison.Ordinal);
+            if (!sameRelease || status is not ("completed" or "released"))
+            {
+                throw;
+            }
+
+            Console.WriteLine(
+                $"ESCROW_RELEASE_COMPLETED_ELSEWHERE escrowId={MoneyAlarmLog.LogId(escrowId)} status={status}");
+            return status == "completed" ? ReleaseCompletion.AlreadyCompleted : ReleaseCompletion.Deferred;
+        }
     }
 
     /// <summary>
@@ -2253,10 +2544,34 @@ public sealed class EscrowService
         // 11. FUP-16: a dispute needs the goods picked up → ESCROW_041. Before pickup nothing has
         //     moved and the order has its own exits (the farmer's reject, the buyer's cancel, the
         //     transport-failure cancel, ESC-06). A confirmed delivery needs no read.
-        if (deliveryConfirmedAt == null && await RefuseDisputeBeforePickupAsync(escrowItem) is { } beforePickup)
+        //     FUP-53: the order that read judged is checked again inside the freeze's transaction.
+        Dictionary<string, object>? judgedOrder = null;
+        Dictionary<string, object>? judgedDelivery = null;
+        if (deliveryConfirmedAt == null)
         {
-            return beforePickup;
+            var pickup = await RefuseDisputeBeforePickupAsync(escrowItem);
+            if (pickup.Refusal != null)
+            {
+                return pickup.Refusal;
+            }
+
+            judgedOrder = pickup.Order;
+            judgedDelivery = pickup.Delivery;
+
+            // 11a. Persona simulation BUG-8: the buyer cannot report goods that are still on the
+            //      road as not delivered before the delivery's deadline. Every other reason, and
+            //      the farmer, are not held back.
+            if (string.Equals(request.Reason, NotDeliveredReason, StringComparison.Ordinal)
+                && string.Equals(request.DisputedBy, buyerId, StringComparison.Ordinal)
+                && NotDeliveredOpensAt(judgedOrder, judgedDelivery, OrderTimings.Current.DeliveryOverdue) is { } opensAt
+                && DateTime.UtcNow < opensAt)
+            {
+                return DisputeRefusedGoodsOnTheWay(opensAt);
+            }
         }
+
+        // BUG-6: the handoff evidence the server holds, stamped with the dispute. Best effort.
+        var handoffEvidence = await TryBuildHandoffEvidenceAsync(escrowItem, judgedDelivery, request.DisputedBy);
 
         var now = DateTime.UtcNow;
         var disputeId = $"dispute-{Guid.NewGuid():N}";
@@ -2299,11 +2614,50 @@ public sealed class EscrowService
             additionalFields["disputeEvidenceRefs"] = string.Join(",", request.EvidenceRefs);
         }
 
+        if (handoffEvidence != null)
+        {
+            additionalFields[DisputeHandoffEvidence.Field] = handoffEvidence;
+        }
+
         try
         {
-            await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "disputed", "escrowed", additionalFields);
+            // FUP-53: with an order behind the escrow, the freeze and a check that the order is not
+            // closed (cancelled or rejected) are one transaction. A writer that closed the order since
+            // step 11 read it wins, also in the instant before it arms its refund.
+            var orderCheck = judgedOrder != null && _orderRepo != null
+                && GetString(judgedOrder, "orderId") is { Length: > 0 } judgedOrderId
+                && GetString(judgedOrder, "createdAt") is { Length: > 0 } judgedCreatedAt
+                ? _orderRepo.BuildNotClosedCheck(judgedOrderId, judgedCreatedAt)
+                : null;
+            if (orderCheck == null)
+            {
+                await _escrowRepo.UpdateStatusAsync(request.EscrowId, createdAt, "disputed", "escrowed", additionalFields);
+            }
+            else
+            {
+                var frozen = await _escrowRepo.TryUpdateStatusWithAsync(
+                    request.EscrowId, createdAt, "disputed", "escrowed", additionalFields, new[] { orderCheck });
+                if (frozen == EscrowLinkedWriteOutcome.LinkedItemRefused)
+                {
+                    // Nothing was written. The order was closed in between: its money goes back to
+                    // the buyer, so the answer is the existing scheduled-refund refusal (the clients
+                    // read its wording, FUP-77), key freed. An escrow that moved on as well keeps
+                    // the answer of a lost race.
+                    await _idempotencyRepo.DeleteAsync(request.IdempotencyKey);
+                    Console.WriteLine($"ESCROW_DISPUTE_REFUSED_ORDER_CLOSED escrowId={MoneyAlarmLog.LogId(request.EscrowId)}");
+                    var afterClose = await _escrowRepo.GetByIdAsync(request.EscrowId, consistentRead: true);
+                    return afterClose != null && IsPlainEscrowed(afterClose)
+                        ? DisputeRefusedRefundScheduled()
+                        : DisputeRaceRefusal(afterClose);
+                }
+
+                if (frozen != EscrowLinkedWriteOutcome.Written)
+                {
+                    throw new ConditionalCheckFailedException("The escrow no longer takes a dispute.");
+                }
+            }
         }
-        catch (Exception ex) when (ex is ConditionalCheckFailedException or TransactionConflictException)
+        catch (Exception ex) when (ex is ConditionalCheckFailedException or TransactionConflictException or TransactionCanceledException)
         {
             // Lost a race: the escrow moved, or it was queued for a manual payout meanwhile.
             // ESC-07: every outcome frees the idempotency key (a retry is answered from the
@@ -2346,7 +2700,7 @@ public sealed class EscrowService
     /// settlement in flight (ESC-03), then the status, and on an <c>escrowed</c> row a scheduled
     /// refund (FUP-32: armed, for example by a transport cancel, after this request read the escrow).
     /// </summary>
-    private static EscrowResult<DisputeEscrowResponse> DisputeRaceRefusal(Dictionary<string, object>? latest)
+    internal static EscrowResult<DisputeEscrowResponse> DisputeRaceRefusal(Dictionary<string, object>? latest)
     {
         if (latest == null)
         {
@@ -2363,6 +2717,14 @@ public sealed class EscrowService
         {
             return EscrowResult<DisputeEscrowResponse>.Failure(
                 409, "ESCROW_INVALID_TRANSITION", "A settlement is in progress for this escrow; it can no longer be disputed.");
+        }
+
+        // ESC-20: a ledger escrow whose crop leg is decided is being paid out or refunded through its rows.
+        if (IsLedgerEscrow(latest) && LedgerEscrow.From(latest).LegState(LedgerEscrowFields.LegCrop) is { } crop
+            && crop != LedgerEscrowFields.Held)
+        {
+            return EscrowResult<DisputeEscrowResponse>.Failure(
+                409, "ESCROW_INVALID_TRANSITION", "This payment is already being settled; it can no longer be disputed.");
         }
 
         var status = GetString(latest, "status");
@@ -2404,18 +2766,21 @@ public sealed class EscrowService
     /// no delivery that can be read has nothing to judge by and is allowed, as before 1.21.0. Null when
     /// the dispute may go ahead.
     /// </summary>
-    private async Task<EscrowResult<DisputeEscrowResponse>?> RefuseDisputeBeforePickupAsync(Dictionary<string, object> escrow)
+    private async Task<(EscrowResult<DisputeEscrowResponse>? Refusal, Dictionary<string, object>? Order, Dictionary<string, object>? Delivery)> RefuseDisputeBeforePickupAsync(
+        Dictionary<string, object> escrow)
     {
         var escrowId = GetString(escrow, "escrowId");
         string? orderStatus = null;
         string? deliveryStatus = null;
+        Dictionary<string, object>? order = null;
+        Dictionary<string, object>? delivery = null;
         try
         {
             var orderId = GetStringOrNull(escrow, "orderId");
             var deliveryId = GetStringOrNull(escrow, "deliveryId");
             if (_orderRepo != null && !string.IsNullOrEmpty(orderId))
             {
-                var order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
+                order = await _orderRepo.GetByIdAsync(orderId, consistentRead: true);
                 orderStatus = order != null ? GetStringOrNull(order, "status") : null;
                 var activeDeliveryId = order != null ? GetStringOrNull(order, "activeDeliveryId") : null;
                 deliveryId = string.IsNullOrEmpty(activeDeliveryId) ? deliveryId : activeDeliveryId;
@@ -2423,30 +2788,126 @@ public sealed class EscrowService
 
             if (_deliveryRepo != null && !string.IsNullOrEmpty(deliveryId))
             {
-                var delivery = await _deliveryRepo.GetByIdAsync(deliveryId, consistentRead: true);
+                delivery = await _deliveryRepo.GetByIdAsync(deliveryId, consistentRead: true);
                 deliveryStatus = delivery != null ? GetStringOrNull(delivery, "status") : null;
             }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"ESCROW_DISPUTE_PICKUP_UNREAD escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
-            return EscrowResult<DisputeEscrowResponse>.Failure(503, "ESCROW_012",
-                "The order behind this escrow could not be read. Nothing was disputed; try again.");
+            return (EscrowResult<DisputeEscrowResponse>.Failure(503, "ESCROW_012",
+                "The order behind this escrow could not be read. Nothing was disputed; try again."), null, null);
         }
 
         if (orderStatus == null && deliveryStatus == null)
         {
-            return null;
+            return (null, order, delivery);
         }
 
         if ((orderStatus != null && PickedUpOrderStatuses.Contains(orderStatus))
             || (deliveryStatus != null && PickedUpDeliveryStatuses.Contains(deliveryStatus)))
         {
+            return (null, order, delivery);
+        }
+
+        return (EscrowResult<DisputeEscrowResponse>.Failure(422, "ESCROW_041",
+            "A dispute can be opened only after the goods are picked up. Before pickup, cancel or reject the order instead."), null, null);
+    }
+
+    /// <summary>The dispute reason the on-the-way rule holds back (persona simulation BUG-8).</summary>
+    internal const string NotDeliveredReason = "not_delivered";
+
+    /// <summary>
+    /// The pinned start of the on-the-way refusal. The clients tell it from the other
+    /// <c>ESCROW_INVALID_TRANSITION</c> answers by this text (escrow-protocol.md 2.28.0), as they do for
+    /// the scheduled refund (FUP-77).
+    /// </summary>
+    internal const string GoodsOnTheWayText = "The goods are still on the way.";
+
+    /// <summary>
+    /// Persona simulation BUG-8 (escrow-protocol.md 2.28.0): when a buyer may report a delivery that is
+    /// on the road as not delivered, or null when the rule does not apply. It applies only while the
+    /// delivery is <c>pickedUp</c> or <c>inTransit</c>. The time is the order's stamped drop-off
+    /// deadline (<c>dropoffDeadlineAt</c>, T8 of order-lifecycle.md) when it carries one, else the
+    /// delivery's <c>pickedUpAt</c> plus <paramref name="deliveryOverdue"/> (T8 as the contract computes
+    /// it, 72 hours by default). A delivery with neither is not held back.
+    /// </summary>
+    internal static DateTime? NotDeliveredOpensAt(
+        Dictionary<string, object>? order, Dictionary<string, object>? delivery, TimeSpan deliveryOverdue)
+    {
+        if (delivery == null || GetStringOrNull(delivery, "status") is not ("pickedUp" or "inTransit"))
+        {
             return null;
         }
 
-        return EscrowResult<DisputeEscrowResponse>.Failure(422, "ESCROW_041",
-            "A dispute can be opened only after the goods are picked up. Before pickup, cancel or reject the order instead.");
+        if (order != null && TryParseUtc(GetStringOrNull(order, DropoffJudgement.DeadlineField), out var deadline))
+        {
+            return deadline;
+        }
+
+        return TryParseUtc(GetStringOrNull(delivery, "pickedUpAt"), out var pickedUpAt)
+            ? pickedUpAt + deliveryOverdue
+            : null;
+    }
+
+    private static bool TryParseUtc(string? text, out DateTime utc)
+        => DateTime.TryParse(text, CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out utc);
+
+    /// <summary>
+    /// 422 for a buyer's <c>not_delivered</c> dispute of goods on the road before the delivery deadline.
+    /// The code is <c>ESCROW_INVALID_TRANSITION</c>, not a new one: every released app shows an unknown
+    /// escrow code as "Something went wrong. Please try again.", and this one as "This action is not
+    /// allowed in the current payment state." Nothing was written.
+    /// </summary>
+    internal static EscrowResult<DisputeEscrowResponse> DisputeRefusedGoodsOnTheWay(DateTime opensAtUtc) =>
+        EscrowResult<DisputeEscrowResponse>.Failure(422, "ESCROW_INVALID_TRANSITION",
+            $"{GoodsOnTheWayText} You can report them as not delivered after "
+            + $"{opensAtUtc.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)} UTC. "
+            + "For any other problem, choose another reason.");
+
+    /// <summary>
+    /// Persona simulation BUG-6: the handoff evidence to stamp on a new dispute
+    /// (<see cref="DisputeHandoffEvidence"/>). The delivery is the one the pickup rule read, else the
+    /// escrow's, read here; who confirmed and how come from the delivery's transaction-audit rows. Best
+    /// effort: a missing repository or a failed read stamps less or nothing and never fails the dispute.
+    /// </summary>
+    private async Task<Dictionary<string, object>?> TryBuildHandoffEvidenceAsync(
+        Dictionary<string, object> escrow, Dictionary<string, object>? delivery, string disputedBy)
+    {
+        try
+        {
+            if (delivery == null && _deliveryRepo != null
+                && GetStringOrNull(escrow, "deliveryId") is { Length: > 0 } deliveryId)
+            {
+                delivery = await _deliveryRepo.GetByIdAsync(deliveryId, consistentRead: true);
+            }
+
+            if (delivery == null || GetStringOrNull(delivery, "deliveryId") is not { Length: > 0 } id)
+            {
+                return null;
+            }
+
+            IReadOnlyList<Dictionary<string, object>> auditRows = Array.Empty<Dictionary<string, object>>();
+            if (_transactionAuditRepo != null)
+            {
+                try
+                {
+                    auditRows = await _transactionAuditRepo.GetByEntityAsync(id);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"DISPUTE_EVIDENCE_AUDIT_UNREAD escrowId={MoneyAlarmLog.LogId(GetString(escrow, "escrowId"))} error={ex.GetType().Name}");
+                }
+            }
+
+            return DisputeHandoffEvidence.Build(delivery, auditRows, disputedBy);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"DISPUTE_EVIDENCE_UNREAD escrowId={MoneyAlarmLog.LogId(GetString(escrow, "escrowId"))} error={ex.GetType().Name}");
+            return null;
+        }
     }
 
     /// <summary>
@@ -2658,6 +3119,16 @@ public sealed class EscrowService
         }
 
         var resolution = GetStringOrNull(escrow, "disputeResolution");
+        if (status == "dispute_resolved" && resolution == DisputeVerdicts.PartialRefund && IsLedgerEscrow(escrow))
+        {
+            // ESC-20: a held split leaves through the admin's release exit, which settles the split itself.
+            return heldExit && op == "release"
+                ? null
+                : heldExit
+                    ? "The dispute verdict is a split (partial_refund): release this held escrow to pay the split; it cannot be refunded whole."
+                    : "The dispute verdict is a split (partial_refund): the settlement sweep pays it leg by leg.";
+        }
+
         var contrary = op == "release" ? "buyer_wins" : "farmer_wins";
         if (status == "dispute_resolved" && resolution == contrary)
         {
@@ -2771,6 +3242,57 @@ public sealed class EscrowService
             EscrowHoldFields.Status, EscrowHoldFields.Status,
             _auditContext ?? new AuditContext { Actor = actor, ActorRole = "admin" }, metadata);
         return null;
+    }
+
+    /// <summary>
+    /// FRD-18 (section 20.1): the outcome label of an admin exit of a held escrow, once the exit committed
+    /// the money: the settlement lock was taken and kept (paid, queued for an admin in the manual payout
+    /// queue, or a gateway outcome that is not known). A refusal before the lock, or a definite gateway
+    /// refusal that freed it, leaves the escrow held and unlabelled, and the admin's next exit labels it.
+    /// A held escrow is held once and leaves once, so the key time is its <c>heldAt</c>. Best effort: it
+    /// never changes the answer, and runs in the wrappers' <c>finally</c>, so it never throws.
+    /// </summary>
+    private async Task LabelHeldExitAsync(SettlementProgress progress)
+    {
+        if (progress.HeldExit is not { } exit || !progress.Locked)
+        {
+            return;
+        }
+
+        try
+        {
+            var escrow = exit.Escrow;
+            var escrowId = GetString(escrow, "escrowId");
+            var orderId = GetStringOrNull(escrow, "orderId");
+            var heldAt = GetStringOrNull(escrow, EscrowHoldFields.HeldAt);
+            await OutcomeLabelWriter.WriteAsync(_transactionAuditRepo, new OutcomeLabel
+            {
+                Case = OutcomeLabels.CaseHeldEscrow,
+                CaseId = escrowId,
+                Outcome = OutcomeLabels.HeldExitOutcome(exit.Op),
+                Source = exit.Op == "release" ? "fraud_hold_release" : "fraud_hold_refund",
+                TransactionId = string.IsNullOrEmpty(orderId) ? escrowId : orderId,
+                KeyTime = heldAt ?? exit.DecidedAt,
+                AdminId = exit.Context.Actor,
+                LabelledAt = exit.DecidedAt,
+                Reason = exit.Reason,
+                OrderId = orderId,
+                EscrowId = escrowId,
+                DeliveryId = GetStringOrNull(escrow, "deliveryId"),
+                BuyerId = GetStringOrNull(escrow, "buyerId"),
+                FarmerId = GetStringOrNull(escrow, "farmerId"),
+                TruckerId = GetStringOrNull(escrow, "truckerId"),
+                Amount = GetDecimalOrNull(escrow, "amount"),
+                HoldReason = GetStringOrNull(escrow, EscrowHoldFields.HoldReason),
+                HeldFor = GetStringOrNull(escrow, EscrowHoldFields.HeldFor),
+                HeldFromStatus = GetStringOrNull(escrow, EscrowHoldFields.HeldFromStatus),
+                HeldAt = heldAt
+            }, exit.Context);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"OUTCOME_LABEL_FAILED case={OutcomeLabels.CaseHeldEscrow} error={ex.GetType().Name}");
+        }
     }
 
     /// <summary>
@@ -3004,16 +3526,20 @@ public sealed class EscrowService
     /// retries). Logged as <c>DISPUTE_VERDICT_SETTLEMENT_BLOCKED</c> for the money alarm (escrow-cron,
     /// three of four hourly periods) and audited once as <c>dispute_settlement_blocked</c>;</item>
     /// <item>a leg cannot follow the verdict (<c>422 ESCROW_INVALID_TRANSITION</c>, alarm line
-    /// <c>DISPUTE_VERDICT_ORDER_MISMATCH</c>), unless an admin overrides a <c>buyer_wins</c> refund
-    /// with a reason.</item>
+    /// <c>DISPUTE_VERDICT_ORDER_MISMATCH</c>), unless the verdict carries the admin's <c>settle_as_is</c>
+    /// and it still fits (FUP-64, <see cref="SettleAsIsPlanAsync"/>). A recorded <c>wait_for_delivery</c> is
+    /// refused without that alarm until it is older than <see cref="WaitForDeliveryAlarmAfter"/>, then
+    /// with <c>DISPUTE_VERDICT_WAIT_OVERDUE</c> (FUP-64).</item>
     /// </list>
     /// A leg whose write failed does not block the settlement. Failed legs are audited once per
-    /// escrow and action, at the verdict time plus one or two ticks.
+    /// escrow and action, at the verdict time plus one or two ticks. Since 2.21.0 (FUP-64) no
+    /// <c>overrideOrderMismatch</c> refund passes a verdict here.
     /// </summary>
     private async Task<SettlementBlock?> MirrorVerdictAsync(
-        Dictionary<string, object> escrow, string actor, string op, string? overrideReason = null)
+        Dictionary<string, object> escrow, string actor, string op)
     {
-        var resolution = GetStringOrNull(escrow, "disputeResolution");
+        // ESC-20: a split verdict needs the goods delivered, so the order follows it as farmer_wins.
+        var resolution = DisputeVerdicts.MirrorDirection(GetStringOrNull(escrow, "disputeResolution"));
         if (resolution is not ("farmer_wins" or "buyer_wins"))
         {
             return null;
@@ -3042,18 +3568,39 @@ public sealed class EscrowService
             return null;
         }
 
-        if (result.IsMismatch && overrideReason != null && op == "refund" && resolution == "buyer_wins")
+        if (result.IsMismatch && await SettleAsIsPlanAsync(escrow) is { } asIs)
         {
-            return await RecordMismatchOverrideAsync(escrowId, result, actor, overrideReason);
+            if (asIs.Case == DispositionCase.Unknown)
+            {
+                // The check of the order's other escrows could not be read: nothing is known, so fail closed.
+                return await SettlementBlockedAsync(escrowId, resolvedAt, actor, op, asIs.Legs);
+            }
+
+            if (asIs.SettlesAsIs)
+            {
+                // FUP-64: the admin's audited exit for a verdict no goods disposition fits. The money moves as the
+                // verdict says; the order was closed or flagged by the admin's action and the delivery stays as it is.
+                Console.WriteLine(
+                    $"DISPUTE_VERDICT_SETTLING_AS_IS escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+                return null;
+            }
         }
 
         if (result.IsMismatch && await IsRecordedWaitAsync(escrow, resolution))
         {
             // FUP-16: the admin chose to wait for the delivery. Still refused and audited once, but not
             // alarmed: an hourly alarm line here would keep the mismatch alarm in ALARM for days and hide
-            // a verdict that is really stuck.
-            Console.WriteLine(
-                $"DISPUTE_VERDICT_WAITING_FOR_DELIVERY escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+            // a verdict that is really stuck. FUP-64: a wait older than a week alarms on its own token.
+            var waited = WaitedFor(escrow);
+            if (waited == null || waited >= WaitForDeliveryAlarmAfter)
+            {
+                AlarmLog(MoneyAlarmLog.DisputeVerdictWaitOverdue(escrowId, op, waited, result.FailedLegs));
+            }
+            else
+            {
+                Console.WriteLine(
+                    $"DISPUTE_VERDICT_WAITING_FOR_DELIVERY escrowId={MoneyAlarmLog.LogId(escrowId)} op={op} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
+            }
         }
         else if (result.IsMismatch)
         {
@@ -3082,8 +3629,47 @@ public sealed class EscrowService
             ? new SettlementBlock(422, "ESCROW_INVALID_TRANSITION",
                 $"The order or delivery behind this verdict cannot follow it ({result.FailedLegs}). Nothing was settled: "
                 + "bring the order to a status the verdict can follow first, or record a disposition on the verdict "
-                + "(POST /admin/disputes/{id}/resolve).")
+                + "(POST /admin/disputes/{id}/resolve; settle_as_is when no other fits).")
             : null;
+    }
+
+    /// <summary>
+    /// FUP-64: a recorded <c>wait_for_delivery</c> older than this alarms again (<c>DISPUTE_VERDICT_WAIT_OVERDUE</c>,
+    /// every hourly sweep). Seven days: an order escrow is itself stale seven days after funding (<c>expiresAt</c>),
+    /// a delivery normally lands within days of pickup, and a week of hourly sweeps leaves two more before the
+    /// 21 day cap of a progressing order's hold. A wait that long is stuck, not slow.
+    /// </summary>
+    internal static readonly TimeSpan WaitForDeliveryAlarmAfter = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// FUP-64: how long the recorded wait has lasted, from the admin's choice (<c>disputeDispositionAt</c>, else the
+    /// verdict's <c>disputeResolvedAt</c>); null when neither time can be read (the caller alarms then).
+    /// </summary>
+    private static TimeSpan? WaitedFor(Dictionary<string, object> escrow)
+    {
+        var since = GetStringOrNull(escrow, DisputeDispositionFields.At) ?? GetStringOrNull(escrow, "disputeResolvedAt");
+        return DateTime.TryParse(since, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at)
+            ? DateTime.UtcNow - at.ToUniversalTime()
+            : null;
+    }
+
+    /// <summary>
+    /// FUP-64: when the verdict carries the admin's <c>settle_as_is</c> (only on a <c>farmer_wins</c> or <c>buyer_wins</c>
+    /// verdict, never a split), the plan read again now; null otherwise. The settlement goes ahead only when it still
+    /// fits and its order needs no write any more (<see cref="DispositionPlan.SettlesAsIs"/>). Anything else (the legs
+    /// moved to a case another disposition fits, a farmer no longer safe to pay, an order the admin's action did not
+    /// close or flag yet) keeps the refusal and its alarm; an unreadable plan fails closed.
+    /// </summary>
+    private async Task<DispositionPlan?> SettleAsIsPlanAsync(Dictionary<string, object> escrow)
+    {
+        var resolution = GetStringOrNull(escrow, "disputeResolution");
+        if (resolution is not ("farmer_wins" or "buyer_wins")
+            || GetStringOrNull(escrow, DisputeDispositionFields.Disposition) != DisputeDisposition.SettleAsIs)
+        {
+            return null;
+        }
+
+        return await _verdictMirror.PlanDispositionAsync(escrow, resolution);
     }
 
     /// <summary>
@@ -3127,52 +3713,6 @@ public sealed class EscrowService
 
         return new SettlementBlock(503, "ESCROW_012",
             "The order behind this verdict could not be read, cancelled or restocked. Nothing was settled; try again.");
-    }
-
-    /// <summary>
-    /// ESC-03: an admin in the admin group refunds a <c>buyer_wins</c> verdict although its order
-    /// cannot follow it (the goods are already moving). The escrow audit records the admin, the
-    /// failed legs and the reason before any money moves (no row, no refund); the transaction
-    /// audit and a flag on the order (its status is left alone) are best-effort.
-    /// </summary>
-    private async Task<SettlementBlock?> RecordMismatchOverrideAsync(
-        string escrowId, DisputeVerdictMirrorResult result, string actor, string reason)
-    {
-        var metadata = $"legs={result.FailedLegs};reason={reason}";
-        try
-        {
-            await AppendAuditAsync(escrowId, "dispute_order_mismatch_overridden", "dispute_resolved", "dispute_resolved",
-                actor, metadata: metadata);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine(
-                $"DISPUTE_VERDICT_OVERRIDE_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} reason=[{ex.GetType().Name}]");
-            return new SettlementBlock(503, "ESCROW_012",
-                "The override could not be recorded. Nothing was settled; try again.");
-        }
-
-        Console.WriteLine(
-            $"DISPUTE_VERDICT_MISMATCH_OVERRIDDEN escrowId={MoneyAlarmLog.LogId(escrowId)} admin={MoneyAlarmLog.LogId(actor)} legs={MoneyAlarmLog.LogText(result.FailedLegs)}");
-        var transactionId = string.IsNullOrEmpty(result.OrderId) ? escrowId : result.OrderId;
-        await TransactionAuditWriter.EmitAsync(_transactionAuditRepo, null, transactionId, "escrow", escrowId,
-            "dispute_mismatch_override", "dispute_resolved", "dispute_resolved",
-            _auditContext ?? new AuditContext { Actor = actor, ActorRole = "admin" }, metadata: metadata);
-
-        if (!string.IsNullOrEmpty(result.OrderId)
-            && !await _verdictMirror.FlagOrderAsync(result.OrderId, new Dictionary<string, object>
-            {
-                { "disputeOverrideAt", DateTime.UtcNow.ToString("o") },
-                { "disputeOverrideBy", actor },
-                { "disputeOverrideReason", reason },
-                { "disputeOverrideEscrowId", escrowId }
-            }))
-        {
-            Console.WriteLine(
-                $"DISPUTE_VERDICT_OVERRIDE_FLAG_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} orderId={MoneyAlarmLog.LogId(result.OrderId)}");
-        }
-
-        return null;
     }
 
     /// <summary>
@@ -3243,6 +3783,14 @@ public sealed class EscrowService
             fields["disputeDescription"] = description.Length > MaxDisputeDescriptionLength
                 ? description[..MaxDisputeDescriptionLength]
                 : description;
+        }
+
+        // BUG-6: the same handoff evidence as POST /escrow/dispute stamps. Best effort.
+        var handoffEvidence = await TryBuildHandoffEvidenceAsync(
+            new Dictionary<string, object> { ["escrowId"] = escrowId, ["deliveryId"] = deliveryId }, null, disputedBy);
+        if (handoffEvidence != null)
+        {
+            fields[DisputeHandoffEvidence.Field] = handoffEvidence;
         }
 
         try
@@ -3443,6 +3991,11 @@ public sealed class EscrowService
             MoneyAlarmLog.MarkSettlementInFlight(ex);
             throw;
         }
+        finally
+        {
+            // FRD-18: whatever the answer, a held exit whose money is committed gets its outcome label.
+            await LabelHeldExitAsync(progress);
+        }
     }
 
     private async Task<EscrowResult<RefundEscrowResponse>> RefundCoreAsync(
@@ -3474,7 +4027,8 @@ public sealed class EscrowService
                 "trigger");
         }
 
-        // 1d. ESC-03: refunding a verdict over an order mismatch is an admin-group decision with a reason.
+        // 1d. ESC-09 Part B: refunding over an order mismatch is an admin-group decision with a reason. (FUP-64:
+        //     a dispute verdict no longer takes it; the flag is still checked here, before the escrow is read.)
         string? overrideReason = null;
         if (request.OverrideOrderMismatch)
         {
@@ -3491,6 +4045,12 @@ public sealed class EscrowService
                     400, "ESCROW_VALIDATION",
                     "reason must be 10 to 500 characters when overriding an order mismatch.", "reason");
             }
+        }
+
+        // 1e. FUP-41: a double escrow refund is an admin-group decision with a reason.
+        if (request.DoubleEscrow && DoubleEscrowRequestProblem(request, adminGroupVerified) is { } doubleProblem)
+        {
+            return doubleProblem;
         }
 
         // 2. Check idempotency
@@ -3516,6 +4076,13 @@ public sealed class EscrowService
         {
             return EscrowResult<RefundEscrowResponse>.Failure(
                 404, "ESCROW_016", "Escrow not found.");
+        }
+
+        // 3a. FUP-41: the escrow must be a second payment of its order; the decision is on record before money moves.
+        if (request.DoubleEscrow
+            && await PrepareDoubleEscrowRefundAsync(escrowItem, request.Reason!.Trim(), authenticatedUserId) is { } doubleAnswer)
+        {
+            return doubleAnswer;
         }
 
         // 4. Validate state: "escrowed", or "dispute_resolved" with a verdict that does not
@@ -3548,10 +4115,17 @@ public sealed class EscrowService
             return EscrowResult<RefundEscrowResponse>.Failure(heldAuditBlock.HttpStatus, heldAuditBlock.Code, heldAuditBlock.Message);
         }
 
+        if (heldExit)
+        {
+            progress.HeldExit = new HeldExitDecision(escrowItem, "refund", request.Reason!.Trim(), DateTime.UtcNow.ToString("o"),
+                _auditContext ?? new AuditContext { Actor = authenticatedUserId, ActorRole = "admin" });
+        }
+
         // 4a2. ESC-03: the order and delivery follow the verdict before any money moves; a
-        //      verdict they cannot follow is not settled.
+        //      verdict they cannot follow is not settled. FUP-64: overrideOrderMismatch no longer
+        //      settles a verdict (escrow-protocol.md 2.21.0); the admin records settle_as_is on it instead.
         if (settleFrom == "dispute_resolved"
-            && await MirrorVerdictAsync(escrowItem, authenticatedUserId, "refund", overrideReason) is { } block)
+            && await MirrorVerdictAsync(escrowItem, authenticatedUserId, "refund") is { } block)
         {
             return EscrowResult<RefundEscrowResponse>.Failure(block.HttpStatus, block.Code, block.Message);
         }
@@ -3565,16 +4139,22 @@ public sealed class EscrowService
 
         // 4a3. ESC-09 Part B: an admin refund of a plain escrowed escrow ends an order that never got
         //      going first and refuses goods on the move unless overridden, so the order follows the money.
-        if (currentStatus == "escrowed" && authenticatedUserId != SystemActor
+        //      FUP-41: not for a double escrow, whose order belongs to the order's own escrow.
+        if (currentStatus == "escrowed" && authenticatedUserId != SystemActor && !request.DoubleEscrow
             && await PrepareAdminRefundOrderAsync(escrowItem, authenticatedUserId, overrideReason) is { } refundBlock)
         {
             return EscrowResult<RefundEscrowResponse>.Failure(refundBlock.HttpStatus, refundBlock.Code, refundBlock.Message);
         }
 
+        // 4a4. ESC-20: a ledger escrow refunds every held leg through one write-ahead row, never under the lock.
+        if (IsLedgerEscrow(escrowItem))
+        {
+            return await RefundLedgerAsync(request, escrowItem, currentStatus, settleFrom, authenticatedUserId, progress);
+        }
+
         var amount = GetDecimal(escrowItem, "amount");
         var holdRef = GetStringOrNull(escrowItem, "telebirrHoldRef") ?? "";
         var createdAt = GetString(escrowItem, "createdAt");
-        var currentVersion = GetInt(escrowItem, "version");
 
         // ESC-05: the refund phone is read before the lock, so nothing can fail between the lock
         // and the gateway call.
@@ -3691,8 +4271,7 @@ public sealed class EscrowService
             new Dictionary<string, object>
             {
                 { "telebirrRefundRef", refundResponse.TelebirrRef ?? "" },
-                { "refundedAt", now },
-                { "version", currentVersion + 1 }
+                { "refundedAt", now }
             },
             $"op=refund buyerRef={MoneyAlarmLog.LogId(refundResponse.TelebirrRef)}");
         progress.Recorded = true;
@@ -3886,11 +4465,12 @@ public sealed class EscrowService
     /// </summary>
     private async Task<bool> QueueManualPayoutAsync(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
-        List<ManualPayoutLegSeed> legs, string actor, int attempts, Func<string, Task<bool>>? write = null)
+        List<ManualPayoutLegSeed> legs, string actor, int attempts, Func<string, Task<bool>>? write = null,
+        string? releaseOrigin = null)
     {
         for (var attempt = 1; ; attempt++)
         {
-            if (await TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, actor, write))
+            if (await TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, actor, write, releaseOrigin))
             {
                 return true;
             }
@@ -4108,10 +4688,14 @@ public sealed class EscrowService
     /// later run. A lost-answer write that the SDK retried is recognised by its time. Best-effort: a failed
     /// write logs <c>SETTLEMENT_BLOCK_AUDIT_FAILED</c> and the next run repairs it. Returns true when this
     /// call stored the reason.
+    /// FUP-41: with <paramref name="overdueLeg"/> (a payout identity gate block of the system's release), a call
+    /// that finds the same reason stored at least <see cref="MoneyAlarmLog.QueueAlarmAfter"/> ago logs
+    /// <c>RELEASE_BLOCKED_OVERDUE</c>, once per call, so once per hourly run while the block lasts. FUP-436: the
+    /// first of those calls also logs <c>RELEASE_BLOCKED_NEWLY_OVERDUE</c> (<see cref="IsReleaseBlockNewlyOverdueAsync"/>).
     /// </summary>
     public async Task<bool> NoteSettlementBlockedAsync(
         Dictionary<string, object> escrow, string expectedStatus, string reason, string auditAction,
-        string metadata, string? alarmAction = null)
+        string metadata, string? alarmAction = null, string? overdueLeg = null)
     {
         var escrowId = GetString(escrow, "escrowId");
         try
@@ -4119,6 +4703,7 @@ public sealed class EscrowService
             var storedAt = GetStringOrNull(escrow, SettlementBlockFields.ReasonAt);
             if (GetStringOrNull(escrow, SettlementBlockFields.Reason) == reason && storedAt != null)
             {
+                await ReportOverdueAsync(escrow, escrowId, storedAt);
                 await AuditBlockOnceAsync(escrowId, storedAt);
                 return false;
             }
@@ -4136,6 +4721,7 @@ public sealed class EscrowService
 
                 if (latestAt != reasonAt)
                 {
+                    await ReportOverdueAsync(latest, escrowId, latestAt);
                     await AuditBlockOnceAsync(escrowId, latestAt);
                     return false;
                 }
@@ -4150,6 +4736,29 @@ public sealed class EscrowService
             return false;
         }
 
+        // FUP-41: the same block, first stored a day or more ago (an unreadable time counts as overdue, as the
+        // trucker retry's does). Logged before the audit write, so a failed write never hides it. FUP-436: the first
+        // call that reports the block (its marker, read with the row, does not name its stored time) also logs the
+        // edge line, so a standing releases-blocked-overdue alarm cannot mask a newly overdue release.
+        async Task ReportOverdueAsync(Dictionary<string, object> item, string id, string at)
+        {
+            if (overdueLeg == null)
+            {
+                return;
+            }
+
+            var age = ParseUtcTimeOrNull(at) is { } since ? DateTime.UtcNow - since : MoneyAlarmLog.QueueAlarmAfter;
+            if (age >= MoneyAlarmLog.QueueAlarmAfter)
+            {
+                var shortReason = reason[(reason.LastIndexOf(':') + 1)..];
+                AlarmLog(MoneyAlarmLog.ReleaseBlockedOverdue(id, overdueLeg, shortReason, (int)age.TotalHours));
+                if (await IsReleaseBlockNewlyOverdueAsync(item, id, GetString(escrow, "createdAt"), reason, at))
+                {
+                    AlarmLog(MoneyAlarmLog.ReleaseBlockedNewlyOverdue(id, overdueLeg, shortReason, (int)age.TotalHours));
+                }
+            }
+        }
+
         // The block's one audit row at its stored time, and the alarm line only from the write that created it.
         async Task AuditBlockOnceAsync(string id, string at)
         {
@@ -4158,6 +4767,39 @@ public sealed class EscrowService
             {
                 AlarmLog(MoneyAlarmLog.SettlementFailed(id, alarmAction, MoneyAlarmLog.OutcomeFailed, reason));
             }
+        }
+    }
+
+    /// <summary>
+    /// FUP-436: true once per stored block, keyed on its <c>settlementBlockReasonAt</c>: when the marker read with
+    /// <paramref name="item"/> does not name it and the conditional write that sets it lands (false: another run
+    /// marked it, or the block was settled, cleared or stored again since the read). A row the write cannot be keyed
+    /// on, or a write that fails for another reason, announces anyway: the next run may announce it again, but a
+    /// newly overdue release is never hidden (the FUP-06 rules).
+    /// </summary>
+    private async Task<bool> IsReleaseBlockNewlyOverdueAsync(
+        Dictionary<string, object> item, string escrowId, string createdAt, string reason, string reasonAt)
+    {
+        if (GetStringOrNull(item, SettlementBlockFields.OverdueLoggedFor) == reasonAt)
+        {
+            return false;
+        }
+
+        if (escrowId.Length == 0 || createdAt.Length == 0)
+        {
+            return true;
+        }
+
+        try
+        {
+            return await _escrowRepo.TryMarkSettlementBlockOverdueLoggedAsync(escrowId, createdAt, reason, reasonAt);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"Release blocked report: the newly overdue marker of {MoneyAlarmLog.LogId(escrowId)} was not written: "
+                + $"[{ex.GetType().Name}]. Announced anyway; the next run may announce it again.");
+            return true;
         }
     }
 
@@ -4315,6 +4957,13 @@ public sealed class EscrowService
         if (!mayCallGateway)
         {
             return new(TruckerRetryOutcome.Deferred, "deferred");
+        }
+
+        // FUP-29: the risk rules at the moment of payment, last before the lock, so a leg that is not paid
+        // this run anyway costs no score read and no alarm line. The trucker row is the one read above.
+        if (await PayeeRiskBlockAsync(trucker, SystemActor, escrowId, "trucker") is { } riskBlock)
+        {
+            return new(TruckerRetryOutcome.Blocked, riskBlock);
         }
 
         var lockId = await _escrowRepo.TryAcquireTruckerPayoutLockAsync(escrowId, GetString(escrow, "createdAt"));
@@ -5091,7 +5740,25 @@ public sealed class EscrowService
                 return await EnsureRefundRestockAsync(order, escrowId);
 
             case "funded" or "accepted":
-                var cancel = await _verdictMirror.CancelBeforeRefundAsync(escrow);
+                // FUP-53: the order cancel and the refund arm (expiresAt = now, refundReason:
+                // admin_refund) are one transaction, conditioned on the escrow still being escrowed
+                // with no settlement lock and no manual payout. A dispute or a settlement that reached
+                // it since it was read refuses both. A confirmed delivery does not: the admin refund
+                // armed such an escrow before, too.
+                var arm = _escrowRepo.BuildRefundArm(
+                    escrowId, GetString(escrow, "createdAt"), AdminRefundReason, DateTime.UtcNow.ToString("o"),
+                    allowConfirmedDelivery: true);
+                var cancel = await _verdictMirror.CancelBeforeRefundAsync(escrow, refundArm: new[] { arm });
+                if (cancel.RefundArmed)
+                {
+                    await AuditRefundArmsAsync(orderId, new[] { escrow }, AdminRefundReason, actor);
+                }
+
+                if (cancel.RefundArmRefused)
+                {
+                    return await AdminRefundArmRefusedAsync(escrowId);
+                }
+
                 if (cancel.Order is VerdictLegOutcome.Cancelled or VerdictLegOutcome.Closed)
                 {
                     // Closed: a concurrent cancel won the race (the buyer's transport-failure cancel, say),
@@ -5103,7 +5770,12 @@ public sealed class EscrowService
                         return restockBlock;
                     }
 
-                    await ScheduleAdminRefundAsync(escrow, actor);
+                    // An order someone else closed is armed here, on its own; this call's cancel armed with its write.
+                    if (!cancel.RefundArmed)
+                    {
+                        await ScheduleAdminRefundAsync(escrow, actor);
+                    }
+
                     return null;
                 }
 
@@ -5189,10 +5861,38 @@ public sealed class EscrowService
         return null;
     }
 
+    /// <summary>The <c>refundReason</c> of an admin refund before pickup (ESC-09).</summary>
+    private const string AdminRefundReason = "admin_refund";
+
+    /// <summary>
+    /// FUP-53: the admin refund's cancel was refused because the escrow is no longer a plain hold (a
+    /// dispute froze it, a settlement or a manual payout took it). The order is as it was and
+    /// nothing was armed; a pending delivery the cancel had already cancelled stays cancelled, as on
+    /// every refusal after that step. 409: the admin reads the escrow again.
+    /// </summary>
+    private async Task<SettlementBlock> AdminRefundArmRefusedAsync(string escrowId)
+    {
+        string status;
+        try
+        {
+            var latest = await _escrowRepo.GetByIdAsync(escrowId, consistentRead: true);
+            status = latest == null ? "missing" : GetString(latest, "status");
+        }
+        catch (Exception ex)
+        {
+            status = $"unread:{ex.GetType().Name}";
+        }
+
+        Console.WriteLine($"ESCROW_ADMIN_REFUND_ARM_REFUSED escrowId={MoneyAlarmLog.LogId(escrowId)} status={status}");
+        return new SettlementBlock(409, "ESCROW_INVALID_TRANSITION",
+            $"The escrow changed while its order was being cancelled (it is '{status}' now). The order was left as it was and nothing was refunded; read the escrow again.");
+    }
+
     /// <summary>
     /// The refund is armed on the escrow before the lock (as <see cref="ScheduleRefundForOrderAsync"/> does),
     /// so a gateway refusal leaves it for the hourly sweep. Best-effort: the order is already cancelled and
-    /// the refund this call makes goes ahead either way.
+    /// the refund this call makes goes ahead either way. FUP-53: only for an order another writer
+    /// closed; this call's own cancel arms in its transaction.
     /// </summary>
     private async Task ScheduleAdminRefundAsync(Dictionary<string, object> escrow, string actor)
     {
@@ -5203,9 +5903,9 @@ public sealed class EscrowService
                 new Dictionary<string, object>
                 {
                     { "expiresAt", DateTime.UtcNow.ToString("o") },
-                    { "refundReason", "admin_refund" }
+                    { "refundReason", AdminRefundReason }
                 });
-            await AppendAuditAsync(escrowId, "refund_scheduled", "escrowed", "escrowed", actor, metadata: "admin_refund");
+            await AppendAuditAsync(escrowId, "refund_scheduled", "escrowed", "escrowed", actor, metadata: AdminRefundReason);
         }
         catch (Exception ex)
         {
@@ -5289,7 +5989,8 @@ public sealed class EscrowService
     /// GET /admin/payouts/manual: escrows whose release or refund the gateway could not make,
     /// oldest first, with one row per payee leg (amount, registered phone, identity gate).
     /// </summary>
-    public async Task<EscrowResult<ManualPayoutListResponse>> ListManualPayoutsAsync(int limit, string? nextToken)
+    public async Task<EscrowResult<ManualPayoutListResponse>> ListManualPayoutsAsync(
+        int limit, string? nextToken, string? viewerId = null)
     {
         if (limit < 1 || limit > 50)
         {
@@ -5310,9 +6011,19 @@ public sealed class EscrowService
         var (items, lastEvaluatedKey) = await _escrowRepo.QueryOpenManualPayoutsAsync(limit, exclusiveStartKey);
         var userCache = new Dictionary<string, UserDto?>(StringComparer.Ordinal);
         var payouts = new List<ManualPayoutDto>(items.Count);
+        // FUP-05: each pending leg shows its live claim, and whether the viewer holds it.
+        var nowIso = ClaimNowIso();
+
+        // ESC-20 (P.8): the ledger's manual rows, one entry per escrow, on the first page (oldest first);
+        // the 1.x queue follows, paged by its token, until it is drained.
+        if (exclusiveStartKey == null)
+        {
+            payouts.AddRange(await ListLedgerManualPayoutsAsync(userCache, viewerId, nowIso));
+        }
+
         foreach (var item in items)
         {
-            payouts.Add(await MapManualPayoutAsync(item, userCache));
+            payouts.Add(await MapManualPayoutAsync(item, userCache, viewerId, nowIso));
         }
 
         return EscrowResult<ManualPayoutListResponse>.Success(new ManualPayoutListResponse
@@ -5353,6 +6064,28 @@ public sealed class EscrowService
                 "externalRef");
         }
 
+        // ESC-20 (P.8): a ledger ref (URL-encoded in the path, release%23farmer) records one ledger row.
+        var ledgerRef = Uri.UnescapeDataString(leg);
+        if (ledgerRef.Contains('#', StringComparison.Ordinal))
+        {
+            var (ledgerResult, refusalDetail) = await CompleteLedgerManualPayoutAsync(escrowId, ledgerRef, reference, actorUserId);
+            if (!ledgerResult.IsSuccess && ledgerResult.Error!.HttpStatus is 404 or 409)
+            {
+                try
+                {
+                    await AppendAuditAsync(escrowId, "manual_payout_refused", "", "", actorUserId,
+                        metadata: $"ref={ledgerRef};code={ledgerResult.Error.Code};attemptedRef={reference}"
+                                  + (refusalDetail == null ? "" : ";" + refusalDetail));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"ESCROW_MANUAL_PAYOUT_REFUSAL_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
+                }
+            }
+
+            return ledgerResult;
+        }
+
         if (!ManualPayoutFields.IsLeg(leg))
         {
             return EscrowResult<CompleteManualPayoutResponse>.Failure(
@@ -5362,19 +6095,19 @@ public sealed class EscrowService
         // A refusal on an existing escrow is audited too, so a second admin who tried to record
         // another reference (or a blocked payee) leaves a trace next to the leg.
         async Task<EscrowResult<CompleteManualPayoutResponse>> RefuseAsync(
-            string status, int httpStatus, string code, string message)
+            string status, int httpStatus, string code, string message, string? field = null, string? detail = null)
         {
             try
             {
                 await AppendAuditAsync(escrowId, "manual_payout_refused", status, status, actorUserId,
-                    metadata: $"leg={leg};code={code};attemptedRef={reference}");
+                    metadata: $"leg={leg};code={code};attemptedRef={reference}" + (detail == null ? "" : ";" + detail));
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"ESCROW_MANUAL_PAYOUT_REFUSAL_AUDIT_FAILED escrowId={MoneyAlarmLog.LogId(escrowId)} error={ex.GetType().Name}");
             }
 
-            return EscrowResult<CompleteManualPayoutResponse>.Failure(httpStatus, code, message);
+            return EscrowResult<CompleteManualPayoutResponse>.Failure(httpStatus, code, message, field);
         }
 
         const int maxAttempts = 3;
@@ -5432,6 +6165,14 @@ public sealed class EscrowService
                 }
             }
 
+            // FUP-05: a leg another admin has claimed is theirs to pay and record until the claim ends.
+            var (claimedBy, _, claimExpiresAt) = LegClaim(escrow, leg);
+            if (ManualPayoutClaimFields.IsHeldByOther(claimedBy, claimExpiresAt, actorUserId, ClaimNowIso()))
+            {
+                var claimed = ClaimedByOther<CompleteManualPayoutResponse>(claimedBy!, claimExpiresAt!, onRecord: true).Error!;
+                return await RefuseAsync(currentStatus, claimed.HttpStatus, claimed.Code, claimed.Message);
+            }
+
             // ESC-04: a trucker leg queued on a released escrow (the farmer already paid) closes too.
             var releasedTruckerQueue = IsReleasedTruckerQueue(escrow);
             if (!ManualPayoutSettleableStatuses.Contains(currentStatus) && !releasedTruckerQueue)
@@ -5483,54 +6224,72 @@ public sealed class EscrowService
                 .ToList();
             var now = DateTime.UtcNow.ToString("o");
             var newStatus = currentStatus;
+            // FUP-05: the reference item goes in the record's transaction, so one reference records one leg.
+            var referenceRecord = BuildReferenceRecord(reference, escrowId, leg, actorUserId, now);
             bool written;
-            if (pendingOthers.Count > 0)
+            try
             {
-                written = await _escrowRepo.TryMarkManualLegPaidAsync(
-                    escrowId, createdAt, op, leg, reference, actorUserId, now, pendingOthers[0]);
-            }
-            else if (releasedTruckerQueue)
-            {
-                // ESC-04: the release already happened (releasedAt and telebirrReleaseRef stay as the
-                // release wrote them); the last leg completes the escrow in the closing write.
-                newStatus = "completed";
-                var fields = new Dictionary<string, object>
+                if (pendingOthers.Count > 0)
                 {
-                    { TruckerPayoutFields.Ref, leg == ManualPayoutFields.LegTrucker
-                        ? reference
-                        : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegTrucker)) ?? "" },
-                    { TruckerPayoutFields.PaidAt, now },
-                    { "completedAt", AddTicks(now, 1) }
-                };
-                written = await _escrowRepo.TryCloseManualPayoutAsync(
-                    escrowId, createdAt, op, leg, reference, actorUserId, now, paidOthers, newStatus, fields);
-            }
-            else
-            {
-                newStatus = op == ManualPayoutFields.OpRelease ? "released" : "refunded";
-                var fields = new Dictionary<string, object>();
-                if (op == ManualPayoutFields.OpRelease)
+                    written = await _escrowRepo.TryMarkManualLegPaidAsync(
+                        escrowId, createdAt, op, leg, reference, actorUserId, now, pendingOthers[0], referenceRecord);
+                }
+                else if (releasedTruckerQueue)
                 {
-                    var farmerRef = leg == ManualPayoutFields.LegFarmer
-                        ? reference
-                        : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegFarmer)) ?? "";
-                    fields["telebirrReleaseRef"] = farmerRef;
-                    fields["releasedAt"] = now;
-                    if (GetStringOrNull(escrow, ManualPayoutFields.StatusAttr(ManualPayoutFields.LegTrucker)) != null)
+                    // ESC-04: the release already happened (releasedAt and telebirrReleaseRef stay as the
+                    // release wrote them); the last leg completes the escrow in the closing write.
+                    newStatus = "completed";
+                    var fields = new Dictionary<string, object>
                     {
-                        fields["truckerTelebirrRef"] = leg == ManualPayoutFields.LegTrucker
+                        { TruckerPayoutFields.Ref, leg == ManualPayoutFields.LegTrucker
                             ? reference
-                            : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegTrucker)) ?? "";
-                    }
+                            : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegTrucker)) ?? "" },
+                        { TruckerPayoutFields.PaidAt, now },
+                        { "completedAt", AddTicks(now, 1) }
+                    };
+                    written = await _escrowRepo.TryCloseManualPayoutAsync(
+                        escrowId, createdAt, op, leg, reference, actorUserId, now, paidOthers, newStatus, fields, referenceRecord);
                 }
                 else
                 {
-                    fields["telebirrRefundRef"] = reference;
-                    fields["refundedAt"] = now;
+                    newStatus = op == ManualPayoutFields.OpRelease ? "released" : "refunded";
+                    var fields = new Dictionary<string, object>();
+                    if (op == ManualPayoutFields.OpRelease)
+                    {
+                        var farmerRef = leg == ManualPayoutFields.LegFarmer
+                            ? reference
+                            : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegFarmer)) ?? "";
+                        fields["telebirrReleaseRef"] = farmerRef;
+                        fields["releasedAt"] = now;
+                        if (GetStringOrNull(escrow, ManualPayoutFields.StatusAttr(ManualPayoutFields.LegTrucker)) != null)
+                        {
+                            fields["truckerTelebirrRef"] = leg == ManualPayoutFields.LegTrucker
+                                ? reference
+                                : GetStringOrNull(escrow, ManualPayoutFields.RefAttr(ManualPayoutFields.LegTrucker)) ?? "";
+                        }
+                    }
+                    else
+                    {
+                        fields["telebirrRefundRef"] = reference;
+                        fields["refundedAt"] = now;
+                    }
+
+                    written = await _escrowRepo.TryCloseManualPayoutAsync(
+                        escrowId, createdAt, op, leg, reference, actorUserId, now, paidOthers, newStatus, fields, referenceRecord);
+                }
+            }
+            catch (PayoutReferenceTakenException)
+            {
+                // FUP-05: the reference is recorded on another leg already (nothing was written here). A
+                // holder that is this very leg means it was recorded in between: read again for the replay.
+                var holder = await ReadReferenceHolderAsync(reference);
+                if (holder != null && holder.EscrowId == escrowId && holder.Ref == leg && attempt < maxAttempts)
+                {
+                    continue;
                 }
 
-                written = await _escrowRepo.TryCloseManualPayoutAsync(
-                    escrowId, createdAt, op, leg, reference, actorUserId, now, paidOthers, newStatus, fields);
+                return await RefuseAsync(currentStatus, 409, ReferenceTakenCode, ReferenceTakenMessage(holder),
+                    field: "externalRef", detail: ReferenceTakenDetail(holder));
             }
 
             if (!written)
@@ -5737,7 +6496,7 @@ public sealed class EscrowService
             .ToList();
 
     private async Task<ManualPayoutDto> MapManualPayoutAsync(
-        Dictionary<string, object> item, Dictionary<string, UserDto?> userCache)
+        Dictionary<string, object> item, Dictionary<string, UserDto?> userCache, string? viewerId = null, string? nowIso = null)
     {
         var op = GetString(item, ManualPayoutFields.Op);
         var legs = new List<ManualPayoutLegDto>();
@@ -5766,7 +6525,7 @@ public sealed class EscrowService
             var (verified, blockReason) = truckerBlock != null
                 ? (false, TruckerBlockMessage(truckerBlock))
                 : EvaluateManualPayee(item, leg, payee, amount);
-            legs.Add(new ManualPayoutLegDto
+            var legDto = new ManualPayoutLegDto
             {
                 Ref = leg,
                 PayeeRole = leg,
@@ -5781,7 +6540,12 @@ public sealed class EscrowService
                 PaidBy = GetStringOrNull(item, ManualPayoutFields.PaidByAttr(leg)),
                 PaidAt = GetStringOrNull(item, ManualPayoutFields.PaidAtAttr(leg)),
                 GatewayRef = GatewayTransactionRef(GetString(item, "escrowId"), leg)
-            });
+            };
+            // FUP-05: a pending leg's live claim (the record removes a paid leg's claim).
+            var (claimedBy, claimedAt, claimExpiresAt) = LegClaim(item, leg);
+            legs.Add(status == ManualPayoutFields.LegPending
+                ? WithClaim(legDto, claimedBy, claimedAt, claimExpiresAt, viewerId, nowIso ?? ClaimNowIso())
+                : legDto);
         }
 
         return new ManualPayoutDto
@@ -5875,7 +6639,8 @@ public sealed class EscrowService
     /// </summary>
     private async Task<bool> TryQueueManualPayoutAsync(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
-        List<ManualPayoutLegSeed> legs, string actor, Func<string, Task<bool>>? write = null)
+        List<ManualPayoutLegSeed> legs, string actor, Func<string, Task<bool>>? write = null,
+        string? releaseOrigin = null)
     {
         var queuedAt = DateTime.UtcNow.ToString("o");
         bool queued;
@@ -5883,7 +6648,8 @@ public sealed class EscrowService
         {
             queued = write != null
                 ? await write(queuedAt)
-                : await _escrowRepo.TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, queuedAt);
+                : await _escrowRepo.TryQueueManualPayoutAsync(
+                    escrowId, createdAt, op, reason, fromStatus, legs, queuedAt, releaseOrigin);
         }
         catch (Exception ex)
         {
@@ -6247,7 +7013,12 @@ public sealed class EscrowService
             CompletedAt = GetStringOrNull(item, "completedAt"),
             RefundPending = IsRefundPending(item),
             RefundReason = GetStringOrNull(item, "refundReason"),
-            Version = GetInt(item, "version")
+            Version = GetInt(item, "version"),
+            LegStatus = IsLedgerEscrow(item)
+                ? new Dictionary<string, string>(LedgerEscrow.From(item).Legs, StringComparer.Ordinal)
+                : null,
+            RefundedTotal = IsLedgerEscrow(item) ? GetDecimal(item, LedgerEscrowFields.RefundedTotal) : null,
+            ReleasedTotal = IsLedgerEscrow(item) ? GetDecimal(item, LedgerEscrowFields.ReleasedTotal) : null
         };
     }
 
@@ -6256,7 +7027,8 @@ public sealed class EscrowService
     /// rejected order schedules its refund by stamping refundReason and expiring
     /// the hold (ScheduleRefundForOrderAsync); a 7-day timeout expires it too.
     /// Either way the hourly sweep refunds it, so it must not read as "held
-    /// safely" in the meantime.
+    /// safely" in the meantime. FUP-97: a past expiry alone never makes a
+    /// confirmed escrow pending, since the sweep never refunds one.
     /// </summary>
     internal static bool IsRefundPending(Dictionary<string, object> item)
     {
@@ -6270,9 +7042,32 @@ public sealed class EscrowService
             return true;
         }
 
+        // ESC-20: a ledger escrow whose refund is decided reads escrowed until its refund row is done.
+        if (IsLedgerEscrow(item) && LedgerEscrow.From(item).LegState(LedgerEscrowFields.LegCrop) == LedgerEscrowFields.Refunded)
+        {
+            return true;
+        }
+
+        // FUP-97: an admin refund parked in the manual payout queue (gateway outcome unknown, no
+        // refundReason armed, as an override refund of a delivered order) is on its way back to the
+        // buyer, confirmed or not, expired or not.
+        if (IsManualPayoutOpen(item)
+            && string.Equals(GetStringOrNull(item, ManualPayoutFields.Op), ManualPayoutFields.OpRefund, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
         // ESC-06: a hold at its 21-day cap keeps its past expiry while an admin decides; it is not
         // on its way back to the buyer.
         if (!string.IsNullOrEmpty(GetStringOrNull(item, AdminQueueFields.HoldCapReachedAt)))
+        {
+            return false;
+        }
+
+        // FUP-97: a confirmed delivery's money waits for its release (the dispute window, then the
+        // FRD-13 payout delay), which can end after the expiry; the refund sweep skips it. A refund
+        // decided on it anyway (refundReason, a refunded crop leg) was answered above.
+        if (!string.IsNullOrEmpty(GetStringOrNull(item, "deliveryConfirmedAt")))
         {
             return false;
         }
@@ -6281,6 +7076,32 @@ public sealed class EscrowService
                    GetStringOrNull(item, "expiresAt"), CultureInfo.InvariantCulture,
                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var expiresAt)
                && expiresAt <= DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// The rate stored on an escrow row (FUP-129): the rate its commission was computed with,
+    /// one definition for both creation paths. With the order's commission it is the order's
+    /// own rate, a share of the crop cost; an order that carries no rate gets the rate its
+    /// legs imply (commission over the crop leg, 4 decimals). Under the legacy rule it is
+    /// 0.025 of the amount. Display metadata only: no money is ever computed from it.
+    /// </summary>
+    internal static decimal StoredCommissionRate(
+        Dictionary<string, object>? order, bool orderCommissionUsed, decimal commission, decimal cropLeg)
+    {
+        if (!orderCommissionUsed || order == null)
+        {
+            return DefaultCommissionRate;
+        }
+
+        var orderRate = GetDecimalOrNull(order, "commissionRate");
+        if (orderRate is >= 0m)
+        {
+            return orderRate.Value;
+        }
+
+        return cropLeg > 0m
+            ? Math.Round(commission / cropLeg, 4, MidpointRounding.AwayFromZero)
+            : DefaultCommissionRate;
     }
 
     internal static EscrowSummaryDto MapToEscrowSummaryDto(
@@ -6301,6 +7122,7 @@ public sealed class EscrowService
             CounterpartyName = counterpartyName,
             Amount = GetDecimal(item, "amount"),
             Commission = GetDecimal(item, "commission"),
+            CommissionRate = GetDecimalOrNull(item, "commissionRate"),
             // Each party's own leg; amount = farmerPayout + truckerPayout + commission.
             FarmerPayout = GetDecimal(item, "farmerPayout"),
             TruckerPayout = GetDecimalOrNull(item, "truckerPayout"),
@@ -6310,6 +7132,8 @@ public sealed class EscrowService
             CreatedAt = GetString(item, "createdAt"),
             CompletedAt = GetStringOrNull(item, "completedAt"),
             ExpiresAt = GetStringOrNull(item, "expiresAt"),
+            // FUP-97: lets an offline client tell a confirmed hold past its expiry from a refund.
+            DeliveryConfirmedAt = GetStringOrNull(item, "deliveryConfirmedAt"),
             RefundPending = IsRefundPending(item),
             RefundReason = GetStringOrNull(item, "refundReason"),
             // FRD-13: a farmer's or trucker's history row is their own payout; the buyer's carries no date.
@@ -6333,6 +7157,7 @@ public sealed class EscrowService
             FarmerId = GetString(escrow, "farmerId"),
             Amount = GetDecimal(escrow, "amount"),
             Commission = GetDecimal(escrow, "commission"),
+            CommissionRate = GetDecimalOrNull(escrow, "commissionRate"),
             FarmerPayout = GetDecimal(escrow, "farmerPayout"),
             Currency = GetString(escrow, "currency"),
             Status = GetString(escrow, "status"),
@@ -6480,10 +7305,11 @@ public sealed class EscrowService
     /// passed through as before. With one, the party must exist and be
     /// phone-verified, and Fayda-verified when the escrow amount exceeds the NBE
     /// threshold; otherwise ESCROW_029 blocks the payout, with the rule that blocked it
-    /// (ESC-10 audits it once per rule).
+    /// (ESC-10 audits it once per rule). FUP-29: a payee who passes them is then asked the
+    /// risk rules when <paramref name="actor"/> is the system (<see cref="PayeeRiskBlockAsync"/>).
     /// </summary>
     private async Task<(EscrowResult<string> Destination, string? BlockReason)> ResolvePayoutAsync(
-        string? userId, decimal amount, string legLabel)
+        string? userId, decimal amount, string legLabel, string actor, string escrowId)
     {
         if (_userRepo == null)
         {
@@ -6492,7 +7318,14 @@ public sealed class EscrowService
 
         var user = string.IsNullOrEmpty(userId) ? null : await _userRepo.GetUserByIdAsync(userId);
         var destination = CheckPayoutEligibility(user, amount, legLabel);
-        return (destination, destination.IsSuccess ? null : PayoutBlockReason(user, amount));
+        if (!destination.IsSuccess)
+        {
+            return (destination, PayoutBlockReason(user, amount));
+        }
+
+        return await PayeeRiskBlockAsync(user, actor, escrowId, legLabel) is { } riskBlock
+            ? (PayeeRiskRefusal(legLabel), riskBlock)
+            : (destination, null);
     }
 
     /// <summary>The identity rules behind <see cref="ResolvePayoutAsync"/>, also applied to manual payouts (ESC-02).</summary>
@@ -6531,10 +7364,10 @@ public sealed class EscrowService
     /// <summary>
     /// ESC-04: the trucker's payout destination with the reason it is blocked (null when it is
     /// not). Without a user repository the id passes through, as <see cref="ResolvePayoutAsync"/>
-    /// does for the release.
+    /// does for the release. FUP-29: then the risk rules for the system, as there.
     /// </summary>
     private async Task<(EscrowResult<string> Destination, string? BlockReason)> ResolveTruckerPayeeAsync(
-        string truckerId, decimal amount)
+        string truckerId, decimal amount, string actor, string escrowId)
     {
         if (_userRepo == null)
         {
@@ -6543,6 +7376,11 @@ public sealed class EscrowService
 
         var trucker = string.IsNullOrEmpty(truckerId) ? null : await _userRepo.GetUserByIdAsync(truckerId);
         var destination = CheckPayoutEligibility(trucker, amount, "trucker");
+        if (destination.IsSuccess && await PayeeRiskBlockAsync(trucker, actor, escrowId, "trucker") is { } riskBlock)
+        {
+            return (PayeeRiskRefusal("trucker"), riskBlock);
+        }
+
         var reason = destination.IsSuccess
             ? null
             : string.IsNullOrEmpty(truckerId) ? TruckerPayoutFields.BlockNoTrucker : PayoutBlockReason(trucker, amount);
@@ -6780,6 +7618,36 @@ public sealed record OrderEscrowCancelPlan(OrderEscrowCancelReadiness Readiness,
 
     public static OrderEscrowCancelPlan Unavailable { get; } =
         new(OrderEscrowCancelReadiness.Unavailable, Array.Empty<Dictionary<string, object>>());
+}
+
+/// <summary>What <see cref="EscrowService.PlanOrderRefundAsync"/> found for a funded order's money (FUP-53).</summary>
+public enum OrderRefundReadiness
+{
+    /// <summary>No record holds money this close could refund: the order closes as before, with nothing armed here.</summary>
+    Nothing,
+
+    /// <summary>Close the order in one transaction with the arms and the review checks of the plan.</summary>
+    Ready,
+
+    /// <summary>A dispute froze the money, or a settlement or a confirmed delivery owns it: refuse the close.</summary>
+    Busy
+}
+
+/// <summary>
+/// FUP-53: what <see cref="EscrowService.PlanOrderRefundAsync"/> decided. <see cref="Held"/> are the
+/// plain <c>escrowed</c> rows <see cref="EscrowService.CloseOrderWithRefundAsync"/> arms;
+/// <see cref="UnderReview"/> are the <c>held</c> rows it only fences (their admin refunds them).
+/// </summary>
+public sealed record OrderRefundPlan(
+    OrderRefundReadiness Readiness,
+    IReadOnlyList<Dictionary<string, object>> Held,
+    IReadOnlyList<Dictionary<string, object>> UnderReview)
+{
+    public static OrderRefundPlan Nothing { get; } = new(
+        OrderRefundReadiness.Nothing, Array.Empty<Dictionary<string, object>>(), Array.Empty<Dictionary<string, object>>());
+
+    public static OrderRefundPlan Busy { get; } = new(
+        OrderRefundReadiness.Busy, Array.Empty<Dictionary<string, object>>(), Array.Empty<Dictionary<string, object>>());
 }
 
 /// <summary>What <see cref="EscrowService.ReconcileOrderMoneyAsync"/> did with one order (ESC-09).</summary>

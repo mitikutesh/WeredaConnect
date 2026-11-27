@@ -1,47 +1,97 @@
 import 'dart:async';
+import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show kIsWeb, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
+import 'package:wereda_connect/features/crop_listing/domain/transport_this_week.dart';
+import 'package:wereda_connect/features/crop_listing/domain/trip_origin.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/create_crop_listing_screen.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/crop_listing_detail_screen.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/widgets/crop_photo_views.dart';
+import 'package:wereda_connect/features/crop_listing/presentation/widgets/own_listing_card.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
 import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
-import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/features/reputation/domain/owner_reputation.dart';
+import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/services/place_normalizer.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
+import 'package:wereda_connect/shared/widgets/crop_glyph.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/listing_card.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
-/// Marketplace browse screen with search bar, category filters, and listing cards.
+/// Crop listings list (Fieldway Canvas: MyCrops.dc.html for the farmer,
+/// Market.dc.html for the buyer).
 ///
 /// When [ownerMode] is true (farmer), shows the farmer's own listings using
-/// `LoadCropListings` and displays a FAB to create new listings.
-/// When false (buyer), shows all active listings as a marketplace.
+/// `LoadCropListings` under the Active / Reserved / Sold / Drafts switch,
+/// and a FAB to create new listings when not embedded. Farmers see only
+/// their own listings here (CLAUDE.md visibility rule).
+/// When false (buyer), shows every farmer's active listing with the crop
+/// chips, the transport line per card and the board's footnote.
 ///
 /// When [embedded] is true, the screen omits its own Scaffold and back
 /// arrow so it can live inside the adaptive shell as a tab child.
 ///
-/// When [showHeader] is false, the green header is hidden — use this when
-/// embedding inside a screen that already has its own header (e.g. inside
-/// [FindCropsScreen]). A compact search bar is shown instead for buyer mode.
+/// When [showHeader] is false, the page header is left out: use this when
+/// embedding inside a screen that already has one (e.g. inside
+/// [FindCropsScreen]). The buyer's search box and price range then follow
+/// [showFilters]; with the header shown, its search button toggles them.
+///
+/// With [originTrip] (B-2, a buyer's Find crops on this route) the list
+/// holds only the listings at the place the truck starts from
+/// ([listingAtTripOrigin]), crops go to the truck's destination, and a
+/// listing opens with the truck chosen for transport.
 class BrowseListingsScreen extends StatefulWidget {
   final bool ownerMode;
   final bool embedded;
   final bool showHeader;
+  final bool showFilters;
+  final Trip? originTrip;
+
+  /// My Crops with no listing: what "Back to Home" does. When null the
+  /// screen goes back itself where it can (a pushed screen pops, the web
+  /// opens Home); as a phone tab the button is left out.
+  final VoidCallback? onBackToHome;
 
   const BrowseListingsScreen({
     this.ownerMode = false,
     this.embedded = false,
     this.showHeader = true,
+    this.showFilters = true,
+    this.originTrip,
+    this.onBackToHome,
     super.key,
   });
 
@@ -50,16 +100,29 @@ class BrowseListingsScreen extends StatefulWidget {
 }
 
 class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
+  static final NumberFormat _pricePerKgFormat = NumberFormat('#,##0', 'en_US');
+
+  /// My Crops: the segment picked. Filters the loaded list on the phone, so
+  /// the counts on the segments stay whole.
+  ListingStatus _selectedStatus = ListingStatus.active;
   String? _selectedCropType;
   String? _searchQuery;
   double? _priceMin;
   double? _priceMax;
   Timer? _debounce;
 
+  /// Buyer browse with its own header: whether the search box and the
+  /// price range are open (the header's search button toggles them).
+  bool _filtersOpen = false;
+
   final _searchController = TextEditingController();
   final _priceMinController = TextEditingController();
   final _priceMaxController = TextEditingController();
 
+  /// ESC-31: only for a listing without the server's reputation copy (the
+  /// public reputation flag is off, or the row has none yet). A listing that
+  /// carries the copy shows it from the row and makes no call.
+  ///
   /// Seller aggregates (`GET /ratings?rateeId=`), one fetch per farmer per
   /// screen instance: cards rebuild on every filter and scroll, so the future
   /// is cached to spend 3G data once. SIM-19 (was a hardcoded 4.5).
@@ -75,10 +138,66 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
   void initState() {
     super.initState();
     _loadListings();
+    _loadOrderedQuintals();
+    _loadOpenTrips();
+    _watchNotSent();
+    if (widget.originTrip != null) {
+      // The place list resolves the listings' and the truck's place ids.
+      PlaceRepository.instance.ensureLoaded().then((_) {
+        if (mounted) setState(() {});
+      }).ignore();
+    }
+  }
+
+  /// BUG-36 (My Crops): the ids of the farmer's listings whose create or
+  /// edit has not reached the server yet (the phone's sync queue). Their
+  /// card says "Not sent yet" with an upload icon instead of "Active", and
+  /// a note under the list says buyers do not see them yet. Always empty on
+  /// web, which keeps no queue.
+  Set<String> _notSent = const {};
+  int _notSentReads = 0;
+  StreamSubscription<({int pending, int failed})>? _queueSub;
+
+  /// Reads [_notSent] when the list paints (the bloc listener in [build])
+  /// and again whenever the phone's queue changes, so a mark goes once its
+  /// listing was sent.
+  void _watchNotSent() {
+    if (!widget.ownerMode || kIsWeb) return;
+    try {
+      _queueSub = context.read<SyncQueue>().watchCounts().listen(
+            (_) => _loadNotSent(),
+            onError: (Object _) {},
+          );
+    } on Object {
+      // No queue above this screen (widget tests): read with the list only.
+    }
+  }
+
+  Future<void> _loadNotSent() async {
+    if (!widget.ownerMode || !mounted) return;
+    final read = ++_notSentReads;
+    final waiting = <String>{};
+    try {
+      final bloc = context.read<CropListingBloc>();
+      final state = bloc.state;
+      if (state is! CropListingsLoaded) return;
+      for (final listing in state.listings) {
+        if (await bloc.repository.hasChangeWaiting(listing.listingId)) {
+          waiting.add(listing.listingId);
+        }
+      }
+    } on Object catch (e) {
+      // Secondary detail: the cards stay without the mark.
+      debugPrint('[MyCrops] queue read failed: $e');
+      return;
+    }
+    if (!mounted || read != _notSentReads) return;
+    if (!setEquals(waiting, _notSent)) setState(() => _notSent = waiting);
   }
 
   @override
   void dispose() {
+    _queueSub?.cancel();
     _debounce?.cancel();
     _searchController.dispose();
     _priceMinController.dispose();
@@ -99,9 +218,16 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     _debouncedApplyFilters();
   }
 
-  /// True when the visible list is narrowed by the crop chip or, in buyer
-  /// browse, by the search box or a price bound. An empty result then means
-  /// nothing matches, not that nothing has synced yet (SIM-51).
+  /// Whether the buyer's search box and price range show: behind the
+  /// header's button here, the parent's when the header is theirs.
+  bool get _filtersVisible =>
+      !widget.ownerMode &&
+      (widget.showHeader ? _filtersOpen : widget.showFilters);
+
+  /// True when the visible buyer list is narrowed by the crop chip, the
+  /// search box or a price bound. An empty result then means nothing
+  /// matches, not that nothing has synced yet (SIM-51). My Crops always has
+  /// a segment picked, so it is judged against the farmer's whole list.
   bool get _hasActiveFilters =>
       _selectedCropType != null ||
       (!widget.ownerMode &&
@@ -116,11 +242,232 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
     _priceMaxController.clear();
     setState(() {
       _selectedCropType = null;
+      _selectedStatus = ListingStatus.active;
       _searchQuery = null;
       _priceMin = null;
       _priceMax = null;
     });
     _loadListings();
+  }
+
+  /// The buyer's registered wereda, the default drop-off for transport
+  /// suggestions; null for other roles or when the profile has none.
+  static String? _buyerDeliveryWoreda(AuthAuthenticated auth) {
+    if (auth.role != UserRole.buyer) return null;
+    final woreda = auth.woreda?.trim();
+    return (woreda == null || woreda.isEmpty) ? null : woreda;
+  }
+
+  /// Where the crops go: the truck's destination when opened from a trip,
+  /// else the buyer's own wereda.
+  String? _deliveryWoredaFor(AuthAuthenticated auth) {
+    final trip = widget.originTrip;
+    if (trip != null && auth.role == UserRole.buyer) return trip.toWoreda;
+    return _buyerDeliveryWoreda(auth);
+  }
+
+  /// B-2: the listings at the truck's starting place, worked out once per
+  /// listings read (and again once the place list has loaded).
+  List<CropListing>? _originFrom;
+  bool _originPlacesLoaded = false;
+  List<CropListing> _originListings = const [];
+
+  List<CropListing> _atTripOrigin(List<CropListing> listings) {
+    final trip = widget.originTrip;
+    if (trip == null) return listings;
+    final places = PlaceRepository.instance;
+    if (!identical(listings, _originFrom) ||
+        places.isLoaded != _originPlacesLoaded) {
+      _originFrom = listings;
+      _originPlacesLoaded = places.isLoaded;
+      _originListings = [
+        for (final listing in listings)
+          if (listingAtTripOrigin(listing, trip, places)) listing,
+      ];
+    }
+    return _originListings;
+  }
+
+  /// My Crops: quintals ordered per listing id, from the farmer's own paid
+  /// orders (their quantity is what the server took off the listing).
+  Map<String, double> _orderedByListing = const {};
+
+  Future<void> _loadOrderedQuintals() async {
+    final farmerId = _getFarmerId();
+    if (!widget.ownerMode || farmerId == null) return;
+    try {
+      final BaseOrderRepository repository =
+          context.read<OrderBloc>().repository;
+      final orders = await repository.getOrdersByFarmer(farmerId);
+      final ordered = <String, double>{};
+      for (final order in orders) {
+        if (!listingStockTakenOrderStatuses.contains(order.status)) continue;
+        ordered[order.listingId] =
+            (ordered[order.listingId] ?? 0) + order.quantity / 100;
+      }
+      if (mounted) setState(() => _orderedByListing = ordered);
+    } on Object catch (e) {
+      // Secondary detail: the cards stay without it.
+      debugPrint('[MyCrops] order read failed: $e');
+    }
+  }
+
+  /// Buyer browse: the open trips, read once, for each card's transport
+  /// line. Null until read (or with no trip repository), so no line shows.
+  List<Trip>? _openTrips;
+
+  /// The trips this week per listing and the sorted list, worked out once
+  /// per trips read and buyer place, not on every rebuild (a filter
+  /// keystroke, a rating resolving): low-end phones.
+  List<Trip>? _matchTrips;
+  String? _matchWoreda;
+  final Map<String, List<Trip>> _thisWeek = {};
+  List<CropListing>? _sortedFrom;
+  List<CropListing> _sorted = const [];
+
+  List<Trip> _tripsThisWeek(
+    CropListing listing,
+    List<Trip> trips,
+    String? woreda,
+  ) {
+    if (!identical(trips, _matchTrips) || woreda != _matchWoreda) {
+      _matchTrips = trips;
+      _matchWoreda = woreda;
+      _thisWeek.clear();
+      _sortedFrom = null;
+    }
+    return _thisWeek.putIfAbsent(
+      listing.listingId,
+      () => tripsThisWeekFor(listing, trips, woreda, DateTime.now().toUtc()),
+    );
+  }
+
+  Future<void> _loadOpenTrips() async {
+    if (widget.ownerMode) return;
+    final auth = context.read<AuthBloc>().state;
+    // Buyers see every trip; nobody else gets this read.
+    if (auth is! AuthAuthenticated || auth.role != UserRole.buyer) return;
+    try {
+      // Secondary detail: no trip bloc, or a failed read, leaves no line.
+      final BaseTripListingRepository repository =
+          context.read<TripListingBloc>().repository;
+      final trips = await repository.getOpenTrips();
+      if (mounted) setState(() => _openTrips = trips);
+    } on Object catch (e) {
+      debugPrint('[FindCrops] trip read failed: $e');
+    }
+  }
+
+  /// "Transport Thu · 18 quintals free", "2 trips this week" or "No trip
+  /// yet" (Buyer · Find crops board); null before the trips are read.
+  String? _transportLine(CropListing listing, AppLocalizations l10n) {
+    final trips = _openTrips;
+    if (trips == null) return null;
+    final auth = context.read<AuthBloc>().state;
+    final woreda = auth is AuthAuthenticated ? _deliveryWoredaFor(auth) : null;
+    final fitting = _tripsThisWeek(listing, trips, woreda);
+    if (fitting.isEmpty) return l10n.marketNoTripYet;
+    if (fitting.length > 1) return l10n.marketTripsThisWeek(fitting.length);
+    final trip = fitting.single;
+    final day = DateFormat.E().format(dayInEthiopia(trip.departureDate));
+    // "Transport Thu · 1,800 kg room", short enough for the pill.
+    return '${l10n.marketTransportOn(day)} · '
+        '${l10n.marketKgRoom(kgRoomText(tripRoomLeft(trip) * kgPerQuintal, l10n))}';
+  }
+
+  /// "Meki · listed Mon" (this week), "Meki · listed today", or the short
+  /// date further back: the farmer's own card needs no seller name.
+  String _ownListingSubtitle(CropListing listing, AppLocalizations l10n) {
+    DateTime date(DateTime at) => DateTime(at.year, at.month, at.day);
+    final day = dayInEthiopia(listing.createdAt);
+    final today = dayInEthiopia(DateTime.now().toUtc());
+    final daysAgo = date(today).difference(date(day)).inDays;
+    final listed = daysAgo == 0
+        ? l10n.cropsListedToday
+        : daysAgo > 0 && daysAgo < 7
+            ? l10n.myCropsListedOn(DateFormat.E().format(day))
+            : l10n.myCropsListedOn(formatMonthDay(day));
+    final place = placeDisplayName(listing.locationName);
+    return place.isEmpty ? listed : '$place · $listed';
+  }
+
+  /// The share of the listing already ordered (My Crops bar); null when no
+  /// order has been read.
+  double? _orderedShare(CropListing listing) {
+    final ordered = _orderedByListing[listing.listingId] ?? 0;
+    final total = listing.quantity + ordered;
+    return total <= 0 ? null : ordered / total;
+  }
+
+  /// The listing's status as the card shows it under the price.
+  String _statusLabel(ListingStatus status, AppLocalizations l10n) =>
+      switch (status) {
+        ListingStatus.active => l10n.listingStatusActive,
+        ListingStatus.reserved => l10n.listingStatusReserved,
+        ListingStatus.sold => l10n.listingStatusSold,
+        ListingStatus.draft => l10n.listingStatusDraft,
+        ListingStatus.expired => l10n.listingStatusExpired,
+      };
+
+  /// Whether a trip this week can carry [listing] (the pill turns amber).
+  bool _hasTransportThisWeek(CropListing listing) {
+    final trips = _openTrips;
+    if (trips == null) return false;
+    final auth = context.read<AuthBloc>().state;
+    final woreda = auth is AuthAuthenticated ? _deliveryWoredaFor(auth) : null;
+    return _tripsThisWeek(listing, trips, woreda).isNotEmpty;
+  }
+
+  /// "32 of 60 quintals ordered", or "8 quintals, no orders yet": the
+  /// sentence the shared [ListingCard] took. My Crops now draws
+  /// [OwnListingCard], kilograms first.
+  String _orderedDetail(CropListing listing, AppLocalizations l10n) {
+    final ordered = _orderedByListing[listing.listingId] ?? 0;
+    if (ordered <= 0) {
+      return l10n.myCropsNoOrdersYet(formatQuintals(listing.quantity));
+    }
+    return l10n.myCropsOrderedOf(
+      formatQuintals(ordered),
+      formatQuintals(listing.quantity + ordered),
+    );
+  }
+
+  /// My Crops with no listing: opens Create listing, then reads the list
+  /// again.
+  Future<void> _openCreateListing() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) => const CreateCropListingScreen(),
+      ),
+    );
+    if (!mounted) return;
+    _loadListings();
+  }
+
+  /// My Crops with no listing: the way back to Home, or null where this
+  /// screen has none of its own (see [BrowseListingsScreen.onBackToHome]).
+  VoidCallback? _backToHome() {
+    final given = widget.onBackToHome;
+    if (given != null) return given;
+    if (kIsWeb) return () => context.go('/');
+    if (!widget.embedded) return () => Navigator.of(context).maybePop();
+    return null;
+  }
+
+  /// Whether the farmer has no listing at all (the list is read and empty):
+  /// the empty board replaces the switch and the header's sketch.
+  static bool _ownerHasNone(CropListingState state) =>
+      state is CropListingsLoaded && state.listings.isEmpty;
+
+  /// My Crops header: "Almaz Bekele · Meki", from the profile; null when
+  /// it has neither.
+  String? _ownerLine() {
+    final auth = context.read<AuthBloc>().state;
+    if (auth is! AuthAuthenticated) return null;
+    final parts = [auth.userName.trim(), (auth.woreda ?? '').trim()]
+        .where((p) => p.isNotEmpty);
+    return parts.isEmpty ? null : parts.join(' · ');
   }
 
   String? _getFarmerId() {
@@ -173,395 +520,595 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
 
     final content = Stack(
       children: [
-        Column(
-          children: [
-            // ── Header ──────────────────────────────────────────────────
-            if (widget.showHeader)
-              GreenHeader(
-                height: widget.embedded ? 140 : 170,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (!widget.embedded)
-                      GestureDetector(
-                        onTap: () => Navigator.of(context).pop(),
-                        child: const Padding(
-                          padding: EdgeInsets.only(top: 4, bottom: 4),
-                          child: Icon(
-                            Icons.arrow_back,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                        ),
-                      ),
-                    Text(
-                      widget.ownerMode ? l10n.myListings : l10n.market,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.ownerMode
-                          ? l10n.yourCropListings
-                          : l10n.browseVerifiedFarmers,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.white.withAlpha(180),
-                      ),
-                    ),
-                    // Search bar (marketplace browse only: owner mode
-                    // has no search)
-                    if (!widget.ownerMode) ...[
-                      const SizedBox(height: 10),
-                      Material(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        child: SizedBox(
-                          height: 42,
-                          child: TextField(
-                            controller: _searchController,
-                            decoration: InputDecoration(
-                              hintText: l10n.searchListings,
-                              hintStyle: const TextStyle(
-                                fontSize: 14,
-                                color: AppTheme.textMuted,
-                              ),
-                              prefixIcon: const Icon(
-                                Icons.search,
-                                color: AppTheme.textMuted,
-                              ),
-                              border: InputBorder.none,
-                              contentPadding:
-                                  const EdgeInsets.symmetric(vertical: 10),
-                            ),
-                            onChanged: _onSearchChanged,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            // Compact search bar when header is hidden (buyer browse embedded mode)
-            if (!widget.showHeader && !widget.ownerMode)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                child: Material(
-                  color: AppTheme.surfaceWhite,
-                  borderRadius: BorderRadius.circular(12),
-                  elevation: 1,
-                  child: SizedBox(
-                    height: 42,
-                    child: TextField(
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        hintText: l10n.searchListings,
-                        hintStyle: const TextStyle(
-                          fontSize: 14,
-                          color: AppTheme.textMuted,
-                        ),
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          color: AppTheme.textMuted,
-                        ),
-                        border: InputBorder.none,
-                        contentPadding:
-                            const EdgeInsets.symmetric(vertical: 10),
-                      ),
-                      onChanged: _onSearchChanged,
-                    ),
-                  ),
-                ),
-              ),
-            const OfflineBanner(),
-            // Crop type filter chips
-            _CropTypeFilterChipsRow(
-              selectedCropType: _selectedCropType,
-              onCropTypeChanged: (cropType) {
-                setState(() => _selectedCropType = cropType);
-                _applyFilters();
-              },
-            ),
-            // Price range filters (marketplace browse only — not relevant
-            // for farmers viewing their own listings)
-            if (!widget.ownerMode)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _priceMinController,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        decoration: InputDecoration(
-                          isDense: true,
-                          prefixText: '${l10n.etbCurrency('')} ',
-                          hintText: l10n.filterMin,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                        ),
-                        onChanged: (value) {
-                          setState(() {
-                            _priceMin =
-                                value.isEmpty ? null : double.tryParse(value);
-                          });
-                          _debouncedApplyFilters();
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: _priceMaxController,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                        ],
-                        decoration: InputDecoration(
-                          isDense: true,
-                          prefixText: '${l10n.etbCurrency('')} ',
-                          hintText: l10n.filterMax,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                        ),
-                        onChanged: (value) {
-                          setState(() {
-                            _priceMax =
-                                value.isEmpty ? null : double.tryParse(value);
-                          });
-                          _debouncedApplyFilters();
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 8),
-            // Listings
-            Expanded(
-              child: BlocBuilder<CropListingBloc, CropListingState>(
-                buildWhen: (previous, current) =>
-                    current is! CropListingCreated,
-                builder: (context, state) {
-                  if (state is CropListingLoading) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (state is CropListingError) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.eco_outlined,
-                            size: 56,
-                            color: AppTheme.textMuted.withAlpha(150),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            l10n.noCropListings,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.textDark,
+        FwContentWidth(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── Header ──────────────────────────────────────────────
+              if (widget.showHeader)
+                SafeArea(
+                  bottom: false,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (!widget.embedded)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+                          child: IconButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            tooltip: l10n.back,
+                            icon: const Icon(
+                              Icons.arrow_back,
+                              color: AppTheme.ink,
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            localizeLoadError(state.code, l10n),
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppTheme.textMuted,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 20),
-                          FilledButton(
-                            // Keep the visible search and filters.
-                            onPressed: _applyFilters,
-                            child: Text(l10n.retry),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  if (state is CropListingsLoaded) {
-                    if (state.listings.isEmpty && _hasActiveFilters) {
-                      // A search or filter with no hits says so and offers a
-                      // way back, instead of the offline copy below (SIM-51).
-                      return Center(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
+                        ),
+                      if (widget.originTrip case final trip?)
+                        // B-2: the truck's route and day over "Crops in
+                        // Bishoftu".
+                        FwPageHeader(
+                          eyebrow: '${trip.fromWoreda} → ${trip.toWoreda} · '
+                              '${boardDayInEthiopia(trip.departureDate)}',
+                          title: l10n.tripCropsTitle(trip.fromWoreda),
+                        )
+                      else if (widget.ownerMode)
+                        // MyCrops board: "Almaz Bekele · Meki" over the
+                        // title, the farmer sketch beside it, the Farmer
+                        // pill on the right, then the account button where
+                        // no sidebar lists Profile. With no listing the
+                        // large sketch is in the page: none here.
+                        BlocBuilder<CropListingBloc, CropListingState>(
+                          buildWhen: (previous, current) =>
+                              _ownerHasNone(previous) != _ownerHasNone(current),
+                          builder: (context, state) => Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              const Icon(
-                                Icons.search_off,
-                                size: 64,
-                                color: AppTheme.textMuted,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                l10n.noListingsMatchFilters,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                  color: AppTheme.textMuted,
+                              // "Almaz Bekele · Meki" and the Farmer pill
+                              // on one line, the account button at its end.
+                              Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              _ownerLine() ??
+                                                  l10n.yourCropListings,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: FwText.body,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          _RolePill(label: l10n.farmer),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    // 48 tall with or without the button.
+                                    const SizedBox(height: 48),
+                                    if (!SidebarScope.of(context))
+                                      const AccountButton(),
+                                  ],
                                 ),
-                                textAlign: TextAlign.center,
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                l10n.noListingsMatchFiltersHint,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: AppTheme.textMuted,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 20),
-                              OutlinedButton(
-                                onPressed: _clearFilters,
-                                child: Text(l10n.clearFilters),
+                              FwPageHeader(
+                                padding:
+                                    const EdgeInsets.fromLTRB(20, 2, 20, 12),
+                                title: l10n.myCrops,
+                                sketchRole: _ownerHasNone(state)
+                                    ? null
+                                    : UserRole.farmer,
                               ),
                             ],
                           ),
+                        )
+                      else
+                        FwPageHeader(
+                          eyebrow: l10n.browseVerifiedFarmers,
+                          title: l10n.market,
+                          trailing: FwSquareButton(
+                            semanticLabel: l10n.marketSearchToggle,
+                            background: _filtersOpen
+                                ? context.roleColors.tint
+                                : AppTheme.surfaceWhite,
+                            onTap: () =>
+                                setState(() => _filtersOpen = !_filtersOpen),
+                            child: Icon(
+                              Icons.search,
+                              size: 20,
+                              color: _filtersOpen
+                                  ? context.roleColors.primary
+                                  : AppTheme.ink,
+                            ),
+                          ),
                         ),
-                      );
+                    ],
+                  ),
+                ),
+              // Search box and price range (buyer browse only), out of the
+              // default view as the Market board shows the list bare.
+              if (_filtersVisible)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                  child: Column(
+                    children: [
+                      _FilterField(
+                        controller: _searchController,
+                        hintText: l10n.searchListings,
+                        prefixIcon: Icons.search,
+                        onChanged: _onSearchChanged,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _FilterField(
+                              controller: _priceMinController,
+                              hintText: l10n.filterMin,
+                              prefixText: '${l10n.etbCurrency('')} ',
+                              numeric: true,
+                              onChanged: (value) {
+                                setState(() {
+                                  _priceMin = value.isEmpty
+                                      ? null
+                                      : double.tryParse(value);
+                                });
+                                _debouncedApplyFilters();
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _FilterField(
+                              controller: _priceMaxController,
+                              hintText: l10n.filterMax,
+                              prefixText: '${l10n.etbCurrency('')} ',
+                              numeric: true,
+                              onChanged: (value) {
+                                setState(() {
+                                  _priceMax = value.isEmpty
+                                      ? null
+                                      : double.tryParse(value);
+                                });
+                                _debouncedApplyFilters();
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              const OfflineBanner(),
+              // My Crops: the status switch (MyCrops board); buyer browse:
+              // the crop chips (Market board).
+              if (widget.ownerMode)
+                BlocBuilder<CropListingBloc, CropListingState>(
+                  builder: (context, state) => _ownerHasNone(state)
+                      // FarmerEmptyCrops board: no switch over nothing.
+                      ? const SizedBox.shrink()
+                      : Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+                          child: _StatusSegmented(
+                            listings: state is CropListingsLoaded
+                                ? state.listings
+                                : const <CropListing>[],
+                            selected: _selectedStatus,
+                            onChanged: (status) =>
+                                setState(() => _selectedStatus = status),
+                          ),
+                        ),
+                )
+              else
+                _CropTypeChipsRow(
+                  selectedCropType: _selectedCropType,
+                  onCropTypeChanged: (cropType) {
+                    setState(() => _selectedCropType = cropType);
+                    _applyFilters();
+                  },
+                ),
+              // Listings
+              Expanded(
+                child: BlocBuilder<CropListingBloc, CropListingState>(
+                  // A save (create, SIM-56 edit) reloads the list below.
+                  buildWhen: (previous, current) =>
+                      current is! CropListingCreated &&
+                      current is! CropListingUpdated,
+                  builder: (context, state) {
+                    if (state is CropListingLoading) {
+                      return const Center(child: CircularProgressIndicator());
                     }
 
-                    if (state.listings.isEmpty) {
+                    if (state is CropListingError) {
                       return Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.eco_outlined,
-                              size: 64,
-                              color: AppTheme.textMuted,
+                              size: 56,
+                              color: AppTheme.slate.withAlpha(150),
                             ),
                             const SizedBox(height: 16),
                             Text(
                               l10n.noCropListings,
                               style: const TextStyle(
                                 fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                                color: AppTheme.textMuted,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.ink,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              l10n.dataWillSyncWhenOnline,
+                              localizeLoadError(state.code, l10n),
                               style: const TextStyle(
                                 fontSize: 13,
-                                color: AppTheme.textMuted,
+                                color: AppTheme.slate,
                               ),
                               textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 20),
+                            FilledButton(
+                              // Keep the visible search and filters.
+                              onPressed: _applyFilters,
+                              child: Text(l10n.retry),
                             ),
                           ],
                         ),
                       );
                     }
 
-                    return RefreshIndicator(
-                      // Refresh keeps the visible search and filters.
-                      onRefresh: () async => _applyFilters(),
-                      child: ListView.separated(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 12,
-                        ),
-                        itemCount: state.listings.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final listing = state.listings[index];
-                          // The seller's real rating; hidden until it loads
-                          // or when the farmer has none. No escrow badge:
-                          // there is no per-listing escrow fact to show.
-                          return FutureBuilder<RatingSummary>(
-                            future: _ratingFor(listing.farmerId),
-                            builder: (context, snapshot) {
-                              final summary = snapshot.data;
-                              final rated =
-                                  summary != null && summary.count > 0;
-                              return ListingCard(
-                                title: CropType.labelFor(
-                                  listing.cropType,
-                                  l10n,
+                    if (state is CropListingsLoaded) {
+                      final listings = widget.ownerMode
+                          ? [
+                              for (final l in state.listings)
+                                if (l.status == _selectedStatus) l,
+                            ]
+                          : _sortedByTransport(_atTripOrigin(state.listings));
+                      if (widget.ownerMode &&
+                          listings.isEmpty &&
+                          state.listings.isNotEmpty) {
+                        // The picked segment is empty; the others are not.
+                        // Nobody searched (BUG-39): a plain empty state,
+                        // unless the crop chip narrowed the list.
+                        final narrowed = _selectedCropType != null;
+                        return _NoMatch(
+                          key: const Key('my_crops_segment_empty'),
+                          onClear: null,
+                          icon:
+                              narrowed ? Icons.search_off : Icons.eco_outlined,
+                          title: narrowed
+                              ? l10n.noListingsMatchFilters
+                              : l10n.myCropsSegmentEmpty,
+                          hint: narrowed
+                              ? l10n.noListingsMatchFiltersHint
+                              : l10n.myCropsSegmentEmptyHint,
+                          clearLabel: l10n.clearFilters,
+                        );
+                      }
+                      if (widget.ownerMode &&
+                          state.listings.isEmpty &&
+                          !_hasActiveFilters) {
+                        // FarmerEmptyCrops board: nothing listed yet.
+                        return OwnCropsEmptyState(
+                          key: const Key('my_crops_empty'),
+                          onListCrop: _openCreateListing,
+                          onBackToHome: _backToHome(),
+                        );
+                      }
+                      if (listings.isEmpty && _hasActiveFilters) {
+                        // A search or filter with no hits says so and offers
+                        // a way back, instead of the offline copy below
+                        // (SIM-51).
+                        return _NoMatch(
+                          onClear: _clearFilters,
+                          title: l10n.noListingsMatchFilters,
+                          hint: l10n.noListingsMatchFiltersHint,
+                          clearLabel: l10n.clearFilters,
+                        );
+                      }
+
+                      if (listings.isEmpty && widget.originTrip != null) {
+                        // B-2: nothing listed where the truck starts.
+                        return _NoMatch(
+                          onClear: null,
+                          title: l10n.tripCropsEmpty(
+                            widget.originTrip!.fromWoreda,
+                          ),
+                          hint: l10n.tripCropsEmptyHint,
+                          clearLabel: l10n.clearFilters,
+                        );
+                      }
+
+                      if (listings.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.eco_outlined,
+                                size: 64,
+                                color: AppTheme.slate,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                l10n.noCropListings,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppTheme.slate,
                                 ),
-                                location: listing.locationName,
-                                sellerName: listing.farmerName.isNotEmpty
-                                    ? listing.farmerName
-                                    : listing.farmerId,
-                                price: l10n.etbCurrency(
-                                  listing.pricePerKg.toStringAsFixed(0),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                l10n.dataWillSyncWhenOnline,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: AppTheme.slate,
                                 ),
-                                rating: rated ? summary.average : null,
-                                ratingCount: rated ? summary.count : null,
-                                icon: Icons.eco,
-                                onTap: () {
-                                  final authState =
-                                      context.read<AuthBloc>().state;
-                                  if (authState is AuthAuthenticated) {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => CropListingDetailScreen(
-                                          listing: listing,
-                                          currentUserId: authState.userId,
-                                          currentUserRole: authState.role,
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                },
-                              );
-                            },
-                          );
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return RefreshIndicator(
+                        // Refresh keeps the visible search and filters.
+                        onRefresh: () async {
+                          _applyFilters();
+                          await _loadOrderedQuintals();
                         },
+                        child: ListView.separated(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(
+                            20,
+                            8,
+                            20,
+                            Breakpoints.fabClearance,
+                          ),
+                          // Both lists end with a line about who sees what.
+                          itemCount: listings.length + 1,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (context, index) {
+                            if (index == listings.length) {
+                              if (!widget.ownerMode) {
+                                return _Footnote(text: _footnote(l10n));
+                              }
+                              final privacy =
+                                  _PrivacyNote(text: l10n.myCropsPrivacyNote);
+                              // BUG-36: never claim buyers see a listing
+                              // that is still on this phone only.
+                              final anyNotSent = listings.any(
+                                (l) => _notSent.contains(l.listingId),
+                              );
+                              if (!anyNotSent) return privacy;
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _PrivacyNote(
+                                    key: const Key('my_crops_not_sent_note'),
+                                    text: l10n.myCropsNotSentNote,
+                                    icon: Icons.cloud_upload_outlined,
+                                    background: AppTheme.orangeTint,
+                                    foreground: AppTheme.orangeInk,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  privacy,
+                                ],
+                              );
+                            }
+                            final listing = listings[index];
+                            final crop = CropType.labelFor(
+                              listing.cropType,
+                              l10n,
+                            );
+                            // The seller's real rating; hidden until it
+                            // loads or when the farmer has none. No escrow
+                            // badge: there is no per-listing escrow fact to
+                            // show.
+                            final reputation =
+                                OwnerReputation.ofListing(listing);
+                            return FutureBuilder<RatingSummary>(
+                              // ESC-31: the row's own copy needs no call.
+                              future: reputation.isPresent
+                                  ? null
+                                  : _ratingFor(listing.farmerId),
+                              builder: (context, snapshot) {
+                                final summary = snapshot.data;
+                                final rated =
+                                    summary != null && summary.count > 0;
+                                if (widget.ownerMode) {
+                                  // MyCrops board: the farmer's own card,
+                                  // kilograms first.
+                                  final notSent =
+                                      _notSent.contains(listing.listingId);
+                                  return OwnListingCard(
+                                    crop: crop,
+                                    cropKey: listing.cropType,
+                                    subtitle:
+                                        _ownListingSubtitle(listing, l10n),
+                                    price: _pricePerKgFormat
+                                        .format(listing.pricePerKg.round()),
+                                    priceUnit: l10n.etbPerKg,
+                                    status: notSent
+                                        ? l10n.listingNotSentYet
+                                        : _statusLabel(listing.status, l10n),
+                                    statusPending: notSent,
+                                    lead: index == 0,
+                                    leading: listing.photos.isEmpty
+                                        ? null
+                                        : CropPhotoThumb(
+                                            listing: listing,
+                                            size: 46,
+                                          ),
+                                    freeQuintals: listing.quantity,
+                                    orderedQuintals:
+                                        _orderedByListing[listing.listingId] ??
+                                            0,
+                                    rating: reputation.isPresent
+                                        ? reputation.rating
+                                        : (rated ? summary.average : null),
+                                    ratingCount: reputation.isPresent
+                                        ? reputation.count
+                                        : (rated ? summary.count : null),
+                                    onTap: () {
+                                      final authState =
+                                          context.read<AuthBloc>().state;
+                                      if (authState is! AuthAuthenticated) {
+                                        return;
+                                      }
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute<void>(
+                                          builder: (_) =>
+                                              CropListingDetailScreen(
+                                            listing: listing,
+                                            currentUserId: authState.userId,
+                                            currentUserRole: authState.role,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  );
+                                }
+                                return ListingCard(
+                                  // Market board: "Wheat · 2,800 kg left"
+                                  // with "(28 quintals)" after it, small;
+                                  // My Crops: the crop alone.
+                                  title: widget.ownerMode
+                                      ? crop
+                                      : '$crop · ${l10n.marketKgLeft(kgQuantityText(listing.quantity * kgPerQuintal, l10n))}',
+                                  titleSuffix: widget.ownerMode
+                                      ? null
+                                      : quintalsInParensText(
+                                          listing.quantity * kgPerQuintal,
+                                          l10n,
+                                        ),
+                                  priceUnitBelow: !widget.ownerMode,
+                                  // SIM-33: never an id or a junk place;
+                                  // an unnamed seller is "Farmer".
+                                  location:
+                                      placeDisplayName(listing.locationName),
+                                  sellerName: switch (partyDisplayName(
+                                    listing.farmerName,
+                                    l10n,
+                                  )) {
+                                    '' => l10n.farmer,
+                                    final name => name,
+                                  },
+                                  // "42" (or "1,000") with "ETB/kg" beside it.
+                                  price: _pricePerKgFormat
+                                      .format(listing.pricePerKg.round()),
+                                  priceUnit: l10n.etbPerKg,
+                                  rating: reputation.isPresent
+                                      ? reputation.rating
+                                      : (rated ? summary.average : null),
+                                  ratingCount: reputation.isPresent
+                                      ? reputation.count
+                                      : (rated ? summary.count : null),
+                                  // The label is for buyers; the farmer
+                                  // reads their own standing, with what to
+                                  // do about it, on My reputation.
+                                  lowReputation:
+                                      !widget.ownerMode && reputation.isLow,
+                                  cropKey: listing.cropType,
+                                  // The cover thumb (320 px rendition);
+                                  // the full photos open on the detail.
+                                  leading: listing.photos.isEmpty
+                                      ? null
+                                      : CropPhotoThumb(listing: listing),
+                                  detail: widget.ownerMode
+                                      ? _orderedDetail(listing, l10n)
+                                      : _transportLine(listing, l10n),
+                                  detailAsPill: !widget.ownerMode,
+                                  detailHighlighted: !widget.ownerMode &&
+                                      _hasTransportThisWeek(listing),
+                                  progress: widget.ownerMode
+                                      ? _orderedShare(listing)
+                                      : null,
+                                  status: !widget.ownerMode
+                                      ? null
+                                      : _notSent.contains(listing.listingId)
+                                          ? l10n.listingNotSentYet
+                                          : _statusLabel(listing.status, l10n),
+                                  statusPending: widget.ownerMode &&
+                                      _notSent.contains(listing.listingId),
+                                  subtitle: widget.ownerMode
+                                      ? _ownListingSubtitle(listing, l10n)
+                                      : null,
+                                  onTap: () {
+                                    final authState =
+                                        context.read<AuthBloc>().state;
+                                    if (authState is AuthAuthenticated) {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute<void>(
+                                          builder: (_) =>
+                                              CropListingDetailScreen(
+                                            listing: listing,
+                                            currentUserId: authState.userId,
+                                            currentUserRole: authState.role,
+                                            // A buyer's own wereda is where
+                                            // the crop goes unless a buying
+                                            // request says otherwise, so the
+                                            // detail can suggest transport.
+                                            // From a trip: its destination,
+                                            // the trip chosen, at most the
+                                            // quintals it has free.
+                                            deliveryWoreda: _deliveryWoredaFor(
+                                              authState,
+                                            ),
+                                            preselectedTrip: widget.originTrip,
+                                            quantityNeeded:
+                                                _originQuantity(listing),
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  },
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      );
+                    }
+
+                    // Initial state
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.eco_outlined,
+                            size: 64,
+                            color: AppTheme.slate,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            l10n.noCropListings,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              color: AppTheme.slate,
+                            ),
+                          ),
+                        ],
                       ),
                     );
-                  }
-
-                  // Initial state
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.eco_outlined,
-                          size: 64,
-                          color: AppTheme.textMuted,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          l10n.noCropListings,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: AppTheme.textMuted,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-        // FAB for farmer owner mode (hidden when embedded — shell provides FAB)
+        // FAB for farmer owner mode (hidden when embedded: the shell provides
+        // the create button)
         if (widget.ownerMode && !widget.embedded)
           Positioned(
             right: 20,
@@ -577,27 +1124,327 @@ class _BrowseListingsScreenState extends State<BrowseListingsScreen> {
                 if (!mounted) return;
                 _loadListings();
               },
-              backgroundColor: AppTheme.accentGold,
-              child: const Icon(Icons.add, color: Colors.white),
+              backgroundColor: AppTheme.orange,
+              // Dark ink on gold (white was 2.6:1), and a name for screen
+              // readers and a long press.
+              foregroundColor: AppTheme.ink,
+              tooltip: AppLocalizations.of(context)!.sellCrops,
+              child: const Icon(Icons.add),
             ),
           ),
       ],
     );
 
     return BlocListener<CropListingBloc, CropListingState>(
-      listenWhen: (previous, current) => current is CropListingCreated,
-      listener: (context, state) => _loadListings(),
+      listenWhen: (previous, current) =>
+          current is CropListingCreated ||
+          current is CropListingUpdated ||
+          (widget.ownerMode && current is CropListingsLoaded),
+      listener: (context, state) {
+        if (state is CropListingsLoaded) {
+          // BUG-36: the list just painted; mark the listings not sent yet.
+          _loadNotSent();
+        } else {
+          _loadListings();
+        }
+      },
       child: widget.embedded ? content : Scaffold(body: content),
+    );
+  }
+
+  /// Market board: every farmer's listing, the ones a trip this week can
+  /// carry to the buyer's place first (the amber pill), then those some open
+  /// trip still leaves from, then the rest, the server's order kept inside
+  /// each group. Unsorted until the trips are read. Nothing is dropped: the
+  /// buyer sees every listing.
+  List<CropListing> _sortedByTransport(List<CropListing> listings) {
+    final trips = _openTrips;
+    if (trips == null) return listings;
+    final auth = context.read<AuthBloc>().state;
+    final woreda = auth is AuthAuthenticated ? _deliveryWoredaFor(auth) : null;
+    // Resets the caches when the trips or the place changed.
+    if (listings.isNotEmpty) _tripsThisWeek(listings.first, trips, woreda);
+    if (!identical(listings, _sortedFrom)) {
+      _sortedFrom = listings;
+      _sorted = sortedByTransportMatch(
+        listings,
+        trips,
+        woreda,
+        DateTime.now().toUtc(),
+      );
+    }
+    return _sorted;
+  }
+
+  /// B-2: from a trip, what the detail prices and the trip must fit: the
+  /// listing's stock, at most the room the truck has left. Null otherwise.
+  double? _originQuantity(CropListing listing) {
+    final trip = widget.originTrip;
+    if (trip == null) return null;
+    final room = tripRoomLeft(trip);
+    return room > 0 ? math.min(listing.quantity, room) : null;
+  }
+
+  /// Market board: "Every farmer's listing, sorted by the best match for
+  /// Merkato." (the buyer's place), or the no-place line. From a trip: the
+  /// listings are the truck's starting place.
+  String _footnote(AppLocalizations l10n) {
+    final trip = widget.originTrip;
+    if (trip != null) return l10n.tripCropsFootnote(trip.fromWoreda);
+    final auth = context.read<AuthBloc>().state;
+    final woreda = auth is AuthAuthenticated ? _deliveryWoredaFor(auth) : null;
+    return woreda == null
+        ? l10n.marketFootnoteNoPlace
+        : l10n.marketFootnote(woreda);
+  }
+}
+
+/// The MyCrops board's "Farmer" pill beside the title: sand, quiet.
+class _RolePill extends StatelessWidget {
+  final String label;
+
+  const _RolePill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return FwPill(
+      label: label,
+      icon: Icons.eco_outlined,
+      background: AppTheme.sand,
+      foreground: AppTheme.inkSoft,
     );
   }
 }
 
-/// Horizontal row of filter chips for crop types.
-class _CropTypeFilterChipsRow extends StatelessWidget {
+/// A search or price field: white, whisper border, radius 14.
+class _FilterField extends StatelessWidget {
+  final TextEditingController controller;
+  final String hintText;
+  final IconData? prefixIcon;
+  final String? prefixText;
+  final bool numeric;
+  final ValueChanged<String> onChanged;
+
+  const _FilterField({
+    required this.controller,
+    required this.hintText,
+    required this.onChanged,
+    this.prefixIcon,
+    this.prefixText,
+    this.numeric = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: AppTheme.line),
+    );
+    return TextField(
+      controller: controller,
+      keyboardType: numeric ? TextInputType.number : null,
+      inputFormatters:
+          numeric ? [FilteringTextInputFormatter.digitsOnly] : null,
+      style: const TextStyle(fontSize: 14, color: AppTheme.ink),
+      decoration: InputDecoration(
+        isDense: true,
+        filled: true,
+        fillColor: AppTheme.surfaceWhite,
+        hintText: hintText,
+        hintStyle: FwText.body.copyWith(fontSize: 14),
+        prefixIcon: prefixIcon == null
+            ? null
+            : Icon(prefixIcon, size: 20, color: AppTheme.slate),
+        prefixText: prefixText,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        border: border,
+        enabledBorder: border,
+        focusedBorder: border.copyWith(
+          borderSide: BorderSide(color: context.roleColors.primary),
+        ),
+      ),
+      onChanged: onChanged,
+    );
+  }
+}
+
+/// "No listings match your filters": with [onClear] a Clear filters button,
+/// without one just the words (My Crops, where the segments are the filter).
+class _NoMatch extends StatelessWidget {
+  final VoidCallback? onClear;
+  final String title;
+  final String hint;
+  final String clearLabel;
+  final IconData icon;
+
+  const _NoMatch({
+    required this.onClear,
+    required this.title,
+    required this.hint,
+    required this.clearLabel,
+    this.icon = Icons.search_off,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 64,
+              color: AppTheme.slate,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+                color: AppTheme.slate,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              hint,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppTheme.slate,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (onClear != null) ...[
+              const SizedBox(height: 20),
+              OutlinedButton(
+                onPressed: onClear,
+                child: Text(clearLabel),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// MyCrops board: who sees the listings, in a sand note under the list.
+class _PrivacyNote extends StatelessWidget {
+  final String text;
+  final IconData icon;
+  final Color background;
+  final Color foreground;
+
+  const _PrivacyNote({
+    required this.text,
+    super.key,
+    this.icon = Icons.place_outlined,
+    this.background = AppTheme.sand,
+    this.foreground = AppTheme.inkSoft,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: foreground),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+                color: foreground,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Market board: the muted line under the buyer's list.
+class _Footnote extends StatelessWidget {
+  final String text;
+
+  const _Footnote({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
+      child: Text(
+        text,
+        style: FwText.body.copyWith(
+          fontWeight: FontWeight.w400,
+          height: 1.4,
+        ),
+      ),
+    );
+  }
+}
+
+/// My Crops: the Active / Reserved / Sold / Drafts switch with counts
+/// (MyCrops board); Expired joins it only when the farmer has one.
+class _StatusSegmented extends StatelessWidget {
+  final List<CropListing> listings;
+  final ListingStatus selected;
+  final ValueChanged<ListingStatus> onChanged;
+
+  const _StatusSegmented({
+    required this.listings,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    int count(ListingStatus status) =>
+        listings.where((l) => l.status == status).length;
+    FwSegment<ListingStatus> segment(ListingStatus status, String label) {
+      final n = count(status);
+      return FwSegment(value: status, label: label, count: n > 0 ? n : null);
+    }
+
+    final expired = count(ListingStatus.expired);
+    return FwSegmented<ListingStatus>(
+      segments: [
+        segment(ListingStatus.active, l10n.listingStatusActive),
+        segment(ListingStatus.reserved, l10n.listingStatusReserved),
+        segment(ListingStatus.sold, l10n.listingStatusSold),
+        segment(ListingStatus.draft, l10n.cropsDrafts),
+        if (expired > 0 || selected == ListingStatus.expired)
+          segment(ListingStatus.expired, l10n.listingStatusExpired),
+      ],
+      selected: selected,
+      onChanged: onChanged,
+    );
+  }
+}
+
+/// Market board: the crop pills, each with the crop glyph; the picked one
+/// is black with white ink, the others outlined.
+class _CropTypeChipsRow extends StatelessWidget {
   final String? selectedCropType;
   final ValueChanged<String?> onCropTypeChanged;
 
-  const _CropTypeFilterChipsRow({
+  const _CropTypeChipsRow({
     required this.selectedCropType,
     required this.onCropTypeChanged,
   });
@@ -606,40 +1453,94 @@ class _CropTypeFilterChipsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return SizedBox(
-      height: 50,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(20, 12, 12, 8),
+      child: Row(
         children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              label: Text(l10n.allCrops),
-              selected: selectedCropType == null,
-              labelStyle: TextStyle(
-                color:
-                    selectedCropType == null ? Colors.white : AppTheme.textDark,
+          _CropChip(
+            label: l10n.allCrops,
+            selected: selectedCropType == null,
+            onTap: () => onCropTypeChanged(null),
+          ),
+          for (final type in CropType.values)
+            _CropChip(
+              label: type.displayName(l10n),
+              cropKey: type.name,
+              selected: selectedCropType == type.name,
+              onTap: () => onCropTypeChanged(type.name),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CropChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+
+  /// The crop's stored key, for its glyph; null on "All" (no glyph).
+  final String? cropKey;
+  final VoidCallback onTap;
+
+  const _CropChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.cropKey,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = selected ? Colors.white : AppTheme.inkSoft;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Semantics(
+        button: true,
+        selected: selected,
+        child: FwTapTarget(
+          onTap: onTap,
+          child: Material(
+            color: selected ? AppTheme.ink : Colors.transparent,
+            shape: StadiumBorder(
+              side: BorderSide(
+                color: selected ? AppTheme.ink : AppTheme.fieldBorder,
               ),
-              onSelected: (_) => onCropTypeChanged(null),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 44),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 4,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (cropKey != null) ...[
+                        CropGlyph(cropKey: cropKey, color: ink),
+                        const SizedBox(width: 6),
+                      ],
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.w500,
+                          color: ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
-          ...CropType.values.map((type) {
-            final isSelected = selectedCropType == type.name;
-            return Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FilterChip(
-                avatar: Icon(type.icon, size: 18),
-                label: Text(type.displayName(l10n)),
-                selected: isSelected,
-                labelStyle: TextStyle(
-                  color: isSelected ? Colors.white : AppTheme.textDark,
-                ),
-                onSelected: (_) => onCropTypeChanged(type.name),
-              ),
-            );
-          }),
-        ],
+        ),
       ),
     );
   }

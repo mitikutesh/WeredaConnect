@@ -1,0 +1,386 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_bookings_section.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_summary_tile.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
+
+class MockOrderBloc extends Mock implements OrderBloc {}
+
+class MockOrderRepository extends Mock implements BaseOrderRepository {}
+
+Trip _trip() => Trip()
+  ..tripId = 'trip-1'
+  ..truckerId = 'trucker-1'
+  ..truckerName = 'Dawit'
+  ..truckerPhone = ''
+  ..fromWoreda = 'Adama'
+  ..toWoreda = 'Bishoftu'
+  ..departureDate = DateTime.utc(2026, 11, 2)
+  ..capacity = 200
+  ..remainingQuintals = 120
+  ..pricePerQuintal = 100
+  ..status = TripStatus.open
+  ..matchedListings = []
+  ..createdAt = DateTime.utc(2026, 10)
+  ..updatedAt = DateTime.utc(2026, 10)
+  ..version = 1;
+
+Order _order(
+  String id,
+  OrderStatus status, {
+  String tripId = 'trip-1',
+  String farmer = 'accepted',
+  String trucker = 'pending',
+  String farmerName = 'Chaltu',
+}) =>
+    Order()
+      ..orderId = id
+      ..listingId = 'listing-1'
+      ..buyerId = 'buyer-1'
+      ..farmerId = 'farmer-1'
+      ..buyerName = 'Buyer'
+      ..farmerName = farmerName
+      ..cropType = 'teff'
+      ..quantity = 500
+      ..pricePerUnit = 45
+      ..totalPrice = 22500
+      ..status = status
+      ..createdAt = DateTime.utc(2026, 10, 20)
+      ..version = 1
+      ..tripId = tripId
+      ..truckerId = 'trucker-1'
+      ..fulfillment = 'trucker'
+      ..farmerResponse = farmer
+      ..truckerResponse = trucker;
+
+Widget _app(Widget child, {OrderBloc? bloc}) => MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: Scaffold(
+        body: bloc == null
+            ? child
+            : BlocProvider<OrderBloc>.value(value: bloc, child: child),
+      ),
+    );
+
+/// ESC-15: the trucker sees the paid orders on the trip and which one waits
+/// for an answer; a buyer picks among several trucks.
+void main() {
+  final en = lookupAppLocalizations(const Locale('en'));
+
+  testWidgets('lists the trip\'s paid orders and flags the one to answer',
+      (tester) async {
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => repo.getOrdersByUser('trucker-1', role: 'trucker')).thenAnswer(
+      (_) async => [
+        _order('asked', OrderStatus.funded, farmerName: 'Asked Farmer'),
+        _order(
+          'agreed',
+          OrderStatus.disputed,
+          trucker: 'accepted',
+          farmerName: 'Disputed Farmer',
+        ),
+        _order(
+          'other-trip',
+          OrderStatus.funded,
+          tripId: 'trip-2',
+          farmerName: 'Other Trip',
+        ),
+        _order('ended', OrderStatus.cancelled, farmerName: 'Ended Farmer'),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(en.tripBookings.toUpperCase()), findsOneWidget);
+    expect(find.textContaining('Asked Farmer'), findsOneWidget);
+    expect(find.textContaining('Disputed Farmer'), findsOneWidget);
+    expect(find.textContaining('Other Trip'), findsNothing);
+    expect(find.textContaining('Ended Farmer'), findsNothing);
+    expect(find.text(en.actionAnswerTransport), findsOneWidget);
+    // Whose move it is sits above Accept transport, on that card only.
+    expect(find.text(en.tripYourTurnNote), findsOneWidget);
+    expect(find.byKey(const Key('booking_your_turn_asked')), findsOneWidget);
+    expect(
+      tester.getBottomLeft(find.text(en.tripYourTurnNote)).dy,
+      lessThan(
+        tester.getTopLeft(find.byKey(const Key('booking_accept_asked'))).dy,
+      ),
+    );
+    expect(
+      tester.getBottomLeft(find.byKey(const Key('booking_accept_asked'))).dy,
+      lessThan(
+        tester.getTopLeft(find.byKey(const Key('booking_decline_asked'))).dy,
+      ),
+    );
+  });
+
+  // Trip detail board: "Almaz Bekele, Meki → Selam Traders, Merkato", the
+  // order's own places (order-lifecycle 2.2.0), else the trip's route.
+  testWidgets('a booking names its own places, else the trip\'s route',
+      (tester) async {
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => repo.getOrdersByUser('trucker-1', role: 'trucker')).thenAnswer(
+      (_) async => [
+        _order('placed', OrderStatus.funded, farmerName: 'Almaz')
+          ..pickupPlace = 'Meki'
+          ..dropoffPlace = 'Merkato',
+        _order(
+          'older',
+          OrderStatus.accepted,
+          trucker: 'accepted',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Almaz, Meki → Buyer, Merkato'), findsOneWidget);
+    expect(find.text('Chaltu, Adama → Buyer, Bishoftu'), findsOneWidget);
+  });
+
+  // LT-14: the drop-off place the buyer picked names the drop-off before the
+  // registered place, also on a request the trucker has not answered yet
+  // (the server sends the point to the asked trucker), so the answer reads
+  // the real town.
+  testWidgets("a booking's own drop-off place comes before the registered one",
+      (tester) async {
+    PlaceRepository.instance.loadFromStringForTest(
+      jsonEncode([
+        {'id': 'gn-m', 'en': 'Mojo', 'lat': 8.587, 'lng': 39.121},
+        {'id': 'gn-b', 'en': 'Bishoftu', 'lat': 8.752, 'lng': 38.978},
+      ]),
+    );
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => repo.getOrdersByUser('trucker-1', role: 'trucker')).thenAnswer(
+      (_) async => [
+        _order('placed', OrderStatus.funded, farmerName: 'Almaz')
+          ..pickupPlace = 'Meki'
+          ..dropoffPlace = 'Merkato'
+          ..deliveryLatitude = 8.587
+          ..deliveryLongitude = 39.121,
+      ],
+    );
+
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Almaz, Meki → Buyer, Mojo'), findsOneWidget);
+  });
+
+  // A failed read is not "no bookings": a request may wait among them.
+  testWidgets('a failed read says so and retries', (tester) async {
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    var calls = 0;
+    when(() => repo.getOrdersByUser('trucker-1', role: 'trucker'))
+        .thenAnswer((_) async {
+      calls++;
+      if (calls == 1) throw Exception('offline');
+      return [_order('asked', OrderStatus.funded, farmerName: 'Asked')];
+    });
+
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(en.tripBookingsLoadFailed), findsOneWidget);
+    expect(find.text(en.tripNoBookings), findsNothing);
+
+    await tester.tap(find.byKey(const Key('trip_bookings_retry')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Asked'), findsOneWidget);
+  });
+
+  testWidgets('one answer at a time: the other request waits', (tester) async {
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => repo.getOrdersByUser('trucker-1', role: 'trucker')).thenAnswer(
+      (_) async => [
+        _order('a', OrderStatus.funded, farmerName: 'First'),
+        _order('b', OrderStatus.funded, farmerName: 'Second'),
+      ],
+    );
+    final pending = Completer<void>();
+    when(
+      () => repo.respondAsTrucker(
+        any(),
+        any(),
+        accept: any(named: 'accept'),
+        declineReason: any(named: 'declineReason'),
+      ),
+    ).thenAnswer((_) => pending.future);
+
+    // Two requests, each with its note and both buttons: a tall page.
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('booking_accept_a')));
+    await tester.pump();
+
+    final other = tester.widget<FilledButton>(
+      find.byKey(const Key('booking_accept_b')),
+    );
+    expect(other.onPressed, isNull);
+    pending.complete();
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('says when nothing is booked', (tester) async {
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => repo.getOrdersByUser(any(), role: any(named: 'role')))
+        .thenAnswer((_) async => []);
+
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(en.tripNoBookings), findsOneWidget);
+  });
+
+  // SIM-33: a booking with impossible values reads a dash, not "-40 ETB" or
+  // "0 kg".
+  testWidgets('a negative pay and a zero quantity read as a dash',
+      (tester) async {
+    final bloc = MockOrderBloc();
+    final repo = MockOrderRepository();
+    when(() => bloc.repository).thenReturn(repo);
+    when(() => bloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => repo.getOrdersByUser('trucker-1', role: 'trucker')).thenAnswer(
+      (_) async => [
+        _order('odd', OrderStatus.funded)
+          ..quantity = 0
+          ..transportCost = -40,
+      ],
+    );
+
+    await tester.pumpWidget(
+      _app(TripBookingsSection(trip: _trip()), bloc: bloc),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('${en.cropTypeTeff} · -'), findsOneWidget);
+    expect(find.text('-'), findsOneWidget);
+    expect(find.textContaining('-40'), findsNothing);
+    expect(find.textContaining('0 kg'), findsNothing);
+  });
+
+  group('showChooseTripSheet', () {
+    Future<Trip?> Function() open(WidgetTester tester, List<Trip> trips) {
+      Trip? chosen;
+      var done = false;
+      return () async {
+        await tester.pumpWidget(
+          _app(
+            Builder(
+              builder: (context) => TextButton(
+                onPressed: () async {
+                  chosen = await showChooseTripSheet(context, trips);
+                  done = true;
+                },
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+        expect(find.text(en.chooseTrip), findsOneWidget);
+        expect(find.text('Trucker: Dawit'), findsOneWidget);
+        expect(find.text('Trucker: Eyob'), findsOneWidget);
+        expect(
+          find.textContaining('12,000 kg free (120 quintals)'),
+          findsOneWidget,
+        );
+        expect(done, isFalse);
+        return chosen;
+      };
+    }
+
+    final second = _trip()
+      ..tripId = 'trip-2'
+      ..truckerName = 'Eyob'
+      ..remainingQuintals = null;
+
+    testWidgets('returns the tapped truck', (tester) async {
+      Trip? chosen;
+      await tester.pumpWidget(
+        _app(
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () async {
+                chosen = await showChooseTripSheet(context, [_trip(), second]);
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.text(en.chooseTrip), findsOneWidget);
+      expect(
+        find.textContaining('12,000 kg free (120 quintals)'),
+        findsOneWidget,
+      );
+      // A trip nobody booked has its whole capacity free.
+      expect(
+        find.textContaining('20,000 kg free (200 quintals)'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Trucker: Eyob'));
+      await tester.pumpAndSettle();
+
+      expect(chosen?.tripId, 'trip-2');
+    });
+
+    testWidgets('dismissing it chooses nothing', (tester) async {
+      final run = open(tester, [_trip(), second]);
+      await run();
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+      expect(find.text(en.chooseTrip), findsNothing);
+    });
+  });
+}

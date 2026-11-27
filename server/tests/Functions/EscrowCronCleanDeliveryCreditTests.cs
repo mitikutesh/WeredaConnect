@@ -1,0 +1,800 @@
+using System.Text.Json;
+using Amazon.DynamoDBv2;
+using Amazon.DynamoDBv2.Model;
+using Amazon.Lambda.APIGatewayEvents;
+using Amazon.Lambda.TestUtilities;
+using FluentAssertions;
+using NSubstitute;
+using WeredaConnect.Server.Data;
+using WeredaConnect.Server.Functions;
+using WeredaConnect.Server.Helpers;
+using WeredaConnect.Server.Models;
+using WeredaConnect.Server.Services;
+using Xunit;
+
+namespace WeredaConnect.Server.Tests.Functions;
+
+/// <summary>
+/// FRD-10 (fraud-detection-architecture.md sections 15 and 20) in escrow-cron: after the auto-release pays a
+/// clean trade, each party gets one <c>CLEAN_DELIVERY</c> credit keyed on the escrow's stored release time and
+/// its id. A trade with a signal earns none, and a credit that cannot be read or written never fails or undoes
+/// the release.
+/// </summary>
+public class EscrowCronCleanDeliveryCreditTests
+{
+    private const string BuyerId = "buyer-1";
+    private const string FarmerId = "farmer-1";
+    private const string TruckerId = "trucker-1";
+    private const string CreatedAt = "2026-10-01T10:00:00.0000000Z";
+    private const string SignalsTable = "test-fraud-signals";
+
+    private readonly IEscrowRepository _escrows = Substitute.For<IEscrowRepository>();
+    private readonly IEscrowAuditRepository _audit = Substitute.For<IEscrowAuditRepository>();
+    private readonly IEscrowIdempotencyRepository _idempotency = Substitute.For<IEscrowIdempotencyRepository>();
+    private readonly ITelebirrGateway _gateway = Substitute.For<ITelebirrGateway>();
+    private readonly IDeliveryRepository _deliveries = Substitute.For<IDeliveryRepository>();
+    private readonly IUserRepository _users = Substitute.For<IUserRepository>();
+    private readonly IAmazonDynamoDB _ddb = Substitute.For<IAmazonDynamoDB>();
+    private readonly TestLambdaContext _context = new() { RemainingTime = TimeSpan.FromMinutes(4) };
+
+    private readonly List<QueryRequest> _queries = new();
+    private readonly List<PutItemRequest> _puts = new();
+    private readonly Dictionary<string, QueryResponse> _partitions = new();
+    private Exception? _readFailure;
+    private readonly Dictionary<string, Exception> _writeFailures = new();
+    private readonly Dictionary<string, string> _releasedAt = new();
+
+    // FUP-137: the journal item of the escrow idempotency table, the calls in the order they came, and the
+    // credit rows the table holds (so a repeated key fails its condition as DynamoDB would).
+    private const string IdempotencyTable = "test-escrow-idempotency";
+    private readonly IAmazonDynamoDB _journalDb = Substitute.For<IAmazonDynamoDB>();
+    private readonly SortedSet<string> _journal = new(StringComparer.Ordinal);
+    private readonly List<string> _events = new();
+    private readonly HashSet<string> _creditRows = new();
+    private Exception? _journalAddFailure;
+    private Exception? _journalRemoveFailure;
+    private Exception? _journalReadFailure;
+
+    public EscrowCronCleanDeliveryCreditTests()
+    {
+        _escrows.QueryByStatusForCronAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+        _escrows.StubEmptySweeps();
+        _escrows.QueryOpenManualPayoutsAsync(Arg.Any<int>(), Arg.Any<Dictionary<string, AttributeValue>?>())
+            .Returns((new List<Dictionary<string, object>>(), (Dictionary<string, AttributeValue>?)null));
+        _escrows.QueryStaleSettlementLocksAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>())
+            .Returns(new List<Dictionary<string, object>>());
+        _escrows.QueryPendingTruckerLegsAsync(Arg.Any<int>()).Returns(new List<Dictionary<string, object>>());
+        _escrows.TryAcquireSettlementLockAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>())
+            .Returns(true);
+        _escrows.When(r => r.UpdateStatusAsync(Arg.Any<string>(), Arg.Any<string>(), "released", Arg.Any<string?>(),
+                Arg.Any<Dictionary<string, object>?>()))
+            .Do(ci => _releasedAt[ci.ArgAt<string>(0)] = ci.ArgAt<Dictionary<string, object>>(4)["releasedAt"].ToString()!);
+        _gateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = true, TelebirrRef = "GW-REL" });
+        _audit.AppendIfAbsentAsync(Arg.Any<Dictionary<string, object>>()).Returns(true);
+
+        foreach (var (id, role) in new[] { (BuyerId, "buyer"), (FarmerId, "farmer"), (TruckerId, "trucker") })
+        {
+            _users.GetUserByIdAsync(id).Returns(new UserDto
+            {
+                UserId = id,
+                PhoneNumber = "+251900000001",
+                Role = role,
+                Woreda = "w",
+                IsPhoneVerified = true,
+                FaydaVerified = true,
+                CreatedAt = "2025-01-01T00:00:00Z",
+                UpdatedAt = "2025-01-01T00:00:00Z",
+                Version = 1
+            });
+        }
+
+        _ddb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>()).Returns(ci =>
+        {
+            var request = ci.Arg<QueryRequest>();
+            _queries.Add(request);
+            if (_readFailure != null)
+            {
+                return Task.FromException<QueryResponse>(_readFailure);
+            }
+
+            return Task.FromResult(_partitions.GetValueOrDefault(request.ExpressionAttributeValues[":uid"].S)
+                ?? new QueryResponse { Items = new(), LastEvaluatedKey = new() });
+        });
+        _ddb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>()).Returns(ci =>
+        {
+            var request = ci.Arg<PutItemRequest>();
+            _puts.Add(request);
+            if (_writeFailures.TryGetValue(request.Item["userId"].S, out var failure))
+            {
+                return Task.FromException<PutItemResponse>(failure);
+            }
+
+            return _creditRows.Add($"{request.Item["userId"].S}|{request.Item["signalKey"].S}")
+                ? Task.FromResult(new PutItemResponse())
+                : Task.FromException<PutItemResponse>(new ConditionalCheckFailedException("exists"));
+        });
+
+        _gateway.When(g => g.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())).Do(_ => _events.Add("gateway"));
+        _journalDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>()).Returns(ci =>
+        {
+            var request = ci.Arg<UpdateItemRequest>();
+            request.TableName.Should().Be(IdempotencyTable);
+            request.Key["idempotencyKey"].S.Should().Be(CleanDeliveryCreditJournal.Key);
+            var id = request.ExpressionAttributeValues[":ids"].SS.Single();
+            var add = request.UpdateExpression.StartsWith("ADD ", StringComparison.Ordinal);
+            _events.Add($"{(add ? "add" : "remove")}:{id}");
+            if ((add ? _journalAddFailure : _journalRemoveFailure) is { } failure)
+            {
+                return Task.FromException<UpdateItemResponse>(failure);
+            }
+
+            _ = add ? _journal.Add(id) : _journal.Remove(id);
+            return Task.FromResult(new UpdateItemResponse());
+        });
+        _journalDb.GetItemAsync(Arg.Any<GetItemRequest>(), Arg.Any<CancellationToken>()).Returns(ci =>
+        {
+            if (_journalReadFailure != null)
+            {
+                return Task.FromException<GetItemResponse>(_journalReadFailure);
+            }
+
+            var item = new Dictionary<string, AttributeValue>();
+            if (_journal.Count > 0)
+            {
+                item[CleanDeliveryCreditJournal.PendingAttribute] = new AttributeValue { SS = _journal.ToList() };
+            }
+
+            return Task.FromResult(new GetItemResponse { Item = item });
+        });
+    }
+
+    private EscrowCronFunction Cron(bool withCredits = true, bool withJournal = false, DateTime? recoveryNow = null)
+    {
+        var service = new EscrowService(_escrows, _audit, _idempotency, _gateway, userRepo: _users, deliveryRepo: _deliveries);
+        return new EscrowCronFunction(service, _escrows, _audit, _gateway, _deliveries)
+        {
+            CleanDeliveryCredits = withCredits ? new CleanDeliveryCreditService(_ddb, SignalsTable) : null,
+            CleanDeliveryJournal = withJournal ? new CleanDeliveryCreditJournal(_journalDb, IdempotencyTable) : null,
+            CleanDeliveryRecoveryClock = recoveryNow is { } now ? () => now : () => DateTime.UtcNow
+        };
+    }
+
+    private string Logs => ((TestLambdaLogger)_context.Logger).Buffer.ToString();
+
+    private async Task<Dictionary<string, string>> RunAsync(EscrowCronFunction cron)
+    {
+        var response = await cron.FunctionHandler(new APIGatewayProxyRequest
+        {
+            HttpMethod = "POST",
+            Body = JsonSerializer.Serialize(new Dictionary<string, string> { { "action", "auto_release_and_refund" } })
+        }, _context);
+        response.StatusCode.Should().Be(200, response.Body);
+        return JsonSerializer.Deserialize<Dictionary<string, string>>(response.Body)!;
+    }
+
+    /// <summary>A confirmed escrow whose dispute window ended an hour ago, the delivery delivered, no order.</summary>
+    private Dictionary<string, object> Confirmed(string id, bool withTrucker = true)
+    {
+        var escrow = new Dictionary<string, object>
+        {
+            { "escrowId", id },
+            { "createdAt", CreatedAt },
+            { "status", "escrowed" },
+            { "deliveryId", $"del-{id}" },
+            { "buyerId", BuyerId },
+            { "farmerId", FarmerId },
+            { "amount", 8_000m },
+            { "commission", 200m },
+            { "farmerPayout", withTrucker ? 6_800m : 7_800m },
+            { "currency", "ETB" },
+            { "telebirrHoldRef", "HOLD-1" },
+            { "expiresAt", DateTime.UtcNow.AddDays(3).ToString("o") },
+            { "deliveryConfirmedAt", DateTime.UtcNow.AddHours(-49).ToString("o") },
+            { "disputeWindowEndsAt", DateTime.UtcNow.AddHours(-1).ToString("o") },
+            { "version", 2 }
+        };
+        if (withTrucker)
+        {
+            escrow["truckerId"] = TruckerId;
+            escrow["truckerPayout"] = 1_000m;
+        }
+
+        _escrows.GetByIdAsync(id).Returns(escrow);
+        _escrows.GetByIdAsync(id, Arg.Any<bool>()).Returns(escrow);
+        _deliveries.GetByIdAsync($"del-{id}", true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", $"del-{id}" }, { "status", "delivered" }
+        });
+        return escrow;
+    }
+
+    private static QueryResponse SignalPage(string signalKey) => new()
+    {
+        Items = new() { new() { ["signalKey"] = new AttributeValue { S = signalKey } } },
+        LastEvaluatedKey = new()
+    };
+
+    [Fact]
+    public async Task CleanRelease_CreditsTheBuyerTheFarmerAndTheTruckerOnce()
+    {
+        _escrows.StubReleaseSweep(Confirmed("esc-clean"));
+
+        var summary = await RunAsync(Cron());
+
+        summary["released"].Should().Be("1");
+        _queries.Select(q => q.ExpressionAttributeValues[":uid"].S).Should().Equal(BuyerId, FarmerId, TruckerId);
+        // The trade's signals are looked up on the escrow and its delivery (this escrow has no order).
+        _queries[0].FilterExpression.Should().StartWith("#e IN (:e0, :e1)");
+        _queries[0].ExpressionAttributeValues[":e0"].S.Should().Be("esc-clean");
+        _queries[0].ExpressionAttributeValues[":e1"].S.Should().Be("del-esc-clean");
+
+        _puts.Select(p => p.Item["userId"].S).Should().Equal(BuyerId, FarmerId, TruckerId);
+        // The key is the release time the escrow stores, so a replay builds the same one.
+        var releasedAt = _releasedAt["esc-clean"];
+        _puts.Should().OnlyContain(p => p.Item["signalKey"].S == $"{releasedAt}#CLEAN_DELIVERY#esc-clean"
+                                        && p.Item["recordType"].S == "credit"
+                                        && p.Item["weight"].N == "-5"
+                                        && p.ConditionExpression == "attribute_not_exists(signalKey)"
+                                        && p.TableName == SignalsTable);
+        Logs.Should().Contain("CLEAN_DELIVERY_CREDITED escrowId=esc-clean credited=3 alreadyCredited=0 failed=0");
+    }
+
+    [Fact]
+    public async Task TruckerLegWithoutAPayableTrucker_CreditsTheBuyerAndTheFarmer()
+    {
+        // The escrow pays a trucker but names none, and no order names one: the payout's lookup finds nobody,
+        // so the leg stays owed and only the two known parties are credited.
+        var escrow = Confirmed("esc-no-trucker");
+        escrow.Remove("truckerId");
+        _escrows.StubReleaseSweep(escrow);
+
+        var summary = await RunAsync(Cron());
+
+        summary["released"].Should().Be("1");
+        _puts.Select(p => p.Item["userId"].S).Should().Equal(BuyerId, FarmerId);
+    }
+
+    [Fact]
+    public async Task SelfPickupRelease_CreditsTheBuyerAndTheFarmer()
+    {
+        _escrows.StubReleaseSweep(Confirmed("esc-pickup", withTrucker: false));
+
+        await RunAsync(Cron());
+
+        _puts.Select(p => p.Item["userId"].S).Should().Equal(BuyerId, FarmerId);
+    }
+
+    [Fact]
+    public async Task SignalOnTheTrade_CreditsNobodyAndTheReleaseStands()
+    {
+        _escrows.StubReleaseSweep(Confirmed("esc-flagged"));
+        _partitions[FarmerId] = SignalPage("2026-11-01T10:00:00.0000000Z#CANCEL_AFTER_FUND_RATE");
+
+        var summary = await RunAsync(Cron());
+
+        summary["released"].Should().Be("1");
+        await _gateway.Received().ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == "release:esc-flagged"));
+        _puts.Should().BeEmpty();
+        Logs.Should().Contain("CLEAN_DELIVERY_NOT_CREDITED escrowId=esc-flagged reason=signal");
+    }
+
+    [Fact]
+    public async Task FailedCreditWrite_IsLoggedAndTheReleaseStands()
+    {
+        _escrows.StubReleaseSweep(Confirmed("esc-write"));
+        _writeFailures[FarmerId] = new ProvisionedThroughputExceededException("throttled");
+
+        var summary = await RunAsync(Cron());
+
+        summary["released"].Should().Be("1");
+        _puts.Select(p => p.Item["userId"].S).Should().Equal(BuyerId, FarmerId, TruckerId);
+        Logs.Should().Contain(
+            $"CLEAN_DELIVERY_CREDIT_FAILED escrowId=esc-write userId=farmer-1 error={MoneyAlarmLog.LogId(nameof(ProvisionedThroughputExceededException))}");
+        Logs.Should().Contain("CLEAN_DELIVERY_CREDITED escrowId=esc-write credited=2 alreadyCredited=0 failed=1");
+        // A credit is not a settlement: no settlement alarm.
+        Logs.Should().NotContain("auto_release_exception");
+        Logs.Should().NotContain("SETTLEMENT_FAILED");
+    }
+
+    [Fact]
+    public async Task FailedSignalRead_IsLoggedAndTheReleaseStands()
+    {
+        _escrows.StubReleaseSweep(Confirmed("esc-read"));
+        _readFailure = new ProvisionedThroughputExceededException("throttled");
+
+        var summary = await RunAsync(Cron());
+
+        summary["released"].Should().Be("1");
+        _puts.Should().BeEmpty();
+        Logs.Should().Contain(
+            $"CLEAN_DELIVERY_CREDIT_FAILED escrowId=esc-read error={MoneyAlarmLog.LogId(nameof(ProvisionedThroughputExceededException))}");
+        Logs.Should().NotContain("auto_release_exception");
+        Logs.Should().NotContain("SETTLEMENT_FAILED");
+    }
+
+    [Fact]
+    public async Task FailedRelease_WritesNoCredit()
+    {
+        _escrows.StubReleaseSweep(Confirmed("esc-refused"));
+        _gateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns(new ReleaseFundsResponse { Success = false, ErrorCode = "GW_REFUSED" });
+
+        var summary = await RunAsync(Cron());
+
+        summary["released"].Should().Be("0");
+        await _gateway.Received().ReleaseFundsAsync(Arg.Is<ReleaseFundsRequest>(r => r.TransactionRef == "release:esc-refused"));
+        _ddb.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RowWithADisputeField_WritesNoCredit()
+    {
+        // Nothing moves a disputed escrow back to escrowed today; a row an older code path left so is not clean.
+        var escrow = Confirmed("esc-legacy");
+        escrow["disputedBy"] = BuyerId;
+        _escrows.StubReleaseSweep(escrow);
+
+        var summary = await RunAsync(Cron());
+
+        summary["released"].Should().Be("1");
+        _ddb.ReceivedCalls().Should().BeEmpty();
+        Logs.Should().Contain("CLEAN_DELIVERY_NOT_CREDITED escrowId=esc-legacy reason=dispute");
+    }
+
+    [Fact]
+    public async Task ReleaseAnsweredAsDuplicate_LeavesTheCreditToTheRunThatReleased()
+    {
+        // Another run took the settlement lock first and released it: this run's answer is a duplicate.
+        var escrow = Confirmed("esc-race");
+        var released = new Dictionary<string, object>(escrow) { ["status"] = "released", ["releasedAt"] = "2026-11-07T09:00:00.0000000Z" };
+        _escrows.GetByIdAsync("esc-race").Returns(escrow, released);
+        _escrows.TryAcquireSettlementLockAsync("esc-race", Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>())
+            .Returns(false);
+        _escrows.StubReleaseSweep(escrow);
+
+        var summary = await RunAsync(Cron());
+
+        // Counted as released (the money did move), with no gateway call of its own and no credit.
+        summary["released"].Should().Be("1");
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        _ddb.ReceivedCalls().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task WithoutTheSignalsTable_NothingIsCredited()
+    {
+        _escrows.StubReleaseSweep(Confirmed("esc-untabled"));
+
+        var summary = await RunAsync(Cron(withCredits: false));
+
+        summary["released"].Should().Be("1");
+        _ddb.ReceivedCalls().Should().BeEmpty();
+        Logs.Should().NotContain("CLEAN_DELIVERY");
+    }
+
+    // ── FUP-137: the journal and the crash recovery ───────────────
+
+    private const string ReleasedAtStored = "2026-11-10T09:00:00.0000000Z";
+
+    /// <summary>The row of an escrow a run released, as the next run reads it.</summary>
+    private Dictionary<string, object> Released(
+        string id, string status = "completed", string? origin = "auto_release", string? releasedAt = ReleasedAtStored)
+    {
+        var row = Confirmed(id);
+        row["status"] = status;
+        if (origin != null)
+        {
+            row["releaseOrigin"] = origin;
+        }
+
+        if (releasedAt != null)
+        {
+            row["releasedAt"] = releasedAt;
+            row["releaseTrigger"] = "delivery_confirmed";
+        }
+
+        return row;
+    }
+
+    [Fact]
+    public async Task Journal_TheEscrowIsNotedBeforeTheReleaseAndClearedOnceCredited()
+    {
+        _escrows.StubReleaseSweep(Confirmed("esc-j1"));
+
+        await RunAsync(Cron(withJournal: true));
+
+        // Noted before any money moves (the farmer and the trucker call), cleared after the credit rows.
+        _events.Should().Equal("add:esc-j1", "gateway", "gateway", "remove:esc-j1");
+        _puts.Should().HaveCount(3);
+        _journal.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Journal_TheReleaseStoresItsOriginWithTheReleasedWrite()
+    {
+        _escrows.StubReleaseSweep(Confirmed("esc-j-origin"));
+
+        await RunAsync(Cron(withJournal: true));
+
+        // The marker the recovery and the manual payout close read: only the auto-release writes it.
+        await _escrows.Received(1).UpdateStatusAsync("esc-j-origin", Arg.Any<string>(), "released", "escrowed",
+            Arg.Is<Dictionary<string, object>?>(f => f != null
+                && (string)f["releaseOrigin"] == "auto_release" && (string)f["releaseTrigger"] == "delivery_confirmed"));
+    }
+
+    [Fact]
+    public async Task Journal_AFailedCreditWriteKeepsTheEscrow_AndTheNextRunWritesWhatIsMissing()
+    {
+        var escrow = Confirmed("esc-j2");
+        var sweep = _escrows.StubReleaseSweep(escrow);
+        _writeFailures[FarmerId] = new ProvisionedThroughputExceededException("throttled");
+
+        await RunAsync(Cron(withJournal: true));
+
+        _journal.Should().Equal("esc-j2");
+        _creditRows.Should().HaveCount(2);
+
+        // The next run: the row is completed and out of the release sweep, the table takes writes again.
+        _writeFailures.Clear();
+        _puts.Clear();
+        var releasedAt = _releasedAt["esc-j2"];
+        Released("esc-j2", releasedAt: releasedAt);
+        _escrows.StubReleaseSweep();
+
+        await RunAsync(Cron(withJournal: true));
+
+        // All three are tried with the first run's key: the two rows already there fail their condition.
+        _puts.Should().HaveCount(3).And.OnlyContain(p => p.Item["signalKey"].S == $"{releasedAt}#CLEAN_DELIVERY#esc-j2");
+        _creditRows.Should().BeEquivalentTo(new[] { BuyerId, FarmerId, TruckerId }
+            .Select(id => $"{id}|{releasedAt}#CLEAN_DELIVERY#esc-j2"));
+        Logs.Should().Contain("CLEAN_DELIVERY_CREDITED escrowId=esc-j2 credited=1 alreadyCredited=2 failed=0");
+        _journal.Should().BeEmpty();
+        sweep.Served.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task Recovery_ARunThatDiedBetweenTheReleaseAndTheCredit_IsCreditedByTheNextRun()
+    {
+        // The dead run noted the escrow and released it; nothing else is left of it.
+        _journal.Add("esc-dead");
+        Released("esc-dead");
+
+        var summary = await RunAsync(Cron(withJournal: true));
+
+        summary["released"].Should().Be("0");
+        await _gateway.DidNotReceive().ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>());
+        _puts.Select(p => p.Item["userId"].S).Should().Equal(BuyerId, FarmerId, TruckerId);
+        _puts.Should().OnlyContain(p => p.Item["signalKey"].S == $"{ReleasedAtStored}#CLEAN_DELIVERY#esc-dead"
+                                        && p.ConditionExpression == "attribute_not_exists(signalKey)");
+        _journal.Should().BeEmpty();
+        Logs.Should().Contain("CLEAN_DELIVERY_CREDIT_RECOVERY pending=1 read=1 creditsWritten=3 cleared=1 kept=0");
+    }
+
+    [Fact]
+    public async Task Recovery_ReadTwice_CreditsEachPartyOnce()
+    {
+        // The first recovery credits but cannot clear its entry, so the next run reads the escrow again.
+        _journal.Add("esc-twice");
+        Released("esc-twice", status: "released");
+        _journalRemoveFailure = new ProvisionedThroughputExceededException("throttled");
+
+        await RunAsync(Cron(withJournal: true));
+        _journal.Should().Equal("esc-twice");
+        _journalRemoveFailure = null;
+        await RunAsync(Cron(withJournal: true));
+
+        _creditRows.Should().HaveCount(3);
+        Logs.Should().Contain("CLEAN_DELIVERY_CREDITED escrowId=esc-twice credited=0 alreadyCredited=3 failed=0");
+        Logs.Should().Contain("CLEAN_DELIVERY_JOURNAL_FAILED op=remove escrowId=esc-twice");
+        _journal.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(null, "not_auto_release")] // an admin release or a dispute verdict: the release wrote no origin
+    [InlineData("other", "not_auto_release")] // a ledger escrow an admin decided
+    public async Task Recovery_AReleaseThatWasNotTheAutoRelease_IsNeverCredited(string? origin, string reason)
+    {
+        _journal.Add("esc-admin");
+        Released("esc-admin", origin: origin);
+
+        await RunAsync(Cron(withJournal: true));
+
+        _ddb.ReceivedCalls().Should().BeEmpty();
+        _journal.Should().BeEmpty();
+        // The log helper writes "_" as "-" (MoneyAlarmLog.LogId).
+        Logs.Should().Contain($"CLEAN_DELIVERY_NOT_CREDITED escrowId=esc-admin reason={MoneyAlarmLog.LogId(reason)}");
+    }
+
+    [Fact]
+    public async Task Recovery_AMarkedRowWithADisputeField_IsNotCredited()
+    {
+        _journal.Add("esc-disputed");
+        Released("esc-disputed")["disputeResolution"] = "farmer_wins";
+
+        await RunAsync(Cron(withJournal: true));
+
+        _ddb.ReceivedCalls().Should().BeEmpty();
+        _journal.Should().BeEmpty();
+        Logs.Should().Contain("CLEAN_DELIVERY_NOT_CREDITED escrowId=esc-disputed reason=dispute");
+    }
+
+    [Theory]
+    [InlineData("escrowed", false)] // the release was refused: a later auto-release notes it again
+    [InlineData("escrowed", true)] // waiting in the manual payout queue: the admin's close credits it
+    [InlineData("refunded", false)]
+    [InlineData("disputed", false)]
+    [InlineData("held", false)]
+    public async Task Recovery_ARowThatWasNotReleased_IsClearedWithoutACredit(string status, bool queued)
+    {
+        _journal.Add("esc-open");
+        var row = Released("esc-open", status: status, releasedAt: null);
+        if (queued)
+        {
+            row["manualPayout"] = "open";
+            row["settlementLock"] = "release";
+        }
+
+        await RunAsync(Cron(withJournal: true));
+
+        _ddb.ReceivedCalls().Should().BeEmpty();
+        _journal.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Recovery_ARowThatIsGone_IsCleared()
+    {
+        _journal.Add("esc-gone");
+
+        await RunAsync(Cron(withJournal: true));
+
+        _ddb.ReceivedCalls().Should().BeEmpty();
+        _journal.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Recovery_ARowUnderASettlementLock_StaysInTheJournal()
+    {
+        // A release is in flight (or its lock is about to be parked): the next run decides.
+        _journal.Add("esc-locked");
+        Released("esc-locked", status: "escrowed", releasedAt: null)["settlementLock"] = "release";
+
+        await RunAsync(Cron(withJournal: true));
+
+        _ddb.ReceivedCalls().Should().BeEmpty();
+        _journal.Should().Equal("esc-locked");
+        Logs.Should().Contain("CLEAN_DELIVERY_CREDIT_RECOVERY pending=1 read=1 creditsWritten=0 cleared=0 kept=1");
+    }
+
+    [Fact]
+    public async Task Recovery_AFailedSignalReadKeepsTheEscrowForTheNextRun()
+    {
+        _journal.Add("esc-read2");
+        Released("esc-read2");
+        _readFailure = new ProvisionedThroughputExceededException("throttled");
+
+        await RunAsync(Cron(withJournal: true));
+
+        _puts.Should().BeEmpty();
+        _journal.Should().Equal("esc-read2");
+        Logs.Should().NotContain("SETTLEMENT_FAILED");
+    }
+
+    [Fact]
+    public async Task Recovery_ReadsAtMostTheCapPerRun()
+    {
+        for (var i = 0; i < EscrowCronFunction.CleanDeliveryRecoveryMaxRows + 5; i++)
+        {
+            _journal.Add($"esc-cap-{i:D3}");
+        }
+
+        await RunAsync(Cron(withJournal: true));
+
+        // The rows are gone, so each one read is cleared; the rest wait for the next run.
+        _journal.Should().HaveCount(5);
+        await _escrows.Received(EscrowCronFunction.CleanDeliveryRecoveryMaxRows).GetByIdAsync(Arg.Any<string>(), true);
+    }
+
+    [Fact]
+    public async Task Journal_AJournalThatCannotBeReadOrWritten_NeverStopsTheReleaseOrTheCredit()
+    {
+        _escrows.StubReleaseSweep(Confirmed("esc-j-down"));
+        _journalReadFailure = new ProvisionedThroughputExceededException("throttled");
+        _journalAddFailure = new ProvisionedThroughputExceededException("throttled");
+        _journalRemoveFailure = new ProvisionedThroughputExceededException("throttled");
+
+        var summary = await RunAsync(Cron(withJournal: true));
+
+        summary["released"].Should().Be("1");
+        _puts.Should().HaveCount(3);
+        Logs.Should().Contain("CLEAN_DELIVERY_JOURNAL_FAILED op=read");
+        Logs.Should().Contain("CLEAN_DELIVERY_JOURNAL_FAILED op=add escrowId=esc-j-down");
+        Logs.Should().NotContain("SETTLEMENT_FAILED");
+    }
+
+    [Fact]
+    public async Task Journal_AReleaseThatThrows_LeavesTheEscrowForTheNextRun()
+    {
+        _escrows.StubReleaseSweep(Confirmed("esc-j-throw"));
+        _gateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>())
+            .Returns<ReleaseFundsResponse>(_ => throw new InvalidOperationException("boom"));
+
+        await RunAsync(Cron(withJournal: true));
+
+        // Whatever the release did, the next run reads the row and decides.
+        _journal.Should().Equal("esc-j-throw");
+        _puts.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task LiveMode_TheQueuedAutoReleaseCarriesItsOrigin_AndNoCreditIsWrittenYet()
+    {
+        // The gateway cannot pay out: the release waits in the manual payout queue for an admin.
+        _escrows.StubReleaseSweep(Confirmed("esc-live"));
+        _gateway.ReleaseFundsAsync(Arg.Any<ReleaseFundsRequest>()).Returns(new ReleaseFundsResponse
+        {
+            Success = false,
+            ErrorCode = TelebirrGatewayErrors.PayoutNotSupported
+        });
+        _escrows.TryQueueManualPayoutAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), Arg.Any<string?>())
+            .Returns(true);
+
+        var summary = await RunAsync(Cron(withJournal: true));
+
+        summary["released"].Should().Be("0");
+        summary["manualPayoutsWaiting"].Should().Be("1");
+        await _escrows.Received(1).TryQueueManualPayoutAsync("esc-live", Arg.Any<string>(), "release",
+            "PAYOUT_NOT_SUPPORTED", "escrowed", Arg.Any<IReadOnlyList<ManualPayoutLegSeed>>(), Arg.Any<string>(), "auto_release");
+        _ddb.ReceivedCalls().Should().BeEmpty();
+        // FUP-155: the admin's close credits a queued 1.x escrow, so its entry goes at once (FUP-137 left it
+        // for the next run to read the row and clear it).
+        _events.Should().Equal("add:esc-live", "gateway", "remove:esc-live");
+        _journal.Should().BeEmpty();
+    }
+
+    // ── FUP-155: a release that owes no credit here leaves no entry ──
+
+    /// <summary>The farmer's phone is not verified, so the payout gate refuses every release before the lock.</summary>
+    private void FarmerPhoneUnverified()
+        => _users.GetUserByIdAsync(FarmerId).Returns(new UserDto
+        {
+            UserId = FarmerId,
+            PhoneNumber = "+251900000001",
+            Role = "farmer",
+            Woreda = "w",
+            IsPhoneVerified = false,
+            CreatedAt = "2025-01-01T00:00:00Z",
+            UpdatedAt = "2025-01-01T00:00:00Z",
+            Version = 1
+        });
+
+    [Fact]
+    public async Task Journal_AReleaseThePayoutGateBlocks_LeavesNoEntry()
+    {
+        FarmerPhoneUnverified();
+        _escrows.StubReleaseSweep(Confirmed("esc-kyc"));
+
+        var summary = await RunAsync(Cron(withJournal: true));
+
+        summary["released"].Should().Be("0");
+        summary["releaseBlocked"].Should().Be("1");
+        // Noted before the release (the answer is not known yet) and cleared at once: no money moved.
+        _events.Should().Equal("add:esc-kyc", "remove:esc-kyc");
+        _journal.Should().BeEmpty();
+        _ddb.ReceivedCalls().Should().BeEmpty();
+        Logs.Should().Contain("ESCROW_RELEASE_BLOCKED escrowId=esc-kyc code=ESCROW_029 sweep=auto-release");
+    }
+
+    [Fact]
+    public async Task Journal_AFailedClearOfABlockedRelease_IsLeftForTheNextRun()
+    {
+        FarmerPhoneUnverified();
+        _escrows.StubReleaseSweep(Confirmed("esc-kyc-stuck"));
+        _journalRemoveFailure = new ProvisionedThroughputExceededException("throttled");
+
+        var summary = await RunAsync(Cron(withJournal: true));
+
+        // Only logged: the next run's recovery reads the row (still escrowed, unlocked) and clears it.
+        summary["releaseBlocked"].Should().Be("1");
+        _journal.Should().Equal("esc-kyc-stuck");
+        Logs.Should().Contain("CLEAN_DELIVERY_JOURNAL_FAILED op=remove escrowId=esc-kyc-stuck");
+        Logs.Should().NotContain("SETTLEMENT_FAILED");
+    }
+
+    [Fact]
+    public async Task Journal_BlockedReleasesNeverHoldACrashedCreditOutOfTheRecoveryWindow()
+    {
+        // More blocked escrows than the recovery reads in one run, each sorting before the crashed entry below.
+        FarmerPhoneUnverified();
+        var blocked = Enumerable.Range(0, EscrowCronFunction.CleanDeliveryRecoveryMaxRows + 10)
+            .Select(i => Confirmed($"esc-kyc-{i:D3}"))
+            .ToArray();
+        _escrows.StubReleaseSweep(blocked);
+
+        var first = await RunAsync(Cron(withJournal: true));
+
+        first["releaseBlocked"].Should().Be(blocked.Length.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        _journal.Should().BeEmpty();
+
+        // A run then dies between a release and its credit. The blocked escrows are swept and blocked again.
+        _journal.Add("esc-zz-dead");
+        Released("esc-zz-dead");
+
+        await RunAsync(Cron(withJournal: true));
+
+        _puts.Should().HaveCount(3)
+            .And.OnlyContain(p => p.Item["signalKey"].S == $"{ReleasedAtStored}#CLEAN_DELIVERY#esc-zz-dead");
+        Logs.Should().Contain("CLEAN_DELIVERY_CREDIT_RECOVERY pending=1 read=1 creditsWritten=3 cleared=1 kept=0");
+        _journal.Should().BeEmpty();
+    }
+
+    // FUP-499: an hour at which the window over 56 entries starts at the first one (hour * 50 is a multiple of 56).
+    private static readonly DateTime WindowAtTheStart = DateTime.UnixEpoch.AddHours(28 * 20_000);
+
+    [Fact]
+    public async Task Recovery_MoreEntriesThanTheCapThatStayEveryRun_CannotHideACrashedEntryPastTheNextRun()
+    {
+        // 55 entries the recovery keeps every run (their release is in flight), which is what escrows the gateway
+        // refuses every hour amount to, and a crashed credit that sorts after all of them. A window fixed on the
+        // first 50 in id order never reached it.
+        for (var i = 0; i < EscrowCronFunction.CleanDeliveryRecoveryMaxRows + 5; i++)
+        {
+            var id = $"esc-lock-{i:D3}";
+            _journal.Add(id);
+            Released(id, status: "escrowed", releasedAt: null)["settlementLock"] = "release";
+        }
+
+        _journal.Add("esc-zz-dead");
+        Released("esc-zz-dead");
+
+        await RunAsync(Cron(withJournal: true, recoveryNow: WindowAtTheStart));
+
+        _puts.Should().BeEmpty();
+        _journal.Should().Contain("esc-zz-dead").And.HaveCount(56);
+        Logs.Should().Contain("CLEAN_DELIVERY_CREDIT_RECOVERY pending=56 read=50 creditsWritten=0 cleared=0 kept=50");
+
+        // The next hourly run reads the window that follows: the last six entries, then the first 44.
+        await RunAsync(Cron(withJournal: true, recoveryNow: WindowAtTheStart.AddHours(1)));
+
+        _puts.Should().HaveCount(3)
+            .And.OnlyContain(p => p.Item["signalKey"].S == $"{ReleasedAtStored}#CLEAN_DELIVERY#esc-zz-dead");
+        _journal.Should().NotContain("esc-zz-dead").And.HaveCount(55);
+        Logs.Should().Contain("CLEAN_DELIVERY_CREDIT_RECOVERY pending=56 read=50 creditsWritten=3 cleared=1 kept=49");
+    }
+
+    [Fact]
+    public void RecoveryWindow_TurnsEachHour_AndCoversEveryEntryWithinCeilCountOverCapRuns()
+    {
+        var pending = Enumerable.Range(0, 123).Select(i => $"esc-{i:D3}").ToList();
+        var cap = EscrowCronFunction.CleanDeliveryRecoveryMaxRows;
+        var runs = (pending.Count + cap - 1) / cap;
+
+        // From any starting hour, ceil(123 / 50) = 3 consecutive hourly runs read every entry.
+        foreach (var startHour in new[] { 0, 1, 7, 449_999, 500_123 })
+        {
+            var read = new HashSet<string>();
+            for (var run = 0; run < runs; run++)
+            {
+                var window = EscrowCronFunction
+                    .CleanDeliveryRecoveryWindow(pending, DateTime.UnixEpoch.AddHours(startHour + run).AddMinutes(17))
+                    .ToList();
+                window.Should().HaveCount(cap).And.OnlyHaveUniqueItems();
+                read.UnionWith(window);
+            }
+
+            read.Should().HaveCount(pending.Count, $"start hour {startHour}");
+        }
+    }
+
+    [Fact]
+    public void RecoveryWindow_WithTheCapOrFewer_IsEveryEntryInIdOrder()
+    {
+        var pending = Enumerable.Range(0, EscrowCronFunction.CleanDeliveryRecoveryMaxRows)
+            .Select(i => $"esc-{i:D3}").ToList();
+
+        EscrowCronFunction.CleanDeliveryRecoveryWindow(pending, DateTime.UnixEpoch.AddHours(12_345))
+            .Should().Equal(pending);
+    }
+}

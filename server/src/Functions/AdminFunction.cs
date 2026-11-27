@@ -4,6 +4,7 @@ using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.RateLimiting;
 using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Functions;
@@ -19,8 +20,11 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/escrows/{id}/audit     → audit trail
 /// - GET  /admin/disputes               → disputed escrows
 /// - POST /admin/disputes/{id}/resolve  → resolve dispute
+/// - GET  /admin/disputes/{id}/evidence → the dispute's evidence package (admin group only, FRD-14)
 /// - GET  /admin/fraud-signals          → fraud signals list
 /// - POST /admin/fraud-signals/{id}/action → review fraud signal
+/// - GET  /admin/listing-reports        → buyers' reports of listings (FUP-67)
+/// - POST /admin/listing-reports/{listingId}/review → decide a listing's open reports
 /// - GET  /admin/users                  → user list with search
 /// - GET  /admin/users/{id}             → user detail
 /// - POST /admin/users/{id}/action      → suspend/verify/change role
@@ -32,10 +36,23 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/transactions/{orderId} → stitched transaction detail + timeline
 /// - GET  /admin/payouts/manual         → manual payout queue (ESC-02)
 /// - POST /admin/payouts/{escrowId}/{ref}/complete → record an admin-paid leg (admin group only)
+/// - POST /admin/payouts/{escrowId}/{ref}/claim    → claim a leg before paying it (admin group only, FUP-05)
+/// - POST /admin/payouts/{escrowId}/{ref}/unclaim  → give a claimed leg back (admin group only, FUP-05)
+/// - POST /admin/payouts/{escrowId}/{ref}/correct  → replace a recorded leg's portal reference (admin group only, FUP-218)
 /// - GET  /admin/payments/unapplied      → captured payments the webhook did not apply (FUP-02)
 /// - POST /admin/payments/{orderId}/refund-manual → record their manual refund (admin group only)
+/// - GET  /admin/deliveries/{id}/trail → the trip trail of a delivery, dispute evidence (admin group only, LT-13)
+/// - POST /admin/deliveries/{id}/cancel → cancel a delivery after pickup once its money is decided (admin group only, FUP-19)
+/// - GET  /admin/escrows/{id}/ledger   → the escrow's ledger rows, read only (ESC-24)
+/// - GET  /admin/orders/queue          → stuck orders: the admin queue or a passed deadline (ESC-24)
+/// - POST /admin/orders/{orderId}/reopen-pickup → re-open a judged pickup (admin group only, FUP-287)
+/// - POST /admin/orders/{orderId}/commission → another commission rate on an unpaid order (admin group only, order-lifecycle 2.26.0)
+/// - GET  /admin/users/{id}/reputation → a user's reputation, restrictions and events (admin group only, ESC-32)
+/// - POST /admin/users/{id}/reputation → tag, untag, restrict or lift (admin group only, ESC-32)
+/// - POST /admin/users/{id}/reputation/events/{eventId}/decision → excuse or uphold one event (admin group only, ESC-32)
+/// - GET  /admin/reputation/appeals    → the appeals queue (admin group only, ESC-32)
 /// </summary>
-public class AdminFunction
+public partial class AdminFunction
 {
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _escrowsTable;
@@ -51,6 +68,23 @@ public class AdminFunction
 
     // FUP-02: the refund claim rows of the unapplied payment queue (PutItem only).
     private readonly string _escrowIdempotencyTable;
+
+    // LT-13: the check-ins of the delivery trail (Query only).
+    private readonly string _tripLocationsTable;
+
+    /// <summary>The server clock of the delivery trail (its open window); tests set it.</summary>
+    internal Func<DateTime> Clock { get; init; } = () => DateTime.UtcNow;
+
+    /// <summary>
+    /// ESC-20: the escrow ledger table (<c>ESCROW_LEDGER_TABLE</c>): the manual payout queue lists and records its
+    /// rows, and the unapplied payment record refuses a duplicate payment the ledger refunds. Empty: no ledger.
+    /// </summary>
+    internal string LedgerTable { get; init; } = Environment.GetEnvironmentVariable(EscrowLedgerConfig.TableVariable) ?? "";
+
+    private IEscrowLedgerRepository? LedgerRepository()
+        => string.IsNullOrEmpty(LedgerTable) || string.IsNullOrEmpty(_escrowsTable) || string.IsNullOrEmpty(_escrowAuditTable)
+            ? null
+            : new EscrowLedgerRepository(_dynamoDb, LedgerTable, _escrowsTable, _escrowAuditTable);
 
     // Account controls that must reach Cognito (disable, global sign-out, role
     // attribute); null in tests that only exercise DynamoDB behaviour.
@@ -77,6 +111,7 @@ public class AdminFunction
         _deliveriesTable = Environment.GetEnvironmentVariable("DELIVERIES_TABLE") ?? "";
         _paymentsTable = Environment.GetEnvironmentVariable("PAYMENTS_TABLE") ?? "";
         _escrowIdempotencyTable = Environment.GetEnvironmentVariable("ESCROW_IDEMPOTENCY_TABLE") ?? "";
+        _tripLocationsTable = Environment.GetEnvironmentVariable("TRIP_LOCATIONS_TABLE") ?? "";
     }
 
     /// <summary>
@@ -100,12 +135,14 @@ public class AdminFunction
         _deliveriesTable = "";
         _paymentsTable = "";
         _escrowIdempotencyTable = "";
+        _tripLocationsTable = "";
     }
 
     /// <summary>
     /// Test/DI constructor for the transaction-monitor endpoints: inject the client
     /// plus the tables those handlers touch (orders + escrows + deliveries + escrow
-    /// audit). Unrelated table names default to empty.
+    /// audit, and trip-locations for the delivery trail). Unrelated table names
+    /// default to empty.
     /// </summary>
     internal AdminFunction(
         IAmazonDynamoDB dynamoDb,
@@ -115,7 +152,11 @@ public class AdminFunction
         string deliveriesTable,
         string escrowAuditTable,
         string transactionAuditTable = "",
-        string escrowIdempotencyTable = "")
+        string escrowIdempotencyTable = "",
+        string tripLocationsTable = "",
+        string tripsTable = "",
+        string cropsTable = "",
+        string fraudSignalsTable = "")
     {
         _dynamoDb = dynamoDb;
         _usersTable = usersTable;
@@ -124,11 +165,12 @@ public class AdminFunction
         _deliveriesTable = deliveriesTable;
         _escrowAuditTable = escrowAuditTable;
         _transactionAuditTable = transactionAuditTable;
-        _fraudSignalsTable = "";
-        _cropsTable = "";
-        _tripsTable = "";
+        _fraudSignalsTable = fraudSignalsTable;
+        _cropsTable = cropsTable;
+        _tripsTable = tripsTable;
         _paymentsTable = "";
         _escrowIdempotencyTable = escrowIdempotencyTable;
+        _tripLocationsTable = tripLocationsTable;
     }
 
     /// <summary>
@@ -160,11 +202,19 @@ public class AdminFunction
                 ("GET", ["admin", "dashboard", "stats"]) => await HandleDashboardStatsAsync(request, context),
                 ("GET", ["admin", "escrows"]) => await HandleListEscrowsAsync(request, context),
                 ("GET", ["admin", "escrows", _, "audit"]) => await HandleEscrowAuditAsync(segments[2], context),
+                ("GET", ["admin", "escrows", _, "ledger"]) => await HandleEscrowLedgerAsync(segments[2], request),
+                ("GET", ["admin", "orders", "queue"]) => await HandleListStuckOrdersAsync(request),
+                ("POST", ["admin", "orders", _, _]) => await HandleOrderActionAsync(segments[2], segments[3], request, context),
+                // FRD-07: before the {id} route, which would read "held" as an escrow id.
+                ("GET", ["admin", "escrows", "held"]) => await HandleListHeldEscrowsAsync(request, context),
                 ("GET", ["admin", "escrows", _]) => await HandleGetEscrowAsync(segments[2], context),
                 ("GET", ["admin", "disputes"]) => await HandleListDisputesAsync(request, context),
                 ("POST", ["admin", "disputes", _, "resolve"]) => await HandleResolveDisputeAsync(segments[2], request, context),
+                ("GET", ["admin", "disputes", _, "evidence"]) => await HandleDisputeEvidenceAsync(segments[2], request, context),
                 ("GET", ["admin", "fraud-signals"]) => await HandleListFraudSignalsAsync(request, context),
                 ("POST", ["admin", "fraud-signals", _, "action"]) => await HandleFraudActionAsync(segments[2], request, context),
+                ("GET", ["admin", "listing-reports"]) => await HandleListListingReportsAsync(request, context),
+                ("POST", ["admin", "listing-reports", _, "review"]) => await HandleReviewListingReportsAsync(segments[2], request, context),
                 ("GET", ["admin", "users"]) => await HandleListUsersAsync(request, context),
                 ("GET", ["admin", "users", _]) => await HandleGetUserAsync(segments[2], context),
                 ("POST", ["admin", "users", _, "action"]) => await HandleUserActionAsync(segments[2], request, context),
@@ -177,8 +227,17 @@ public class AdminFunction
                 ("GET", ["admin", "audit"]) => await HandleAuditLogAsync(request, context),
                 ("GET", ["admin", "payouts", "manual"]) => await HandleListManualPayoutsAsync(request, context),
                 ("POST", ["admin", "payouts", _, _, "complete"]) => await HandleCompleteManualPayoutAsync(segments[2], segments[3], request, context),
+                ("POST", ["admin", "payouts", _, _, "claim"]) => await HandleClaimManualPayoutAsync(segments[2], segments[3], request, context, claim: true),
+                ("POST", ["admin", "payouts", _, _, "unclaim"]) => await HandleClaimManualPayoutAsync(segments[2], segments[3], request, context, claim: false),
+                ("POST", ["admin", "payouts", _, _, "correct"]) => await HandleCorrectPayoutReferenceAsync(segments[2], segments[3], request, context),
                 ("GET", ["admin", "payments", "unapplied"]) => await HandleListUnappliedPaymentsAsync(request),
                 ("POST", ["admin", "payments", _, "refund-manual"]) => await HandleRecordManualRefundAsync(segments[2], request, context),
+                ("GET", ["admin", "deliveries", _, "trail"]) => await HandleDeliveryTrailAsync(segments[2], request, context),
+                ("POST", ["admin", "deliveries", _, _]) => await HandleDeliveryActionAsync(segments[2], segments[3], request, context),
+                ("GET", ["admin", "users", _, "reputation"]) => await HandleGetReputationAsync(segments[2], request, context),
+                ("POST", ["admin", "users", _, "reputation"]) => await HandleReputationActionAsync(segments[2], request, context),
+                ("POST", ["admin", "users", _, "reputation", "events", _, "decision"]) => await HandleReputationDecisionAsync(segments[2], segments[5], request, context),
+                ("GET", ["admin", "reputation", "appeals"]) => await HandleListReputationAppealsAsync(request, context),
                 _ => LambdaResponse.Error(404, "ADMIN_002", "Admin endpoint not found.")
             };
         }
@@ -207,15 +266,19 @@ public class AdminFunction
         var escrowsCount = await ScanCountAsync(_escrowsTable);
         // Funded-but-not-released escrows are persisted as "escrowed" (EscrowService
         // sets this after a successful Telebirr hold). "held" means frozen for fraud review
-        // (FRD-03); FRD-07 adds its own count.
+        // (FRD-03) and has its own count below (FRD-07).
         var activeEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "escrowed");
         var disputedEscrows = await ScanCountWithFilterAsync(_escrowsTable, "status", "disputed");
         var ordersCount = await ScanCountAsync(_ordersTable);
         // Crops are created with status "available" (never "active"); the old
         // filter counted 0. Valid crop statuses: available/reserved/sold/deleted.
         var activeListings = await ScanCountWithFilterAsync(_cropsTable, "status", "available");
-        // FRD-05: credit and whitelist rows share the table but are not signals.
-        var fraudSignalsCount = await ScanCountAsync(_fraudSignalsTable, ScanFilter.SignalRowsOnly);
+        // FRD-07: the review backlog, counted on the sparse status index. Credit and whitelist rows carry
+        // no status, so the index never holds them (FRD-05 filtered them out of a Scan).
+        var fraudSignalsCount = await QueryCountAsync(
+            _fraudSignalsTable, FraudStatusIndex, FraudStatusPending, ScanFilter.SignalRowsOnly);
+        // FRD-07: the held queue's length, on the index the settlement sweeps read by status.
+        var heldEscrows = await QueryCountAsync(_escrowsTable, EscrowStatusIndex, EscrowHoldFields.Status);
         var (totalVolume, totalCommissions) = await ScanEscrowTotalsAsync();
 
         var response = new AdminDashboardStatsResponse
@@ -230,6 +293,7 @@ public class AdminFunction
             TotalOrders = ordersCount,
             ActiveListings = activeListings,
             FraudSignalsCount = fraudSignalsCount,
+            HeldEscrows = heldEscrows,
             TotalEscrowVolume = totalVolume,
             TotalCommissions = totalCommissions,
             GeneratedAt = DateTime.UtcNow.ToString("o")
@@ -251,13 +315,23 @@ public class AdminFunction
         queryParams.TryGetValue("nextToken", out var nextToken);
         var limit = ParseLimit(queryParams, 20);
 
-        Dictionary<string, AttributeValue>? startKey = null;
-        if (!string.IsNullOrEmpty(nextToken))
+        List<Dictionary<string, object>> items;
+        Dictionary<string, AttributeValue>? lastKey;
+        if (string.IsNullOrEmpty(status))
         {
-            startKey = PaginationTokenHelper.DecodeNextToken(nextToken);
+            var startKey = string.IsNullOrEmpty(nextToken) ? null : PaginationTokenHelper.DecodeNextToken(nextToken);
+            (items, lastKey) = await ScanItemsAsync(_escrowsTable, limit, startKey);
+        }
+        else
+        {
+            if (!TryReadIndexToken(queryParams, EscrowStatusIndexKeys, status, out var startKey))
+            {
+                return InvalidNextToken();
+            }
+
+            (items, lastKey) = await EscrowStatusPageAsync(status, limit, startKey);
         }
 
-        var (items, lastKey) = await ScanItemsAsync(_escrowsTable, status, "status", limit, startKey);
         var escrows = items.Select(MapToEscrowDto).ToList();
         await EnrichEscrowNamesAsync(escrows);
 
@@ -277,6 +351,44 @@ public class AdminFunction
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminEscrowListResponse);
     }
 
+    /// <summary>
+    /// FRD-07: GET /admin/escrows/held?limit=&amp;nextToken=, the held queue: escrows a settlement sweep froze for
+    /// fraud review (fraud-detection-architecture.md section 18), oldest <c>expiresAt</c> first, read from the
+    /// <c>held</c> partition of <c>StatusExpiresIndex</c> (a hold keeps the escrow's <c>expiresAt</c>), never
+    /// scanned. An admin in the admin group releases or refunds each one with a reason through
+    /// <c>POST /escrow/release</c> or <c>POST /escrow/refund</c> (section 18.3); this route only lists.
+    /// </summary>
+    private async Task<APIGatewayProxyResponse> HandleListHeldEscrowsAsync(
+        APIGatewayProxyRequest request,
+        ILambdaContext context)
+    {
+        if (string.IsNullOrEmpty(_escrowsTable))
+        {
+            return LambdaResponse.Error(503, "ADMIN_004", "Escrow tables not configured.");
+        }
+
+        var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
+        var limit = Math.Min(ParseLimit(queryParams, 20), MaxIndexPageSize);
+        if (!TryReadIndexToken(queryParams, EscrowStatusIndexKeys, EscrowHoldFields.Status, out var startKey))
+        {
+            return InvalidNextToken();
+        }
+
+        var (items, lastKey) = await QueryIndexPageAsync(
+            _escrowsTable, EscrowStatusIndex, EscrowHoldFields.Status, limit, startKey, newestFirst: false);
+        var escrows = items.Select(MapToEscrowDto).ToList();
+        await EnrichEscrowNamesAsync(escrows);
+
+        var response = new AdminEscrowListResponse
+        {
+            Escrows = escrows,
+            NextToken = lastKey == null ? null : PaginationTokenHelper.EncodeNextToken(lastKey),
+            Total = escrows.Count
+        };
+
+        return LambdaResponse.Ok(response, AppJsonContext.Default.AdminEscrowListResponse);
+    }
+
     private async Task<APIGatewayProxyResponse> HandleGetEscrowAsync(string escrowId, ILambdaContext context)
     {
         var item = await QuerySingleItemAsync(_escrowsTable, "escrowId", escrowId);
@@ -285,10 +397,37 @@ public class AdminFunction
             return LambdaResponse.Error(404, "ADMIN_003", "Escrow not found.");
         }
 
-        var escrow = MapToEscrowDto(DynamoDbHelper.FromItem(item));
+        var fields = DynamoDbHelper.FromItem(item);
+        var escrow = await WithOrderEscrowAsync(MapToEscrowDto(fields), fields);
         await EnrichEscrowNamesAsync(new List<EscrowDto> { escrow });
         var response = new AdminEscrowDetailResponse { Escrow = escrow };
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminEscrowDetailResponse);
+    }
+
+    /// <summary>
+    /// FUP-41: on an escrow that is not order-funded and names an order, the status of the order's own escrow and
+    /// whether this one is therefore a second payment (<see cref="EscrowService.OrderEscrowPaidStatuses"/>, the rule
+    /// the double escrow refund checks again). One read, on the detail route only.
+    /// </summary>
+    private async Task<EscrowDto> WithOrderEscrowAsync(EscrowDto escrow, Dictionary<string, object> item)
+    {
+        if (string.IsNullOrEmpty(escrow.OrderId) || EscrowService.IsOrderFundedEscrow(item))
+        {
+            return escrow;
+        }
+
+        var own = await QuerySingleItemAsync(_escrowsTable, "escrowId", $"escrow-order-{escrow.OrderId}");
+        if (own == null)
+        {
+            return escrow with { DoubleEscrow = false };
+        }
+
+        var ownStatus = GetString(DynamoDbHelper.FromItem(own), "status");
+        return escrow with
+        {
+            OrderEscrowStatus = ownStatus,
+            DoubleEscrow = EscrowService.OrderEscrowPaidStatuses.Contains(ownStatus)
+        };
     }
 
     private async Task<APIGatewayProxyResponse> HandleEscrowAuditAsync(string escrowId, ILambdaContext context)
@@ -330,16 +469,13 @@ public class AdminFunction
         ILambdaContext context)
     {
         var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
-        queryParams.TryGetValue("nextToken", out var nextToken);
         var limit = ParseLimit(queryParams, 20);
-
-        Dictionary<string, AttributeValue>? startKey = null;
-        if (!string.IsNullOrEmpty(nextToken))
+        if (!TryReadIndexToken(queryParams, EscrowStatusIndexKeys, "disputed", out var startKey))
         {
-            startKey = PaginationTokenHelper.DecodeNextToken(nextToken);
+            return InvalidNextToken();
         }
 
-        var (items, lastKey) = await ScanItemsAsync(_escrowsTable, "disputed", "status", limit, startKey);
+        var (items, lastKey) = await EscrowStatusPageAsync("disputed", limit, startKey);
         var disputes = items.Select(MapToEscrowDto).ToList();
         await EnrichEscrowNamesAsync(disputes);
 
@@ -388,22 +524,24 @@ public class AdminFunction
             return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
         }
 
-        // ESC-03: the verdict decides which way the money goes, so only the two verdicts with
-        // a settlement are accepted, and the action must say the same thing.
+        // ESC-03: the verdict decides which way the money goes, so only the verdicts with a settlement
+        // are accepted, and the action must say the same thing. ESC-20: partial_refund splits the legs
+        // (action split) on an escrow that settles through the ledger.
         var verdictAction = body.Resolution switch
         {
             "farmer_wins" => "release",
             "buyer_wins" => "refund",
+            DisputeVerdicts.PartialRefund => "split",
             _ => null
         };
         if (verdictAction == null)
         {
             return LambdaResponse.Error(400, "ADMIN_014",
-                body.Resolution == "partial_refund"
-                    ? "partial_refund is not supported until per-leg settlement. Choose farmer_wins or buyer_wins."
-                    : "resolution must be farmer_wins or buyer_wins.",
-                "resolution");
+                "resolution must be farmer_wins, buyer_wins or partial_refund.", "resolution");
         }
+
+        // ESC-20: the order and delivery follow a split as they follow farmer_wins (the goods were delivered).
+        var direction = DisputeVerdicts.MirrorDirection(body.Resolution);
 
         if (!string.Equals(body.Action, verdictAction, StringComparison.Ordinal))
         {
@@ -412,18 +550,26 @@ public class AdminFunction
         }
 
         // FUP-16: a disposition belongs to one verdict and always carries the admin's reason.
+        // FUP-64: settle_as_is goes with farmer_wins and buyer_wins (a split has the ledger's own path).
         var disposition = string.IsNullOrEmpty(body.Disposition) ? null : body.Disposition;
         string? dispositionReason = null;
         if (disposition != null)
         {
-            var dispositionVerdict = DisputeDisposition.VerdictOf(disposition);
-            if (dispositionVerdict == null)
+            if (disposition == DisputeDisposition.SettleAsIs)
+            {
+                if (body.Resolution is not ("farmer_wins" or "buyer_wins"))
+                {
+                    return LambdaResponse.Error(400, "ADMIN_014",
+                        $"disposition 'settle_as_is' goes with farmer_wins or buyer_wins, not {body.Resolution}.", "disposition");
+                }
+            }
+            else if (DisputeDisposition.VerdictOf(disposition) is not { } dispositionVerdict)
             {
                 return LambdaResponse.Error(400, "ADMIN_014",
-                    "disposition must be return_to_farmer, delivered_anyway, settle_now or wait_for_delivery.", "disposition");
+                    "disposition must be return_to_farmer, delivered_anyway, settle_now, wait_for_delivery or settle_as_is.",
+                    "disposition");
             }
-
-            if (dispositionVerdict != body.Resolution)
+            else if (dispositionVerdict != direction)
             {
                 return LambdaResponse.Error(400, "ADMIN_014",
                     $"disposition '{disposition}' goes with {dispositionVerdict}, not {body.Resolution}.", "disposition");
@@ -448,6 +594,57 @@ public class AdminFunction
 
         var createdAt = item.TryGetValue("createdAt", out var ca) ? ca.S : "";
 
+        // ESC-20 (P.8): a split is checked against the legs still held before anything is recorded.
+        VerdictAmounts? split = null;
+        string? splitReason = null;
+        if (body.Resolution == DisputeVerdicts.PartialRefund)
+        {
+            var escrow = DynamoDbHelper.FromItem(item);
+            if (!LedgerEscrowFields.IsLedger(escrow))
+            {
+                return LambdaResponse.Error(400, "ADMIN_014",
+                    "partial_refund needs an escrow that settles through the ledger; this one settles on the 1.x path. "
+                    + "Choose farmer_wins or buyer_wins.", "resolution");
+            }
+
+            if (body.FarmerAmount is not { } farmerAmount || body.TruckerAmount is not { } truckerAmount
+                || body.BuyerRefund is not { } buyerRefund)
+            {
+                var missing = body.FarmerAmount == null ? "farmerAmount" : body.TruckerAmount == null ? "truckerAmount" : "buyerRefund";
+                return LambdaResponse.Error(400, "ADMIN_021",
+                    "A split needs farmerAmount, truckerAmount and buyerRefund.", missing);
+            }
+
+            split = new VerdictAmounts(farmerAmount, truckerAmount, buyerRefund);
+
+            // FUP-174: the same split again on an escrow whose split is recorded and not settled yet is a replay,
+            // which records nothing and may add the disposition. The sweep may have decided the legs already, so
+            // it is not checked against the legs held; the conditional write below still sends it to the replay.
+            var status = item.TryGetValue("status", out var splitStatus) ? splitStatus.S : null;
+            var replaysRecordedSplit = status == "dispute_resolved"
+                                       && item.TryGetValue("disputeResolution", out var recordedVerdict)
+                                       && recordedVerdict.S == DisputeVerdicts.PartialRefund
+                                       && VerdictAmounts.From(escrow) == split;
+            if (!replaysRecordedSplit)
+            {
+                var (_, splitRefusal) = EscrowLedgerBook.PlanSplit(LedgerEscrow.From(escrow), farmerAmount, truckerAmount, buyerRefund, "verdict");
+                if (splitRefusal != null)
+                {
+                    return LambdaResponse.Error(400, "ADMIN_021", splitRefusal.Message, splitRefusal.Field);
+                }
+
+                // FUP-174: every split but the recorded one again carries the admin's reason (notes), kept in its
+                // escrow-audit row. Not keyed on the status read, which may be stale: a split recorded after a stale
+                // read would otherwise have no reason. The replay records nothing new, so it needs none.
+                splitReason = body.Notes?.Trim() ?? "";
+                if (splitReason.Length is < 10 or > 500)
+                {
+                    return LambdaResponse.Error(400, "ADMIN_014",
+                        "notes must be 10 to 500 characters with partial_refund: the reason for the split.", "notes");
+                }
+            }
+        }
+
         // FUP-16: decide the order and the delivery before the verdict is written. A verdict they
         // cannot follow as they are is recorded only with a disposition that resolves it, so no new
         // verdict waits on a mismatch. An escrow already decided goes to the replay below, and one with a
@@ -459,7 +656,8 @@ public class AdminFunction
         if (item.TryGetValue("status", out var currentStatusAttr) && currentStatusAttr.S == "disputed"
             && !item.ContainsKey(ManualPayoutFields.Marker) && !item.ContainsKey("settlementLock"))
         {
-            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(item), body.Resolution);
+            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(item), direction,
+                split: body.Resolution == DisputeVerdicts.PartialRefund);
             if (plan.Case == DispositionCase.Unknown)
             {
                 return LambdaResponse.Error(503, "ESCROW_012",
@@ -468,7 +666,7 @@ public class AdminFunction
 
             if (plan.Case != DispositionCase.NotNeeded)
             {
-                if (DispositionRefusal(plan, disposition, body.Resolution, replay: false) is { } refusal)
+                if (DispositionRefusal(plan, disposition, direction, body.Resolution, replay: false) is { } refusal)
                 {
                     return refusal;
                 }
@@ -530,6 +728,21 @@ public class AdminFunction
             updateRequest.ExpressionAttributeValues[":dispositionReason"] = new AttributeValue { S = dispositionReason };
         }
 
+        if (split != null)
+        {
+            // ESC-20: the split is recorded with the verdict, and only while the crop leg is still held.
+            updateRequest.UpdateExpression += ", #verdictAmounts = :verdictAmounts";
+            updateRequest.ExpressionAttributeNames["#verdictAmounts"] = LedgerEscrowFields.VerdictAmounts;
+            updateRequest.ExpressionAttributeValues[":verdictAmounts"] = DynamoDbHelper.ToAttributeValue(split.ToMap());
+            updateRequest.ConditionExpression += " AND " + EscrowRepository.LedgerCropHeldCondition;
+            EscrowRepository.AddLedgerCropHeldNames(updateRequest.ExpressionAttributeNames, updateRequest.ExpressionAttributeValues);
+        }
+
+        // SIM-29: the verdict changes the status, so it adds to the version like every escrow status write.
+        updateRequest.UpdateExpression += " ADD #version :one";
+        updateRequest.ExpressionAttributeNames["#version"] = "version";
+        updateRequest.ExpressionAttributeValues[":one"] = new AttributeValue { N = "1" };
+
         try
         {
             await _dynamoDb.UpdateItemAsync(updateRequest);
@@ -546,6 +759,12 @@ public class AdminFunction
             // FUP-16: a replay also records or repairs a disposition.
             if (latest != null && latestStatus != "disputed" && recorded == body.Resolution)
             {
+                // ESC-20: a split is the same verdict only with the same amounts.
+                if (split != null && VerdictAmounts.From(DynamoDbHelper.FromItem(latest)) != split)
+                {
+                    return LambdaResponse.Error(409, "ADMIN_010", "A different split is already recorded for this escrow.");
+                }
+
                 return await ReplayVerdictAsync(
                     latest, body.Resolution, disposition, dispositionReason, adminUserId, now, request, context);
             }
@@ -585,7 +804,12 @@ public class AdminFunction
                     { "toState", "dispute_resolved" },
                     { "actor", adminUserId },
                     { "timestamp", now },
-                    { "metadata", body.Resolution }
+                    { "metadata", split == null
+                        ? body.Resolution
+                        : $"{body.Resolution};farmerAmount={UnappliedPayments.FormatAmount(split.FarmerAmount)};"
+                          + $"truckerAmount={UnappliedPayments.FormatAmount(split.TruckerAmount)};buyerRefund={UnappliedPayments.FormatAmount(split.BuyerRefund)}"
+                          // FUP-174: the split's reason, last because it is free text.
+                          + (splitReason == null ? "" : $";reason={splitReason}") }
                 });
             }
             catch (Exception ex)
@@ -602,16 +826,19 @@ public class AdminFunction
         AuditLogger.LogAudit("ADMIN", "RESOLVE_DISPUTE",
             userId: adminUserId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "escrow", entityId: escrowId, outcome: "success");
+        await OutcomeLabelWriter.WriteAsync(TxAuditRepo(),
+            DisputeLabel(item, disputeOrderId, body, applyDisposition, dispositionReason, adminUserId, now),
+            AuditContext.From(request, adminUserId, "admin"), context);
 
         if (applyDisposition != null)
         {
-            return await ApplyDispositionAsync(mirror, item, body.Resolution, applyDisposition, dispositionReason!, mismatchedLegs,
+            return await ApplyDispositionAsync(mirror, item, direction, applyDisposition, dispositionReason!, mismatchedLegs,
                 dispositionAt: now, resolvedAt: now, "dispute_resolved", adminUserId, request, context);
         }
 
         // ESC-03: the order and delivery follow the verdict now; the settlement repairs a leg
         // that fails here.
-        await MirrorVerdictAsync(item, body.Resolution, now, adminUserId, context);
+        await MirrorVerdictAsync(item, direction, now, adminUserId, context);
 
         var response = new ResolveDisputeResponse
         {
@@ -619,13 +846,83 @@ public class AdminFunction
             Status = "dispute_resolved",
             Resolution = body.Resolution,
             ResolvedAt = now,
-            Message = (body.Resolution == "farmer_wins"
-                    ? "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour."
-                    : "Verdict recorded. The settlement sweep refunds the buyer within the hour.")
-                + (dispositionIgnored ? " No disposition was needed: the order can follow the verdict." : "")
+            Message = (body.Resolution switch
+            {
+                "farmer_wins" => "Verdict recorded. The settlement sweep releases the funds to the farmer within the hour.",
+                "buyer_wins" => "Verdict recorded. The settlement sweep refunds the buyer within the hour.",
+                _ => "Verdict recorded. The settlement sweep pays the split to each party within the hour."
+            })
+                + (dispositionIgnored ? " No disposition was needed: the order can follow the verdict." : ""),
+            VerdictAmounts = split == null
+                ? null
+                : new VerdictAmountsDto { FarmerAmount = split.FarmerAmount, TruckerAmount = split.TruckerAmount, BuyerRefund = split.BuyerRefund }
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.ResolveDisputeResponse);
+    }
+
+    /// <summary>
+    /// FRD-18 (section 20.1): the outcome label of a dispute verdict, written once with the verdict (a
+    /// replay records nothing new, the label included). Keyed on the verdict's time, the escrow's
+    /// <c>disputeResolvedAt</c>. The reason is the disposition's, else the admin's notes.
+    /// </summary>
+    private static OutcomeLabel DisputeLabel(
+        Dictionary<string, AttributeValue> escrow, string transactionId, ResolveDisputeRequest body,
+        string? disposition, string? dispositionReason, string adminUserId, string resolvedAt)
+    {
+        string? Field(string name) => escrow.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value.S) ? value.S : null;
+
+        var escrowId = Field("escrowId") ?? transactionId;
+        return new OutcomeLabel
+        {
+            Case = OutcomeLabels.CaseDispute,
+            CaseId = escrowId,
+            Outcome = body.Resolution,
+            Source = "admin_dispute_resolved",
+            TransactionId = transactionId,
+            KeyTime = resolvedAt,
+            AdminId = adminUserId,
+            LabelledAt = resolvedAt,
+            Reason = dispositionReason ?? body.Notes,
+            OrderId = Field("orderId"),
+            EscrowId = escrowId,
+            DeliveryId = Field("deliveryId"),
+            BuyerId = Field("buyerId"),
+            FarmerId = Field("farmerId"),
+            TruckerId = Field("truckerId"),
+            Amount = escrow.TryGetValue("amount", out var amount)
+                     && decimal.TryParse(amount.N, NumberStyles.Number, CultureInfo.InvariantCulture, out var value)
+                ? value
+                : null,
+            DisputedBy = Field("disputedBy"),
+            Disposition = disposition
+        };
+    }
+
+    /// <summary>
+    /// FRD-18: a replay of a recorded verdict that is not refused re-ensures its outcome label from what the
+    /// escrow stored (the verdict's <c>disputeResolvedAt</c> and <c>disputeResolvedBy</c>), so a label the first
+    /// write lost heals through the conditional put, and one already there is left alone. Only for a verdict on a raised
+    /// dispute (<c>disputedBy</c>) with its time stored: the FRD-03 refund of an escrow held for release also
+    /// records <c>buyer_wins</c>, and that case is labelled as a held exit.
+    /// </summary>
+    private async Task RepairDisputeLabelAsync(
+        Dictionary<string, AttributeValue> latest, string resolution, string? disposition, string? dispositionReason,
+        APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        string? Field(string name) => latest.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value.S) ? value.S : null;
+
+        if (Field("disputedBy") == null || Field("disputeResolvedAt") is not { } resolvedAt)
+        {
+            return;
+        }
+
+        var resolvedBy = Field("disputeResolvedBy") ?? AuthHelper.GetUserId(request) ?? "admin";
+        var label = DisputeLabel(latest, Field("orderId") ?? Field("escrowId") ?? "",
+            new ResolveDisputeRequest { Resolution = resolution, Action = resolution == "farmer_wins" ? "release" : "refund" },
+            disposition, string.IsNullOrEmpty(dispositionReason) ? null : dispositionReason, resolvedBy, resolvedAt);
+        // Who decided is stored; where from is not, so the replaying request's address is not put on the label.
+        await OutcomeLabelWriter.WriteAsync(TxAuditRepo(), label, new AuditContext { Actor = resolvedBy, ActorRole = "admin" }, context);
     }
 
     /// <summary>
@@ -644,10 +941,12 @@ public class AdminFunction
         var latestStatus = latest.TryGetValue("status", out var ls) ? ls.S : null;
         var recordedAt = latest.TryGetValue("disputeResolvedAt", out var lra) && lra.S != null ? lra.S : now;
         var recordedDisposition = latest.TryGetValue(DisputeDispositionFields.Disposition, out var rd) ? rd.S : null;
+        var direction = DisputeVerdicts.MirrorDirection(resolution);
         if (latestStatus == "dispute_resolved")
         {
             var mirror = VerdictMirror();
-            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(latest), resolution);
+            var plan = await mirror.PlanDispositionAsync(DynamoDbHelper.FromItem(latest), direction,
+                split: resolution == DisputeVerdicts.PartialRefund);
             if (plan.Case == DispositionCase.Unknown)
             {
                 return LambdaResponse.Error(503, "ESCROW_012",
@@ -657,7 +956,7 @@ public class AdminFunction
             if (plan.Case != DispositionCase.NotNeeded)
             {
                 var chosen = disposition ?? recordedDisposition;
-                if (DispositionRefusal(plan, chosen, resolution, replay: true) is { } refusal)
+                if (DispositionRefusal(plan, chosen, direction, resolution, replay: true) is { } refusal)
                 {
                     return refusal;
                 }
@@ -678,12 +977,17 @@ public class AdminFunction
                     dispositionAt = now;
                 }
 
-                return await ApplyDispositionAsync(mirror, latest, resolution, chosen!, reason, plan.Legs, dispositionAt,
+                // FRD-18: past the refusals, which change nothing, the label a lost write left out heals.
+                await RepairDisputeLabelAsync(latest, resolution, chosen, reason, request, context);
+                return await ApplyDispositionAsync(mirror, latest, direction, chosen!, reason, plan.Legs, dispositionAt,
                     recordedAt, latestStatus, adminUserId, request, context);
             }
         }
 
-        await MirrorVerdictAsync(latest, resolution, recordedAt, adminUserId, context);
+        await RepairDisputeLabelAsync(latest, resolution, recordedDisposition,
+            latest.TryGetValue(DisputeDispositionFields.Reason, out var storedReason) ? storedReason.S : null, request, context);
+        await MirrorVerdictAsync(latest, direction, recordedAt, adminUserId, context);
+        var recordedSplit = VerdictAmounts.From(DynamoDbHelper.FromItem(latest));
         return LambdaResponse.Ok(new ResolveDisputeResponse
         {
             EscrowId = escrowId,
@@ -691,26 +995,74 @@ public class AdminFunction
             Resolution = resolution,
             ResolvedAt = recordedAt,
             Disposition = recordedDisposition,
-            Message = "Verdict already recorded."
+            Message = "Verdict already recorded.",
+            VerdictAmounts = recordedSplit == null
+                ? null
+                : new VerdictAmountsDto
+                {
+                    FarmerAmount = recordedSplit.FarmerAmount,
+                    TruckerAmount = recordedSplit.TruckerAmount,
+                    BuyerRefund = recordedSplit.BuyerRefund
+                }
         }, AppJsonContext.Default.ResolveDisputeResponse);
     }
 
     /// <summary>
     /// FUP-16: why a verdict whose legs cannot follow it is not recorded (or not changed) with
     /// <paramref name="disposition"/>; null when the disposition resolves it. Nothing is written on a refusal.
+    /// FUP-64: a verdict no goods disposition fits takes <c>settle_as_is</c> when it is safe
+    /// (<see cref="DispositionPlan.SettleAsIsRefusal"/>); otherwise it has no admin exit. A split
+    /// (<paramref name="verdict"/> <c>partial_refund</c>, whose <paramref name="resolution"/> is its mirror direction
+    /// <c>farmer_wins</c>) never takes it: it settles leg by leg through the ledger.
     /// </summary>
     private static APIGatewayProxyResponse? DispositionRefusal(
-        DispositionPlan plan, string? disposition, string resolution, bool replay)
+        DispositionPlan plan, string? disposition, string resolution, string verdict, bool replay)
     {
         if (plan.Case == DispositionCase.NoFit)
         {
-            // A recorded verdict cannot change; before it is recorded the admin can still pick the other one.
+            var exitRefusal = verdict == DisputeVerdicts.PartialRefund ? "split" : plan.SettleAsIsRefusal;
+            if (exitRefusal is { } unsafeReason)
+            {
+                // A recorded verdict cannot change; before it is recorded the admin can still pick the other one.
+                return LambdaResponse.Error(422, "ADMIN_016",
+                    $"The order or delivery behind this verdict cannot follow {verdict} ({plan.Legs}) and no disposition fits: "
+                    + unsafeReason switch
+                    {
+                        "split" => "a split is never settled as it is (it settles leg by leg through the ledger). ",
+                        "double_escrow" => "this escrow is a second payment for an order whose own escrow holds or paid the "
+                                           + "trade's money; it is refunded as a double escrow, never released (FUP-41). ",
+                        "order_paid_out" => "the order already shows a payout, so a release could pay the farmer twice. ",
+                        "goods_returned" => "the goods went back to the farmer, so the farmer is not paid for them. ",
+                        _ => "nothing shows the goods left the farm, so the farmer is not paid for them. "
+                    }
+                    + (replay
+                        ? "Nothing was changed. The verdict is recorded and cannot change: escalate, the order must be repaired by hand."
+                        : "Nothing was recorded: bring the order to a status the verdict can follow, or choose the other verdict."));
+            }
+
+            if (disposition == null)
+            {
+                return LambdaResponse.Error(422, "ADMIN_015",
+                    $"The order or delivery behind this verdict cannot follow {resolution} ({plan.Legs}) and no goods choice fits. "
+                    + "Nothing was changed: choose settle_as_is with a reason (the money settles as the verdict says, the order "
+                    + "is closed as it is).",
+                    "disposition");
+            }
+
+            return disposition == DisputeDisposition.SettleAsIs
+                ? null
+                : LambdaResponse.Error(422, "ADMIN_016",
+                    $"{disposition} does not fit this order ({plan.Legs}); only settle_as_is does. Nothing was changed.",
+                    "disposition");
+        }
+
+        if (disposition == DisputeDisposition.SettleAsIs)
+        {
             return LambdaResponse.Error(422, "ADMIN_016",
-                $"The order or delivery behind this verdict cannot follow {resolution} ({plan.Legs}) and no disposition fits. "
-                + (replay
-                    ? "Nothing was changed. The verdict is recorded and cannot change: the order must be repaired by hand "
-                      + "first (for buyer_wins, the deprecated overrideOrderMismatch refund still settles it)."
-                    : "Nothing was recorded: bring the order to a status the verdict can follow, or choose the other verdict."));
+                "settle_as_is is only for a verdict no other choice fits; choose "
+                + (plan.Case == DispositionCase.GoodsMoving ? "return_to_farmer or delivered_anyway" : "wait_for_delivery or settle_now")
+                + ". Nothing was changed.",
+                "disposition");
         }
 
         if (disposition == null)
@@ -752,7 +1104,8 @@ public class AdminFunction
             { ":by", new AttributeValue { S = adminUserId } },
             { ":now", new AttributeValue { S = now } },
             { ":resolved", new AttributeValue { S = "dispute_resolved" } },
-            { ":resolution", new AttributeValue { S = resolution } }
+            { ":resolution", new AttributeValue { S = resolution } },
+            { ":one", new AttributeValue { N = "1" } }
         };
         var unchanged = "attribute_not_exists(#disposition)";
         if (previous != null)
@@ -771,8 +1124,9 @@ public class AdminFunction
                     { "escrowId", escrow["escrowId"] },
                     { "createdAt", escrow["createdAt"] }
                 },
+                // SIM-29: the admin escrow reads return the disposition, so it adds to the version.
                 UpdateExpression = "SET #disposition = :disposition, #dispositionReason = :reason, #dispositionBy = :by, "
-                                   + "#dispositionAt = :now, #updatedAt = :now",
+                                   + "#dispositionAt = :now, #updatedAt = :now ADD #version :one",
                 ConditionExpression = "#status = :resolved AND #resolution = :resolution "
                                       + "AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#lock) AND " + unchanged,
                 ExpressionAttributeNames = new Dictionary<string, string>
@@ -785,7 +1139,8 @@ public class AdminFunction
                     { "#status", "status" },
                     { "#resolution", "disputeResolution" },
                     { "#manualPayout", ManualPayoutFields.Marker },
-                    { "#lock", "settlementLock" }
+                    { "#lock", "settlementLock" },
+                    { "#version", "version" }
                 },
                 ExpressionAttributeValues = values
             });
@@ -848,7 +1203,7 @@ public class AdminFunction
             }
         }
 
-        var result = await mirror.ApplyDispositionAsync(escrow, resolution, disposition, resolvedAt, context);
+        var result = await mirror.ApplyDispositionAsync(escrow, resolution, disposition, resolvedAt, context, adminUserId, reason);
         if (result.DispositionNotNeeded)
         {
             // The legs moved since the verdict was decided (a handoff landed) and now follow it: the
@@ -890,6 +1245,9 @@ public class AdminFunction
                     "Verdict recorded. The goods count as delivered to the buyer; the settlement sweep refunds the buyer within the hour.",
                 DisputeDisposition.SettleNow =>
                     "Verdict recorded. The delivery is cancelled; the settlement sweep releases the funds to the farmer within the hour.",
+                DisputeDisposition.SettleAsIs => resolution == "buyer_wins"
+                    ? "Verdict recorded as it is. The order is closed where it was live; the settlement sweep refunds the buyer within the hour."
+                    : "Verdict recorded as it is. The order is closed where it was live; the settlement sweep releases the funds to the farmer within the hour.",
                 _ => "Verdict recorded. The funds are released to the farmer once the order is delivered."
             }
         }, AppJsonContext.Default.ResolveDisputeResponse);
@@ -899,7 +1257,9 @@ public class AdminFunction
     private DisputeVerdictMirror VerdictMirror() => new(
         string.IsNullOrEmpty(_ordersTable) ? null : new OrderRepository(_dynamoDb, _ordersTable),
         string.IsNullOrEmpty(_deliveriesTable) ? null : new DeliveryRepository(_dynamoDb, _deliveriesTable),
-        TxAuditRepo());
+        TxAuditRepo(),
+        // FUP-64: the order's other escrows, so settle_as_is never pays a farmer another escrow already paid.
+        escrowRepo: string.IsNullOrEmpty(_escrowsTable) ? null : new EscrowRepository(_dynamoDb, _escrowsTable));
 
     /// <summary>
     /// ESC-03: move the order and delivery behind a dispute verdict to it
@@ -978,7 +1338,20 @@ public class AdminFunction
             deliveryRepo: string.IsNullOrEmpty(_deliveriesTable) ? null : new DeliveryRepository(_dynamoDb, _deliveriesTable),
             transactionAuditRepo: string.IsNullOrEmpty(_transactionAuditTable)
                 ? null
-                : new TransactionAuditRepository(_dynamoDb, _transactionAuditTable));
+                : new TransactionAuditRepository(_dynamoDb, _transactionAuditTable))
+        {
+            // ESC-20: the queue lists and records ledger rows too (P.8).
+            LedgerRepo = LedgerRepository(),
+            // FUP-05: the claims on its legs, and the reference item each record writes in escrow-idempotency.
+            ManualPayoutClaims = string.IsNullOrEmpty(_escrowIdempotencyTable)
+                ? null
+                : new ManualPayoutClaimRepository(_dynamoDb, _escrowsTable, LedgerTable, _escrowIdempotencyTable),
+            PayoutReferenceTable = _escrowIdempotencyTable,
+            // FUP-218: the transaction that corrects a recorded leg's reference and moves its reference item.
+            PayoutReferenceCorrections = string.IsNullOrEmpty(_escrowIdempotencyTable)
+                ? null
+                : new PayoutReferenceCorrectionRepository(_dynamoDb, _escrowsTable, LedgerTable, _escrowIdempotencyTable, _escrowAuditTable)
+        };
     }
 
     /// <summary>GET /admin/payouts/manual?limit=&nextToken= (oldest first).</summary>
@@ -995,7 +1368,7 @@ public class AdminFunction
         queryParams.TryGetValue("nextToken", out var nextToken);
         var limit = Math.Min(ParseLimit(queryParams, 20), 50);
 
-        var result = await service.ListManualPayoutsAsync(limit, nextToken);
+        var result = await service.ListManualPayoutsAsync(limit, nextToken, AuthHelper.GetUserId(request));
         if (!result.IsSuccess)
         {
             var error = result.Error!;
@@ -1012,7 +1385,8 @@ public class AdminFunction
     private async Task<APIGatewayProxyResponse> HandleCompleteManualPayoutAsync(
         string escrowId, string leg, APIGatewayProxyRequest request, ILambdaContext context)
     {
-        var service = ManualPayoutService();
+        // FUP-05: no record without its reference item, so one reference can never record two legs.
+        var service = string.IsNullOrEmpty(_escrowIdempotencyTable) ? null : ManualPayoutService();
         if (service == null)
         {
             return LambdaResponse.Error(503, "ADMIN_004", "Escrow tables not configured.");
@@ -1033,7 +1407,7 @@ public class AdminFunction
             return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
         }
 
-        if (!IsSafeEscrowId(escrowId) || !ManualPayoutFields.IsLeg(leg))
+        if (!IsSafeEscrowId(escrowId) || !IsPayoutLegRef(leg))
         {
             return LambdaResponse.Error(404, "ESCROW_035", "No such payout leg.");
         }
@@ -1052,6 +1426,16 @@ public class AdminFunction
             AuditLogger.LogAudit("ADMIN", "MANUAL_PAYOUT",
                 userId: adminUserId, correlationId: correlationId,
                 entityType: "escrow", entityId: escrowId, outcome: "failure", errorCode: error.Code);
+            if (error.Code == EscrowService.ReferenceTakenCode)
+            {
+                // FUP-05: a reference recorded on another leg is an admin audit row too (the escrow-audit
+                // manual_payout_refused row names where it is used).
+                await TransactionAuditWriter.EmitAsync(
+                    TxAuditRepo(), context, escrowId, "escrow", escrowId,
+                    "admin_manual_payout_refused", null, null, auditContext,
+                    metadata: $"leg={Uri.UnescapeDataString(leg)};code={error.Code};ref={(body.ExternalRef ?? "").Trim()}");
+            }
+
             return LambdaResponse.Error(error.HttpStatus, error.Code, error.Message, error.Field);
         }
 
@@ -1070,7 +1454,59 @@ public class AdminFunction
             entityType: "escrow", entityId: escrowId, outcome: value.AlreadyRecorded ? "replay" : "success",
             detail: $"leg={leg};escrowStatus={value.EscrowStatus}");
 
+        // FUP-137: the close that wrote releasedAt completes the clean-delivery credit of an auto-release.
+        // A replay of a recorded leg runs it again, which writes only what an earlier attempt lost.
+        if (value.EscrowStatus is "released" or "completed")
+        {
+            await TryCreditCleanDeliveryAsync(escrowId, service, context);
+        }
+
         return LambdaResponse.Ok(value, AppJsonContext.Default.CompleteManualPayoutResponse);
+    }
+
+    /// <summary>
+    /// FUP-137 (fraud-detection-architecture.md section 20): in live mode the gateway cannot pay out, so every
+    /// auto-release waits in the manual payout queue and the credit of FRD-10 is written here, once the admin
+    /// has recorded the payout and the close wrote the escrow's <c>releasedAt</c>. The row is read again
+    /// (strongly consistent) and credited through <see cref="CleanDeliveryCreditService.CreditReleasedAsync"/>:
+    /// only a release the hourly auto-release queued (the <c>releaseOrigin</c> marker of the queue write), never
+    /// an admin release, a dispute verdict, a held exit or a refund, and only a clean trade. The key is the
+    /// stored <c>releasedAt</c> and the escrow id with a conditional put, so a double click, a second admin
+    /// and a retry write each party's row once between them. Runs after the money is on record and catches
+    /// everything: it never fails or changes the payout answer.
+    /// FUP-155: there is no journal here. A credit that fails (<c>CLEAN_DELIVERY_CREDIT_FAILED</c>, a dashboard
+    /// metric) or a Lambda that dies between the close and this call loses the credit, which only leaves a score
+    /// higher; recording the same leg again with the same reference is the replay that runs it again.
+    /// </summary>
+    private async Task TryCreditCleanDeliveryAsync(string escrowId, EscrowService service, ILambdaContext context)
+    {
+        if (string.IsNullOrEmpty(_fraudSignalsTable))
+        {
+            return;
+        }
+
+        try
+        {
+            var escrow = await new EscrowRepository(_dynamoDb, _escrowsTable).GetByIdAsync(escrowId, consistentRead: true);
+            if (escrow == null)
+            {
+                return;
+            }
+
+            var outcome = await new CleanDeliveryCreditService(_dynamoDb, _fraudSignalsTable).CreditReleasedAsync(
+                escrow, async row => (await service.ResolveTruckerIdAsync(row)).TruckerId, DateTime.UtcNow);
+            // Any payout that is not an auto-release's is the normal case here, not a line worth logging.
+            if (outcome.NotCleanReason != CleanDeliveryCreditService.NotCleanNotAutoRelease)
+            {
+                CleanDeliveryCreditService.LogOutcome(
+                    escrowId, outcome, context.Logger.LogInformation, context.Logger.LogError);
+            }
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogError(
+                $"{CleanDeliveryCreditService.CreditFailedToken} escrowId={MoneyAlarmLog.LogId(escrowId)} error={MoneyAlarmLog.LogId(ex.GetType().Name)}");
+        }
     }
 
     /// <summary>Escrow ids are server-generated: 1 to 128 of [A-Za-z0-9_-].</summary>
@@ -1090,11 +1526,18 @@ public class AdminFunction
             return null;
         }
 
+        var ledger = LedgerRepository();
         return new UnappliedPaymentService(
             new EscrowAuditRepository(_dynamoDb, _escrowAuditTable),
             new OrderRepository(_dynamoDb, _ordersTable),
             TxAuditRepo(),
-            _escrowIdempotencyTable);
+            _escrowIdempotencyTable)
+        {
+            // ESC-20 (P.9): a duplicate payment the ledger refunds is never recorded here as well.
+            LedgerDuplicateRow = ledger == null
+                ? null
+                : (orderId, paymentOrderId) => ledger.GetRowAsync(UnappliedPayments.EscrowKey(orderId), LedgerRefs.RefundDuplicate(paymentOrderId))
+        };
     }
 
     /// <summary>GET /admin/payments/unapplied?limit=&amp;nextToken= (a bounded Scan; see the service).</summary>
@@ -1178,6 +1621,13 @@ public class AdminFunction
     // Fraud Signals
     // ──────────────────────────────────────────────
 
+    /// <summary>
+    /// GET /admin/fraud-signals?status=&amp;limit=&amp;nextToken= (fraud-detection-architecture.md section 19). FRD-07: a
+    /// Query of one status partition of the sparse <c>StatusCreatedAtIndex</c>, newest <c>createdAt</c> first,
+    /// instead of a Scan. <c>status</c> is <c>pending</c> (the default) or <c>reviewed</c>. Credit and whitelist rows
+    /// carry no status, so the index never holds them; the signal-row filter stays as a second guard. Every
+    /// distinct user on the page comes with the risk score of section 14, so Fraud Review groups by user.
+    /// </summary>
     private async Task<APIGatewayProxyResponse> HandleListFraudSignalsAsync(
         APIGatewayProxyRequest request,
         ILambdaContext context)
@@ -1190,35 +1640,75 @@ public class AdminFunction
         }
 
         var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
-        queryParams.TryGetValue("status", out var status);
-        queryParams.TryGetValue("nextToken", out var nextToken);
-        var limit = ParseLimit(queryParams, 20);
-
-        Dictionary<string, AttributeValue>? startKey = null;
-        if (!string.IsNullOrEmpty(nextToken))
+        queryParams.TryGetValue("status", out var requested);
+        var status = string.IsNullOrEmpty(requested) ? FraudStatusPending : requested;
+        if (status != FraudStatusPending && status != FraudStatusReviewed)
         {
-            startKey = PaginationTokenHelper.DecodeNextToken(nextToken);
+            return LambdaResponse.Error(400, "ADMIN_005", "status must be pending or reviewed.", "status");
         }
 
-        var (items, lastKey) = await ScanItemsAsync(
-            _fraudSignalsTable, status, "status", limit, startKey, ScanFilter.SignalRowsOnly);
+        var limit = Math.Min(ParseLimit(queryParams, 20), MaxIndexPageSize);
+        if (!TryReadIndexToken(queryParams, FraudStatusIndexKeys, status, out var startKey))
+        {
+            return InvalidNextToken();
+        }
+
+        var (items, lastKey) = await QueryIndexPageAsync(
+            _fraudSignalsTable, FraudStatusIndex, status, limit, startKey, newestFirst: true, ScanFilter.SignalRowsOnly);
         var signals = items.Select(MapToFraudSignalDto).ToList();
-
-        string? newNextToken = null;
-        if (lastKey != null)
-        {
-            newNextToken = PaginationTokenHelper.EncodeNextToken(lastKey);
-        }
 
         var response = new AdminFraudSignalListResponse
         {
             Signals = signals,
-            NextToken = newNextToken,
-            Total = signals.Count
+            NextToken = lastKey == null ? null : PaginationTokenHelper.EncodeNextToken(lastKey),
+            Total = signals.Count,
+            Users = await ScoreSignalUsersAsync(signals)
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminFraudSignalListResponse);
     }
+
+    /// <summary>
+    /// FRD-07: the risk score (section 14) and display name of each distinct user of a Fraud Review page, in first
+    /// appearance order. One <see cref="RiskScoreMemo"/> for the page, one bounded Query per user (the page holds
+    /// at most <see cref="MaxIndexPageSize"/> rows, so at most that many users). A failed read is shown as
+    /// unavailable, never as LOW.
+    /// </summary>
+    private async Task<List<FraudSignalUserDto>> ScoreSignalUsersAsync(List<FraudSignalDto> signals)
+    {
+        var userIds = signals.Select(s => s.UserId).Where(id => id.Length > 0).Distinct(StringComparer.Ordinal).ToList();
+        if (userIds.Count == 0)
+        {
+            return new List<FraudSignalUserDto>();
+        }
+
+        // The cron's construction: the score never reads the crops or rate-limit tables.
+        var memo = new RiskScoreMemo(new FraudDetectionService(
+            _dynamoDb, _cropsTable, _fraudSignalsTable, new RateLimitRepository(_dynamoDb, "")));
+        // The memo is not thread-safe, so every read is started here, on this thread, before any is awaited.
+        var reads = userIds.Select(memo.GetAsync).ToList();
+        var names = await BatchGetUserNamesAsync(userIds);
+        var scores = await Task.WhenAll(reads);
+
+        return userIds.Select((userId, i) => new FraudSignalUserDto
+        {
+            UserId = userId,
+            DisplayName = names.GetValueOrDefault(userId),
+            RiskScore = scores[i].Score,
+            EnforcementScore = scores[i].EnforcementScore,
+            RiskTier = RiskTierName(scores[i].Tier),
+            Truncated = scores[i].Truncated,
+            ScoreAvailable = scores[i].Source == RiskScoreSource.Computed
+        }).ToList();
+    }
+
+    private static string RiskTierName(RiskTier tier) => tier switch
+    {
+        RiskTier.Critical => "critical",
+        RiskTier.High => "high",
+        RiskTier.Medium => "medium",
+        _ => "low"
+    };
 
     /// <summary>
     /// FRD-05: the admin's verbs on a signal (fraud-detection-architecture.md section 19). The score counts
@@ -1254,6 +1744,12 @@ public class AdminFunction
             return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
         }
 
+        // FUP-148: a missing action has the action's own code and field (it was ADMIN_005 "Invalid JSON").
+        if (string.IsNullOrWhiteSpace(body.Action))
+        {
+            return LambdaResponse.Error(400, "ADMIN_009", "action is required.", "action");
+        }
+
         if (!FraudActions.Contains(body.Action, StringComparer.Ordinal))
         {
             return LambdaResponse.Error(400, "ADMIN_009", "Unknown action. Use approve, reject or whitelist.");
@@ -1269,13 +1765,25 @@ public class AdminFunction
         var now = nowUtc.ToString("o");
         var adminUserId = AuthHelper.GetUserId(request) ?? "admin";
 
-        // FRD-05: the side effect comes before the review stamp, so a failure in between leaves the signal
-        // pending and the admin can act again: the user suspended or the whitelist written, never a
-        // reviewed signal without them. The row is checked first, so a bad id has no side effect.
-        if (!await IsSignalRowAsync(signalUserId, signalKey))
+        // FRD-05: the suspension comes before the review stamp, so a failure in between leaves the signal
+        // pending and the admin can act again, never a reviewed signal with the user not suspended. FUP-103:
+        // the whitelist row and the stamp are one transaction, so neither lands without the other. The row is
+        // checked first, so a bad id has no side effect.
+        // FRD-18: the same read carries what the outcome label links (its type, entity, prior decision).
+        var signalRow = await ReadSignalRowAsync(signalUserId, signalKey);
+        if (signalRow == null)
         {
             return LambdaResponse.Error(404, "ADMIN_006", "Fraud signal not found.");
         }
+
+        // FRD-20 P1: the label's feature snapshot, read before the side effects below and the review stamp, so
+        // the decided signal still counts and a whitelist being granted silences nothing yet. Read only, and
+        // best effort: without one the decision goes on and its label carries no snapshot. A decision the
+        // signal already carries writes no label, so it reads none.
+        var snapshot = CarriesDecision(signalRow, body.Action) || string.IsNullOrEmpty(_transactionAuditTable)
+            ? null
+            : await new LabelFeatureSnapshotReader(_dynamoDb, _fraudSignalsTable, _usersTable, _escrowsTable)
+                .ReadAsync(signalUserId, nowUtc, context.Logger.LogWarning);
 
         // reject: the signal keeps counting, and the user is suspended through the one suspend path.
         // Nothing is held here: the next settlement sweep that would pay or refund one of the user's
@@ -1293,16 +1801,10 @@ public class AdminFunction
             cognitoNote = suspension.CognitoNote;
         }
 
-        string? whitelistUntil = null;
-        if (body.Action == "whitelist")
-        {
-            whitelistUntil = await WriteWhitelistAsync(signalUserId, nowUtc, adminUserId, body.Notes);
-        }
-
         // status becomes "reviewed" (the admin UI keys on that value); the
         // chosen verb (approve/reject/whitelist) is kept in "resolution".
         // Still conditional: a row that went away since the read is not recreated.
-        var updateRequest = new UpdateItemRequest
+        var stamp = new Update
         {
             TableName = _fraudSignalsTable,
             Key = new Dictionary<string, AttributeValue>
@@ -1330,13 +1832,30 @@ public class AdminFunction
             }
         };
 
-        try
+        string? whitelistUntil = null;
+        bool stamped;
+        if (body.Action == "whitelist")
         {
-            await _dynamoDb.UpdateItemAsync(updateRequest);
+            (whitelistUntil, var whitelistRow) = WhitelistRow(signalUserId, nowUtc, adminUserId, body.Notes);
+            stamped = await StampWithWhitelistAsync(stamp, whitelistRow);
         }
-        catch (ConditionalCheckFailedException)
+        else
         {
+            stamped = await StampAsync(stamp);
+        }
+
+        if (!stamped && body.Action != "reject")
+        {
+            // Nothing was written: approve has no side effect, and the whitelist row went with the stamp.
             return LambdaResponse.Error(404, "ADMIN_006", "Fraud signal not found.");
+        }
+
+        if (!stamped)
+        {
+            // FUP-103: the row went away (its TTL) between the read and the stamp, after the suspension. The
+            // suspension stands, so the reject is answered and audited as done, not as a missing signal.
+            context.Logger.LogWarning(
+                $"FRAUD_REJECT_SIGNAL_GONE signalId={MoneyAlarmLog.LogId(signalId)} userId={MoneyAlarmLog.LogId(signalUserId)}");
         }
 
         await TransactionAuditWriter.EmitAsync(
@@ -1349,6 +1868,8 @@ public class AdminFunction
         AuditLogger.LogAudit("ADMIN", "FRAUD_ACTION",
             userId: adminUserId, correlationId: AuditLogger.GetCorrelationId(request),
             entityType: "fraudSignal", entityId: signalId, detail: body.Action, outcome: "success");
+        await LabelFraudDecisionAsync(signalId, signalUserId, signalKey, signalRow, body, adminUserId, now,
+            whitelistUntil, snapshot, request, context);
 
         var response = new FraudActionResponse
         {
@@ -1361,9 +1882,10 @@ public class AdminFunction
             {
                 "approve" => "Fraud signal approved. It no longer counts toward the user's risk score.",
                 "whitelist" => $"Fraud signal whitelisted. It no longer counts, and the user's soft signals do not count until {whitelistUntil}.",
-                _ => cognitoNote == null
-                    ? "Fraud signal rejected. The user is suspended (fraud_confirmed) and signed out."
-                    : $"Fraud signal rejected. The user is suspended (fraud_confirmed), but {cognitoNote}"
+                _ => (cognitoNote == null
+                        ? "Fraud signal rejected. The user is suspended (fraud_confirmed) and signed out."
+                        : $"Fraud signal rejected. The user is suspended (fraud_confirmed), but {cognitoNote}")
+                    + (stamped ? "" : " The signal had expired and was removed before its review could be recorded on it.")
             },
             WhitelistUntil = whitelistUntil
         };
@@ -1385,10 +1907,12 @@ public class AdminFunction
     }
 
     /// <summary>
-    /// FRD-05: whether the row the action names exists and is a signal (legacy rows carry no
-    /// <c>recordType</c>), read consistently so a row written a moment ago is seen.
+    /// FRD-05: the row the action names when it exists and is a signal (legacy rows carry no
+    /// <c>recordType</c>), else null; read consistently so a row written a moment ago is seen. FRD-18: it
+    /// also projects what the outcome label needs: the signal's type, entity and first time, and the
+    /// decision it carries now (<c>status</c>, <c>resolution</c>, <c>reviewedAt</c>).
     /// </summary>
-    private async Task<bool> IsSignalRowAsync(string userId, string signalKey)
+    private async Task<Dictionary<string, AttributeValue>?> ReadSignalRowAsync(string userId, string signalKey)
     {
         var response = await _dynamoDb.GetItemAsync(new GetItemRequest
         {
@@ -1399,20 +1923,91 @@ public class AdminFunction
                 { "signalKey", new AttributeValue { S = signalKey } }
             },
             ConsistentRead = true,
-            ProjectionExpression = "#u, #rt",
-            ExpressionAttributeNames = new Dictionary<string, string> { { "#u", "userId" }, { "#rt", "recordType" } }
+            ProjectionExpression = "#u, #rt, #st, #res, #ra, #type, #et, #eid, #ca",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#u", "userId" },
+                { "#rt", "recordType" },
+                { "#st", "status" },
+                { "#res", "resolution" },
+                { "#ra", "reviewedAt" },
+                { "#type", "signalType" },
+                { "#et", "entityType" },
+                { "#eid", "entityId" },
+                { "#ca", "createdAt" }
+            }
         });
         return response?.Item is { Count: > 0 } item
-            && (!item.TryGetValue("recordType", out var recordType)
-                || recordType.S == FraudDetectionService.RecordTypeSignal);
+               && (!item.TryGetValue("recordType", out var recordType)
+                   || recordType.S == FraudDetectionService.RecordTypeSignal)
+            ? item
+            : null;
     }
 
     /// <summary>
-    /// FRD-05: writes the user's one whitelist row (section 20) and returns its end (ISO 8601). A new
-    /// whitelist replaces the old one. <c>expiresAt</c>, the table's TTL attribute, is the same instant,
-    /// so the row goes once it no longer applies.
+    /// FRD-18 (section 20.1): the outcome label of a Fraud Review decision, after its stamp and audit row.
+    /// One label per decision that changes what the signal says: a decision the signal already carries
+    /// (a retry, or the same verb again) writes none. The key time is the previous decision's
+    /// <c>reviewedAt</c>, or the signal's own <c>createdAt</c> while it was pending, so two identical
+    /// decisions in flight write one row and every change of mind writes its own. Best effort: a failed
+    /// write is logged and the action answers as before.
     /// </summary>
-    private async Task<string> WriteWhitelistAsync(string userId, DateTime nowUtc, string adminUserId, string? notes)
+    private async Task LabelFraudDecisionAsync(
+        string signalId, string signalUserId, string signalKey, Dictionary<string, AttributeValue> signalRow,
+        FraudActionRequest body, string adminUserId, string now, string? whitelistUntil,
+        LabelFeatureSnapshot? snapshot, APIGatewayProxyRequest request, ILambdaContext context)
+    {
+        string? Field(string name) => signalRow.TryGetValue(name, out var value) && !string.IsNullOrEmpty(value.S) ? value.S : null;
+
+        var reviewed = Field("status") == "reviewed";
+        if (CarriesDecision(signalRow, body.Action))
+        {
+            context.Logger.LogInformation(
+                $"OUTCOME_LABEL_EXISTS case={OutcomeLabels.CaseFraudSignal} outcome={OutcomeLabels.FraudOutcome(body.Action)} caseId={MoneyAlarmLog.LogId(signalId)} reason=same_decision");
+            return;
+        }
+
+        var createdAt = Field("createdAt") ?? signalKey.Split('#')[0];
+        var entityType = Field("entityType");
+        var entityId = Field("entityId");
+        var orderId = SignalOrderId(entityType, entityId);
+        await OutcomeLabelWriter.WriteAsync(TxAuditRepo(), new OutcomeLabel
+        {
+            Case = OutcomeLabels.CaseFraudSignal,
+            CaseId = signalId,
+            Outcome = OutcomeLabels.FraudOutcome(body.Action)!,
+            Source = $"fraud_{body.Action}",
+            TransactionId = signalId,
+            KeyTime = reviewed ? Field("reviewedAt") ?? createdAt : createdAt,
+            AdminId = adminUserId,
+            LabelledAt = now,
+            Reason = body.Notes,
+            SubjectUserId = signalUserId,
+            SignalIds = new[] { signalId },
+            SignalType = Field("signalType") ?? (signalKey.Contains('#') ? signalKey[(signalKey.IndexOf('#') + 1)..] : null),
+            SignalEntityType = entityType,
+            SignalEntityId = entityId,
+            SignalCreatedAt = createdAt,
+            OrderId = orderId,
+            EscrowId = entityType == "escrow" ? entityId : null,
+            DeliveryId = entityType == "delivery" ? entityId : null,
+            WhitelistUntil = whitelistUntil,
+            Snapshot = snapshot
+        }, AuditContext.From(request, adminUserId, "admin"), context);
+    }
+
+    /// <summary>The signal row is reviewed with this very action: a retry or the same verb again, which writes no label.</summary>
+    private static bool CarriesDecision(Dictionary<string, AttributeValue> signalRow, string action) =>
+        signalRow.TryGetValue("status", out var status) && status.S == "reviewed"
+        && signalRow.TryGetValue("resolution", out var resolution) && resolution.S == action;
+
+    /// <summary>
+    /// FRD-05: the user's one whitelist row (section 20) and its end (ISO 8601). A new whitelist replaces the
+    /// old one. <c>expiresAt</c>, the table's TTL attribute, is the same instant, so the row goes once it no
+    /// longer applies.
+    /// </summary>
+    private static (string UntilIso, Dictionary<string, AttributeValue> Item) WhitelistRow(
+        string userId, DateTime nowUtc, string adminUserId, string? notes)
     {
         var until = nowUtc.AddDays(FraudDetectionService.WhitelistDaysFrom(Environment.GetEnvironmentVariable));
         var untilIso = until.ToString("o", CultureInfo.InvariantCulture);
@@ -1431,8 +2026,56 @@ public class AdminFunction
             item["reviewNotes"] = new AttributeValue { S = notes };
         }
 
-        await _dynamoDb.PutItemAsync(new PutItemRequest { TableName = _fraudSignalsTable, Item = item });
-        return untilIso;
+        return (untilIso, item);
+    }
+
+    /// <summary>The review stamp of approve and reject; false when its condition failed (the row is gone).</summary>
+    private async Task<bool> StampAsync(Update stamp)
+    {
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = stamp.TableName,
+                Key = stamp.Key,
+                ConditionExpression = stamp.ConditionExpression,
+                UpdateExpression = stamp.UpdateExpression,
+                ExpressionAttributeNames = stamp.ExpressionAttributeNames,
+                ExpressionAttributeValues = stamp.ExpressionAttributeValues
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// FUP-103: the whitelist's stamp and its whitelist row in one transaction. Before, the row was written
+    /// first, so a failed stamp left it behind with the signal pending, and an approve or a reject chosen
+    /// instead kept the soft bypass until <c>whitelistUntil</c>. False when the stamp's condition failed (the
+    /// row is gone), with nothing written; any other failure throws (answered 500) with nothing written.
+    /// </summary>
+    private async Task<bool> StampWithWhitelistAsync(Update stamp, Dictionary<string, AttributeValue> whitelistRow)
+    {
+        try
+        {
+            await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest
+            {
+                TransactItems = new List<TransactWriteItem>
+                {
+                    new() { Update = stamp },
+                    new() { Put = new Put { TableName = _fraudSignalsTable, Item = whitelistRow } }
+                }
+            });
+            return true;
+        }
+        catch (TransactionCanceledException ex)
+            when (ex.CancellationReasons is { Count: > 0 } reasons && reasons[0]?.Code == "ConditionalCheckFailed")
+        {
+            return false;
+        }
     }
 
     private static readonly (string Index, string Field, string Party)[] PartyEscrowIndexes =
@@ -1634,8 +2277,47 @@ public class AdminFunction
             return LambdaResponse.Error(404, "ADMIN_007", "User not found.");
         }
 
-        var response = new AdminUserDetailResponse { User = user };
+        // FRD-07: the reason is admin-only, so it travels next to the user, not on the party DTO.
+        // FUP-317: a deleting or deleted account's old names are not shown (account-deletion.md: names go; ACC-05).
+        var hidden = !string.IsNullOrEmpty(user.DeletionState);
+        var (history, more) = hidden ? (null, false) : await ProfileHistoryAsync(userId, context);
+        var response = new AdminUserDetailResponse
+        {
+            User = user,
+            SuspendReason = user.SuspendReason,
+            ProfileHistory = history,
+            ProfileHistoryMore = history == null ? null : more,
+            ProfileHistoryHidden = hidden ? true : null
+        };
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminUserDetailResponse);
+    }
+
+    /// <summary>
+    /// FUP-317: the user's newest profile edits from their <c>profile-{userId}</c> transaction-audit rows, newest
+    /// first. Null when the table is not configured or the read fails: the user detail still answers.
+    /// </summary>
+    private async Task<(List<AdminProfileEditDto>? History, bool More)> ProfileHistoryAsync(
+        string userId, ILambdaContext context)
+    {
+        var txRepo = TxAuditRepo();
+        if (txRepo == null)
+        {
+            return (null, false);
+        }
+
+        try
+        {
+            var (rows, more) = await txRepo.GetLatestByTransactionAsync(
+                ProfileEditAudit.TransactionId(userId), ProfileEditAudit.HistoryPageSize);
+            return (rows.Where(r => GetString(r, "action") == ProfileEditAudit.Action)
+                .Select(ProfileEditAudit.FromRow)
+                .ToList(), more);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning($"FUP-317: profile history read failed (non-fatal): [{ex.GetType().Name}]");
+            return (null, false);
+        }
     }
 
     private async Task<APIGatewayProxyResponse> HandleUserActionAsync(
@@ -1660,6 +2342,12 @@ public class AdminFunction
             return LambdaResponse.Error(400, "ADMIN_005", "Request body is required.");
         }
 
+        // FUP-148: a missing action has the action's own code and field (it was ADMIN_005 "Invalid JSON").
+        if (string.IsNullOrWhiteSpace(body.Action))
+        {
+            return LambdaResponse.Error(400, "ADMIN_009", "action is required.", "action");
+        }
+
         // FRD-05: typed here, the reject action's reason would make a plain suspension read as confirmed
         // fraud to the settlement sweep.
         if (body.Action == "suspend"
@@ -1681,9 +2369,12 @@ public class AdminFunction
             Action = body.Action,
             Status = "completed",
             UpdatedAt = outcome.UpdatedAt,
-            Message = outcome.CognitoNote == null
-                ? $"User action '{body.Action}' completed successfully."
-                : $"User action '{body.Action}' recorded, but {outcome.CognitoNote}"
+            Message = (outcome.CognitoNote == null
+                    ? $"User action '{body.Action}' completed successfully."
+                    : $"User action '{body.Action}' recorded, but {outcome.CognitoNote}")
+                + (outcome.ReasonKept
+                    ? $" The suspend reason stays {FraudConfirmedReason} (a Fraud Review reject); unsuspend first to replace it."
+                    : "")
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.UserActionResponse);
@@ -1696,9 +2387,11 @@ public class AdminFunction
     /// </summary>
     private const string FraudConfirmedReason = EscrowHoldFields.ReasonFraudConfirmed;
 
-    /// <summary>What <see cref="ApplyUserActionAsync"/> did: an error to answer with, or the update time and
-    /// the note for the admin when Cognito could not be updated.</summary>
-    private readonly record struct UserActionOutcome(APIGatewayProxyResponse? Error, string UpdatedAt, string? CognitoNote);
+    /// <summary>What <see cref="ApplyUserActionAsync"/> did: an error to answer with, or the update time, the
+    /// note for the admin when Cognito could not be updated, and whether a suspend kept the stored
+    /// <c>fraud_confirmed</c> reason instead of the one given (FUP-103).</summary>
+    private readonly record struct UserActionOutcome(
+        APIGatewayProxyResponse? Error, string UpdatedAt, string? CognitoNote, bool ReasonKept = false);
 
     /// <summary>
     /// The one implementation of the admin user actions: the profile row, Cognito, the audit rows. The user
@@ -1775,7 +2468,79 @@ public class AdminFunction
                     LambdaResponse.Error(400, "ADMIN_009", $"Unknown action: {body.Action}"), now, null);
         }
 
-        var updateRequest = new UpdateItemRequest
+        // FUP-103: a free-text reason never replaces fraud_confirmed. That reason is what the settlement sweep
+        // holds the user's escrows as and what the outcome labels record, so it stays until an unsuspend.
+        var guardFraudReason = body.Action == "suspend" && body.Reason != null && body.Reason != FraudConfirmedReason;
+        var reasonKept = false;
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(UserUpdate(userId, updateParts, removeParts, attrNames, attrValues, guardFraudReason));
+        }
+        catch (ConditionalCheckFailedException ex) when (guardFraudReason && ex.Item is { Count: > 0 })
+        {
+            // The row exists, so it holds fraud_confirmed: suspend again without the free-text reason.
+            reasonKept = true;
+            updateParts.Remove("#suspendReason = :reason");
+            attrNames.Remove("#suspendReason");
+            attrValues.Remove(":reason");
+            try
+            {
+                await _dynamoDb.UpdateItemAsync(UserUpdate(userId, updateParts, removeParts, attrNames, attrValues, guardFraudReason: false));
+            }
+            catch (ConditionalCheckFailedException)
+            {
+                return new UserActionOutcome(LambdaResponse.Error(404, "ADMIN_007", "User not found."), now, null);
+            }
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return new UserActionOutcome(LambdaResponse.Error(404, "ADMIN_007", "User not found."), now, null);
+        }
+
+        // FUP-95: the audit row follows the profile write it records, before anything that can still fail. A
+        // failed phone read or Cognito call after it answers 500, and the suspension already stands.
+        var actingAdminId = AuthHelper.GetUserId(request) ?? "admin";
+        await TransactionAuditWriter.EmitAsync(
+            TxAuditRepo(), context, userId, "user", userId,
+            $"user_{body.Action}", null, null,
+            AuditContext.From(request, actingAdminId, "admin"),
+            metadata: body.Action == "change_role" ? body.NewRole
+                : reasonKept ? $"keptReason={FraudConfirmedReason};reason={body.Reason}"
+                : body.Reason);
+
+        // ESC-29: the owner fields copied onto the user's listings follow the suspension (daily job).
+        await MarkReputationCopyDueAsync(userId, body.Action, context);
+
+        // The DynamoDB flag alone left refreshed and live tokens working: push the
+        // change into Cognito so sessions actually end (or the new role is issued).
+        var cognitoNote = await ApplyAccountControlAsync(userId, body.Action, attrValues, context);
+
+        // FUP-163: the copies follow in this request, after the sessions were ended (best effort).
+        await RefreshReputationAfterSuspensionAsync(userId, body.Action, context);
+
+        AuditLogger.LogAudit("ADMIN", "USER_ACTION",
+            userId: actingAdminId, correlationId: AuditLogger.GetCorrelationId(request),
+            entityType: "user", entityId: userId, detail: body.Action, outcome: "success");
+
+        return new UserActionOutcome(null, now, cognitoNote, reasonKept);
+    }
+
+    /// <summary>
+    /// The profile write of a user action. With <paramref name="guardFraudReason"/> it also requires that the
+    /// stored reason is not <c>fraud_confirmed</c> and returns the old row when the condition fails, so a
+    /// missing user (no row) and a kept reason can be told apart.
+    /// </summary>
+    private UpdateItemRequest UserUpdate(
+        string userId, List<string> updateParts, List<string> removeParts,
+        Dictionary<string, string> attrNames, Dictionary<string, AttributeValue> attrValues, bool guardFraudReason)
+    {
+        var values = new Dictionary<string, AttributeValue>(attrValues);
+        if (guardFraudReason)
+        {
+            values[":fraudReason"] = new AttributeValue { S = FraudConfirmedReason };
+        }
+
+        return new UpdateItemRequest
         {
             TableName = _usersTable,
             Key = new Dictionary<string, AttributeValue>
@@ -1784,35 +2549,13 @@ public class AdminFunction
             },
             UpdateExpression = "SET " + string.Join(", ", updateParts)
                 + (removeParts.Count > 0 ? " REMOVE " + string.Join(", ", removeParts) : ""),
-            ExpressionAttributeNames = attrNames,
-            ExpressionAttributeValues = attrValues,
-            ConditionExpression = "attribute_exists(userId)"
+            ExpressionAttributeNames = new Dictionary<string, string>(attrNames),
+            ExpressionAttributeValues = values,
+            ConditionExpression = guardFraudReason
+                ? "attribute_exists(userId) AND (attribute_not_exists(#suspendReason) OR #suspendReason <> :fraudReason)"
+                : "attribute_exists(userId)",
+            ReturnValuesOnConditionCheckFailure = guardFraudReason ? ReturnValuesOnConditionCheckFailure.ALL_OLD : null
         };
-
-        try
-        {
-            await _dynamoDb.UpdateItemAsync(updateRequest);
-        }
-        catch (ConditionalCheckFailedException)
-        {
-            return new UserActionOutcome(LambdaResponse.Error(404, "ADMIN_007", "User not found."), now, null);
-        }
-
-        // The DynamoDB flag alone left refreshed and live tokens working: push the
-        // change into Cognito so sessions actually end (or the new role is issued).
-        var cognitoNote = await ApplyAccountControlAsync(userId, body.Action, attrValues, context);
-
-        var actingAdminId = AuthHelper.GetUserId(request) ?? "admin";
-        await TransactionAuditWriter.EmitAsync(
-            TxAuditRepo(), context, userId, "user", userId,
-            $"user_{body.Action}", null, null,
-            AuditContext.From(request, actingAdminId, "admin"),
-            metadata: body.Action == "change_role" ? body.NewRole : body.Reason);
-        AuditLogger.LogAudit("ADMIN", "USER_ACTION",
-            userId: actingAdminId, correlationId: AuditLogger.GetCorrelationId(request),
-            entityType: "user", entityId: userId, detail: body.Action, outcome: "success");
-
-        return new UserActionOutcome(null, now, cognitoNote);
     }
 
     /// <summary>
@@ -2030,7 +2773,8 @@ public class AdminFunction
     /// derived lifecycle stage. Supports ?status= (exact order status), ?search=
     /// (order id / buyer / farmer name contains), and cursor pagination. The order
     /// status alone encodes the stage, and orders carry party names, so this is a
-    /// single scan with no per-row joins.
+    /// single scan with no per-row joins. FUP-80: with ?status= it reads that status
+    /// partition of <see cref="OrderStatusIndex"/> instead of the whole table.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleListTransactionsAsync(
         APIGatewayProxyRequest request,
@@ -2054,11 +2798,20 @@ public class AdminFunction
         var attrNames = new Dictionary<string, string>();
         var attrValues = new Dictionary<string, AttributeValue>();
 
+        // FUP-80: a status is read as its partition of the orders' StatusCreatedAtIndex (every order carries
+        // status and createdAt), newest first, instead of a Scan of the whole table filtered by status.
+        QueryRequest? statusQuery = null;
         if (!string.IsNullOrEmpty(status))
         {
-            filterParts.Add("#status = :status");
             attrNames["#status"] = "status";
             attrValues[":status"] = new AttributeValue { S = status };
+            statusQuery = new QueryRequest
+            {
+                TableName = _ordersTable,
+                IndexName = OrderStatusIndex,
+                KeyConditionExpression = "#status = :status",
+                ScanIndexForward = false
+            };
         }
 
         if (!string.IsNullOrEmpty(search))
@@ -2077,6 +2830,13 @@ public class AdminFunction
             scanRequest.ExpressionAttributeValues = attrValues;
         }
 
+        if (statusQuery != null)
+        {
+            statusQuery.FilterExpression = scanRequest.FilterExpression;
+            statusQuery.ExpressionAttributeNames = attrNames;
+            statusQuery.ExpressionAttributeValues = attrValues;
+        }
+
         // Scan has no ordering and applies the filter AFTER the per-page read, so we
         // page through (bounded) collecting EVERY match — otherwise a search would
         // silently miss rows beyond an arbitrary first page. Sort newest-first in
@@ -2090,15 +2850,31 @@ public class AdminFunction
 
         do
         {
-            if (lastKey != null)
+            List<Dictionary<string, AttributeValue>> pageItems;
+            Dictionary<string, AttributeValue> pageKey;
+            if (statusQuery != null)
             {
-                scanRequest.ExclusiveStartKey = lastKey;
+                statusQuery.ExclusiveStartKey = lastKey;
+                var page = await _dynamoDb.QueryAsync(statusQuery);
+                scanned += page.ScannedCount;
+                pageItems = page.Items;
+                pageKey = page.LastEvaluatedKey;
+            }
+            else
+            {
+                if (lastKey != null)
+                {
+                    scanRequest.ExclusiveStartKey = lastKey;
+                }
+
+                var resp = await _dynamoDb.ScanAsync(scanRequest);
+                scanned += resp.ScannedCount;
+                pageItems = resp.Items;
+                pageKey = resp.LastEvaluatedKey;
             }
 
-            var resp = await _dynamoDb.ScanAsync(scanRequest);
-            scanned += resp.ScannedCount;
-            matched.AddRange(resp.Items.Select(DynamoDbHelper.FromItem));
-            lastKey = resp.LastEvaluatedKey.Count > 0 ? resp.LastEvaluatedKey : null;
+            matched.AddRange(pageItems.Select(DynamoDbHelper.FromItem));
+            lastKey = pageKey.Count > 0 ? pageKey : null;
 
             if (scanned >= MaxScanItems)
             {
@@ -2140,7 +2916,8 @@ public class AdminFunction
             return LambdaResponse.Error(404, "ADMIN_012", "Transaction not found.");
         }
 
-        var order = OrderFunction.MapToOrderDto(DynamoDbHelper.FromItem(orderItem));
+        var orderRow = DynamoDbHelper.FromItem(orderItem);
+        var order = OrderFunction.MapToOrderDto(orderRow);
 
         // Escrow is the hub: it links the order to its delivery and holds the
         // payment/settlement state. Looked up by orderId via the OrderIndex GSI.
@@ -2176,13 +2953,15 @@ public class AdminFunction
         }
 
         DeliveryDto? delivery = null;
+        Dictionary<string, object>? deliveryRow = null;
         if (!string.IsNullOrEmpty(deliveryId) && !string.IsNullOrEmpty(_deliveriesTable))
         {
             var deliveryItem = await QuerySingleItemAsync(_deliveriesTable, "deliveryId", deliveryId);
             if (deliveryItem != null)
             {
-                delivery = DeliveryFunction.MapToDeliveryDto(
-                    DynamoDbHelper.FromItem(deliveryItem), includePhone: true, includeQrToken: true);
+                deliveryRow = DynamoDbHelper.FromItem(deliveryItem);
+                delivery = WithDeliveryPhotoUrls(DeliveryFunction.MapToDeliveryDto(
+                    deliveryRow, includePhone: true, includeQrToken: true), deliveryRow, context);
             }
         }
 
@@ -2209,10 +2988,49 @@ public class AdminFunction
             Order = order,
             Escrow = escrow,
             Delivery = delivery,
-            Timeline = BuildTimeline(order, delivery, escrow, auditEntries, unifiedEvents)
+            Timeline = BuildTimeline(order, delivery, escrow, auditEntries, unifiedEvents),
+            PickupEvidence = await PickupEvidenceAsync(orderRow, deliveryRow, escrowItem)
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminTransactionDetailResponse);
+    }
+
+    /// <summary>
+    /// FUP-287: the pickup judgement with its check-ins as evidence (<see cref="PickupReopen.EvidenceOf"/>), null for
+    /// an order never stamped judgeable. Whether the handoff can be confirmed depends on the order's active delivery:
+    /// the one the view joined when it is that one, else read here, only for an order whose judgement can be re-opened.
+    /// FUP-330: for a trucker no-show that can be re-opened, the delivery its re-open would bring back
+    /// (<see cref="NoShowReopen.DeliveryIdOf"/>: the escrow's, else the slot's) decides the same for that action.
+    /// </summary>
+    private async Task<AdminPickupEvidenceDto?> PickupEvidenceAsync(
+        Dictionary<string, object> orderRow, Dictionary<string, object>? joined, Dictionary<string, object>? escrowRow)
+    {
+        if (!PickupJudgement.IsStamped(orderRow) && !orderRow.ContainsKey(PickupReopen.Field))
+        {
+            return null;
+        }
+
+        async Task<Dictionary<string, object>?> DeliveryAsync(string deliveryId)
+            => joined != null && GetString(joined, "deliveryId") == deliveryId
+                ? joined
+                : string.IsNullOrEmpty(_deliveriesTable)
+                    ? null
+                    : await new DeliveryRepository(_dynamoDb, _deliveriesTable).GetByIdAsync(deliveryId);
+
+        var activeId = GetString(orderRow, "activeDeliveryId");
+        var active = joined != null && activeId.Length > 0 && GetString(joined, "deliveryId") == activeId ? joined : null;
+        if (active == null && activeId.Length > 0 && PickupReopen.RefusalOf(orderRow) == null)
+        {
+            active = await DeliveryAsync(activeId);
+        }
+
+        Dictionary<string, object>? noShow = null;
+        if (NoShowReopen.RefusalOf(orderRow) == null && NoShowReopen.DeliveryIdOf(orderRow, escrowRow) is { Length: > 0 } noShowId)
+        {
+            noShow = await DeliveryAsync(noShowId);
+        }
+
+        return PickupReopen.EvidenceOf(orderRow, active, noShow);
     }
 
     /// <summary>Build the transaction-audit repository, or null when unconfigured.</summary>
@@ -2257,9 +3075,21 @@ public class AdminFunction
             ActorRole = GetStringOrNull(item, "actorRole"),
             IpAddress = GetStringOrNull(item, "ipAddress"),
             CorrelationId = GetStringOrNull(item, "correlationId"),
-            Timestamp = GetString(item, "timestamp"),
-            Metadata = GetStringOrNull(item, "metadata"),
+            Timestamp = ShownTimestamp(item) ?? "",
+            // FUP-317: a profile edit's metadata is the old and new names; the audit log lists the edit without them.
+            // They are read only on the user detail, which hides them for a deleting or deleted account.
+            Metadata = GetString(item, "action") == ProfileEditAudit.Action ? null : GetStringOrNull(item, "metadata"),
         };
+
+    /// <summary>
+    /// FRD-18: when a transaction-audit row happened, as the timeline and the audit log show it. An outcome
+    /// label is keyed on its case's time (fraud spec section 20.1), so it shows <c>labelledAt</c>, when the
+    /// admin decided; every other row, and a label without it, shows its <c>timestamp</c>.
+    /// </summary>
+    private static string? ShownTimestamp(Dictionary<string, object> item) =>
+        GetString(item, "entityType") == OutcomeLabels.EntityType && GetStringOrNull(item, "labelledAt") is { Length: > 0 } decided
+            ? decided
+            : GetStringOrNull(item, "timestamp");
 
     /// <summary>
     /// Look up the escrow for an order via the OrderIndex GSI (sparse — only escrows
@@ -2331,7 +3161,7 @@ public class AdminFunction
     internal static string DeriveStage(string status) => status switch
     {
         "created" or "pending_payment" => "awaiting_payment",
-        "payment_submitted" or "funded" or "accepted"
+        "payment_submitted" or "funded" or OrderCommitment.AwaitingTransportStatus or "accepted"
             or "pickup_confirmed" or "in_transit" => "in_progress",
         "delivered" => "delivered",
         "disbursing" => "paying_out",
@@ -2347,7 +3177,7 @@ public class AdminFunction
     /// timeline. ISO-8601 timestamps sort lexically; empty timestamps are dropped.
     /// </summary>
     private static List<AdminTransactionTimelineEvent> BuildTimeline(
-        OrderDto order,
+        OrderDto? order,
         DeliveryDto? delivery,
         EscrowDto? escrow,
         List<EscrowAuditEntryDto> auditEntries,
@@ -2400,8 +3230,15 @@ public class AdminFunction
         {
             var entity = GetString(e, "entityType");
             var action = GetString(e, "action");
-            if (entity == "order") hasUnifiedOrder = true;
-            if (entity == "delivery") hasUnifiedDelivery = true;
+            if (entity == "order")
+            {
+                hasUnifiedOrder = true;
+            }
+
+            if (entity == "delivery")
+            {
+                hasUnifiedDelivery = true;
+            }
 
             LatLngDto? location = null;
             if (entity == "delivery" && delivery != null)
@@ -2411,7 +3248,7 @@ public class AdminFunction
                     : null;
             }
 
-            Add(GetStringOrNull(e, "timestamp"), entity, action,
+            Add(ShownTimestamp(e), entity, action,
                 toState: GetStringOrNull(e, "toState"),
                 actor: GetStringOrNull(e, "actor"),
                 detail: GetStringOrNull(e, "metadata"),
@@ -2421,8 +3258,9 @@ public class AdminFunction
         }
 
         // Order leg synthesised from timestamp fields — only when the unified trail
-        // has no order events (e.g. an order created before Phase 2).
-        if (!hasUnifiedOrder)
+        // has no order events (e.g. an order created before Phase 2). FRD-14: a dispute's escrow
+        // can come without its order (no orderId, or the order is gone).
+        if (!hasUnifiedOrder && order != null)
         {
             Add(order.CreatedAt, "order", "order_created", "created", order.BuyerName ?? order.BuyerId);
             Add(order.PaymentVerifiedAt, "order", "payment_verified", "funded",
@@ -2495,7 +3333,10 @@ public class AdminFunction
         return defaultLimit;
     }
 
-    /// <summary>A Scan filter a helper ANDs with its own (FRD-05: signal rows only).</summary>
+    /// <summary>
+    /// A filter on fraud-signals rows (FRD-05: signal rows only): the review stamp's condition and, since FRD-07,
+    /// the second guard of the Fraud Review Query.
+    /// </summary>
     private sealed record ScanFilter(
         string Expression, IReadOnlyDictionary<string, string> Names, IReadOnlyDictionary<string, AttributeValue> Values)
     {
@@ -2513,7 +3354,7 @@ public class AdminFunction
             });
     }
 
-    private async Task<int> ScanCountAsync(string tableName, ScanFilter? filter = null)
+    private async Task<int> ScanCountAsync(string tableName)
     {
         if (string.IsNullOrEmpty(tableName))
         {
@@ -2525,12 +3366,6 @@ public class AdminFunction
             TableName = tableName,
             Select = Select.COUNT
         };
-        if (filter != null)
-        {
-            request.FilterExpression = filter.Expression;
-            request.ExpressionAttributeNames = new Dictionary<string, string>(filter.Names);
-            request.ExpressionAttributeValues = new Dictionary<string, AttributeValue>(filter.Values);
-        }
 
         var count = 0;
         Dictionary<string, AttributeValue>? lastKey = null;
@@ -2680,80 +3515,200 @@ public class AdminFunction
         return (totalVolume, totalCommissions);
     }
 
+    /// <summary>
+    /// One Scan page of an unfiltered list. FUP-80: the status-filtered lists read a status index instead
+    /// (<see cref="EscrowStatusPageAsync"/>), so no filter is applied here.
+    /// </summary>
     private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastKey)> ScanItemsAsync(
         string tableName,
-        string? filterValue,
-        string filterField,
         int limit,
-        Dictionary<string, AttributeValue>? startKey,
-        ScanFilter? filter = null)
+        Dictionary<string, AttributeValue>? startKey)
     {
         if (string.IsNullOrEmpty(tableName))
         {
             return (new List<Dictionary<string, object>>(), null);
         }
 
-        var filtered = !string.IsNullOrEmpty(filterValue) || filter != null;
+        var request = new ScanRequest
+        {
+            TableName = tableName,
+            Limit = limit
+        };
 
+        if (startKey != null)
+        {
+            request.ExclusiveStartKey = startKey;
+        }
+
+        var response = await _dynamoDb.ScanAsync(request);
+        var lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
+        return (response.Items.Select(DynamoDbHelper.FromItem).ToList(), lastKey);
+    }
+
+    /// <summary>
+    /// FUP-80: one page of the escrows in <paramref name="status"/> (<c>GET /admin/escrows?status=</c> and
+    /// <c>GET /admin/disputes</c>), a Query of that partition of <see cref="EscrowStatusIndex"/>, oldest
+    /// <c>expiresAt</c> first, never a Scan. Every escrow is written with <c>status</c> and <c>expiresAt</c>, so the
+    /// index holds them all (the settlement sweeps read it the same way). The next token is the index key of the
+    /// last row, so the next page starts right after it.
+    /// </summary>
+    private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastKey)> EscrowStatusPageAsync(
+        string status, int limit, Dictionary<string, AttributeValue>? startKey) =>
+        string.IsNullOrEmpty(_escrowsTable)
+            ? (new List<Dictionary<string, object>>(), null)
+            : await QueryIndexPageAsync(_escrowsTable, EscrowStatusIndex, status, limit, startKey, newestFirst: false);
+
+    // ──────────────────────────────────────────────
+    // Status index queues (FRD-07)
+    // ──────────────────────────────────────────────
+
+    /// <summary>FRD-07: the sparse status index of the fraud-signals table (<c>status</c>, <c>createdAt</c>).</summary>
+    internal const string FraudStatusIndex = "StatusCreatedAtIndex";
+
+    /// <summary>FUP-80: the orders index by status (<c>status</c>, <c>createdAt</c>), which every order is on.</summary>
+    internal const string OrderStatusIndex = "StatusCreatedAtIndex";
+
+    /// <summary>The key attributes of a <see cref="FraudStatusIndex"/> page's last evaluated key.</summary>
+    private static readonly string[] FraudStatusIndexKeys = { "userId", "signalKey", "status", "createdAt" };
+
+    private const string FraudStatusPending = "pending";
+    private const string FraudStatusReviewed = "reviewed";
+
+    /// <summary>The escrows index the settlement sweeps read by status (<c>status</c>, <c>expiresAt</c>).</summary>
+    internal const string EscrowStatusIndex = "StatusExpiresIndex";
+
+    /// <summary>The key attributes of an <see cref="EscrowStatusIndex"/> page's last evaluated key.</summary>
+    private static readonly string[] EscrowStatusIndexKeys = { "escrowId", "createdAt", "status", "expiresAt" };
+
+    /// <summary>The largest page of a status index queue; also bounds the risk scores read per Fraud Review page.</summary>
+    private const int MaxIndexPageSize = 50;
+
+    /// <summary>
+    /// FRD-07: the start key of a status index page. A token that does not decode, or whose key belongs to another
+    /// index or another status, is refused: a Query whose start key lies outside its partition fails, and starting
+    /// over would answer the first page again as if it were the next one.
+    /// </summary>
+    private static bool TryReadIndexToken(
+        IDictionary<string, string> queryParams, string[] keyNames, string status,
+        out Dictionary<string, AttributeValue>? startKey)
+    {
+        startKey = null;
+        if (!queryParams.TryGetValue("nextToken", out var nextToken) || string.IsNullOrEmpty(nextToken))
+        {
+            return true;
+        }
+
+        var decoded = PaginationTokenHelper.DecodeNextToken(nextToken);
+        if (decoded == null
+            || decoded.Count != keyNames.Length
+            || !keyNames.All(decoded.ContainsKey)
+            || decoded["status"].S != status)
+        {
+            return false;
+        }
+
+        startKey = decoded;
+        return true;
+    }
+
+    private static APIGatewayProxyResponse InvalidNextToken() =>
+        LambdaResponse.Error(400, "ADMIN_005", "Invalid nextToken.", "nextToken");
+
+    /// <summary>
+    /// FRD-07: one page of the <paramref name="status"/> partition of a status index, at most
+    /// <paramref name="limit"/> rows. With a filter, a page the filter emptied is read on, each read asking only for
+    /// the rows still missing, so the page never passes the limit and the next token resumes right after the
+    /// last row read; at most <see cref="MaxFilteredScanPages"/> reads.
+    /// </summary>
+    private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastKey)> QueryIndexPageAsync(
+        string tableName,
+        string indexName,
+        string status,
+        int limit,
+        Dictionary<string, AttributeValue>? startKey,
+        bool newestFirst,
+        ScanFilter? filter = null)
+    {
         var items = new List<Dictionary<string, object>>();
         var lastKey = startKey;
         var pages = 0;
         do
         {
-            var request = new ScanRequest
-            {
-                TableName = tableName,
-                Limit = limit
-            };
-
+            var request = StatusQuery(tableName, indexName, status, filter);
+            request.ScanIndexForward = !newestFirst;
+            request.Limit = limit - items.Count;
             if (lastKey != null)
             {
                 request.ExclusiveStartKey = lastKey;
             }
 
-            if (!string.IsNullOrEmpty(filterValue))
-            {
-                request.FilterExpression = "#field = :value";
-                request.ExpressionAttributeNames = new Dictionary<string, string>
-                {
-                    { "#field", filterField }
-                };
-                request.ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-                {
-                    { ":value", new AttributeValue { S = filterValue } }
-                };
-            }
-
-            if (filter != null)
-            {
-                request.FilterExpression = request.FilterExpression == null
-                    ? filter.Expression
-                    : $"{request.FilterExpression} AND {filter.Expression}";
-                request.ExpressionAttributeNames ??= new Dictionary<string, string>();
-                request.ExpressionAttributeValues ??= new Dictionary<string, AttributeValue>();
-                foreach (var (name, attribute) in filter.Names)
-                {
-                    request.ExpressionAttributeNames[name] = attribute;
-                }
-
-                foreach (var (name, value) in filter.Values)
-                {
-                    request.ExpressionAttributeValues[name] = value;
-                }
-            }
-
-            var response = await _dynamoDb.ScanAsync(request);
-            items.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
+            var response = await _dynamoDb.QueryAsync(request);
+            items.AddRange((response.Items ?? new List<Dictionary<string, AttributeValue>>()).Select(DynamoDbHelper.FromItem));
             lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
             pages++;
         }
-        // FUP-16: DynamoDB applies the filter after the Limit, so one page of a filtered scan can hold
-        // few matches or none. Keep reading until `limit` matched (the last page may add up to
-        // limit - 1 more), the table ends, or the page budget is spent; the nextToken resumes after the
-        // last page read, so nothing is skipped or repeated.
-        while (filtered && items.Count < limit && lastKey != null && pages < MaxFilteredScanPages);
+        while (filter != null && items.Count < limit && lastKey != null && pages < MaxFilteredScanPages);
 
         return (items, lastKey);
+    }
+
+    /// <summary>FRD-07: the rows of one status partition of a status index, counted over every page.</summary>
+    private async Task<int> QueryCountAsync(string tableName, string indexName, string status, ScanFilter? filter = null)
+    {
+        if (string.IsNullOrEmpty(tableName))
+        {
+            return 0;
+        }
+
+        var request = StatusQuery(tableName, indexName, status, filter);
+        request.Select = Select.COUNT;
+
+        var count = 0;
+        Dictionary<string, AttributeValue>? lastKey = null;
+        do
+        {
+            if (lastKey != null)
+            {
+                request.ExclusiveStartKey = lastKey;
+            }
+
+            var response = await _dynamoDb.QueryAsync(request);
+            count += response.Count;
+            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
+        }
+        while (lastKey != null);
+
+        return count;
+    }
+
+    private static QueryRequest StatusQuery(string tableName, string indexName, string status, ScanFilter? filter)
+    {
+        var request = new QueryRequest
+        {
+            TableName = tableName,
+            IndexName = indexName,
+            KeyConditionExpression = "#status = :status",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#status", "status" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":status", new AttributeValue { S = status } }
+            }
+        };
+        if (filter != null)
+        {
+            request.FilterExpression = filter.Expression;
+            foreach (var (name, attribute) in filter.Names)
+            {
+                request.ExpressionAttributeNames[name] = attribute;
+            }
+
+            foreach (var (name, value) in filter.Values)
+            {
+                request.ExpressionAttributeValues[name] = value;
+            }
+        }
+
+        return request;
     }
 
     /// <summary>The most Scan pages (of <c>limit</c> rows each) one filtered admin list request reads.</summary>
@@ -2789,7 +3744,10 @@ public class AdminFunction
     {
         var distinct = userIds.Where(id => !string.IsNullOrEmpty(id)).Distinct().ToList();
         var result = new Dictionary<string, string>();
-        if (distinct.Count == 0) return result;
+        if (distinct.Count == 0)
+        {
+            return result;
+        }
 
         // BatchGetItem supports max 100 keys per request
         foreach (var batch in distinct.Chunk(100))
@@ -2829,7 +3787,9 @@ public class AdminFunction
                         var id = item.TryGetValue("userId", out var uid) ? uid.S : "";
                         var name = item.TryGetValue("displayName", out var dn) ? dn.S : "";
                         if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(name))
+                        {
                             result[id] = name;
+                        }
                     }
                 }
 
@@ -2847,12 +3807,16 @@ public class AdminFunction
     /// </summary>
     private async Task EnrichEscrowNamesAsync(List<EscrowDto> escrows)
     {
-        var userIds = escrows.SelectMany(e => new[] { e.BuyerId, e.FarmerId });
+        var userIds = escrows.SelectMany(e => new[] { e.BuyerId, e.FarmerId, e.TruckerId ?? "" });
         var names = await BatchGetUserNamesAsync(userIds);
         foreach (var e in escrows)
         {
             e.BuyerName ??= names.GetValueOrDefault(e.BuyerId);
             e.FarmerName ??= names.GetValueOrDefault(e.FarmerId);
+            if (e.TruckerId != null)
+            {
+                e.TruckerName ??= names.GetValueOrDefault(e.TruckerId);
+            }
         }
     }
 
@@ -2889,7 +3853,8 @@ public class AdminFunction
                 Disposition = GetStringOrNull(item, DisputeDispositionFields.Disposition),
                 DispositionReason = GetStringOrNull(item, DisputeDispositionFields.Reason),
                 DispositionBy = GetStringOrNull(item, DisputeDispositionFields.By),
-                DispositionAt = GetStringOrNull(item, DisputeDispositionFields.At)
+                DispositionAt = GetStringOrNull(item, DisputeDispositionFields.At),
+                HandoffEvidence = DisputeHandoffEvidence.Read(item)
             };
         }
 
@@ -2931,7 +3896,21 @@ public class AdminFunction
             HeldBy = GetStringOrNull(item, EscrowHoldFields.HeldBy),
             HeldFromStatus = GetStringOrNull(item, EscrowHoldFields.HeldFromStatus),
             HeldFor = GetStringOrNull(item, EscrowHoldFields.HeldFor),
-            Version = GetInt(item, "version", 1)
+            // FUP-41: why the sweeps do not settle it (the double escrow exit and the payout gate runbook read it).
+            SettlementBlockReason = GetStringOrNull(item, SettlementBlockFields.Reason),
+            SettlementBlockReasonAt = GetStringOrNull(item, SettlementBlockFields.ReasonAt),
+            Version = GetInt(item, "version", 1),
+            // ESC-24: the transport leg and the ledger's view of the money (AdminFunction.Legs.cs).
+            TruckerPayout = GetDecimalOrNull(item, "truckerPayout"),
+            TruckerId = NullIfEmpty(GetStringOrNull(item, "truckerId")),
+            TruckerName = NullIfEmpty(GetStringOrNull(item, "truckerName")),
+            TruckerLeg = TruckerLegOf(item),
+            LegStatus = LegStatusOf(item),
+            RefundedTotal = LedgerEscrowFields.IsLedger(item) ? GetDecimal(item, LedgerEscrowFields.RefundedTotal) : null,
+            ReleasedTotal = LedgerEscrowFields.IsLedger(item) ? GetDecimal(item, LedgerEscrowFields.ReleasedTotal) : null,
+            VerdictAmounts = VerdictAmountsOf(item),
+            // FUP-218: the 1.x manual payout legs, so a reference recorded by mistake can be corrected.
+            ManualLegs = ManualLegsOf(item)
         };
     }
 
@@ -2967,7 +3946,72 @@ public class AdminFunction
             ReviewedBy = GetStringOrNull(item, "reviewedBy"),
             ReviewedAt = GetStringOrNull(item, "reviewedAt"),
             ReviewNotes = GetStringOrNull(item, "reviewNotes"),
-            CreatedAt = GetString(item, "createdAt")
+            CreatedAt = GetString(item, "createdAt"),
+            OrderId = SignalOrderId(GetStringOrNull(item, "entityType"), GetStringOrNull(item, "entityId")),
+            // FUP-202: who caused a row written onto another user (ESC-33); admin only, like the rest of the DTO.
+            SourceUserId = NullIfEmpty(GetStringOrNull(item, FraudDetectionService.SourceUserIdAttribute)),
+            AiConcern = GetStringOrNull(item, "aiConcern"),
+            AiModel = GetStringOrNull(item, "aiModel"),
+            AiLabels = AdvisoryLabels(item)
+        };
+    }
+
+    /// <summary>
+    /// FUP-145: the label map of an <c>AI_ADVISORY</c> row (<c>aiLabels</c>), by kind and number. Only on an advisory
+    /// row, only entries shaped like a timeline label with a string id, at most
+    /// <see cref="FraudAdvisory.MaxLabels"/>. Null without a usable map (every row written before the map was kept).
+    /// </summary>
+    private static List<FraudAdvisoryLabelDto>? AdvisoryLabels(Dictionary<string, object> item)
+    {
+        if (GetStringOrNull(item, "signalType") != FraudDetectionService.AdvisorySignalType
+            || !item.TryGetValue("aiLabels", out var raw)
+            || raw is not Dictionary<string, object> map)
+        {
+            return null;
+        }
+
+        var labels = map
+            .Where(entry => FraudAdvisory.IsEntityLabel(entry.Key)
+                            && entry.Value is string { Length: > 0 and <= FraudAdvisory.MaxLabelIdLength })
+            .OrderBy(entry => FraudAdvisory.LabelKind(entry.Key), StringComparer.Ordinal)
+            .ThenBy(entry => FraudAdvisory.LabelNumber(entry.Key))
+            .Take(FraudAdvisory.MaxLabels)
+            .Select(entry =>
+            {
+                var kind = FraudAdvisory.LabelKind(entry.Key);
+                var id = (string)entry.Value;
+                return new FraudAdvisoryLabelDto
+                {
+                    Label = entry.Key,
+                    EntityType = kind,
+                    EntityId = id,
+                    OrderId = SignalOrderId(kind, id)
+                };
+            })
+            .ToList();
+        return labels.Count > 0 ? labels : null;
+    }
+
+    /// <summary>The key prefix of an order escrow (<c>escrow-order-{orderId}</c>, deterministic since ESC-01).</summary>
+    private const string OrderEscrowIdPrefix = "escrow-order-";
+
+    /// <summary>
+    /// FRD-07: the order of the transaction timeline a signal belongs to, when its entity names one without a read:
+    /// the order itself, or an order escrow. A delivery, trip, listing or delivery-initiated escrow has none.
+    /// </summary>
+    private static string? SignalOrderId(string? entityType, string? entityId)
+    {
+        if (string.IsNullOrEmpty(entityId))
+        {
+            return null;
+        }
+
+        return entityType switch
+        {
+            "order" => entityId,
+            "escrow" when entityId.StartsWith(OrderEscrowIdPrefix, StringComparison.Ordinal)
+                          && entityId.Length > OrderEscrowIdPrefix.Length => entityId[OrderEscrowIdPrefix.Length..],
+            _ => null
         };
     }
 

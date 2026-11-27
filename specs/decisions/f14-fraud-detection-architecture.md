@@ -24,6 +24,7 @@ F-14 adds server-side fraud detection to WeredaConnect, targeting four categorie
 
 **Design principles**:
 - No new DynamoDB tables — reuse existing `CropsTable` (with 2 new GSIs) and `RateLimitsTable`
+  (superseded for the later risk score, see 4.1)
 - AOT-compatible — no reflection, all DTOs registered in `AppJsonContext`
 - Constructor-injected `IFraudDetectionService` following existing Lambda handler patterns
 - Soft checks (flag) never block operations; hard checks (reject) return typed error codes
@@ -495,6 +496,11 @@ public sealed class FraudDetectionService : IFraudDetectionService
 ## 4. DynamoDB Access Patterns
 
 ### 4.1 No New Tables
+
+> **Superseded (2026-11-07, ESC-14 doc pass, survey 9.6).** This held for the four rules of
+> this decision. Rule 5 (the account risk score) later added one table, `{prefix}-fraud-signals`
+> (`FraudSignalsTable`, `infra/lib/stacks/database-stack.ts`); the current design is
+> `specs/architecture/fraud-detection-architecture.md`.
 
 All fraud queries use existing tables:
 

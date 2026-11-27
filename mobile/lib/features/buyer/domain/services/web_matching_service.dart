@@ -1,15 +1,17 @@
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/crop_status_wire.dart';
 import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
+import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/features/buyer/domain/models/match_result.dart';
 import 'package:wereda_connect/features/buyer/domain/repositories/base_buyer_intent_repository.dart';
 import 'package:wereda_connect/features/buyer/domain/services/base_matching_service.dart';
 import 'package:wereda_connect/features/buyer/domain/services/match_scorer.dart';
-import 'package:wereda_connect/shared/services/place_normalizer.dart';
 
 /// Web / online matching service — client-side matching over API data.
 ///
@@ -30,8 +32,9 @@ import 'package:wereda_connect/shared/services/place_normalizer.dart';
 ///   fetches every active listing, not just the buyer's own.
 /// - Commission rate is 5% of the crop cost (platform fee, [OrderPricing]),
 ///   same as mobile.
-/// - Trip matching compares woreda names through the shared
-///   [normalizeWoreda] rule, identical to the mobile [MatchingService].
+/// - Trip pairing is [MatchScorer.suggestTrips] (MATCH-01), identical to the
+///   mobile [MatchingService]: the exact route or a neighbouring woreda by
+///   centroid distance or by a whole-word name match, never the reverse way.
 class WebMatchingService extends BaseMatchingService {
   final ApiClient _api;
 
@@ -39,7 +42,11 @@ class WebMatchingService extends BaseMatchingService {
   /// [MatchingService], so online and offline rankings agree.
   static const MatchScorer _scorer = MatchScorer();
 
-  WebMatchingService({required ApiClient api}) : _api = api;
+  final DateTime Function() _clock;
+
+  WebMatchingService({required ApiClient api, DateTime Function()? clock})
+      : _api = api,
+        _clock = clock ?? DateTime.now;
 
   @override
   Future<List<CropMatchResult>> matchListingsForIntent(
@@ -57,7 +64,7 @@ class WebMatchingService extends BaseMatchingService {
   /// with cheaper crop price breaking ties.
   Future<(List<CropMatchResult>, int)> _match(BuyerIntent intent) async {
     try {
-      final now = DateTime.now().toUtc();
+      final now = _clock().toUtc();
 
       // Buyers match against ALL farmers' active listings (role visibility).
       final crops = await _fetchAvailableCrops();
@@ -65,8 +72,9 @@ class WebMatchingService extends BaseMatchingService {
           crops.where((c) => _scorer.isCandidate(intent, c)).toList();
       if (candidates.isEmpty) return (const <CropMatchResult>[], 0);
 
-      // Pair each candidate crop with suggested trips (fetched once).
-      final allTrips = await _fetchOpenTrips();
+      // Pair each candidate crop with suggested trips (fetched once), with
+      // the order lead the same response reported (FUP-122).
+      final (allTrips, orderLeadHours) = await _fetchOpenTrips();
 
       final results = <CropMatchResult>[];
       for (final listing in candidates) {
@@ -75,6 +83,8 @@ class WebMatchingService extends BaseMatchingService {
           listing.locationName,
           intent.deliveryWoreda,
           intent.quantityNeeded,
+          now: now,
+          orderLeadHours: orderLeadHours,
           neededByDate: intent.neededByDate,
         );
 
@@ -159,19 +169,27 @@ class WebMatchingService extends BaseMatchingService {
           data['items'] as List<dynamic>? ??
           const <dynamic>[];
       for (final item in items) {
-        crops.add(_parseCrop(item as Map<String, dynamic>));
+        final row = item as Map<String, dynamic>;
+        // FUP-149: a deleted listing is never a candidate (the server's list
+        // leaves it out; this guards a server that still sends one).
+        if (isDeletedCropRow(row)) continue;
+        crops.add(_parseCrop(row));
       }
       nextToken = data['nextToken'] as String?;
     } while (nextToken != null);
     return crops;
   }
 
-  /// Fetch all open trips from the API, following pagination.
+  /// Fetch all open trips from the API, following pagination, with the order
+  /// lead the server reported (FUP-122, the first page's; null when it sent
+  /// none). Web reads both fresh on every match, so it caches neither.
   ///
   /// Errors are not swallowed: they propagate so the caller can report a real
   /// failure instead of treating it as "no trips available".
-  Future<List<Trip>> _fetchOpenTrips() async {
+  Future<(List<Trip>, int?)> _fetchOpenTrips() async {
     final allTrips = <Trip>[];
+    int? orderLeadHours;
+    var firstPage = true;
     String? nextToken;
     do {
       final params = <String, dynamic>{'status': 'open', 'limit': '50'};
@@ -180,6 +198,10 @@ class WebMatchingService extends BaseMatchingService {
         '/trips',
         queryParameters: params,
       );
+      if (firstPage) {
+        orderLeadHours = orderLeadHoursFromWire(data);
+        firstPage = false;
+      }
       final items = data['trips'] as List<dynamic>? ??
           data['items'] as List<dynamic>? ??
           [];
@@ -188,81 +210,62 @@ class WebMatchingService extends BaseMatchingService {
       );
       nextToken = data['nextToken'] as String?;
     } while (nextToken != null);
-    return allTrips;
+    return (allTrips, orderLeadHours);
   }
 
   /// Find trips for a specific listing → buyer delivery route.
   ///
-  /// Fetches open trips and filters client-side for the given route.
+  /// Fetches open trips and filters client-side for the given route, with the
+  /// same rule and order as the mobile `MatchingService.findTripsForListing`.
   Future<List<Trip>> findTripsForListing(
     CropListing listing,
     String deliveryWoreda,
-    double quantityNeeded,
-  ) async {
-    final allTrips = await _fetchOpenTrips();
+    double quantityNeeded, {
+    DateTime? neededByDate,
+  }) async {
+    final (allTrips, orderLeadHours) = await _fetchOpenTrips();
     return _filterTripsForRoute(
       allTrips,
       listing.locationName,
       deliveryWoreda,
       quantityNeeded,
+      now: _clock().toUtc(),
+      orderLeadHours: orderLeadHours,
+      neededByDate: neededByDate,
     );
   }
 
-  /// Filter trips matching origin → destination route.
-  ///
-  /// Approximates mobile MatchingService trip filtering:
-  /// - fromWoreda names the listing location ([compareWoredas] exact or
-  ///   whole-word partial, so "Adama, Oromia" meets "Ādama")
-  /// - toWoreda names the delivery woreda (same rule)
-  /// - departureDate in the future
-  /// - capacity >= quantityNeeded
-  /// - departureDate on/before the buyer's deadline when one is set
-  /// - Sorted by pricePerQuintal ascending
-  ///
-  /// NOTE: mobile applies a 0.01 float tolerance on the capacity check
-  /// (`capacityGreaterThan(needed - 0.01)`); this strict `<` comparison can
-  /// differ from mobile at the exact capacity == needed boundary under float
-  /// representation. Acceptable for the online path (a near-exact capacity match
-  /// is rare and only affects trip suggestions, not crop ranking).
+  /// The open trips that serve the origin → destination route, best first:
+  /// [MatchScorer.suggestTrips] (MATCH-01), the rule the mobile
+  /// [MatchingService] applies to its cache.
+  /// - open, departing today or later in Ethiopia (FUP-85) and at least
+  ///   [orderLeadHours] ahead when the server runs the commitments (FUP-122)
+  /// - room left (`remainingQuintals`, else capacity) for [quantityNeeded],
+  ///   less the server's 0.01 quintal tolerance (ESC-15)
+  /// - departing on or before the buyer's deadline when one is set
+  /// - starting at [fromLocation] or within 40 km of it, ending at
+  ///   [toLocation] or within 40 km of it (centroid distance), the whole-word
+  ///   name match also counting; a trip running the other way is dropped
+  /// - cheapest first, then the exact route before a neighbouring woreda,
+  ///   then the more reliable trucker, the earlier departure, the trip id
   List<Trip> _filterTripsForRoute(
     List<Trip> trips,
     String fromLocation,
     String toLocation,
     double quantityNeeded, {
+    required DateTime now,
+    required int? orderLeadHours,
     DateTime? neededByDate,
   }) {
-    final now = DateTime.now().toUtc();
-    // FUP-85: compare by Ethiopia calendar day, not by instant, so a trip
-    // departing today is suggested all day (parity with MatchingService).
-    final todayStart = startOfDayInEthiopia(now);
-    final fromKey = normalizeWoreda(fromLocation);
-    final toKey = normalizeWoreda(toLocation);
-    final deadline = neededByDate?.toUtc();
-
-    // A blank origin or destination can never name a route.
-    if (fromKey.isEmpty || toKey.isEmpty) return const <Trip>[];
-
-    final matched = trips.where((trip) {
-      // FUP-85: keep trips departing today or later in Ethiopia; drop only
-      // past days.
-      if (startOfDayInEthiopia(trip.departureDate).isBefore(todayStart)) {
-        return false;
-      }
-      if (trip.capacity < quantityNeeded) return false;
-      // Date-fit: drop trips departing after the buyer's delivery deadline.
-      if (deadline != null && trip.departureDate.isAfter(deadline)) {
-        return false;
-      }
-      return compareWoredaKeys(normalizeWoreda(trip.fromWoreda), fromKey) !=
-              WoredaMatch.none &&
-          compareWoredaKeys(normalizeWoreda(trip.toWoreda), toKey) !=
-              WoredaMatch.none;
-    }).toList();
-
-    matched.sort(
-      (a, b) => a.pricePerQuintal.compareTo(b.pricePerQuintal),
+    return _scorer.suggestTrips(
+      trips,
+      listingWoreda: fromLocation,
+      deliveryWoreda: toLocation,
+      quantityNeeded: quantityNeeded,
+      now: now,
+      orderLeadHours: orderLeadHours,
+      neededByDate: neededByDate,
     );
-    return matched;
   }
 
   Trip _parseTrip(Map<String, dynamic> m) {
@@ -282,6 +285,9 @@ class WebMatchingService extends BaseMatchingService {
               DateTime.now()
       ..capacity = (m['capacity'] as num?)?.toDouble() ?? 0
       ..pricePerQuintal = (m['pricePerQuintal'] as num?)?.toDouble() ?? 0
+      ..bookedQuintals = quintalsFromWire(m['bookedQuintals'])
+      ..remainingQuintals = quintalsFromWire(m['remainingQuintals'])
+      ..readOwnerReputation(m)
       ..status = TripStatus.values.firstWhere(
         (e) => e.name == (m['status'] as String? ?? 'open'),
         orElse: () => TripStatus.open,
@@ -300,9 +306,10 @@ class WebMatchingService extends BaseMatchingService {
   /// Parse a crop from `GET /crops` into a [CropListing].
   ///
   /// The browse endpoint returns the crop's woreda but may omit GPS
-  /// coordinates and the farmer-reliability signal; the [MatchScorer] degrades
-  /// gracefully in that case (woreda-string geo proxy + neutral reliability),
-  /// so a missing field lowers precision but never breaks matching.
+  /// coordinates and the farmer's `ownerReliabilityPct` (sent only while the
+  /// public reputation flag is on); the [MatchScorer] degrades gracefully in
+  /// that case (woreda-string geo proxy + neutral reliability), so a missing
+  /// field lowers precision but never breaks matching.
   CropListing _parseCrop(Map<String, dynamic> m) {
     return CropListing()
       // API uses "cropId"; sync-created listings echo "listingId".
@@ -322,6 +329,7 @@ class WebMatchingService extends BaseMatchingService {
           m['locationName'] as String? ?? m['woreda'] as String? ?? ''
       ..description = m['description'] as String? ?? ''
       ..farmerReliability = (m['farmerReliability'] as num?)?.toDouble()
+      ..readOwnerReputation(m)
       ..status = ListingStatus.active
       ..createdAt =
           DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now()

@@ -24,6 +24,22 @@ typedef PermanentRejectionHandler = Future<void> Function(
   String message,
 );
 
+/// Sharing ended for a trip (web stub, unused: the web check-in sender reads
+/// `LOCATION_SHARING_ENDED` from its own /sync answer, LT-08).
+typedef LocationSharingEndedHandler = Future<void> Function(String tripId);
+
+/// A delivery's pickup was refused for good (web stub, unused).
+typedef PickupRejectedHandler = Future<void> Function(String deliveryId);
+
+/// Readies an operation before it is sent (web stub, unused: the web uploads
+/// a listing's photos before its own `POST /sync`).
+typedef OperationPreflight = Future<bool> Function(SyncOperation operation);
+
+/// Mobile hook after an operation was applied; never called on web.
+typedef OperationSyncedHandler = Future<void> Function(
+  SyncOperation operation,
+);
+
 /// Status of a sync batch execution.
 enum SyncBatchStatus {
   success,
@@ -78,6 +94,10 @@ class SyncExecutor {
     dynamic securityEvents,
     KycRejectionHandler? onKycRequired,
     PermanentRejectionHandler? onPermanentRejection,
+    LocationSharingEndedHandler? onLocationSharingEnded,
+    PickupRejectedHandler? onPickupRejected,
+    OperationPreflight? preflight,
+    OperationSyncedHandler? onOperationSynced,
   });
 
   Stream<SyncBatchResult> get onSyncResult => const Stream.empty();

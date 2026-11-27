@@ -373,6 +373,37 @@ public class FraudRiskScoreTests
         result.Tier.Should().Be(RiskTier.Low);
     }
 
+    [Fact]
+    public async Task Credits_FRD10KeyWithTheEscrowIdCountsInTheWindowOnly()
+    {
+        // FRD-10 keys a credit {releasedAt}#CLEAN_DELIVERY#{escrowId}; the window reads the time prefix.
+        var inWindow = Credit(Now.AddDays(-29));
+        inWindow["signalKey"] = new AttributeValue { S = $"{Iso(Now.AddDays(-29))}#CLEAN_DELIVERY#esc-1" };
+        var beforeWindow = Credit(Now.AddDays(-31));
+        beforeWindow["signalKey"] = new AttributeValue { S = $"{Iso(Now.AddDays(-31))}#CLEAN_DELIVERY#esc-2" };
+
+        var result = await ScoreRowsAsync(Signal("FRAUD_DUPLICATE_LISTING", Now.AddHours(-1)), inWindow, beforeWindow);
+
+        result.Score.Should().Be(15);
+    }
+
+    [Fact]
+    public async Task Credits_FalsePositiveDropsItsWeightAndCreditsStillFloorAtZero()
+    {
+        // FRD-10: an admin approve (false positive) takes the signal out; the credits then meet only the
+        // remaining 10 and the score stops at 0. Before the approve the same rows score 15.
+        var result = await ScoreRowsAsync(
+            Credit(Now.AddHours(-1)),
+            Credit(Now.AddHours(-2)),
+            Credit(Now.AddHours(-3)),
+            Signal("FRAUD_DUPLICATE_LISTING", Now.AddHours(-4), resolution: "approve"),
+            Signal("PRICE_ANOMALY", Now.AddHours(-5)));
+
+        result.Score.Should().Be(0);
+        result.EnforcementScore.Should().Be(0);
+        result.Tier.Should().Be(RiskTier.Low);
+    }
+
     // ── resolutions (sections 14.2, 19) ────────────────────
 
     [Theory]
@@ -443,6 +474,33 @@ public class FraudRiskScoreTests
         result.Score.Should().Be(60);
         result.EnforcementScore.Should().Be(50);
         result.Tier.Should().Be(RiskTier.High);
+    }
+
+    [Fact]
+    public async Task Advisory_TheRowTheAdvisoryCronWrites_NeverMakesCritical_AndAnApproveClearsIt()
+    {
+        // FRD-19: keyed on the start of the UTC day, recordType signal, pending, weight 10.
+        var dayKey = FraudAdvisory.DayKey(Now);
+        Dictionary<string, AttributeValue> Advisory(string? resolution) => new()
+        {
+            ["signalKey"] = new() { S = dayKey },
+            ["signalType"] = new() { S = FraudDetectionService.AdvisorySignalType },
+            ["recordType"] = new() { S = "signal" },
+            ["status"] = new() { S = resolution == null ? "pending" : "reviewed" },
+            ["weight"] = new() { N = "10" },
+            ["resolution"] = resolution == null ? new() { NULL = true } : new() { S = resolution }
+        };
+
+        var pending = await ScoreRowsAsync(
+            Advisory(null), Signal("IDOR_CREATE_CONFLICT", Now.AddMinutes(-1), weight: 95));
+        pending.Score.Should().Be(105);
+        pending.EnforcementScore.Should().Be(95);
+        pending.Tier.Should().Be(RiskTier.High);
+
+        var approved = await ScoreRowsAsync(
+            Advisory("approve"), Signal("IDOR_CREATE_CONFLICT", Now.AddMinutes(-1), weight: 95));
+        approved.Score.Should().Be(95);
+        approved.Tier.Should().Be(RiskTier.High);
     }
 
     // ── bounded read (section 14.3) ────────────────────────
@@ -531,13 +589,94 @@ public class FraudRiskScoreTests
 
         var result = await ScoreAsync();
 
-        _queries.Should().HaveCount(2); // RISK_MAX_PAGES default
+        // RISK_MAX_PAGES (default 2) pages, then the one-row probe (FUP-62), which finds a row.
+        _queries.Should().HaveCount(3);
         result.Truncated.Should().BeTrue();
         result.Tier.Should().Be(RiskTier.Critical);
         result.Score.Should().Be(15);
         result.Source.Should().Be(RiskScoreSource.Computed);
         _alarms.Should().ContainSingle()
             .Which.Should().Be($"{FraudDetectionService.RiskScoreTruncatedToken} userId=user-risk-1 pages=2");
+    }
+
+    [Fact]
+    public async Task Read_AtThePageCap_ProbesOneRowFromTheLastKey_InTheSameOrderAndWindow()
+    {
+        var lastKey = PageKey("k2");
+        Pages(
+            Page(PageKey("k1"), Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-1))),
+            Page(lastKey, Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-2))),
+            Page(null));
+
+        await ScoreAsync();
+
+        var probe = _queries[2];
+        probe.TableName.Should().Be(Table);
+        probe.KeyConditionExpression.Should().Be(_queries[0].KeyConditionExpression);
+        probe.ExpressionAttributeValues[":uid"].S.Should().Be(UserId);
+        probe.ExpressionAttributeValues[":since"].S.Should().Be(_queries[0].ExpressionAttributeValues[":since"].S);
+        probe.ExclusiveStartKey.Should().BeSameAs(lastKey);
+        probe.ScanIndexForward.Should().BeFalse();
+        probe.Limit.Should().Be(1);
+        probe.FilterExpression.Should().BeNullOrEmpty();
+        probe.ProjectionExpression.Should().Be("#k");
+        probe.ExpressionAttributeNames.Keys.Should().BeEquivalentTo("#u", "#k");
+    }
+
+    [Fact]
+    public async Task Read_ALastPageThatEndsExactlyAtTheCap_IsNotTruncated()
+    {
+        // FUP-62 (section 14.3): DynamoDB can end a page at the last row and still return a key. Nothing is
+        // left, so the user is scored on what was read, not CRITICAL.
+        Pages(
+            Page(PageKey("k1"), Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-1))),
+            Page(PageKey("k2"), Signal("FRAUD_DUPLICATE_LISTING", Now.AddHours(-5))),
+            Page(null));
+
+        var result = await ScoreAsync();
+
+        _queries.Should().HaveCount(3);
+        result.Truncated.Should().BeFalse();
+        result.Score.Should().Be(35);
+        result.Tier.Should().Be(RiskTier.Medium);
+        result.Source.Should().Be(RiskScoreSource.Computed);
+        _alarms.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Read_AProbeThatAnswersOnlyAKey_StaysTruncated()
+    {
+        Pages(
+            Page(PageKey("k1"), Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-1))),
+            Page(PageKey("k2"), Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-2))),
+            Page(PageKey("k3")));
+
+        var result = await ScoreAsync();
+
+        result.Truncated.Should().BeTrue();
+        result.Tier.Should().Be(RiskTier.Critical);
+    }
+
+    [Fact]
+    public async Task Read_AProbeThatFails_StaysTruncatedToCritical_NotUnavailable()
+    {
+        // A failed probe must not turn a CRITICAL read into an unscored one, which a gate treats as LOW.
+        var calls = 0;
+        _ddb.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => ++calls switch
+            {
+                1 => Task.FromResult(Page(PageKey("k1"), Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-1)))),
+                2 => Task.FromResult(Page(PageKey("k2"), Signal("FRAUD_VELOCITY_EXCEEDED", Now.AddMinutes(-2)))),
+                _ => throw new ProvisionedThroughputExceededException("slow down")
+            });
+
+        var result = await ScoreAsync();
+
+        result.Truncated.Should().BeTrue();
+        result.Tier.Should().Be(RiskTier.Critical);
+        result.Source.Should().Be(RiskScoreSource.Computed);
+        _alarms.Should().ContainSingle().Which.Should().Be(
+            $"{FraudDetectionService.RiskScoreTruncatedToken} userId=user-risk-1 pages=2 probe=ProvisionedThroughputExceededException");
     }
 
     [Fact]

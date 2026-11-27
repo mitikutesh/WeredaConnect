@@ -11,14 +11,20 @@ class Breakpoints {
   static const double mobile = 600;
   static const double tablet = 1024;
 
-  /// Sidebar width when expanded (desktop).
-  static const double sidebarExpanded = 260;
+  /// Sidebar width when expanded (desktop): close to the Web board's 205,
+  /// with room for the longer Amharic and Afaan Oromoo labels.
+  static const double sidebarExpanded = 220;
 
   /// Sidebar width when collapsed (tablet rail).
   static const double sidebarCollapsed = 72;
 
   /// Maximum content width for readability.
   static const double maxContentWidth = 1200;
+
+  /// Bottom padding for a scrollable tab body, so the floating create button
+  /// never hides its last item: the 56 dp labeled FAB, its 16 dp margin above
+  /// the bottom bar, and 16 dp of breathing room.
+  static const double fabClearance = 88;
 
   /// Returns the current window class based on width.
   static WindowClass of(BuildContext context) {
@@ -41,3 +47,18 @@ class Breakpoints {
 }
 
 enum WindowClass { mobile, tablet, desktop }
+
+/// Marks content shown beside the web sidebar or rail, which lists
+/// Messages, Payments (Orders for the trucker), Profile and Settings. A
+/// header leaves its own account button out under it. The device app never
+/// draws a sidebar, at any width.
+class SidebarScope extends InheritedWidget {
+  const SidebarScope({required super.child, super.key});
+
+  /// Whether [context] sits beside a sidebar.
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<SidebarScope>() != null;
+
+  @override
+  bool updateShouldNotify(SidebarScope oldWidget) => false;
+}

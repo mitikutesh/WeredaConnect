@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
+import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
-/// Step 4: Personal Info — phone, name, woreda, password.
+/// Step 4: Personal Info — phone, name, woreda, password (the
+/// RegisterPersonal board: labels above the fields, the locked legal name
+/// first, the two passwords side by side). The flow above draws the header
+/// and the Register button.
 class PersonalInfoScreen extends StatefulWidget {
   final String phone;
   final String name;
@@ -57,7 +62,8 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   void initState() {
     super.initState();
     _phoneController = TextEditingController(
-      text: widget.phone.isEmpty ? '' : widget.phone,
+      // Grouped as the field groups what is typed ("+251 911 234 567").
+      text: widget.phone.isEmpty ? '' : groupPhoneDigits(widget.phone),
     );
     _nameController = TextEditingController(text: widget.name);
     _weredaController = TextEditingController(text: widget.woreda);
@@ -79,177 +85,184 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Form(
-            key: widget.formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l10n.personalInfo,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.textDark,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  l10n.personalInfoDescription,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: AppTheme.textMuted,
-                  ),
-                ),
-                const SizedBox(height: 24),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      child: Form(
+        key: widget.formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            JoinTitle(
+              title: l10n.personalInfo,
+              subtitle: l10n.personalInfoDescription,
+            ),
+            const SizedBox(height: 20),
 
-                // Phone
-                TextFormField(
-                  controller: _phoneController,
-                  decoration: InputDecoration(
-                    labelText: l10n.phoneNumber,
-                    prefixIcon: const Icon(Icons.phone),
-                    hintText: l10n.ethiopianPhoneExample,
-                  ),
-                  keyboardType: TextInputType.phone,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[+\d]')),
+            // Verified legal name (shown when Fayda verified): a sand, read
+            // only row with the "From Fayda" pill in the role's tint.
+            if (widget.faydaVerified && widget.faydaVerifiedName != null) ...[
+              Text(l10n.verifiedLegalName, style: LabeledField.labelStyle),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(minHeight: 52),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppTheme.sand,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.faydaVerifiedName!,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.ink,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    FwPill(label: l10n.fromFayda, icon: Icons.lock_outline),
                   ],
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return l10n.fieldRequired;
-                    }
-                    if (!isValidEthiopianPhone(value)) {
-                      return l10n.invalidPhoneFormat;
-                    }
-                    return null;
-                  },
-                  onChanged: (value) {
-                    // Normalize to canonical E.164 before passing upstream
-                    final normalized = normalizeEthiopianPhone(value);
-                    widget.onPhoneChanged(normalized ?? value);
-                  },
                 ),
-                const SizedBox(height: 16),
+              ),
+              const SizedBox(height: 14),
+            ],
 
-                // Verified legal name card (shown when Fayda verified)
-                if (widget.faydaVerified &&
-                    widget.faydaVerifiedName != null) ...[
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AppTheme.primaryGreen),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.check_circle,
-                          color: AppTheme.primaryGreen,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                l10n.verifiedLegalName,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppTheme.textMuted,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                widget.faydaVerifiedName!,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.textDark,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+            // Display name (Register personal board order: name,
+            // phone, wereda, then the two passwords side by side).
+            LabeledField(
+              label: l10n.displayName,
+              field: TextFormField(
+                key: const Key('register_display_name'),
+                controller: _nameController,
+                decoration: labeledFieldDecoration().copyWith(
+                  helperText: l10n.displayNameHelper,
+                  errorMaxLines: 3,
+                  counterText: '',
+                ),
+                keyboardType: TextInputType.name,
+                textCapitalization: TextCapitalization.words,
+                maxLength: 100,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return l10n.fieldRequired;
+                  }
+                  // FUP-52: listings show this name to every buyer.
+                  if (containsPhoneNumber(value)) {
+                    return l10n.errorContactInText;
+                  }
+                  return null;
+                },
+                onChanged: widget.onNameChanged,
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Phone
+            LabeledField(
+              label: l10n.phoneNumber,
+              field: TextFormField(
+                key: const Key('register_phone'),
+                controller: _phoneController,
+                decoration: labeledFieldDecoration().copyWith(
+                  helperText: l10n.ethiopianPhoneExample,
+                  helperMaxLines: 2,
+                ),
+                keyboardType: TextInputType.phone,
+                inputFormatters: [EthiopianPhoneInputFormatter()],
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return l10n.fieldRequired;
+                  }
+                  if (!isValidEthiopianPhone(value)) {
+                    return l10n.invalidPhoneFormat;
+                  }
+                  return null;
+                },
+                onChanged: (value) {
+                  // Normalize to canonical E.164 before passing upstream
+                  final normalized = normalizeEthiopianPhone(value);
+                  widget.onPhoneChanged(normalized ?? value);
+                },
+              ),
+            ),
+            const SizedBox(height: 14),
+
+            // Woreda: the place search, with the board's helper under it.
+            LabeledField(
+              // The suggestions stay their own nodes (see LabeledField).
+              mergeSemantics: false,
+              label: l10n.wereda,
+              field: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // No maxLength: its counter is not on the board; the
+                  // server caps the name at 100 characters.
+                  PlaceSelector(
+                    key: const Key('register_wereda'),
+                    controller: _weredaController,
+                    // "Meki · Oromia" with a chevron, as on the board.
+                    pickerLook: true,
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return l10n.fieldRequired;
+                      }
+                      // FUP-52: crop listings carry it to every buyer.
+                      if (containsPhoneNumber(value)) {
+                        return l10n.errorContactInText;
+                      }
+                      return null;
+                    },
+                    // Registration stores the woreda name only (no placeId on
+                    // the User entity / auth contract). Selecting a place
+                    // writes its canonical English name; typing reports the
+                    // raw text.
+                    onChanged: widget.onWeredaChanged,
+                    onPlaceSelected: (place) {
+                      if (place != null) widget.onWeredaChanged(place.en);
+                    },
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    l10n.joinWeredaHelper,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.slate,
                     ),
                   ),
-                  const SizedBox(height: 16),
                 ],
+              ),
+            ),
+            const SizedBox(height: 14),
 
-                // Display name
-                TextFormField(
-                  controller: _nameController,
-                  decoration: InputDecoration(
-                    labelText: l10n.displayName,
-                    helperText: l10n.displayNameHelper,
-                    prefixIcon: const Icon(Icons.person),
-                    errorMaxLines: 3,
-                  ),
-                  keyboardType: TextInputType.name,
-                  textCapitalization: TextCapitalization.words,
-                  maxLength: 100,
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return l10n.fieldRequired;
-                    }
-                    // FUP-52: listings show this name to every buyer.
-                    if (containsPhoneNumber(value)) {
-                      return l10n.errorContactInText;
-                    }
-                    return null;
-                  },
-                  onChanged: widget.onNameChanged,
-                ),
-                const SizedBox(height: 16),
-
-                // Woreda
-                PlaceSelector(
-                  controller: _weredaController,
-                  labelText: l10n.wereda,
-                  prefixIcon: Icons.location_on,
-                  maxLength: 100,
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return l10n.fieldRequired;
-                    }
-                    // FUP-52: crop listings carry it to every buyer.
-                    if (containsPhoneNumber(value)) {
-                      return l10n.errorContactInText;
-                    }
-                    return null;
-                  },
-                  // Registration stores the woreda name only (no placeId on the
-                  // User entity / auth contract). Selecting a place writes its
-                  // canonical English name; typing reports the raw text.
-                  onChanged: widget.onWeredaChanged,
-                  onPlaceSelected: (place) {
-                    if (place != null) widget.onWeredaChanged(place.en);
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Password
-                TextFormField(
+            // Password and confirmation side by side
+            LabeledFieldPair(
+              first: LabeledField(
+                label: l10n.password,
+                field: TextFormField(
+                  key: const Key('register_password'),
                   controller: _passwordController,
-                  decoration: InputDecoration(
-                    labelText: l10n.password,
-                    prefixIcon: const Icon(Icons.lock),
-                    helperText: l10n.passwordRequirements,
+                  decoration: labeledFieldDecoration().copyWith(
+                    counterText: '',
                     suffixIcon: IconButton(
+                      tooltip: _obscurePassword
+                          ? l10n.showPassword
+                          : l10n.hidePassword,
                       icon: Icon(
                         _obscurePassword
                             ? Icons.visibility_off
                             : Icons.visibility,
                       ),
                       onPressed: () {
-                        setState(() => _obscurePassword = !_obscurePassword);
+                        setState(
+                          () => _obscurePassword = !_obscurePassword,
+                        );
                       },
                     ),
                   ),
@@ -268,15 +281,17 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   },
                   onChanged: widget.onPasswordChanged,
                 ),
-                const SizedBox(height: 16),
-
-                // Confirm password
-                TextFormField(
+              ),
+              second: LabeledField(
+                label: l10n.confirmPassword,
+                field: TextFormField(
+                  key: const Key('register_confirm_password'),
                   controller: _confirmController,
-                  decoration: InputDecoration(
-                    labelText: l10n.confirmPassword,
-                    prefixIcon: const Icon(Icons.lock_outline),
+                  decoration: labeledFieldDecoration().copyWith(
                     suffixIcon: IconButton(
+                      tooltip: _obscureConfirm
+                          ? l10n.showPassword
+                          : l10n.hidePassword,
                       icon: Icon(
                         _obscureConfirm
                             ? Icons.visibility_off
@@ -299,9 +314,18 @@ class _PersonalInfoScreenState extends State<PersonalInfoScreen> {
                   },
                   onChanged: widget.onConfirmPasswordChanged,
                 ),
-              ],
+              ),
             ),
-          ),
+            const SizedBox(height: 8),
+            Text(
+              l10n.passwordRequirements,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.4,
+                color: AppTheme.slate,
+              ),
+            ),
+          ],
         ),
       ),
     );

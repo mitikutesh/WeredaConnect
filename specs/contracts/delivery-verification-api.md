@@ -1,11 +1,14 @@
 # Delivery Verification API Contract
 
 ## Version
-1.19.0
+2.19.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
+- **Web** (client) -- the same handoffs in the browser; uploads handoff photos as they are taken (1.25.0)
 - **Backend** (server) -- validating delivery state transitions, GPS proximity, and storing evidence
+- **Infrastructure** -- the uploads bucket and its CORS, the Lambdas' photo grants (1.25.0)
+- **Admin** -- the handoff photos on the transaction detail, dispute evidence (1.25.0); the cancel after pickup (2.9.0); the re-open of a trucker no-show (2.11.0)
 
 ---
 
@@ -17,7 +20,7 @@ The Delivery Verification API tracks the physical handoff of crops from farmer t
 - **Offline-first**: QR generation, QR scanning, GPS capture, and photo capture all work offline
 - **QR code verification**: HMAC-SHA256 signed tokens for tamper-proof handoff confirmation
 - **GPS proximity validation**: 5km radius check against registered locations
-- **Photo evidence**: Optional WebP images (<200KB) for dispute resolution
+- **Photo evidence**: Optional handoff photos (WebP from the phone, JPEG from the browser, at most 200 KB) for dispute resolution, seen only by the delivery's buyer, farmer and trucker and by admins (1.25.0)
 - **State machine enforcement**: Server validates all status transitions
 - **Cancel, never delete**: a cancelled delivery keeps its row with `status: cancelled` (since 1.9.0 without `deletedAt`, so every party's list still returns it); rows soft-deleted before 1.9.0 keep their `deletedAt`
 
@@ -71,7 +74,7 @@ Create guards (v1.3.0, SIM-09), each rejected with nothing written:
 | Order status must be `accepted`, `pickup_confirmed` or `in_transit` (the farmer has consented; `created`, `funded` and every terminal status are refused) | `DELIVERY_VALIDATION: Order is <status>; no delivery can be created until the farmer has accepted it ...` |
 | Trucker flow: the order must name a trucker and the caller must be that trucker | `DELIVERY_PARTICIPANT_MISMATCH: The order has no trucker; only the buyer can create a self-pickup delivery for it.` / `... Only the order's matched trucker can create this delivery.` |
 | Self-pickup: the caller must be the order's buyer and the order must have no trucker or transport | unchanged from v1.1.0 |
-| At most one active delivery per order: the server claims `activeDeliveryId` on the order and writes the delivery in one transaction (1.9.0, below); a retry of the same `deliveryId` re-claims, a `cancelled` delivery releases the slot | `DELIVERY_VALIDATION: The order already has an active delivery.` |
+| At most one active delivery per order: the server claims `activeDeliveryId` on the order and writes the delivery in one transaction (1.9.0, below); a retry of the same `deliveryId` re-claims, a `cancelled` delivery releases the slot (not one an admin cancelled after pickup, 2.9.0) | `DELIVERY_VALIDATION: The order already has an active delivery.` |
 | Trucker flow (1.9.0, ESC-08): the delivery's `tripId` and `listingId` must be the order's (an order with a trucker but no trip is refused too) | `DELIVERY_PARTICIPANT_MISMATCH: tripId does not match the order.` / `... listingId does not match the order.` |
 | Trucker flow (1.9.0): the trip must exist and belong to the caller. Its status is not checked yet (trips do not reach `matched` before ESC-17, and refusing a cancelled trip would strand the order) | `DELIVERY_VALIDATION: Referenced trip not found.` / `DELIVERY_PARTICIPANT_MISMATCH: The trip belongs to another trucker.` |
 
@@ -81,7 +84,7 @@ but a sync order result's `serverData` echoes the raw order row, so clients must
 slot is free or already this delivery's) and the delivery row (condition: no row with this
 `deliveryId`) are one `TransactWriteItems`, so a create that fails or is interrupted leaves
 neither, and two creates of one `deliveryId` write one row. When another delivery holds the slot
-and that holder is dead (its row is `cancelled`, or it has no row and its claim has no
+and that holder is dead (its row is `cancelled`, unless an admin cancelled it after pickup (2.9.0), or it has no row and its claim has no
 `activeDeliveryClaimedAt`: a claim left by a create from before 1.9.0; a timed claim is always
 written with its row, so a timed claim without a row is never taken over), the create takes the slot over in the same kind of transaction, conditioned on the
 holder and its `activeDeliveryClaimedAt` (or its absence) being exactly what was read; a live
@@ -100,8 +103,58 @@ but must equal the operation's `entityId`
 (`DELIVERY_VALIDATION: deliveryId does not match the operation entityId.`).
 `updatedAt`, `pickedUpAt` and `confirmedAt` in `data` are accepted and ignored: the
 server stamps them at the transition (`confirmedAt` anchors the 48-hour dispute
-window, so a client value is never trusted). The example payloads above succeed as
+window, so a client value is never trusted). Since 1.23.0 the `pickedUp` transition
+also stamps the server-only `pickupCapturedAt` from the operation's `timestamp`
+(DeliveryDto Entity); clients send `timestamp` on every operation already. The example payloads above succeed as
 written.
+
+Photo refs (1.25.0, FRD-12): a handoff photo is attached by its own `delivery_photo` operation
+(section 4b), never by the handoff. A `pickupPhotoRef` or `dropoffPhotoRef` in a delivery create
+or update is still checked (any value that is not this delivery's photo key fails the operation
+with `DELIVERY_INVALID_FIELD`, Validation Rules item 8) but a valid key is dropped, not written:
+it would skip the attach's checks of the taker and the object.
+
+**Handoff evidence (2.19.0, FUP-440, GCR-01, GCR-02).** The operation that confirms a handoff (the
+trucker's `pickedUp`, the buyer's `delivered`, the self-pickup confirm) may carry, all optional:
+
+| Input | Where | Values |
+|---|---|---|
+| `gpsStatus` | `data` | With the point: `fix`, or `approximate` (Android granted only coarse location). Without a point: `services_off`, `denied`, `denied_forever`, `timeout` |
+| `capturedAt` | inside `gpsPickup` / `gpsDropoff` | ISO 8601 UTC, the fix's own time |
+| `accuracyM` | inside the point | number, metres |
+| `platform` | the operation, beside `operationId` (`sync-protocol.md` 1.71.0) | `android`, `web` |
+
+`gpsStatus` is input only: the unknown field check accepts it beside `scannedQrNonce` and it is never
+stored raw. `capturedAt` and `accuracyM` are read from the point and never stored in it: the stored
+point stays `latitude` and `longitude`. In the same update as the transition the server stamps,
+server-only, per leg: `pickup` for `pickedUp`, `dropoff` for `delivered` (the self-pickup confirm
+included, whose point is `gpsDropoff`):
+
+| Stored | From |
+|---|---|
+| `{leg}GpsStatus` | `gpsStatus`, when it is one of the six values and fits the point: `fix` and `approximate` only with the leg's point, the other four only without one |
+| `{leg}GpsCapturedAt` | the point's `capturedAt`, under the plausibility rule of `pickupCapturedAt` (at most 5 minutes after the operation reached the server, not older than 30 days), stored in UTC |
+| `{leg}GpsAccuracyM` | the point's `accuracyM`, a JSON number from 0 to 100,000 |
+| `{leg}Method` | `qr` (the nonce scanned) or `code` (the typed code, T-1), from the nonce check the server already runs; no client input. Absent when no nonce was checked (a cash drop-off picked up without a QR before FRD-11) |
+| `{leg}Platform` | the operation's `platform`, exactly `android` or `web` |
+| `dropoffCapturedAt` | the drop-off operation's `timestamp`, under the same plausibility rule (the pickup's is `pickupCapturedAt`, 1.23.0) |
+
+A value that fails its check is left out and the handoff goes through: evidence never refuses a
+handoff. Absent input stores nothing, so an old client's handoff stores only `{leg}Method`;
+deliveries confirmed before 2.19.0 have none of the fields, and their method is only in the
+transition's audit row (`metadata: handoff=qr` or `handoff=code`, still written). The fields are never
+returned to a client: every `/sync` result (success, conflict and the other echoes) drops them as it
+drops the photo version ids, and `GET /deliveries` and `GET /deliveries/{id}` map a `DeliveryDto`
+without them. A client that sends one in `data` is refused with
+`DELIVERY_VALIDATION: Unknown fields: <field>` and nothing is written, as for `pickupCapturedAt`.
+Admins read them on the dispute evidence (`escrow-protocol.md` 2.30.0). Nothing scores them: no fraud
+weight (FRD may add one later from data). An account deletion keeps them as handoff evidence, like
+`gpsPickup` and `gpsDropoff` (`account-deletion.md` 1.7.4).
+
+Rollout: the server deploys before the apps. A server before 2.19.0 refuses a handoff that carries
+`gpsStatus` (`DELIVERY_VALIDATION: Unknown fields: gpsStatus`), so that handoff fails; it ignores the
+operation's `platform` (an unknown member of the body) and the point's `capturedAt` and `accuracyM`
+(it reads and stores only `latitude` and `longitude`).
 
 Order coupling (v1.4.0, SIM-11): a successful `pickedUp`, `inTransit` or `delivered`
 transition advances the linked order to `pickup_confirmed`, `in_transit` or
@@ -123,6 +176,7 @@ freezes nothing), the server freezes the order's escrow **before** it writes the
 |---|---|
 | `escrowed` (frozen now) or already `disputed` | the delivery is written (`disputed`, version incremented); the order follows (`delivered → disputed`, a lagging order advanced to `delivered` first) |
 | manual payout queued, settlement in flight, any other status (`released`, `completed`, `refunded`, `initiated`, ...), or the order's escrow linked to another delivery | `DELIVERY_DISPUTE_REFUSED: <why> Contact support.` (permanent; audited on the escrow) |
+| the order's escrow has a refund scheduled (`refundReason`: an order cancel or reject, or an admin refund; FUP-32) | `DELIVERY_DISPUTE_REFUSED: The payment for this delivery is being refunded to the buyer, so it can no longer be disputed. Contact support.` (permanent) |
 | none, and the delivery has an `orderId` | `DELIVERY_DISPUTE_REFUSED: No payment is on record for this delivery's order, ...` (alarmed `DISPUTE_NO_ESCROW`) |
 | none, legacy delivery without an `orderId` | the delivery is written as before (nothing to freeze) |
 | the freeze could not be decided (an exception) | `DELIVERY_DISPUTE_RETRY: ...` (transient; nothing written) |
@@ -213,8 +267,64 @@ escrow.
 
 After pickup no party can cancel: the goods are moving. An admin settles a problem through the
 escrow dispute and the verdict (`escrow-protocol.md`, including the override refund for a
-`buyer_wins` whose goods are moving); the delivery then stays `pickedUp` or `inTransit`. A direct
-admin delivery cancel is not available yet (ESC-24).
+`buyer_wins` whose goods are moving); the delivery then stays `pickedUp` or `inTransit` until an
+admin cancels it (below, 2.9.0).
+
+**Admin cancel after pickup (2.9.0, FUP-19, spec E9).** `POST /admin/deliveries/{id}/{action}` with
+`{action}` = `cancel` (any other action `404 ADMIN_002`), admin pool, admin group only (`403 ADMIN_001`).
+Body `{"reason": "...", "expectedVersion": n}`: a reason of 10 to 500 characters after trimming and the
+delivery version the page read. It is for goods that left the farm and will not reach the buyer, once the
+money behind them is decided, and it moves the delivery only. Checked in this order, each refusal writing
+nothing:
+
+| Check | Answer |
+|---|---|
+| `reason` or `expectedVersion` missing or out of range | `400 DELIVERY_ADMIN_CANCEL_INVALID` (`field` names it) |
+| the delivery is missing or soft-deleted (read strongly consistent) | `404 ADMIN_018` |
+| this cancel already applied: `cancelled` with `cancelReason: admin_cancelled` at version `expectedVersion + 1` | `200` with `alreadyCancelled: true`, nothing written |
+| the delivery's version is not `expectedVersion` | `409 DELIVERY_ADMIN_CANCEL_CHANGED` |
+| the status is not `pickedUp` or `inTransit` (`pending`: a party's cancel or the order's refund closes it; `delivered`, `disputed`: the dispute verdict; `cancelled`) | `409 DELIVERY_ADMIN_CANCEL_NOT_ALLOWED` |
+| the delivery's order (strongly consistent) is missing, or is not `pickup_confirmed`, `in_transit`, `dispute_resolved`, `cancelled` or `rejected` (an order still `accepted` lags its picked-up delivery and must catch up first, or readers of an accepted order would treat the cancelled delivery as never picked up); a delivery without `orderId` (before 1.2.0) has no order to check | `409 DELIVERY_ADMIN_CANCEL_NOT_ALLOWED` |
+| an escrow behind it is not `completed`, `cancelled` or `refunded`: the order's own `escrow-order-{orderId}`, the ones the escrows' `OrderIndex` names and the one the `DeliveryIndex` names, each read again strongly consistent | `409 DELIVERY_ADMIN_CANCEL_MONEY_HELD`, the message names the escrow and its status |
+
+Then one `TransactWriteItems`, all of it or none of it:
+
+- the delivery: `status: cancelled`, `cancelReason: admin_cancelled`, `cancelledAt` and `updatedAt` (now),
+  `version` plus one; conditioned on the status and the version read and on no `deletedAt`; no `deletedAt`
+  is written;
+- its transaction-audit row `admin_delivery_cancelled` (entity `delivery`, from the status read to
+  `cancelled`, the admin as actor with role `admin`, under the order id, or the delivery id without an order)
+  at the deterministic key of a once-only row (`attribute_not_exists`), `metadata`
+  `orderStatus=<status or none>;escrows=<escrowId:status,... or none>;reason=<the reason>`. The reason is kept
+  there only, never on the delivery;
+- a `ConditionCheck` that the order's status and each escrow's status are still the ones read.
+
+A failed condition answers `409 DELIVERY_ADMIN_CANCEL_CHANGED` (a replay that landed in between answers
+`200 alreadyCancelled`). The `200` body is `{deliveryId, orderId, fromStatus, status: "cancelled",
+cancelReason: "admin_cancelled", cancelledAt, version, alreadyCancelled, message}`, without `fromStatus` on a
+replay.
+
+Nothing else moves: no order status, escrow, refund, payout, trip, trip booking, listing stock, reputation
+event or notification. The money is decided before, through what exists: a dispute verdict with a disposition
+(which closes the delivery itself, 1.16.0) or a refund, the ESC-09 override refund of goods on the move
+included, which leaves the delivery `pickedUp` or `inTransit` and the order flagged at its status. After the
+cancel:
+
+- the delivery is final like every `cancelled` one: a pickup, drop-off (the trucker's drop-off code of 2.7.0
+  included), dispute or photo is refused (`DELIVERY_ALREADY_CANCELLED`, or the 2.2.0 `conflict` with the row to
+  a party whose version is behind); check-ins neither move nor stamp it (their writes require `pickedUp` or
+  `inTransit`); the track answers its summary;
+- the order keeps its delivery slot: a holder an admin cancelled is never taken over, so the order takes no new
+  delivery (`DELIVERY_VALIDATION: The order already has an active delivery.`);
+- the parties see the row `cancelled` in their lists and on its detail with no action left; `cancelReason` and
+  `cancelledAt` are extra keys the apps ignore.
+
+Known limits: the order keeps its status (`pickup_confirmed`, `in_transit`), so the parties' order screens
+still read it, the trip's automatic completion stays off for the whole trip (an order of the trip still waits for
+carriage with no delivery done, even when the trip's other deliveries finish later), and the farmer, the trucker and
+the buyer cannot delete their accounts until the order is closed (those statuses block it); the server does not
+mark an `inTransit` trip delivered when this was its last open delivery (the trip completion runs on sync writes
+only), the trucker does; the parties get no push (FUP-341, FUP-342).
 
 **Request Body (Confirm Pickup)**:
 ```json
@@ -234,7 +344,6 @@ admin delivery cancel is not available yet (ESC-24).
           "latitude": 9.6778,
           "longitude": 39.5318
         },
-        "pickupPhotoRef": "uploads/photos/del-101/pickup-1708084900000.webp",
         "pickedUpAt": "2026-02-18T08:15:00Z"
       },
       "timestamp": "2026-02-18T08:15:00Z"
@@ -261,7 +370,6 @@ admin delivery cancel is not available yet (ESC-24).
           "latitude": 9.0054,
           "longitude": 38.7636
         },
-        "dropoffPhotoRef": "uploads/photos/del-101/dropoff-1708171200000.webp",
         "confirmedAt": "2026-02-19T08:00:00Z"
       },
       "timestamp": "2026-02-19T08:00:00Z"
@@ -360,6 +468,10 @@ GET /deliveries?role=trucker&status=pending&limit=20
       "buyerId": "buyer-555",
       "buyerName": "Fatuma Ahmed",
       "status": "pending",
+      "cropType": "teff",
+      "quantity": 1500,
+      "pickupPlace": "Bichena",
+      "pickupPlannedAt": "2026-02-20T06:00:00Z",
       "createdAt": "2026-02-18T08:00:00Z",
       "updatedAt": "2026-02-18T08:00:00Z",
       "version": 1
@@ -409,12 +521,17 @@ GET /deliveries/del-101
   "buyerName": "Fatuma Ahmed",
   "qrToken": "eyJkZWxpdmVyeUlkIjoiZGVsLTEwMSIs...",
   "status": "pickedUp",
+  "cropType": "teff",
+  "quantity": 1500,
+  "pickupPlace": "Bichena",
+  "pickupPlannedAt": "2026-02-18T06:00:00Z",
   "gpsPickup": {
     "latitude": 9.6778,
     "longitude": 39.5318
   },
   "gpsDropoff": null,
   "pickupPhotoRef": "uploads/photos/del-101/pickup-1708084900000.webp",
+  "pickupPhotoUrl": "https://<uploads-bucket>.s3.<region>.amazonaws.com/uploads/photos/del-101/pickup-1708084900000.webp?X-Amz-...",
   "dropoffPhotoRef": null,
   "pickedUpAt": "2026-02-18T08:15:00Z",
   "confirmedAt": null,
@@ -424,6 +541,14 @@ GET /deliveries/del-101
   "version": 2
 }
 ```
+
+**Photos (1.25.0, FRD-12)**: `pickupPhotoUrl` and `dropoffPhotoUrl` are presigned S3 `GET`s
+(15 minutes) of the stored photo keys, signed only after the participant check below, so the
+delivery's buyer, farmer and trucker see both photos and nobody else gets a URL. A key that is not
+this delivery's photo key of that type (written through a delivery update before 1.25.0) is not
+signed. Absent when there is no photo, the uploads bucket is not configured or signing fails (the
+delivery is still answered). Lists (`GET /deliveries`) never carry them. Admins get the same URLs
+in the transaction view (`GET /admin/transactions/{orderId}`).
 
 **Note**: Access is restricted to the farmerId, truckerId, or buyerId matching the authenticated user's JWT `sub` claim. Since 1.15.0 (ESC-48) no phone number is returned, to any party: the parties take each other's number from the order, only while its contact is open (`order-lifecycle.md` 1.18.0). Admins still see the stored phones in the transaction view (`GET /admin/transactions/{orderId}`).
 
@@ -437,23 +562,40 @@ GET /deliveries/del-101
 
 ### 4. Upload Photo Evidence
 **Method**: POST /deliveries/{id}/photos
-**Authentication**: Required (only delivery participants)
+**Authentication**: Required (the photo's taker only, 1.25.0)
 **Content-Type**: application/json
 
 The server does not receive the file. It issues a pre-signed S3 `PUT` URL and the key the
-photo will live at; the client uploads the WebP straight to S3 and then sends the key as
-`pickupPhotoRef` / `dropoffPhotoRef` in a delivery sync operation (section 1). This was
-documented as `multipart/form-data` with a `photo` file before 1.7.0; the server never
-worked that way.
+photo will live at; the client uploads the photo straight to S3 and then attaches the key with a
+`delivery_photo` sync operation (section 4b). This was documented as `multipart/form-data` with a
+`photo` file before 1.7.0; the server never worked that way. Before 1.25.0 the key went in
+`pickupPhotoRef` / `dropoffPhotoRef` of a delivery update; no shipped client did that.
 
 **Request Body**:
 ```json
-{ "type": "pickup" }
+{ "type": "pickup", "sizeBytes": 148213, "contentType": "image/webp" }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | string | Yes | `pickup` or `dropoff` |
+| `type` | string | Yes | `pickup` or `dropoff`; `arrival` with `dropoffClassification` on (2.10.0, ESC-36, P.4) |
+| `sizeBytes` | number | Yes (1.25.0) | The photo's exact size, 1 to 204800 (200 KiB) |
+| `contentType` | string | No | `image/webp` (default, the phone) or `image/jpeg` (the browser) |
+
+**Who may ask (1.25.0, FRD-12)**: only the party who confirms that handoff takes its photo.
+
+| `type` | Taker | Everyone else (the farmer, the other party, an outsider) |
+|--------|-------|----------------------------------------------------------|
+| `pickup` | the delivery's trucker (a self-pickup has no trucker, so no pickup photo) | `403 DELIVERY_UNAUTHORIZED` |
+| `dropoff` | the delivery's buyer (the buyer's delivery confirm, or the self-pickup confirm at the farm); since 2.14.0 (FUP-140) the attach takes it once the confirm is on the row, or as late evidence on a dispute the order cron opened (`disputedBy: system`, `disputeReason` `delivery_overdue`, `dropoff_out_of_range` or `silent_buyer`) with no `disputeResolution` yet, marked `dropoffPhotoLateAt` (section 4b) | `403 DELIVERY_UNAUTHORIZED` |
+| `arrival` (2.10.0) | the delivery's trucker, at the drop-off, only while the delivery is `pickedUp` or `inTransit`, or (2.13.0, FUP-373) `disputed` by the order cron's T8 (`disputedBy: system`, `disputeReason` `delivery_overdue` or `dropoff_out_of_range`) with no `disputeResolution` yet, as late evidence marked `arrivalPhotoLateAt` at the attach (P.4); else `409 DELIVERY_PHOTO_REFUSED` | `403 DELIVERY_UNAUTHORIZED` |
+
+The delivery may still be `pending` (a phone uploads before its pickup syncs; since 2.14.0 its
+attach then waits for the pickup, section 4b). A cancelled
+delivery (by `status` or a legacy `deletedAt`) gets `409 DELIVERY_PHOTO_REFUSED`, after the
+participant check: a `409` is final for the phone, which keeps waiting on a `404` (the delivery's
+own create may still be on its way). A handoff that already has its photo gets
+`409 DELIVERY_PHOTO_EXISTS`: evidence is never replaced.
 
 **Response (200)**:
 ```json
@@ -465,28 +607,120 @@ worked that way.
 }
 ```
 
-**Upload**: `PUT uploadUrl` with `Content-Type: image/webp` and the file as the body, within
-`expiresInSeconds` (15 minutes). Then include `photoRef` in the next delivery update op.
+The key is `uploads/photos/{deliveryId}/{type}-{ms}.webp`, or `.jpg` for `image/jpeg` (1.25.0).
 
-**Constraints** (client-side; the server does not inspect the object):
-- Format: WebP only (best compression for 3G); the pre-signed URL is bound to `image/webp`
-- Max width: 800px (auto-resized client-side)
-- Max file size: 200KB
-- Max photos per delivery: 3 per type (pickup/dropoff)
+**Upload**: `PUT uploadUrl` with `Content-Type` equal to `contentType` and the file as the body,
+within `expiresInSeconds` (15 minutes). Both the type and the length (`sizeBytes`) are signed into
+the URL, so S3 refuses a body of any other size or type (`403 SignatureDoesNotMatch`): the 200 KiB
+cap holds whatever the client does. A browser sets `Content-Length` itself. Then attach `photoRef`
+(section 4b).
 
-**Client status (1.7.0)**: the shipped mobile and web apps do not call this endpoint yet
-(upload is FRD-12). The camera screen keeps the captured photo's local path on the device
-(`{appDir}/photos/{deliveryId}/{type}-{ms}.webp`) and the delivery repositories send a
-photo ref only when it is a server key for that delivery, so attaching a photo never
-blocks a pickup or delivery confirmation. Before 1.7.0 the local path was sent and the
-server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
+**Constraints**:
+- Size: at most 200 KiB, enforced twice by the server since 1.25.0 (the signed length here, the
+  object's size at the attach)
+- Format: WebP (phone) or JPEG (browser); the URL is bound to the type
+- Max width: 800px (resized client-side)
+- One photo per handoff type (the first stays)
+
+**Client status (1.25.0)**: both apps use it. The phone keeps the compressed WebP and its sync
+queue uploads it when online (Offline Storage, Upload Flow); the browser uploads the JPEG as soon
+as it is taken.
 
 **Error Codes**:
-- `400 DELIVERY_VALIDATION` -- missing delivery id, missing or invalid `type`
+- `400 DELIVERY_VALIDATION` -- missing delivery id, missing or invalid `type`, `contentType` other than `image/webp` or `image/jpeg`
+- `400 DELIVERY_PHOTO_TOO_LARGE` -- `sizeBytes` missing, below 1 or above 204800 (1.25.0)
 - `401 DELIVERY_UNAUTHORIZED` -- authentication required
-- `403 DELIVERY_UNAUTHORIZED` -- user is not a participant in this delivery
-- `404 DELIVERY_NOT_FOUND` -- delivery not found or cancelled (by `status` or a legacy `deletedAt`, 1.9.0)
+- `403 DELIVERY_UNAUTHORIZED` -- not a participant, or not this photo's taker (1.25.0)
+- `404 DELIVERY_NOT_FOUND` -- delivery not found
+- `409 DELIVERY_PHOTO_REFUSED` -- the delivery was cancelled (by `status` or a legacy `deletedAt`; a `404` before 1.25.0)
+- `409 DELIVERY_PHOTO_EXISTS` -- the handoff already has its photo (1.25.0)
 - `500 DELIVERY_SERVER_ERROR` -- upload bucket not configured or S3 failure
+
+---
+
+### 4b. Attach a Photo (`delivery_photo`, 1.25.0, FRD-12)
+**Method**: POST /sync (`sync-protocol.md` 1.39.0)
+**Authentication**: Required (the photo's taker only)
+
+After the `PUT`, the taker attaches the key to the delivery with a create-only sync operation:
+
+```json
+{
+  "operationId": "uuid-v4",
+  "idempotencyKey": "trucker-789:delivery_photo:del-101#pickup:create:1708084960000",
+  "entityType": "delivery_photo",
+  "entityId": "del-101#pickup",
+  "action": "create",
+  "data": { "photoRef": "uploads/photos/del-101/pickup-1708084900000.webp" },
+  "timestamp": "2026-02-18T08:16:00Z"
+}
+```
+
+The entity id is `{deliveryId}#{pickup|dropoff}`: it names the photo, not the delivery, so a photo
+waiting in a phone's queue never holds back the delivery's own operations or its refresh.
+
+The server, in this order:
+
+1. `action` must be `create`, the entity id must have a known type, `data` must hold `photoRef`
+   only, and `photoRef` must be this delivery's key of this type (section 4); else
+   `DELIVERY_PHOTO_INVALID`.
+2. Reads the delivery: missing answers the unprefixed `Delivery not found.` (retried: its create
+   may still be on its way); a read failure answers `deferred`.
+3. The caller must be the photo's taker (the table in section 4); else `DELIVERY_PHOTO_FORBIDDEN`.
+   An outsider also writes a `ROLE_FORBIDDEN` fraud signal (`sync-protocol.md` 1.27.0); a party
+   of the delivery sending the other type does not.
+4. A cancelled delivery refuses (`DELIVERY_PHOTO_REFUSED`). The same key already attached is a
+   `success` with nothing written; another key is `DELIVERY_PHOTO_EXISTS`. Since 2.14.0 (FUP-140) a
+   `pickup` or `dropoff` photo whose handoff is not on the row yet answers `deferred` with
+   `DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet.`: the pickup needs
+   `pickedUpAt` or a status of `pickedUp`, `inTransit` or `delivered`; the drop-off needs
+   `confirmedAt` or `delivered`. The handoff may still be on its way (itself `deferred`), and one the
+   server never took (refused, or reverted by a `conflict`) must not get a photo; before 2.14.0 such a
+   photo attached to a delivery that was never picked up, and the redone handoff's photo then met
+   `DELIVERY_PHOTO_EXISTS`. The `arrival` photo keeps its own rule (on the road, 2.10.0). Before
+   answering `deferred` the server reads the delivery again, strongly consistent, so a handoff that
+   landed a moment ago (earlier in the same batch, or the web's handoff call just before its attach)
+   is seen. Two exceptions: the buyer's `dropoff` photo on a dispute the order cron opened (T8's
+   `delivery_overdue` or `dropoff_out_of_range`, T9's `silent_buyer`) with no `disputeResolution` is
+   taken as late evidence (a buyer who confirmed offline before the run and synced after: the confirm
+   is refused, the photo of what arrived is kept), written like FUP-373's late arrival photo with the
+   server-only `dropoffPhotoLateAt` (the server's time), conditioned on the status `disputed` and no
+   `disputeResolution`, and a `delivery_photo` transaction-audit row (`type=dropoff;late=true`); and
+   on any other `disputed` delivery without the handoff, which can no longer come, the photo is
+   refused for good (`DELIVERY_PHOTO_REFUSED: The delivery is disputed without this handoff.`).
+5. `HEAD` on the object in the uploads bucket: missing is `DELIVERY_PHOTO_MISSING`; over 200 KiB
+   (or empty) is `DELIVERY_PHOTO_TOO_LARGE`; a stored type that is not the key's is
+   `DELIVERY_PHOTO_INVALID`; any other storage failure, or no bucket configured, is `deferred`.
+6. Since 2.14.0 (FUP-140), copies that version, server side, to the photo's kept key
+   `evidence/photos/{deliveryId}/{type}-{ms}.{webp|jpg}` (the upload key with `evidence/` for
+   `uploads/`); a copy that fails answers `deferred` and writes nothing, so a row never names a photo
+   without its copy. A version never changes, so a retried copy writes the same bytes (at worst
+   another version of them at the kept key); a copy whose write then loses the race stays unread.
+7. Writes `pickupPhotoRef` or `dropoffPhotoRef` only, with the S3 version id the `HEAD` saw in the
+   server-only `pickupPhotoVersionId` / `dropoffPhotoVersionId` (the uploads bucket is
+   versioned) and, since 2.14.0, the copy in the server-only `{type}PhotoKeptRef` and
+   `{type}PhotoKeptVersionId` (`pickup`, `dropoff`, `arrival`), conditioned on the field being
+   absent, the delivery not cancelled and not soft-deleted. `version` and `updatedAt` do not move, so a handoff queued on another phone
+   never conflicts with a photo, and the next pull of the same version brings the key. A
+   condition that fails is judged again on a strongly consistent read (step 4).
+
+Every read signs the recorded version (`GET /deliveries/{id}`, the admin transaction view and
+dispute evidence), so a second `PUT` to the key within its 15-minute presign window adds a version
+and never replaces the attached evidence. A row without a version id signs the key's latest version.
+Since 2.14.0 a read signs the kept copy at its recorded version when the row records the copy of
+its key (`{type}PhotoKeptRef` equal to the key's kept key), else the upload key as before (a photo
+attached before 2.14.0 that the backfill below has not reached). The key on the wire
+(`pickupPhotoRef`, ...) stays the upload key; the kept fields are server-only and never sent.
+
+| Answer | Mobile client (sync queue) | Web |
+|--------|----------------------------|-----|
+| `success` (`serverVersion` is the delivery's, no `serverData`) | Synced | Done |
+| `deferred` with `DELIVERY_PHOTO_PENDING:` (storage, or since 2.14.0 the handoff not on the row) | Re-queued without a retry; given up when its handoff is refused or reverted by a `conflict` (2.14.0) | Logged (the web attaches only after its handoff succeeded) |
+| `DELIVERY_PHOTO_*` error | Rejected for good, not reverted, not announced and not counted in "Sync failed": the handoff stands without its photo | Logged; the confirmed handoff stands |
+| unprefixed error | Retried | Logged |
+
+The write's stream record is filtered out by the notifier (it reads deliveries on `INSERT` and
+on the `nearbyNotifiedAt` stamp only), so attaching a photo sends no push.
 
 ---
 
@@ -511,15 +745,38 @@ server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 | `buyerPhone` | string | Server | E.164 | Buyer's phone, server-stamped on create from the users table (v1.6.1); never returned to clients since 1.15.0, admin view only |
 | `qrToken` | string | Yes | Base64-encoded, <500 bytes | HMAC-signed QR verification token |
 | `status` | enum | Yes | See Status Types | Delivery lifecycle status |
+| `cropType` | string | No | Server-only, a crop key | The order's crop, stamped on create from the order row (1.21.0) so the deliveries list titles a card ("Teff · 1,500 kg") without one order read per delivery; a client value is refused as an unknown field; absent on deliveries created before 1.21.0 |
+| `quantity` | number | No | Server-only, kilograms | The order's quantity, stamped with `cropType` (1.21.0) |
+| `pickupPlace` | string | No | Server-only | The listing's `locationName` at create time (1.21.0); absent when the listing has none |
+| `pickupPlannedAt` | string (ISO 8601) | No | Server-only | The trip's `departureDate` at create time (1.21.0), the planned pickup day on the waiting card; absent on a self-pickup |
 | `gpsPickup` | LatLng | No | -- | GPS coordinates at pickup (null until picked up) |
 | `gpsDropoff` | LatLng | No | -- | GPS coordinates at dropoff (null until delivered) |
-| `pickupPhotoRef` | string | No | `uploads/photos/{deliveryId}/pickup-{ms}.webp`, the key from section 4 | Photo evidence at pickup; any other value fails the op (1.7.0) |
-| `dropoffPhotoRef` | string | No | `uploads/photos/{deliveryId}/dropoff-{ms}.webp`, the key from section 4 | Photo evidence at dropoff; any other value fails the op (1.7.0) |
+| `pickupPhotoRef` | string | No | `uploads/photos/{deliveryId}/pickup-{ms}.{webp\|jpg}`, the key from section 4 | Photo evidence at pickup, written only by a `delivery_photo` attach since 1.25.0 (section 4b); in a delivery op any other value fails the op (1.7.0) and a valid key is dropped (1.25.0) |
+| `dropoffPhotoRef` | string | No | `uploads/photos/{deliveryId}/dropoff-{ms}.{webp\|jpg}`, the key from section 4 | Photo evidence at dropoff, as `pickupPhotoRef` |
+| `pickupPhotoUrl` | string | No | Server-only, read-only | Presigned GET (15 minutes) of the pickup photo's attached version, on `GET /deliveries/{id}` for the parties and on the admin transaction view only (1.25.0) |
+| `pickupPhotoVersionId` / `dropoffPhotoVersionId` | string | No | Server-only, never returned | The S3 version id recorded at the attach; the reads sign it (1.25.0) |
+| `dropoffPhotoUrl` | string | No | Server-only, read-only | Presigned GET of the drop-off photo, as `pickupPhotoUrl` (1.25.0) |
+| `arrivalPhotoRef` | string | No | `uploads/photos/{deliveryId}/arrival-{ms}.{webp\|jpg}` | The trucker's arrival photo at the drop-off, written only by a `delivery_photo` `{deliveryId}#arrival` attach (2.10.0, ESC-36, P.4); its S3 version id is the server-only `arrivalPhotoVersionId` |
+| `arrivalPhotoUrl` | string | No | Server-only, read-only | Presigned GET of the arrival photo, as `pickupPhotoUrl` (2.10.0) |
+| `arrivalPhotoLateAt` | string (ISO 8601) | No | Server-only, read-only | When the arrival photo was attached as late evidence on the order cron's T8 dispute (2.13.0, FUP-373, P.4); absent on one attached while the goods were on the road. On `GET /deliveries/{id}`, the admin transaction view and the dispute evidence |
+| `dropoffPhotoLateAt` | string (ISO 8601) | No | Server-only, read-only | When the buyer's drop-off photo was attached as late evidence on a dispute the order cron opened, without the buyer's confirm (2.14.0, FUP-140, section 4b); absent on the photo of a confirmed delivery. On `GET /deliveries/{id}`, the admin transaction view and the dispute evidence (the admin's Photos tab marks it late) |
+| `autoConfirmedAt` | string | No | Server-only, read-only | When the order cron confirmed the delivery for a silent buyer (T9, 2.10.0); absent when the buyer confirmed |
 | `pickedUpAt` | string (ISO 8601) | No | -- | Timestamp when trucker picked up crops |
+| `pickupCapturedAt` | string (ISO 8601) | No | Server-only | When the phone made the pickup scan: the `pickedUp` operation's `timestamp`, stamped with `pickedUpAt` (1.23.0, FRD-09). Stored only when plausible (not more than 5 minutes after the operation reached the server, not older than 30 days); absent otherwise and on deliveries picked up before 1.23.0. The fraud rule for a delivery too fast for its distance reads it (`fraud-detection-architecture.md` 15.1); a client value is never written |
+| `pickupGpsStatus` / `dropoffGpsStatus` | string | No | Server-only, never returned | Why the leg had no fix, or what kind it had: `fix`, `approximate`, `services_off`, `denied`, `denied_forever`, `timeout` (2.19.0, FUP-440, Create/Update Delivery "Handoff evidence"); the self-pickup confirm is the `dropoff` leg |
+| `pickupGpsCapturedAt` / `dropoffGpsCapturedAt` | string (ISO 8601) | No | Server-only, never returned | The fix's own time on the phone, when plausible (2.19.0) |
+| `pickupGpsAccuracyM` / `dropoffGpsAccuracyM` | number | No | Server-only, never returned, 0 to 100,000 | The fix's accuracy in metres (2.19.0) |
+| `pickupMethod` / `dropoffMethod` | string | No | Server-only, never returned | `qr` or `code`, how the leg was proven (2.19.0, GCR-01); absent before 2.19.0 |
+| `pickupPlatform` / `dropoffPlatform` | string | No | Server-only, never returned | `android` or `web`, the app the leg came from (2.19.0, GCR-02) |
+| `dropoffCapturedAt` | string (ISO 8601) | No | Server-only, never returned | The drop-off operation's `timestamp` (the phone's time of the confirm), when plausible as `pickupCapturedAt` (2.19.0) |
 | `confirmedAt` | string (ISO 8601) | No | -- | Timestamp when buyer confirmed receipt |
 | `disputeReason` | string | No | 0-500 chars | Reason for dispute (if status is disputed) |
 | `disputeResolution` | string | No | Server-only: `farmer_wins` or `buyer_wins` | The admin's dispute verdict, stamped on a `disputed` delivery (v1.8.0) |
 | `disputeResolvedAt` | string (ISO 8601) | No | Server-only | When the verdict was recorded (v1.8.0) |
+| `nearbyNotifiedAt` | string (ISO 8601) | No | Server-only | When a check-in first put the truck within 5 km of the drop-off point (v1.20.0, LT-07): stamped once, conditional on the status `pickedUp` or `inTransit` and on no stamp yet, without moving `version` or `updatedAt`; its stream record tells the buyer `truck_nearby` (`notifications-api.md` 1.3.0) |
+| `nearbyDistanceKm` | number | No | Server-only, one decimal | The truck's great circle distance to the drop-off point at that check-in (v1.20.0) |
+| `nearbyMinutes` | number | No | Server-only, a multiple of 5 | Minutes from that check-in to the start of the arrival window (v1.20.0); absent when unknown |
+| `cancelledByJudgementAt` | string (ISO 8601) | No | Server-only | When the pickup judgement itself cancelled the pending delivery (2.12.0, FUP-363), written in the same write as that cancel; never by a party's, an admin's or another system cancel. Removed when a trucker no-show re-open brings the delivery back as `pickedUp` (P.2). Returned on `/sync` delivery rows like the other server-only fields; clients ignore it |
 | `createdAt` | string (ISO 8601) | Yes | -- | Timestamp when delivery was created |
 | `updatedAt` | string (ISO 8601) | Yes | -- | Timestamp when delivery was last updated |
 | `deletedAt` | string (ISO 8601) | No | -- | Only on deliveries soft-deleted before 1.9.0 (such rows are hidden from lists and `GET /deliveries/{id}` answers `404`); a cancel no longer writes it |
@@ -548,16 +805,46 @@ server refused the whole confirmation (`DELIVERY_INVALID_FIELD`).
 Valid status transitions (enforced server-side):
 
 ```
-pending → pickedUp      (trucker scans farmer's QR code at pickup)
+pending → pickedUp      (trucker scans farmer's QR code at pickup; required since 1.24.0, money or not)
 pending → cancelled       (any participant cancels before pickup, by update or delete)
 pickedUp → inTransit   (trucker departs from pickup location)
 pickedUp → delivered    (buyer confirms the handoff; marking in transit is optional)
-inTransit → delivered   (buyer scans trucker's QR code at dropoff)
+inTransit → delivered   (buyer scans or types the trucker's drop-off code: the trucker's own nonce since 2.7.0, ESC-35; else the farmer's pickup token kept on the trucker's phone, 1.22.0)
 delivered → disputed     (any participant raises a dispute within 48 hours; the escrow is frozen first, 1.10.0)
 ```
 
 System only, never through sync (1.16.0): `pending`, `pickedUp` or `inTransit` `→ cancelled` or
-`→ disputed`, by an admin's dispute disposition (see the dispute verdict paragraphs above).
+`→ disputed`, by an admin's dispute disposition (see the dispute verdict paragraphs above). Admin only
+(2.9.0): `pickedUp` or `inTransit` `→ cancelled` by the admin cancel after pickup, once the money is decided.
+Admin only (2.11.0): `cancelled → pickedUp` for the one delivery a trucker no-show judgement cancelled, by
+the no-show re-open with a confirmed handoff (P.2, "Re-open of a trucker no-show"), in the order's transaction;
+since 2.12.0 only a delivery that carries the judgement's `cancelledByJudgementAt`.
+
+`cancelled` is final for every party. An update that reaches a cancelled delivery (or a row soft-deleted before
+1.9.0) is refused with `DELIVERY_ALREADY_CANCELLED`. Since 2.2.0 (FUP-128) a caller whose `version`
+is behind the stored one and who may make the change (the trucker for `pickedUp` and `inTransit`,
+the buyer for `delivered`, any party for `disputed`; without a status the trucker, or the farmer
+storing `qrNonce`) gets `conflict` with the scrubbed row instead (`serverData`, `serverVersion`;
+server wins, nothing written): the delivery was cancelled while that phone was offline. Anyone
+else, and a request at the stored version or without one, keeps the error
+(`sync-protocol.md` 1.45.0).
+
+System, on a check-in (1.20.0, LT-07, `live-trip-api.md` section 5): `pickedUp → inTransit` when
+an accepted `location_ping` `fix` of the delivery's trip with `accuracyM` at most 1,000 was
+captured at or after its `pickedUpAt` and is 2 km or more (great circle) from its pickup point, its `gpsPickup`, else its
+listing's location. The delivery is read strongly consistent first, and the write is the same as
+the trucker's own transition (status, `updatedAt`, `version` + 1), conditional on the status
+`pickedUp` and the version read; a delivery that moved on in between is left alone. It is
+audited in transaction-audit as the trucker's transition is (`delivery_updated`, `pickedUp` to
+`inTransit`) but with the actor `system` and `metadata` `source=check_in;distanceKm=<km>`, and
+the order follows exactly as for the trucker's own `inTransit` (`pickup_confirmed → in_transit`,
+forward only, system-audited, 1.4.0). The trucker's button stays as the fallback (a driver who
+shares no location, a check-in that waited offline from before the pickup synced). The
+trucker's own `inTransit` for a delivery that is already `inTransit` (the tap reached the server
+after a check-in moved it) answers `conflict` with the row and its version, nothing written, so
+the app takes the server's row instead of keeping a failed change; anyone else still gets
+`DELIVERY_INVALID_TRANSITION`. A check-in never moves money: the QR handoffs, the admin verdicts
+and the timers do.
 
 Since 1.9.0 (ESC-08) nothing cancels a delivery after pickup through sync (before, `pickedUp →
 cancelled` was allowed and the trucker's delete skipped the transitions).
@@ -587,6 +874,7 @@ The QR code contains a compact HMAC-SHA256 signed JSON payload, Base64url-encode
   "lid": "crop-456",
   "fid": "farmer-123",
   "ts": 1708084800000,
+  "n": "base64url-32-random-bytes",
   "hmac": "a1b2c3d4e5f6..."
 }
 ```
@@ -598,21 +886,31 @@ The QR code contains a compact HMAC-SHA256 signed JSON payload, Base64url-encode
 | `lid` | listingId | Associated crop listing |
 | `fid` | farmerId | Farmer who owns the crop |
 | `ts` | timestamp | Unix timestamp (ms) when QR was generated |
+| `n` | nonce | 32 random bytes, Base64url: the handoff secret the server checks (see QR Secret Storage). Sent by every shipped app; this table lacked it before 2.0.0 |
 | `hmac` | HMAC signature | HMAC-SHA256 of the payload fields |
 
 **Field names are abbreviated** to keep QR payload compact (<500 bytes total after Base64 encoding). This is critical for QR code readability on low-resolution phone cameras.
 
+**What proves a handoff (as built, 2.0.0 doc fix).** The proof is the nonce `n`: the farmer's
+phone registers it with the server (`qrNonce`, QR Secret Storage), the scanner sends back what it
+read (`scannedQrNonce`) or the typed code derived from it (`scannedQrCode`), and the server compares
+them. The `hmac` lets only the farmer's phone make a valid code, but nobody recomputes it: the
+scanner checks the payload's structure and size only, and the server never verifies the `qrToken`
+stored on the delivery beyond its length (1 to 500 characters). The steps below are the phone's.
+
 ### HMAC Signing Process
 
-1. **Secret derivation**: The HMAC secret is derived from the delivery creation:
+1. **Secret derivation** (as built, F12-SEC-01): the secret also includes a 32-byte random key that
+   never leaves the farmer's phone (secure storage), so no other party can sign a code:
    ```
-   secret = SHA256(deliveryId + ":" + tripId + ":" + listingId + ":" + creationTimestamp)
+   secret = f(deliveryId, tripId, listingId, creationTimestamp, deviceKey)
    ```
-   This secret is computed at delivery creation time and stored locally in Isar. It does not require server communication.
+   Before 2.0.0 this section showed the secret as a hash of the delivery fields alone, which any
+   party holding the delivery could compute.
 
 2. **Signing**:
    ```
-   message = did + "|" + tid + "|" + lid + "|" + fid + "|" + ts
+   message = did + "|" + tid + "|" + lid + "|" + fid + "|" + ts + "|" + n
    hmac = HMAC-SHA256(secret, message)
    ```
 
@@ -630,23 +928,39 @@ The QR code can be regenerated at any time from locally stored delivery data. No
 
 ### QR Scanning (Offline)
 
-The trucker (at pickup) or buyer (at delivery) scans the QR code:
-1. Decode Base64url payload
-2. Parse JSON to extract fields
-3. Recompute HMAC using the same secret derivation
-4. Compare computed HMAC with the payload's `hmac` field
-5. If match: verification succeeds, update local delivery status
-6. If mismatch: reject -- possible tampering
+The trucker (at pickup), the self-pickup buyer (at the farm) or the buyer (at drop-off) scans the
+QR code. As built (2.0.0 doc fix):
+1. Decode Base64url payload (refused above the size limit)
+2. Parse JSON and check the fields are present and within their length bounds
+3. Check `did` is the delivery being handed over
+4. Queue the transition with `scannedQrNonce` = `n` (the typed code instead when the camera fails)
+5. The server decides (QR Secret Storage): a match moves the delivery, a mismatch is refused, a
+   nonce not yet on the server is `deferred`
 
-The scanner must have the delivery record in their local Isar database (synced earlier when the delivery was created) to recompute the HMAC secret.
+The scanner does not recompute the HMAC (it cannot: the secret includes the farmer's device key).
+Before 2.0.0 this section said it did.
+
+**Drop-off (as built, 2.7.0, ESC-35).** The buyer scans the trucker's drop-off QR, the same payload
+made on the trucker's phone with the trucker's own nonce (`n` starts with `d.`), registered after
+pickup as `dropoffQrNonce` (QR Secret Storage). Any buyer app reads it as it reads the farmer's QR.
+
+**Drop-off (1.22.0, still taken from apps that issue no nonce).** The buyer scans the trucker's drop-off QR, which is the farmer's
+pickup token the trucker's phone kept at pickup (one nonce for both legs, each consumed once). A
+separate nonce issued by the trucker's phone is built in 2.7.0 (above).
 
 ### QR Expiration
 
-QR tokens do not expire in the traditional sense. The `ts` field records generation time for audit purposes. However, the server enforces that:
-- Pickup must occur within 7 days of delivery creation
-- Delivery must occur within 14 days of pickup
+QR tokens do not expire in the traditional sense. The `ts` field records generation time for audit
+purposes. As built (2.0.0 doc fix; before, this section promised pickup within 7 days of delivery
+creation and delivery within 14 days of pickup, which the server never enforced):
 
-These windows prevent indefinitely stale QR codes from being used.
+- **Nonce freshness:** a scan or a typed code counts only within 14 days of the time the farmer's
+  nonce was stored, for both legs (QR Secret Storage).
+- **Deferral limit:** a handoff waiting for a nonce that never synced is refused with
+  `DELIVERY_NONCE_MISSING` 14 days after the later of the delivery's creation and the scan (1.24.0).
+- **Order deadlines** are on the order, not the QR: an accepted order with no pickup by its
+  `pickupDeadlineAt` counts as a transport failure (`order-lifecycle.md` 1.15.0, 2.0.0). The pickup
+  judgement (T7) and the delivery deadline (T8) are PLANNED (P.2 and P.4, ESC-34 and ESC-36).
 
 ---
 
@@ -659,10 +973,59 @@ GPS coordinates are captured at pickup and delivery to provide physical proof of
 **Pickup Validation**:
 - `gpsPickup` must be within **5km** of the farmer's registered crop listing location (`CropListing.location`)
 - Uses Haversine formula for distance calculation
+- As built (2.0.0 doc fix): checked only when the pickup sends `gpsPickup` and the listing has
+  coordinates; a scanned pickup without a fix is accepted (a typed code on a paid delivery needs
+  one, `DELIVERY_CODE_GPS_REQUIRED`). Too far: `DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is
+  <d>km from listing location (max 5km).` (the reason token since 2.15.0, see Refusal reasons)
+- A trucker's pickup without `gpsPickup` stays accepted; since 2.18.0 it records the weight 0 review flag
+  `PICKUP_NO_FIX` on the trucker (fraud spec 3.44.0 Rule 7), and the dispute evidence shows "no fix at
+  pickup" (`escrow-protocol.md` 2.28.0). The trucker's `GPS_ANOMALY` row then measures the check-ins from
+  the listing's point (FUP-448, fraud spec Rule 4). Nothing changes on the wire.
 
 **Delivery Validation**:
-- `gpsDropoff` must be within **5km** of the buyer's registered location or the trip's destination woreda center
+- As built (2.0.0 doc fix; the text before said "the buyer's registered location or the trip's
+  destination woreda center", which no code reads):
+  - **Trucker delivery:** `gpsDropoff`, when sent, must be within **5km** of EITHER the trip's
+    destination point (`destinationLatitude`, `destinationLongitude`, `trip-listing-api.md` 2.1.0)
+    OR the order's own drop-off point (`deliveryLatitude`, `deliveryLongitude`,
+    `order-lifecycle.md` 2.9.0, LT-14; the order read strongly consistent). The order's point
+    defaults to the buyer's registered or intent place, so a buyer who meets the truck at its
+    destination still passes, and one who meets it at the picked place passes too. The trip is
+    checked first; a fix within 5 km of it needs no order read. Neither point, or a confirm without
+    a fix, is not checked. An order that cannot be read (when the trip's point did not pass)
+    answers the unprefixed, retryable `Internal server error.`. Too far (2.1.0 text, reason token
+    since 2.15.0): `DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is <d>km from the drop-off
+    point (max 5km).`, `<d>` the distance to the nearer point, with a dot and one decimal.
+  - **Self-pickup:** `gpsDropoff` is mandatory and must be within **5km** of the listing (Buyer
+    Self-Pickup). Without a fix: `DELIVERY_GPS_PROXIMITY: self_pickup_no_fix: Location is
+    required to confirm self-pickup at the farm.`; a listing without coordinates:
+    `DELIVERY_GPS_PROXIMITY: self_pickup_no_farm_point: This listing has no registered location,
+    so self-pickup cannot be verified.`; too far: `DELIVERY_GPS_PROXIMITY: self_pickup_far: You
+    are <d>km from the farm location (max 5km).`
+  - The order's own delivery location is built (2.1.0, LT-14, P.4's first bullet); a drop-off
+    check-in with GPS and a photo is PLANNED (P.4, ESC-36).
 - Uses Haversine formula for distance calculation
+
+### Refusal reasons (2.15.0, FUP-439)
+
+Every GPS refusal of a handoff keeps the `DELIVERY_GPS_PROXIMITY` code and names its reason right
+after it, `DELIVERY_GPS_PROXIMITY: <reason>: <text>` (the shape of the `ORDER_KYC_REQUIRED` reason
+tokens, `sync-protocol.md` 1.5.0, rule written in 1.49.0). The clients key on the reason, never on the text; `<d>` is
+written with a dot and one decimal.
+
+| Reason | Who | When |
+|---|---|---|
+| `pickup_far` | The trucker's `pickedUp` | `gpsPickup` more than 5 km from the listing's point |
+| `self_pickup_no_fix` | The self-pickup buyer's `delivered` | No `gpsDropoff` (checked before the listing is read) |
+| `self_pickup_no_farm_point` | The self-pickup buyer's `delivered` | The listing has no coordinates, or is not found |
+| `self_pickup_far` | The self-pickup buyer's `delivered` | `gpsDropoff` more than 5 km from the listing's point |
+| `dropoff_far` | The buyer's `delivered` of a trucker delivery | `gpsDropoff` more than 5 km from both the trip's destination point and the order's drop-off point |
+
+Nothing is written to the delivery on any of them (no status or version move, no audit row, no
+nonce consumed, no fraud signal), and the same payload always gets the same answer: a client
+treats each as permanent and puts the delivery back from the server, so the user scans again
+(`sync-protocol.md` 1.62.0). The rules themselves (5 km, which points, when a fix is needed) are
+unchanged.
 
 ### Why 5km Threshold
 
@@ -695,9 +1058,11 @@ GPS may be unavailable (indoor, poor signal, hardware failure). The system degra
 | GPS available | Capture coordinates, validate proximity |
 | GPS unavailable at pickup | Allow pickup without GPS, flag for manual review |
 | GPS unavailable at delivery | Allow delivery without GPS, flag for manual review |
-| GPS outside 5km threshold | Reject with error, allow retry with explanation |
+| GPS outside 5km threshold | Reject with error, allow retry with explanation (as built since 2.15.0: the refusal names its reason, the client undoes the handoff and explains it, and the user scans again; see Refusal reasons) |
 
 Deliveries without GPS evidence are flagged as `requires_review` in server metadata. These receive lower trust scores in future fraud detection (F-14).
+
+As built (1.24.0): no `requires_review` flag is written yet. A scanned pickup without a fix is accepted (a typed code on a paid delivery and a self-pickup confirm need one, see QR Secret Storage); whether to require or record a missing fix is the GPS spike's call (SPK-01). The scan screen takes the fix when the QR is read and its Confirm waits for that attempt (at most 30 seconds), so the fix sent is the one taken at the scan.
 
 ---
 
@@ -707,39 +1072,55 @@ Deliveries without GPS evidence are flagged as `requires_review` in server metad
 
 Photo evidence is **optional but encouraged**. It provides visual proof of crop condition at pickup and delivery, critical for dispute resolution.
 
-These are client-side rules. The server enforces only the key shape (section 4 and Validation Rules, item 8), not the size, width or count.
+Since 1.25.0 the server enforces the size (signed into the `PUT` and checked at the attach), the
+format (WebP or JPEG, bound to the URL), the taker and one photo per type; the width and the
+quality are client rules.
 
 | Constraint | Value | Rationale |
 |------------|-------|-----------|
-| Format | WebP | Best compression ratio for 3G upload |
+| Format | WebP (phone), JPEG (browser) | WebP is the best ratio for 3G; the browser's canvas re-encodes JPEG |
 | Max width | 800px | Sufficient for visual proof, small file size |
-| Max file size | 200KB | Uploadable on 3G in <2 seconds |
-| Max photos per type | 3 | Pickup: 3, Dropoff: 3 (6 total per delivery) |
-| Compression quality | 75% | Good visual quality at small file size |
+| Max file size | 200 KiB (server-enforced, 1.25.0) | Uploadable on 3G in a few seconds |
+| Photos per type | 1 (the first stays, 1.25.0) | One pickup and one drop-off photo per delivery |
+| Compression quality | 75%, then 60%, then 45% at 640 px (phone); 70% (browser) | Good visual quality at small file size; a photo still over the cap is dropped |
 
 ### Offline Storage
 
 1. Camera captures JPEG on device
 2. Client resizes to max 800px width
-3. Client converts to WebP at 75% quality
-4. Client stores in local filesystem: `{appDir}/photos/{deliveryId}/{type}-{timestamp}.webp` (`-fb` suffix for the fallback quality)
-5. Isar delivery record keeps the local file path in `pickupPhotoRef` / `dropoffPhotoRef`; it is never sent to the server (1.7.0)
-6. Upload queue: planned (FRD-12), not shipped. A later server pull of the delivery overwrites the Isar field with the server value, so FRD-12 needs its own queue entry rather than this field
+3. Client converts to WebP at 75% quality (60%, then 45% at 640 px, when over 200 KiB; still over, the photo is dropped and the screen says so)
+4. Client stores in local filesystem: `{appDir}/photos/{deliveryId}/{type}-{timestamp}.webp` (`-fb` and `-fb2` suffixes for the fallbacks)
+5. Isar delivery record keeps the local file path in `pickupPhotoRef` / `dropoffPhotoRef`; it is never sent to the server (1.7.0). A pull keeps it while the server has no photo for that type, and takes the server's key once it has one (1.25.0)
+6. Upload queue (1.25.0, FRD-12): the handoff confirm queues a `delivery_photo` create behind the handoff, with the file path in `data._localPath` (a `_` key, never sent: see Upload Flow)
+7. After the attach succeeded, the phone's files of that handoff are deleted and the row takes the server's key; a delivery pull or conflict keeps the local path only while the server has no photo of that type
 
-### Upload Flow (FRD-12, planned)
+The browser keeps no files: it takes the photo at 800 px and JPEG quality 70 and uploads it at once (Upload Flow).
 
-When connectivity is available:
-1. `POST /deliveries/{id}/photos` with `{ "type": ... }` (section 4) returns `uploadUrl` + `photoRef`
-2. `PUT` the WebP to `uploadUrl` with `Content-Type: image/webp` within 15 minutes
-3. Next delivery sync update op carries `pickupPhotoRef` / `dropoffPhotoRef` = `photoRef`
-4. Client deletes the local file once the sync op is applied
+### Upload Flow (1.25.0, FRD-12)
+
+Mobile, when the sync queue reaches the `delivery_photo` operation (a preflight of the batch):
+1. `POST /deliveries/{id}/photos` with `{type, sizeBytes, contentType}` (section 4) returns `uploadUrl` + `photoRef`
+2. `PUT` the file to `uploadUrl` with the signed `Content-Type` and `Content-Length` within 15 minutes
+3. The operation's payload becomes `{"photoRef": key}` (plus the never-sent `_localPath`), in the batch and in the queue, so a later run never uploads twice; the batch then attaches it (section 4b)
+4. Offline, a `PUT` that did not reach S3 or got a `5xx`, a presign `5xx` or `401` keep the operation queued without using a retry; the handoff in front of it is sent anyway. A presign `404` waits while the delivery's own create waits on the phone and 10 minutes after the photo was queued, then gives up. A presign `400`, `403` or `409` (including `DELIVERY_PHOTO_REFUSED`, a cancelled delivery), a file that is gone, or the third `PUT` refused with a `4xx` give up: the operation goes without a key so the server refuses it for good. Since 2.14.0 (FUP-140) S3's `400 RequestTimeout` (a stalled rural upload) and a `408` are not refusals: they wait, uncounted. A refused delivery create, pickup or delivery confirm rejects the photo waiting behind it, and since 2.14.0 so does a pickup or delivery confirm answered `conflict` whose `serverData` does not show that handoff (no `pickedUpAt` and a status before `pickedUp`; no `confirmedAt`, not `delivered` and not an undecided dispute, where the server may keep the drop-off photo as late evidence)
+5. After the attach, the phone's files of that handoff are deleted; until then the local file shows the photo on this phone offline
+
+Web: the browser uploads right after the photo is taken (steps 1 and 2), shows it from memory,
+and after the handoff confirm succeeded sends the `delivery_photo` operation on its own `/sync`
+call; a refusal is logged and the confirmed handoff stands.
+
+Viewing: the delivery detail of each party loads `pickupPhotoUrl` / `dropoffPhotoUrl` from
+`GET /deliveries/{id}` (one read per delivery, reused 10 minutes) and caches the image on the
+phone under its key; offline and never cached, the tile says it shows when online.
 
 ### S3 Storage
 
-- **Bucket**: Same uploads bucket used for other media (audio notes, etc.)
-- **Key pattern**: `uploads/photos/{deliveryId}/{type}-{timestamp}.webp`
-- **Lifecycle**: Photos retained for 1 year, then moved to Glacier
-- **Access**: Pre-signed URLs for viewing (15-minute expiry)
+- **Bucket**: Same uploads bucket used for other media (audio notes, etc.); private, SSE-S3, versioned
+- **Key pattern**: `uploads/photos/{deliveryId}/{type}-{timestamp}.{webp|jpg}` (the upload); since 2.14.0 the attached photo's kept copy at `evidence/photos/{deliveryId}/{type}-{timestamp}.{webp|jpg}`
+- **CORS (1.25.0)**: `PUT`, `GET`, `HEAD` with `Content-Type` from the web app and admin origins only (the browser `PUT`s and CanvasKit fetches images with XHR); the CloudFront CSP already allows the regional S3 hosts
+- **Lifecycle (2.14.0, FUP-140)**: rule `DeliveryPhotoUploadsExpiry` on `uploads/photos/`: current versions expire 30 days after the upload (S3 then removes the expired delete markers), noncurrent versions a day after they stop being current, so uploads never attached (web retakes, a photo given up) go. Deployed disabled; the infra config `deliveryPhotoUploadExpiry` turns it on per environment only after the backfill below answered `outcome: ok` there (`.ai/deployment.md` 3e). No rule touches `evidence/photos/`. An upload not attached within 30 days (a phone offline that long) is gone and its attach answers `DELIVERY_PHOTO_MISSING`. No Glacier: the old `photos/` transition matched no key and is removed, because an archived object answers a presigned `GET` with `403 InvalidObjectState` until restored, which would break the detail and the admin's dispute evidence, for objects of at most 200 KiB
+- **Backfill (2.14.0)**: the order-cron action `backfill_delivery_photo_copies` (by hand, once per environment, after the deploy that ships 2.14.0) copies each photo attached before 2.14.0 at its recorded version (the latest without one) and records the copy with a conditional update (photo and version unchanged, no copy yet; `version` and `updatedAt` do not move). A key without this delivery's shape is skipped (no read signs it), an object that is gone counted as missing. Resumable with `scanFrom`; a rerun copies nothing twice
+- **Access**: Pre-signed URLs for viewing (15-minute expiry), signed by the delivery Lambda after its participant check and by the admin Lambda (read on `uploads/photos/*` and, since 2.14.0, `evidence/photos/*`); the sync Lambda reads `uploads/photos/*` for the attach's `HEAD` and, since 2.14.0, puts the copy under `evidence/photos/*` (no read or delete there); the order cron reads `uploads/photos/*` and puts under `evidence/photos/*` for the backfill
 
 ---
 
@@ -758,7 +1139,7 @@ When connectivity is available:
 4. **Farmer ID / Trucker ID / Buyer ID**:
    - Must reference existing users
    - Farmer must own the listing, trucker must own the trip
-   - On create the server stamps `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and (trucker flow only) `truckerName`/`truckerPhone` from the users table; values sent by the client are ignored. A party with no name on their profile keeps the order row's name. The create is rejected with `DELIVERY_VALIDATION` when a party's profile cannot be read or no name is known at all; a self-pickup stores no trucker contact (v1.6.1, SIM-46)
+   - On create the server stamps `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and (trucker flow only) `truckerName`/`truckerPhone` from the users table; values sent by the client are ignored. A party with no name on their profile keeps the order row's name, unless that is the party's id or any UUID (2.3.0, FUP-130: orders written before `order-lifecycle.md` 2.11.0 may hold the id where the name belongs), which is no name. The create is rejected with `DELIVERY_VALIDATION` when a party's profile cannot be read or no name is known at all; a self-pickup stores no trucker contact (v1.6.1, SIM-46)
 5. **QR Token**:
    - Must be valid Base64url encoding
    - Decoded payload must contain all required fields
@@ -767,16 +1148,32 @@ When connectivity is available:
 6. **GPS Coordinates**:
    - If provided, latitude must be between -90 and 90
    - If provided, longitude must be between -180 and 180
-   - If provided, must be within Ethiopian bounds (3-15 N, 33-48 E) as a sanity check
+   - If provided, must be within Ethiopian bounds (3-15 N, 33-48 E), the bounds of a listing's point
+     and a live ping (built in 2.16.0, FUP-444): a delivery update whose `gpsPickup` or `gpsDropoff` is
+     outside them writes nothing and is answered
+     `DELIVERY_VALIDATION: <field> must be inside Ethiopia (latitude 3 to 15, longitude 33 to 48).`,
+     (0, 0) included. The check runs after the 5 km checks below, so where a reference point exists
+     their `DELIVERY_GPS_PROXIMITY` refusal (permanent, the phone's handoff put back) still answers
+     first; this one answers only where no reference point exists (a listing without a point, a trip
+     and order without a drop-off point). The clients retry it as any `DELIVERY_VALIDATION`; no shipped
+     app sends such a point from a real fix in Ethiopia. Before 2.16.0 nothing checked it, so a crafted
+     client could store (0, 0) or a point abroad on such a delivery
    - Pickup GPS must be within 5km of listing location
    - Dropoff GPS must be within 5km of trip destination or buyer location
+   - Each point only from its own handoff (2.5.0, FUP-246): `gpsPickup` is written only by the
+     trucker's `pickedUp`, `gpsDropoff` only by the buyer's `delivered` (a self-pickup's too). Sent
+     with any other status (a create, `inTransit`, the other handoff, a `disputed`, an update without
+     a status) the point is dropped, not refused, and logged as `DELIVERY_FIELD_DROPPED`; so is a
+     `disputeReason` sent without `disputed` (its length check, empty or over 500 characters, still
+     refuses first). The stored points are the evidence the impossible
+     delivery time rule and the admin dispute evidence read, so no later step may move them
 7. **Status Transitions**:
    - Only valid transitions allowed (see Status Transitions above)
    - Invalid transitions return `422 Unprocessable Entity`
    - Dispute must be raised within 48 hours of `confirmedAt`
 8. **Photo References** (sync, create and update):
-   - `pickupPhotoRef` / `dropoffPhotoRef` must be exactly `uploads/photos/{deliveryId}/(pickup|dropoff)-{ms}.webp` for the operation's own delivery (the key section 4 issued). Anything else, including a local file path, another delivery's key or the pre-1.7.0 `photos/...` shape, fails the whole operation with `DELIVERY_INVALID_FIELD: <field> has invalid format.` (FIX-011, path traversal)
-   - The server does not check that the S3 object exists, its size, or the count per type (client-side rules)
+   - `pickupPhotoRef` / `dropoffPhotoRef` must be exactly `uploads/photos/{deliveryId}/(pickup|dropoff)-{ms}.(webp|jpg)` for the operation's own delivery (the key section 4 issued). Anything else, including a local file path, another delivery's key or the pre-1.7.0 `photos/...` shape, fails the whole operation with `DELIVERY_INVALID_FIELD: <field> has invalid format.` (FIX-011, path traversal)
+   - A valid key is dropped, not written (1.25.0): photos are attached only by `delivery_photo` (section 4b), which checks the taker, the object's presence, size and type, and keeps the first photo
 9. **Participant Authorization**:
    - Only the order's matched trucker can create a delivery and confirm pickup; the buyer creates self-pickup deliveries (v1.3.0)
    - Only the buyer can confirm delivery
@@ -792,7 +1189,7 @@ When connectivity is available:
 - Show localized error messages in user's preferred language (Amharic, Afan Oromo, English)
 - Validate before enqueueing sync operation (prevent invalid operations from clogging queue)
 - Display GPS proximity result immediately after capture (green check if within 5km, red warning if outside)
-- Compress photos to WebP <200KB before uploading (FRD-12)
+- Compress photos to at most 200 KiB before uploading (WebP on the phone, JPEG in the browser; 1.25.0)
 
 ---
 
@@ -911,6 +1308,7 @@ Rural Ethiopian markets follow weekly schedules (different woredas have differen
 - **Confirm delivery**: Only buyers can confirm delivery (they scan trucker's QR)
 - **Raise dispute**: Any participant (farmer, trucker, buyer) can dispute
 - **Cancel**: Any participant can cancel while `pending` (update or the legacy delete); nobody can after pickup (1.9.0)
+- **Handoff photos (1.25.0)**: the trucker takes (uploads and attaches) the pickup photo, the buyer the drop-off photo; the farmer takes none. The delivery's buyer, farmer and trucker, and admins, see both; nobody else gets a URL
 - Server validates the JWT `sub` claim matches the appropriate participant ID for each action
 
 ### QR Token Security
@@ -928,7 +1326,7 @@ Rural Ethiopian markets follow weekly schedules (different woredas have differen
 - Delivery details visible only to participants (farmer, trucker, buyer)
 - No phone numbers in any client read of a delivery (detail, list, `/sync` data) since 1.15.0; contact goes through the order (ESC-48)
 - GPS coordinates are sensitive -- only stored for verification, not displayed to other platform users
-- Photo evidence accessible only via pre-signed S3 URLs with 15-minute expiry
+- Photo evidence accessible only via pre-signed S3 URLs with 15-minute expiry, signed for the delivery's three parties (`GET /deliveries/{id}`) and admins (transaction view) only; never on a list
 
 ---
 
@@ -942,16 +1340,18 @@ All core delivery verification operations work offline:
 | Generate QR code | Full -- HMAC computed locally | No sync needed |
 | Scan QR code | Full -- HMAC verified locally | No sync needed |
 | Capture GPS | Full -- coordinates stored in Isar | POST /sync when online |
-| Capture photo | Full -- WebP stored locally | POST /deliveries/{id}/photos when online |
+| Capture photo | Full -- WebP stored locally, a `delivery_photo` op queued at the confirm | POST /deliveries/{id}/photos and the S3 `PUT` when online, then the attach in `/sync` (1.25.0) |
 | Update status | Full -- local Isar update | POST /sync when online |
 | Browse deliveries | Full -- query local Isar cache | Refresh on next sync |
 
 ### Sync Priority
 
-Delivery operations are high-priority sync items (they affect payment release):
-1. Delivery status changes sync before crop listing updates
-2. Photo uploads sync after status changes (lower priority, larger payload)
-3. If sync queue has mixed entity types, delivery operations are processed first
+The sync queue has no per-entity priority. `SyncQueue` sends pending operations oldest
+first (FIFO, `sortByCreatedAt` in `mobile/lib/core/sync/sync_queue.dart`), so a delivery
+status change syncs after whatever was queued before it and before whatever was queued
+after it, regardless of entity type. A handoff photo (1.25.0) is a `delivery_photo` operation
+queued right behind its handoff: its upload runs as a preflight when the batch is built, and a
+photo that cannot go up yet waits without holding back the handoff or anything else.
 
 ---
 
@@ -1001,36 +1401,742 @@ as a delivery with `deliveryType: "self_pickup"`:
   `pickedUp`/`delivered` transition only if it matches the stored nonce, is within a freshness
   window, and has not already been consumed for that transition (single-use). Consumption is
   recorded only **after** the version CAS commits, so a rejected transition never burns it.
-- For a money-bearing delivery whose nonce has not yet synced, the server returns
+- **Pickup proof (1.24.0, FRD-11)**: a pickup at the farm, the trucker's `pending → pickedUp`
+  and the self-pickup buyer's `pending → delivered`, needs the farmer's nonce whatever the money.
+  With no nonce on record it is **`deferred`** (`DELIVERY_NONCE_PENDING: Waiting for the farmer's
+  QR code to sync. ...`, nothing written, the op stays queued) until the farmer's nonce syncs,
+  and refused with `DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server for
+  this pickup. Contact support.` once 14 days have passed since the later of the delivery's
+  creation and the scan (the operation's `timestamp`, used when plausible: at most 5 minutes
+  after it reached the server and not older than 30 days). Counting from the scan matters for a
+  delivery made weeks before its trip: an honest scan that syncs before the farmer's queued
+  nonce waits instead of being refused at once. No escrow is read for it. Before 1.24.0 a pickup of a delivery without an escrow (cash, or an order whose escrow write
+  failed) passed with no QR. With the nonce on record the rules below apply unchanged: the scan
+  (`scannedQrNonce`) or the typed code (`scannedQrCode`) must match, within 14 days of the nonce,
+  once per leg (consumed after the write commits). A trucker's pickup stores `gpsPickup` as
+  taken at the scan (when the phone had a fix), the server's `pickedUpAt` and the phone's
+  `pickupCapturedAt`; a self-pickup stores `gpsDropoff` (mandatory) and `confirmedAt`; both
+  audit `handoff=qr` or `handoff=code`. A cargo photo taken at the scan
+  goes up and is attached since 1.25.0 (FRD-12, section 4b). Shipped apps already prove every
+  pickup this way (the farmer's QR registers its nonce, the scan sends it), so no client or flag
+  change is needed.
+- For a trucker's drop-off of a money-bearing delivery whose nonce has not yet synced, the server returns
   **`deferred`** (see sync-protocol) rather than failing open, and refuses it with
-  `DELIVERY_NONCE_MISSING` once the delivery is older than 14 days. A delivery carries money
+  `DELIVERY_NONCE_MISSING` once 14 days have passed since the later of the delivery's creation
+  and the scan (from creation alone before 1.24.0). A delivery carries money
   when its order's escrow (`escrow-order-{orderId}`, read strongly consistent, any status)
   exists, or else when the escrow `DeliveryIndex` finds one for it (an escrow paid through
   `POST /escrow/initiate`, or a legacy delivery without an `orderId`). The order's escrow is
   read first because its link to the delivery can fail (`ORDER_ESCROW_LINK_FAILED`) or lag
   (1.17.0, FUP-42: before, only the `DeliveryIndex` was asked and such a delivery passed with
-  no QR). When either read fails the answer is also `deferred` (`DELIVERY_NONCE_PENDING`,
+  no QR). When neither finds an escrow, the order is read (strongly consistent): an order with
+  `paymentVerifiedAt` was funded, so its delivery carries money even with no escrow row (the
+  create and its self-heal both failed; 2.4.0, FUP-66: before, it passed as cash). When any of
+  these reads fails the answer is also `deferred` (`DELIVERY_NONCE_PENDING`,
   nothing written, never the 14-day refusal), and the server logs
   `QR_GATE_UNDECIDED deliveryId=.. orderId=.. reason=..`, which the order escrow problems
   alarm counts, so a read that keeps failing is seen. Web clients show their QR-pending text
-  for this deferral too (accepted: the user tries again and a later retry clears it). A
-  delivery with no escrow (cash) passes without a QR, as before.
+  for this deferral too (accepted: the user tries again and a later retry clears it). The
+  drop-off of a delivery with no escrow and no funded order (cash) and no nonce passes without a QR, as before: since
+  1.24.0 only one picked up without a QR before then can reach it.
+- **Party first (2.17.0)**: an update from a caller who is not the delivery's buyer, farmer or
+  trucker is refused with `DELIVERY_UNAUTHORIZED` before the transition, cancelled-delivery and
+  dispute-window rules, so no refusal tells an outsider the delivery's status (`sync-protocol.md`
+  1.70.0, conflict rule 10). What a party gets is unchanged.
+- **Nothing to write (2.17.0)**: an update without a `status` whose payload holds nothing the
+  server stores, once dropped and echoed fields are removed (for example a trucker's `qrNonce`),
+  writes nothing and answers `success` with the delivery's current `serverVersion` when it
+  carries that version (the usual version `conflict` with the row otherwise), as the
+  farmer's nonce-only update has since 1.6.0 at any version. Before, it was written empty and the version moved.
+- **Confirm under a disputed escrow (2.17.0)**: a `delivered` update for a delivery whose escrow
+  is already `disputed` (a dispute raised between pickup and delivery) is written, then the
+  dispute mirror moves the delivery `delivered → disputed` and its order to `disputed`; the answer
+  is `success` with that row (`status: disputed`, its version). `order-lifecycle.md` 2.24.0,
+  `escrow-protocol.md` 2.27.0.
 - Only the delivery's farmer may set `qrNonce` (SIM-41). A `qrNonce` sent on create, or on
-  an update by anyone else, is silently dropped.
+  an update by anyone else, is silently dropped. Since 2.17.0 the delivery's buyer who sends it
+  on an update without a status reads `DELIVERY_UNAUTHORIZED: Only the farmer sets the pickup
+  code.` (before: `You can only update your own deliveries.`, on their own delivery); the
+  trucker's is dropped and, with nothing else to store, answered as "Nothing to write" above. Since 1.22.0 the farmer's nonce op stores the
+  nonce and nothing else (other fields riding along are ignored, never written), and once the
+  delivery left `pending` it stores nothing at all and answers `success` at the current version:
+  the nonce then is the drop-off's secret, and a late one (a QR reopened on a phone whose copy
+  still said `pending`) would void the trucker's drop-off QR and clear the drop-off's misses.
+  The farmer's app reads the delivery again before it makes a nonce and makes none after
+  pickup.
 - A farmer update carrying only `qrNonce` (plus `version`/`updatedAt`) stores the secret and
   returns `success` with the delivery's **current** `serverVersion`: nothing on the delivery
   record changes, so it is not written and the version does not move (1.6.0). Bumping it made
   the scanner's queued confirm, sent at the version it last pulled, conflict and get undone.
   Web clients send this op directly when the farmer opens the QR (1.6.0; before, web never
   registered the nonce, so a web-shown QR could not be confirmed).
+- **Typed code (1.22.0, usability audit T-1)**: when a camera or a screen fails, the
+  scanner may send `scannedQrCode` instead of `scannedQrNonce` on the `pickedUp` or
+  `delivered` update (a scanned nonce wins when both are sent; neither is stored on the
+  delivery). The code is nine ASCII digits: the first eight are HMAC-SHA256 with the UTF-8
+  nonce as key over `wc-handoff-code:v1:{deliveryId}`, the first 8 bytes big-endian modulo
+  10^8, left-padded; the ninth is a Damm check digit, so the apps catch a mistyped digit or two
+  swapped neighbours before sending. Shared vectors pin the server and the apps to the same
+  digits. The phone that shows the QR reveals the code only behind "Camera not working?", with
+  a warning never to read it out on the phone. The server derives the code from the stored
+  nonce and compares in fixed time, then applies the same freshness, single-use and deferral
+  rules as a scan (an unsynced nonce on a paid delivery is `deferred`). Errors:
+  `DELIVERY_VALIDATION: scannedQrCode must be 9 digits with a valid check digit.` (no miss
+  counted); `DELIVERY_CODE_MISMATCH:` (a wrong code, counted); `DELIVERY_CODE_LOCKED:` from the
+  fifth wrong code of a leg on, even for the right code, until the farmer's Regenerate stores a
+  new nonce (a scanned QR still works when locked), and for any typed code where the secret
+  store is not provisioned; `DELIVERY_CODE_LOCKED_DROPOFF:` instead for the `delivered` leg of a
+  trucker delivery, whose code nothing can renew (the farmer's Regenerate only works before
+  pickup). Way out of a locked drop-off: the buyer scans the trucker's drop-off QR when the
+  trucker has one; when the trucker typed the code at pickup there is no QR, so the buyer (or the
+  trucker) contacts support, who confirm the handoff with both parties by phone and settle the
+  order's escrow with a `farmer_wins` verdict and the `settle_now` disposition
+  (`escrow-protocol.md` 1.21.0, the farmer and the trucker leg paid), or with `buyer_wins` and
+  `return_to_farmer` when the goods did not arrive; `DELIVERY_CODE_GPS_REQUIRED:` for a typed code without the leg's
+  `gpsPickup` or `gpsDropoff` on a delivery that carries money (an escrow read that fails
+  answers `deferred`, `DELIVERY_NONCE_PENDING`, logged `QR_GATE_UNDECIDED`). Attempts are kept in
+  the secret row as one string set of attempt ids per leg (`codeMissesPickedUp`,
+  `codeMissesDelivered`); an attempt id is `{operationId}:{the first 16 hex digits of SHA-256 of
+  the code}`. Each attempt is taken before the comparison by one `ADD` conditional on the nonce
+  the code is checked against and on the set holding fewer than 5 ids (or this very id), so
+  guesses sent in parallel cannot pass the cap, a retry of the same operation with the same code
+  counts once, and a new code under a reused operation id (errors never store the idempotency
+  key) always counts; a right code removes its id again, so only wrong codes stay counted.
+  Storing a different nonce removes both sets. The secret row is read strongly consistent. Mismatches and locks write the
+  `QR_HANDOFF_FAILURE` signal (`sync-protocol.md` 1.33.0). The `pickedUp` and `delivered`
+  audit entries carry `metadata` `handoff=qr` or `handoff=code` as dispute and fraud evidence.
+- **Drop-off QR (1.22.0, T-3)**: the buyer's `delivered` is checked against the same pickup
+  nonce, and no screen showed it after pickup, so a paid trucker delivery could not be
+  confirmed. The trucker's phone now keeps the farmer's token it scanned at pickup (or the
+  code it typed) in secure storage and shows it as the drop-off QR, with its typed code; the
+  buyer scans or types it. One nonce serves both legs, each consumed once, within the same
+  14-day freshness from the first QR. Trade-off: the trucker holds the pickup secret after
+  pickup (it was on their screen anyway); a separate trucker nonce in the same store is a
+  follow-up. No server change for this part. Superseded by the trucker's own nonce (2.7.0, next
+  item) for every app that issues one; kept for deliveries without one.
+- **The trucker's drop-off nonce (2.7.0, ESC-35)**: right after a confirmed pickup the trucker's
+  phone makes its own nonce (32 random bytes, base64url, behind the tag `d.`, so at most 100
+  characters), keeps it in secure storage with its QR token and typed code, and registers it with
+  a delivery update carrying only `dropoffQrNonce` (plus `version`). On a phone the update is
+  queued behind the pickup (the same code already waiting is not queued twice); web sends it at
+  once. The phone sends its kept code again whenever the drop-off QR is opened. It makes no code
+  on open: with none kept (picked up on another phone or an older app) the screen says so, and the
+  trucker's **New drop-off code**, after a confirmation that any code shown before stops working,
+  makes one and sends it with `dropoffQrRenew: true` (on a phone, the drop-off codes still waiting
+  in the queue are dropped first, so an older one never lands after it).
+  - Only the delivery's trucker may set it, on an update without a `status`; anyone else's, or one
+    riding on a status change, is dropped as `qrNonce` is (SIM-41), and so is `dropoffQrRenew`. The
+    update stores the nonce and nothing else: the delivery is not written, its `version` does not
+    move, and the answer is `success` with the current row (scrubbed) and version.
+  - Stored in `delivery-qr-secrets` as `dropoffNonce` with `dropoffIssuedAt`, next to the farmer's
+    nonce only. **A registration never replaces a stored code**: it is stored only while none is,
+    so a stale or second device, or a registration queued behind a pickup that waited, cannot void
+    the code the buyer may already hold (no new freshness, no misses cleared). Only a renewal
+    (`dropoffQrRenew`) replaces it, restarting `dropoffIssuedAt` and removing
+    `codeMissesDelivered`. The same nonce again changes neither (only the row's TTL).
+  - A nonce that is not stored still answers `success` (nothing to retry) but with a `message`:
+    `DROPOFF_CODE_SUPERSEDED: Another drop-off code is on record for this delivery. Show that one,
+    or make a new code.` (a registration over another code), or `DROPOFF_CODE_NOT_STORED: This
+    delivery has no pickup code on the server, so its drop-off code is not kept.` (a row without
+    the farmer's nonce: a delivery picked up before 1.24.0, or no secret store). Logged as
+    `DROPOFF_NONCE_NOT_STORED deliveryId=.. reason=..`. Web shows each on the drop-off QR; a
+    phone's queue reads it as synced.
+  - Delivery `pending` (the pickup has not reached the server; a pickup in the same batch may be
+    `deferred` for the farmer's nonce): `deferred`, `DELIVERY_NONCE_PENDING: Waiting for the pickup
+    to sync. Will retry automatically.`, nothing stored; refused with `DELIVERY_VALIDATION: The
+    drop-off QR code can only be registered after the pickup.` once 14 days have passed since the
+    later of the delivery's creation and the operation's `timestamp`. `pickedUp` or `inTransit`:
+    stored as above. `delivered` or `disputed`: nothing stored, `success`. A malformed value (no
+    `d.` tag, nothing after it, longer than 100) is `DELIVERY_VALIDATION: dropoffQrNonce must ...`.
+  - **The buyer's `delivered` on a trucker delivery** is checked against `dropoffNonce` once one is
+    stored (the farmer's token no longer confirms it: `DELIVERY_NONCE_MISMATCH`), else against the
+    farmer's nonce as before. Single use is the same `delivered` leg; freshness counts 14 days from
+    `dropoffIssuedAt` (`DELIVERY_NONCE_EXPIRED: QR code has expired. Ask the trucker for a new
+    drop-off code.`); the typed code is the 1.22.0 derivation keyed by the trucker's nonce, its
+    attempts conditional on that nonce, and its lock answers `DELIVERY_CODE_LOCKED: Too many wrong
+    codes for this drop-off. Scan the trucker's drop-off QR, or ask the trucker for a new code.`,
+    which the trucker's renewal clears (a registration does not). `DELIVERY_CODE_LOCKED_DROPOFF`
+    stays for a drop-off without a trucker's nonce. A self-pickup and every pickup use the farmer's
+    nonce only.
+  - **Offline, and codes that changed**: a scanned nonce with the `d.` tag waits, `deferred`,
+    `DELIVERY_NONCE_PENDING: Waiting for the trucker's drop-off QR code to sync. Will retry
+    automatically.`, nothing written, no miss and no fraud signal, while no trucker's nonce is
+    stored (the trucker's phone has not synced yet), and also when it differs from the stored one
+    but was scanned after that one was stored (the operation's `timestamp` when plausible, else the
+    server's time): the trucker's New drop-off code made offline. It is refused with
+    `DELIVERY_NONCE_MISSING: The trucker's drop-off QR code never reached the server. Ask the
+    trucker for a new drop-off code, or contact support.` 14 days after the later of the delivery's
+    creation and the scan. A tagged scan taken before the stored code was stored (a code since
+    replaced), and an untagged wrong scan, stay `DELIVERY_NONCE_MISMATCH`. A typed code carries no
+    tag, so it is always compared and a wrong one counted (the five-miss cap holds): one typed
+    before the trucker's code synced is a miss, as a code regenerated offline is today.
+  - No flag: shipped buyer apps scan and type the new code the same way, and a trucker app that
+    issues none keeps the 1.22.0 path. Known limit: a shipped buyer app shows its old text for
+    `DELIVERY_CODE_LOCKED` ("ask the farmer to show a new code") also for the trucker's renewable
+    lock; builds with ESC-35 name the trucker on web and use a text naming no party on the phone.
+    The nonce and the code are never logged.
 - **Migration**: an on-record `qrNonce` is used only where the secret store is not
   provisioned. Where it is, only the farmer's stored nonce counts (rows written before SIM-41
   could carry a trucker-authored value). It is always scrubbed from echoed `serverData`.
+
+---
+
+## Planned in 2.0.0: evidence at pickup and drop-off (P3: ESC-34, ESC-35, ESC-36)
+
+> **PLANNED. Nothing in this section is built at 2.0.0.** (P.2 is built in 2.6.0, P.3 in 2.7.0.) ESC-34 builds P.2, ESC-35 builds P.3 and
+> ESC-36 builds P.4. Source: spec `three-party-escrow-commitments-reputation.md` 4.4
+> (`deliveryLatitude`, `deliveryLongitude`), 4.5 (T7, T8, T9), 4.8, section 5 D and E, and the
+> rollout flags of K3. Until a ticket ships, the sections above are the contract. Names marked
+> "proposed" are confirmed by the ticket that builds them.
+
+### P.1 Built today and planned
+
+| Evidence | Built | Planned |
+|---|---|---|
+| Pickup QR backed by the farmer's server-held nonce, single use, works offline | Yes; every pickup needs it since 1.24.0 (FRD-11) | Unchanged |
+| Typed code when a camera or screen fails | Yes, for both legs: **9 digits**, eight from the nonce and a Damm check digit (1.22.0); the drop-off code from the trucker's nonce since 2.7.0 | Spec 4.8's "6-digit code" is superseded by the built 9-digit code |
+| Drop-off QR the buyer scans | Yes: the trucker's own nonce (2.7.0, ESC-35); the farmer's pickup token kept on the trucker's phone for apps that issue none (1.22.0) | Unchanged |
+| Handoff photos | Pickup by the trucker, drop-off by the buyer (1.25.0, FRD-12); the trucker's arrival photo at the drop-off BUILT in 2.10.0 behind `dropoffClassification` (P.4) | Unchanged |
+| GPS at the handoffs | Pickup and trucker drop-off checked within 5 km when sent; self-pickup mandatory (GPS Validation) | Check-ins with GPS (P.2, P.4); drop-off checked against the order's delivery location (P.4) |
+| Arrival check-ins | "I have arrived" and "Crops are ready" are BUILT in 2.6.0 behind `pickupClassification` (P.2, ESC-34); "Arrived at drop-off" BUILT in 2.10.0 behind `dropoffClassification` (P.4, ESC-36). Live trip pings (`live-trip-api.md`) start only after pickup and judge nothing | Unchanged |
+| Pickup that never happens | P1: an accepted order with no pickup by `pickupDeadlineAt` is a transport failure the buyer may cancel (`order-lifecycle.md` 1.15.0, 2.0.0). BUILT in 2.6.0 behind `pickupClassification`: judged at T7 by the check-ins (P.2, ESC-34) | Unchanged |
+| Delivery that never arrives | No deadline. BUILT in 2.10.0 behind `dropoffClassification`: T8 opens a `delivery_overdue` dispute (P.4, ESC-36) | Unchanged |
+| Buyer who never confirms | The money waits (the 21 day cap of `escrow-protocol.md` 1.13.0 queues it for an admin). BUILT in 2.10.0 behind `dropoffClassification`: T9 auto-confirm or dispute (P.4, ESC-36) | Unchanged |
+
+### P.2 Arrival check-ins and the pickup judgement (BUILT in 2.6.0, ESC-34, flag `pickupClassification`)
+
+> **BUILT in 2.6.0** behind `pickupClassification` (env `PICKUP_CLASSIFICATION_ENABLED` on the sync and
+> order-cron Lambdas, off in every environment, and only with `COMMITMENTS_ENABLED`). The text below
+> P.2's planning notes is what is built; where the two differ, "As built" wins.
+
+**As built (2.6.0).**
+
+- **Who is judged.** The write that makes an order `accepted` with the flag on (the trucker's accept,
+  or the farmer's accept of a self-pickup order) also stamps the server-only `pickupJudgement:
+  pending`, an empty `checkIns` map and the listing's point (`pickupLatitude`, `pickupLongitude`; a
+  listing that cannot be read leaves it out and the check-ins use the live listing). Only a stamped
+  order takes check-ins and is judged: an order accepted before the flag, or while it was off, keeps
+  the P1 rules (spec K2). The point is the farm the parties agreed on: a farmer who moves the listing
+  afterwards cannot push the trucker's check-in out of range (FUP-204).
+- **The check-in** is the `handoff_check_in` entity of `sync-protocol.md` 1.55.0, with the kinds,
+  parties and payload of the table below. The arrival needs GPS within 5 km of the stamped point
+  (refused `CHECKIN_TOO_FAR` otherwise). The farmer's GPS is optional (spec 4.8): `crops_ready` without
+  a fix, or with one more than 5 km away, is taken and stored unmeasured (`distanceChecked: false`; a far
+  fix is kept with `outOfRange: true` as evidence), so a farmer with a bad fix keeps the defence. The
+  window is `pickupDate` minus 24 hours (a self-pickup order has no `pickupDate` and is open from its
+  acceptance) to `pickupDeadlineAt`, by the server clock. The entry stored in `checkIns.{kind}`:
+  `receivedAt` (server time, the only time the judgement reads), `capturedAt` (the phone's, kept only
+  when at most 5 minutes after receipt and not older than 30 days), `latitude`, `longitude` (4
+  decimals), `accuracyM`, `distanceKm`, `distanceChecked`, `late` and `by` (the sender). The first
+  check-in of a kind is kept; the write moves neither `version` nor `updatedAt`, and it is conditioned
+  on the order still being `accepted` with `pickupJudgement: pending`, so a check-in can never land
+  after the judgement as if it had counted.
+- **What the parties read.** `GET /orders`, `GET /orders/{id}` and the `/sync` order rows return
+  `pickupJudgement`, `pickupJudgedAt` and `checkIns` per kind as `{receivedAt, capturedAt?,
+  distanceChecked, late}`: no coordinates, no accuracy, no sender. The stamped point is never returned.
+- **A late check-in** (received after `pickupDeadlineAt`, or after a no-show judgement) is kept with
+  `late: true`, never counted, and answered `CHECKIN_TOO_LATE`. When it contradicts the judgement (the
+  absent party's own check-in), the order enters the admin queue (`late_pickup_evidence`). After a
+  trucker no-show the order is `awaiting_transport` with the money held, so the entry stays until the
+  money moves on. After a farmer or self-pickup buyer no-show the order is `cancelled` and refunding:
+  the entry clears itself once the refund leaves (as every admin queue entry does) and no alarm reads
+  the late check-in, so the evidence that stays is the late entry on the order and the audit row
+  (`admin_queue_entered` or `late_pickup_evidence`); the party's way back is the reputation appeal of
+  the `NO_SHOW` event (spec I4). Only a late QR scan logs an alarmed line (below). An order no
+  longer waiting for its pickup in any other way (picked up, the transport failed, cancelled) answers
+  `CHECKIN_NOT_OPEN` and stores nothing.
+- **The judgement** runs in the order cron's `commitment_deadlines`, due at `pickupDeadlineAt` plus one
+  minute (deadline kind `pickup_judgement`, `order-lifecycle.md` 2.15.0): longer than a sync request may
+  run, so every check-in and scan received before the deadline is written when the cron reads the row.
+  The order and its active delivery are read again (strongly consistent); a delivery that left
+  `pending` counts as the scan. The outcomes of the table below, each conditioned on the row as read:
+  - scan: `pickupJudgement: scanned`, stamped only;
+  - trucker no-show: the pending delivery is cancelled first (a pickup racing in wins and is judged
+    again), then `awaiting_transport` with `transportFailure: trucker_no_show`, `truckerResponse:
+    no_show`, `faultParty: trucker` and a fresh `buyerChoiceDeadlineAt` (version CAS), the trip
+    capacity released. The buyer chooses as after any transport failure;
+  - farmer no-show: the pending delivery cancelled first, then `cancelled` (`cancelReason:
+    farmer_no_show`, `farmerResponse: no_show`, `cancelledBy: system`, `faultParty: farmer`) in one
+    transaction with the full refund armed on the order's escrow (`escrow-protocol.md` 2.13.0's
+    deadline cancel), stock and capacity back;
+  - self-pickup buyer no-show: the same with `cancelReason: buyer_no_show`, `faultParty: buyer`, no
+    points;
+  - both present, or a farmer no-show resting on an arrival that could not be measured (no point to
+    measure against): the order stays `accepted`, stamped, and enters the admin queue
+    (`both_present_no_scan`, `unchecked_check_in`); the money stays held;
+  - an absent party with a late check-in on record: the judgement stands and the order also enters the
+    admin queue as `late_pickup_evidence`.
+  Every outcome stamps `pickupJudgement` (the outcome), `pickupJudgedAt` and `pickupOverdueNotifiedAt`.
+  Since 2.12.0 (FUP-363) the judgement's own cancel of the pending delivery also stamps the server-only
+  `cancelledByJudgementAt` (the write's time, the same as its `updatedAt`) in the same write; a party's,
+  an admin's or any other system cancel never writes it. When the order write after that cancel fails,
+  a later run finds the delivery already cancelled, judges again and stamps a later `pickupJudgedAt`;
+  the stamp still marks the cancel as the judgement's (P.2, "Re-open of a trucker no-show").
+  With the flag turned off while orders wait, the cron gives such an order the P1 marker and clears its
+  stamp, so the clients show the buyer's deadline cancel again.
+- **The buyer's deadline cancel** (`order-lifecycle.md` 1.15.0) is refused for a stamped order while
+  the flag is on: `ORDER_CANCEL_NOT_ALLOWED: The pickup is judged from the arrival check-ins; you will be
+  told the outcome.` The judgement decides instead (a trucker no-show reaches `awaiting_transport`,
+  where the buyer cancels for a full refund).
+- **A late pickup scan** (D10): the trucker's `pickedUp`, or a self-pickup buyer's `delivered`, on an
+  order judged a no-show or sent to the admin queue is refused `ORDER_DEADLINE_PASSED:` and nothing is
+  written (no nonce consumed). When the scan carries the farmer's stored nonce (a real QR scan), the
+  order enters the admin queue (`late_pickup_evidence`) and the sync log carries the alarmed
+  `ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED ... reason=late_pickup_evidence` line (the order escrow problems
+  alarm): the goods may have left the farm on an order whose money or transport moved on. A typed code
+  is not taken as such evidence on this path (it would bypass the code's miss limit, and the queue
+  entry is visible to the caller); the party contacts support or appeals the event.
+- **Reputation.** The order fields of derivation rules R10 (`transportFailure: trucker_no_show`) and R11
+  (`cancelReason: farmer_no_show`) are as `reputation-architecture.md` 7.2 shipped them; the
+  `NO_SHOW` fraud signal follows from the recorded event (`fraud-detection-architecture.md` 15.3). A
+  farmer no-show rests on the other side's arrival check-in, so its signal goes through the
+  attribution guard (FUP-204).
+- **Clock skew.** Only the server's receipt time is judged. A phone whose clock is wrong can neither
+  open the window early nor make a late check-in count, and its `capturedAt` is dropped when it is not
+  plausible. An honest party who was offline at the farm is protected by the 24 hour grace inside T7
+  and, past it, by the late evidence in the admin queue and the reputation appeal (spec I4).
+
+**The admin side (BUILT in 2.8.0, FUP-287).** A late scan stays refused, so the admin reads the
+evidence and, after reconciling a real handoff with the parties, re-opens the judgement instead of
+taking a refund path. Not behind the flag: it only acts on orders the flag judged.
+
+- **The evidence.** `GET /admin/transactions/{orderId}` (admin authorizer, admin role) returns
+  `pickupEvidence` for an order stamped judgeable (absent otherwise): `judgement`, `judgedAt`,
+  `deadlineAt` (`pickupDeadlineAt`), `selfPickup`, the stamped farm point (`pointLatitude`,
+  `pointLongitude`), `checkIns` per kind with everything the server kept (`receivedAt`, `capturedAt`,
+  `by`, `latitude`, `longitude`, `accuracyM`, `distanceKm`, `distanceChecked`, `late`, `outOfRange`),
+  `reopenExits` (the exits the action below takes for the order as read: none, `pending`, or `pending`
+  and `handoff_confirmed`) and `lastReopen` (`at`, `exit`, `fromJudgement`, `deadlineAt`). The `order`
+  of the same answer stays the parties' view (no coordinates, no sender). No party route returns any of
+  it.
+- **The re-open.** `POST /admin/orders/{orderId}/reopen-pickup` (admin authorizer, admin pool's admin
+  group checked in the Lambda: `403 ADMIN_001` otherwise; any other `{action}` is `404 ADMIN_002`) with
+  `{exit, reason, expectedVersion, deadlineHours?}`:
+
+  | Field | Rule (`400 PICKUP_REOPEN_INVALID`, `field` names it) |
+  |---|---|
+  | `exit` | `pending` or `handoff_confirmed` |
+  | `reason` | 10 to 500 characters after trimming; kept in the audit trail only |
+  | `expectedVersion` | the order `version` the admin's page read |
+  | `deadlineHours` | with `pending` only, 1 to 168: the new `pickupDeadlineAt` is now plus that many hours |
+
+  Which judgements re-open (`409 PICKUP_REOPEN_NOT_ALLOWED` otherwise, the message says why): only
+  `both_present_no_scan` and `unchecked_check_in` on an order still `accepted`, the two outcomes that
+  moved nothing. Refused: an order not judged (`pending`, or never stamped), `scanned`, a trucker no-show
+  (its delivery was cancelled and its trip booking released, and the buyer chooses again in
+  `awaiting_transport`; since 2.11.0 its own action re-opens it, below, and the message says so), a farmer or self-pickup buyer no-show (`cancelled` with the refund armed in the
+  cancel's transaction, which the hourly sweep sends), and an order that moved on after its judgement
+  (an admin refund, a dispute). A wrong no-show's `NO_SHOW` event is excused on the party's reputation
+  (`reputation-api.md` 9.3). The money must still be held as the judgement left it (`409
+  PICKUP_REOPEN_MONEY_NOT_HELD` otherwise): the order's escrow `escrowed`, no refund armed, no settlement
+  lock, no delivery confirmed, never in the manual payout queue (an escrow `held` for fraud review is
+  decided first); an order without an escrow record has no money to check. A version other than
+  `expectedVersion` is `409 PICKUP_REOPEN_CHANGED`. Nothing is written by any refusal.
+
+  | Exit | Order | Delivery |
+  |---|---|---|
+  | `pending` | stays `accepted`; `pickupJudgement: pending`, `pickupDeadlineAt` now plus `deadlineHours`, `pickupJudgedAt` and `pickupOverdueNotifiedAt` removed; `checkIns` kept as they are (a late one stays late and its party cannot check in again for that kind); the deadline index entry derived from the row: `pickup_judgement` at the new deadline plus one minute, in the swept partition, so the cron judges it again | unchanged (the scan of the new window goes through the normal pickup) |
+  | `handoff_confirmed` | `pickup_confirmed`, `pickupJudgement: scanned` (as a scan leaves an order), `pickupJudgedAt` and the deadline kept; no deadline index entry | the active delivery `pending → pickedUp`, `pickedUpAt` and `updatedAt` the server's time, version plus one; no `gpsPickup`, `pickupCapturedAt` or photo, so the delivery time and trucker GPS fraud rules skip it |
+
+  `handoff_confirmed` is refused for a self-pickup (its handoff is the buyer's `delivered`, which pays
+  the farmer: support settles it with a dispute verdict), for an order without an active delivery and
+  for a delivery that is not `pending`. The delivery's `pickedUpAt` is the admin's time, not the scan's:
+  the live track and the trucker's check-in road windows (`TripTrack`, `CheckInEffects`) start there, and
+  the `picked_up` audit row with `handoff=admin` tells such a pickup from a scan. The drop-off is
+  unchanged: the buyer confirms with the trucker's own drop-off code (2.7.0, ESC-35; a trucker whose
+  phone shows none makes a New drop-off code) or, before one is stored, the farmer's token kept on the
+  trucker's phone (1.22.0).
+
+  Both exits bump the order `version`, stamp the server-only `pickupReopen` map (`at`, `exit`,
+  `fromJudgement`, `fromVersion`, `deadlineAt`; no admin id, no reason), and answer the judgement's admin
+  queue entry (`both_present_no_scan`, `unchecked_check_in` or `late_pickup_evidence`):
+
+  | The entry as read | The re-open |
+  |---|---|
+  | none | writes none, and lands only while none exists (`attribute_not_exists(adminQueue)`), so an entry a late check-in or the judgement wrote since is never left stale |
+  | the judgement's, its escrow not at the hold cap | removes it, while its `adminQueuedAt` is the one read and the escrow still has no `holdCapReachedAt` |
+  | the judgement's, naming the order escrow, which reached its hold cap | keeps it as `adminQueueReason: hold_cap` (same `adminQueuedAt` and escrow): when the cap came while the judgement's entry stood, the escrow cron stamped `holdCapReachedAt` (which takes the escrow out of the sweep windows) instead of writing an entry of its own, so the money waits on this one |
+  | `hold_cap`, or one another escrow of the order owns | left as it is |
+
+  One DynamoDB transaction: the order update conditioned on `expectedVersion`, `status: accepted`, the
+  judgement read and the queue entry read (written without a version bump), the delivery update
+  conditioned on `pending` at its version, and a check that the escrow still holds the money (and, when
+  the entry goes, has no `holdCapReachedAt`). A condition that fails is `409 PICKUP_REOPEN_CHANGED`. The same request again (the order's
+  `pickupReopen` names the same exit from the same `expectedVersion`) answers `200` with
+  `alreadyApplied: true` and writes nothing. `200`: `{orderId, exit, fromJudgement, status,
+  pickupJudgement, pickupDeadlineAt, deliveryId, version, alreadyApplied, message}`. Audit: the
+  transaction-audit row `admin_pickup_reopened` (actor the admin, `metadata`
+  `exit=...;judgement=...;deadlineAt=...;deliveryId=...;queue=none|removed|hold_cap|kept;reason=...`) and, for a confirmed handoff, the
+  delivery's `picked_up` row with `handoff=admin`; the structured log `PICKUP_REOPEN` and
+  `PICKUP_REOPENED orderId=... exit=...`.
+- **Reputation.** The two judgements that re-open carry no reputation event (`order-lifecycle.md`
+  2.15.0, "none automatic"), so nothing is undone. No push tells the parties of a `pending` re-open yet
+  (their apps read the new deadline on the next pull; TASK FUP-332).
+- **Admin app.** The transaction page shows the evidence card (the judgement, the deadline, the farm
+  point, each check-in with its times, fix, distance, measurement and lateness) in en, am and om, and
+  the "Re-open the pickup" action when `reopenExits` is not empty: what happened, the new deadline (24,
+  48 or 72 hours), the reason, then a confirm before anything is sent.
+
+**Re-open of a trucker no-show (BUILT in 2.11.0, FUP-330).** A trucker no-show judgement cancelled the
+pending delivery, released the order's `activeDeliveryId` slot and its trip booking, and left the order in
+`awaiting_transport` with an R10 `NO_SHOW` on the trucker. When a real scan reached the server after the
+judgement (the alarmed `ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED ... reason=late_pickup_evidence`), the goods
+may be on the truck. After reconciling with the parties, the admin re-opens it, while the buyer has not
+chosen and the escrow still simply holds the money. Not behind the flag: only an order the flag judged
+carries `pickupJudgement`, and an order without it is refused.
+
+- **The evidence** gains `noShowReopenExits`: the exits this action takes for the order as read (none,
+  `pending`, or `pending` and `handoff_confirmed`). `reopenExits` stays empty for a trucker no-show.
+- **The action.** `POST /admin/orders/{orderId}/reopen-no-show` (the same route, authorizer, admin group
+  and body as `reopen-pickup`: `exit`, `reason` of 10 to 500 characters, `expectedVersion`, `deadlineHours`
+  1 to 168 with `pending`, and the same `400 PICKUP_REOPEN_INVALID`). Each refusal writes nothing:
+
+  | Check | Answer |
+  |---|---|
+  | `expectedVersion` is not the order's version | `409 PICKUP_REOPEN_CHANGED` |
+  | the order is not judged `trucker_no_show`; it is no longer `awaiting_transport` (the buyer cancelled for the refund, the farmer cancelled, or the buyer-choice deadline cancelled it); its `transportFailure` or `truckerResponse` changed since the judgement; it names no trip, trucker or quantity; or it was never stamped | `409 PICKUP_REOPEN_NOT_ALLOWED` (the message says why; a judgement `reopen-pickup` takes names that action) |
+  | the order's escrow does not simply hold the money (as for `reopen-pickup`: a refund armed by a cancel or the sweep, a settlement lock, a confirmed delivery, the manual payout queue, `held` for review, any status but `escrowed`) | `409 PICKUP_REOPEN_MONEY_NOT_HELD` |
+  | `handoff_confirmed` only: no delivery the judgement cancelled. The delivery is the one the order escrow links (`deliveryId`, linked at the delivery's create and kept through its cancel), else the one the order's slot still names. It must be this order's and on its trip, `cancelled` with no `cancelReason`, verdict or `deletedAt`, and (2.12.0, FUP-363) carry the judgement's own `cancelledByJudgementAt` at or after the order's `pickupDeadlineAt`: a party's cancel, an admin's (FUP-19) or another system cancel carries no stamp and is never brought back, nor is a delivery an earlier window's judgement cancelled before a `pending` re-open set this deadline. The stamp, not the time, makes the match, so a judgement the cron retried after a failed order write (its `pickupJudgedAt` later than its cancel) still brings its delivery back. In 2.11.0 the delivery had to be cancelled (`updatedAt`) at or after `pickupJudgedAt`; a delivery a judgement cancelled before 2.12.0 carries no stamp and only the `pending` exit takes such an order. No other delivery may hold the slot | `409 PICKUP_REOPEN_NOT_ALLOWED` |
+  | the trip cannot take the booking back: gone, deleted, cancelled by its trucker, `cancelled` as `expired` while it holds a booking, departed (`inTransit` or `delivered`), another trucker's, or full (`remainingQuintals`, or the capacity on a row without bookings, below the order's quintals, compared exactly as the transaction's condition compares them, unless the trip still holds this order's booking). Since 2.12.0 (FUP-363) a trip the order cron closed after the release left it empty (`cancelReason: expired`, usual for a trip that carried only this order: it closes within 15 minutes of the judgement, `trip-listing-api.md` 2.7.0) is opened again by the transaction below instead of refused | `409 PICKUP_REOPEN_TRIP_UNAVAILABLE` (new) |
+
+  | Exit | Order | Delivery |
+  |---|---|---|
+  | `pending` | `awaiting_transport → accepted`; `pickupJudgement: pending`, `pickupDeadlineAt` now plus `deadlineHours`, `pickupJudgedAt` and `pickupOverdueNotifiedAt` removed, `checkIns` emptied as the accept stamps them, so the new window counts fresh check-ins (a late arrival kept from the judged window would stay late, and a repeat check-in answers with the stored one); the cleared entries, every field, go to the audit row (`clearedCheckIns`); the deadline index entry derived from the row: `pickup_judgement` at the new deadline plus one minute, in the swept partition | none written: the order is as right after the trucker's accept, so the trucker creates the new pending delivery from the order as usual (the create claims the free slot, or takes it over from the cancelled delivery a failed release left in it, and links the order escrow to the new delivery) |
+  | `handoff_confirmed` | `awaiting_transport → pickup_confirmed`; `pickupJudgement: scanned` (`pickupJudgedAt` and the deadline kept); `activeDeliveryId` and `activeDeliveryClaimedAt` claim the slot for the delivery; `checkIns` kept; with `dropoffClassification` on, the drop-off judgement stamped in the same write as for `reopen-pickup` (P.4: `dropoffJudgement: pending`, T8 from the admin's pickup time, the drop-off points), so the deadline index entry is `delivery_overdue`; off, no deadline index entry | `cancelled → pickedUp`, `pickedUpAt` and `updatedAt` the server's time, version plus one; nothing a scan carries (no `gpsPickup`, `pickupCapturedAt` or photo), as for `reopen-pickup`'s confirmed handoff; `cancelledByJudgementAt` removed (2.12.0) |
+
+  Both exits restore `truckerResponse: accepted`, remove `transportFailure`, `faultParty`,
+  `buyerChoiceDeadlineAt` and `buyerChoiceReminderAt`, answer the judgement's admin queue entry (the
+  `late_pickup_evidence` a late scan or check-in wrote) as `reopen-pickup` answers it (removed, kept as
+  `hold_cap`, left alone, or none may land), stamp `pickupReopen` (`fromJudgement: trucker_no_show`) and move
+  `version` by one. They take the trip booking back: the order's quintals leave `remainingQuintals` and join
+  `bookedQuintals`, and the order joins `bookedOrderIds` and `acceptedOrderIds`, conditioned as a funding's
+  reservation (room for the quintals, the order not booked, the trip `open` or `matched`, not deleted). A
+  trip that still holds the booking (the release never landed) only gets `acceptedOrderIds` again,
+  conditioned on the booking. A trip the booking fills moves `open → matched` after the commit (best effort,
+  as after a reservation). A trip the order cron closed as `expired` (2.12.0, FUP-363,
+  `trip-listing-api.md` 2.7.0 "A closed trip opened again") goes `cancelled → open`, or straight to `matched`
+  when the order takes its last room, in the same trip update: `cancelReason` and `cancelledAt` removed,
+  `version` + 1 and the booking taken as above, conditioned on the trip's version as read, still `cancelled`
+  with `cancelReason: expired`, not deleted, no booking at all (no `bookedOrderIds` or `acceptedOrderIds`,
+  `bookedQuintals` absent or 0) and the room. Decision: the cron's close stays as it is for every order in
+  `awaiting_transport`; only this re-open reverses it, in the re-open's transaction, so a refused re-open opens
+  nothing.
+
+  One DynamoDB transaction: the order update conditioned on `expectedVersion`, `status: awaiting_transport`,
+  `pickupJudgement`, `transportFailure` and `truckerResponse` as read, and on the queue entry and the slot as
+  read; the trip update; the delivery update (`handoff_confirmed`) conditioned on `cancelled` at its version
+  with no `cancelReason`, verdict or `deletedAt` and with `cancelledByJudgementAt` (2.12.0); the escrow check of
+  `reopen-pickup`. A condition that fails
+  is `409 PICKUP_REOPEN_CHANGED` (also when another order took the trip's room in between). No money moves:
+  the escrow is only checked. The same request again answers `200` with `alreadyApplied: true`, writes nothing
+  on the order and retries the excuse below. `200`: the answer of `reopen-pickup` plus `noShowEvent`. Audit:
+  `admin_pickup_reopened` from `awaiting_transport` (`metadata`
+  `exit=...;judgement=trucker_no_show;deadlineAt=...;deliveryId=...;trip=reserved|kept|revived;queue=...;clearedCheckIns=...;reason=...`,
+  `revived` since 2.12.0)
+  and, for a confirmed handoff, the delivery's `picked_up` row (`cancelled` to `pickedUp`, `handoff=admin`);
+  the structured log `PICKUP_NO_SHOW_REOPEN` and `PICKUP_NO_SHOW_REOPENED orderId=... exit=... trip=...`.
+- **The trucker's `NO_SHOW` is excused** (not put into review): after the order's transaction, in the same
+  request, the event of rule R10 (`NOSHOW#{orderId}` on the order's trucker) goes through ESC-32's decision
+  path (`reputation-api.md` 9.3, `excuse`, the admin as `decidedBy`), with the note `Excused: support
+  re-opened this pickup after checking a scan that reached the server late.`, which the trucker reads (the
+  admin's reason stays in the audit trail), audited `reputation_excused` on the trucker (`metadata`
+  `event=NOSHOW#...;note=...;source=reopen-no-show`). The answer's `noShowEvent` says what happened:
+  `excused`; `already_excused`; `not_recorded` (no such event: none is recorded while `reputationPenalties`
+  was off at the judgement, or the stream has not recorded it yet; the admin excuses it on the reputation
+  page if it appears); `not_counted` (its points expired); `upheld` (an admin upheld it before, so it stays,
+  TASK FUP-197); `off` (`reputationPenalties` is off here); `failed` (the same request again retries it). The
+  excuse never undoes the re-open, and the re-open's own write yields no reputation event (R10 fires only when
+  `transportFailure` becomes `trucker_no_show`). The `NO_SHOW` fraud signal the event wrote (ESC-33) stays
+  (TASK FUP-360). A second trucker no-show on the same order after a `pending` re-open meets the excused
+  `NOSHOW#` slot and records nothing (TASK FUP-359).
+- **Notifications.** None of its own: the order stream reads `awaiting_transport → accepted` (the buyer and
+  the farmer get `order_confirmed`, carrying the trip's `pickupDate` rather than the new deadline, TASK
+  FUP-361) or `awaiting_transport → pickup_confirmed` (`picked_up` to the buyer, `handoff_recorded` to the
+  farmer).
+- **Admin app.** "Re-open the no-show" next to "Re-open the pickup" on the transaction page when
+  `noShowReopenExits` is not empty: the same three steps, with texts that say the trip booking is taken
+  back and the no-show excused, and the result says what happened to the `NO_SHOW`; en, am and om (am and
+  om machine drafted, TASK FUP-362).
+
+**Planning notes (2.0.0).**
+
+
+**Check-in operation (proposed name `handoff_check_in`).** A create-only `/sync` entity, queued
+offline like any operation and judged by the time the **server receives** it, never by the phone's
+clock:
+
+```json
+{
+  "entityType": "handoff_check_in",
+  "entityId": "ord-101#arrived_pickup",
+  "action": "create",
+  "data": {
+    "orderId": "ord-101",
+    "kind": "arrived_pickup",
+    "capturedAt": "2026-11-20T06:40:00.000Z",
+    "latitude": 8.7523,
+    "longitude": 38.9785,
+    "accuracyM": 35
+  }
+}
+```
+
+| `kind` | Who | Accepted while | GPS |
+|---|---|---|---|
+| `arrived_pickup` | the order's trucker; on a self-pickup order the buyer | order `accepted`, from `pickupDate` minus 24 hours | required, within 5 km of the listing |
+| `crops_ready` | the order's farmer | order `accepted`, from `pickupDate` minus 24 hours | optional; checked within 5 km of the listing when sent |
+| `arrived_dropoff` | the order's trucker (P.4, ESC-36) | the delivery `pickedUp` or `inTransit` | required, within 5 km of the order's delivery location, and an arrival photo (P.4; a late one is kept without it, 2.13.0) |
+
+- `entityId` is `{orderId}#{kind}`: one check-in per kind per order. The first one is kept; a repeat
+  answers `success` and writes nothing.
+- Stored on the order as the server-only map `checkIns`: per kind `{receivedAt, capturedAt, latitude,
+  longitude, accuracyM, by}`. `receivedAt` is the server's time and the only one the judgement reads;
+  `capturedAt` is kept as evidence (the plausibility rule of `pickupCapturedAt`, 1.23.0).
+- **A listing without coordinates** (proposed): `arrived_pickup` and `crops_ready` cannot be checked
+  for distance, as the built pickup GPS rule skips such a listing. The check-in is accepted with the
+  GPS kept and `distanceChecked: false` in its `checkIns` entry. Such a check-in still counts as
+  present, but a farmer no-show that rests on an unchecked trucker (or self-pickup buyer) check-in
+  goes to the admin queue (`adminQueueReason: unchecked_check_in`) instead of cancelling the order
+  and recording points. A self-pickup order needs the coordinates anyway: the built self-pickup
+  confirm refuses a listing without them (Buyer Self-Pickup). The drop-off location always exists (P.4 falls
+  back to the woreda centroid), so `arrived_dropoff` is always checked.
+- Proposed refusals, each permanent (the client drops the check-in, reverts its local mark and shows
+  the reason in en, am and om; `sync-protocol.md` gets the rows with the ticket):
+  `CHECKIN_VALIDATION` (a missing or out of range field, `entityId` not `{orderId}#{kind}`),
+  `CHECKIN_NOT_PARTY` (the caller is not the party for that kind), `CHECKIN_TOO_EARLY` (before
+  `pickupDate` minus 24 hours), `CHECKIN_TOO_FAR` (the fix is more than 5 km away; as built, only for
+  `arrived_pickup`),
+  `CHECKIN_NOT_OPEN` (the order or delivery is not in a status that takes that kind, or the pickup was
+  already judged), `CHECKIN_PHOTO_REQUIRED` (an `arrived_dropoff` without its attached photo).
+
+**Pickup judgement at T7.** T7 is `pickupDate` plus 24 hours, plus a 24 hour grace for offline sync
+(spec 4.5). The order cron judges every `accepted` order past it, using only the check-ins and scans
+the server has received:
+
+| Trucker check-in | Farmer check-in | Pickup scan | Outcome |
+|---|---|---|---|
+| any | any | yes | normal flow |
+| no | any | no | trucker no-show: `awaiting_transport` (`transportFailure: trucker_no_show`, `faultParty: trucker`), trucker +5 points (reputation core, ESC-28) |
+| yes | no | no | farmer no-show: `cancelled` (`cancelReason: farmer_no_show`, `faultParty: farmer`), full refund (`refund#all`, `escrow-protocol.md` P.4), farmer +5 points |
+| yes | yes | no | admin queue (`adminQueueReason: both_present_no_scan`), money held, no automatic penalty |
+
+On a self-pickup order the buyer takes the trucker's column. A buyer no-show cancels the order
+(`cancelReason: buyer_no_show`) with a full refund and no points in P3 (fees are decision D5, later).
+
+**Late evidence.** A valid pickup scan the server receives after the order was judged is refused
+with `ORDER_DEADLINE_PASSED:` (spec 4.8) and the order enters the admin queue
+(`adminQueueReason: late_pickup_evidence`) so an admin can reconcile a real handoff. It is a
+delivery operation, so the clients must treat that code as a permanent delivery refusal and revert
+the local pickup (the ticket adds the rule to `sync-protocol.md`).
+
+### P.3 A drop-off QR from the trucker (BUILT in 2.7.0, ESC-35)
+
+> **BUILT in 2.7.0**, not flagged; the contract is "The trucker's drop-off nonce" under QR Secret
+> Storage. Confirmed: the name `dropoffQrNonce`, the renewable `DELIVERY_CODE_LOCKED`. Added while
+> building: the `d.` tag on the trucker's nonce and the wait for a tagged scan whose nonce has not
+> synced (or was renewed offline), the wait of a nonce sent before the pickup synced, the nonce's own
+> freshness (restarted by a renewal), and the renewal flag `dropoffQrRenew` (a registration never
+> replaces a stored code). The plan as written:
+
+- After pickup the trucker's phone issues its own nonce for the delivery and registers it the way the
+  farmer registers `qrNonce`: a trucker update carrying only `dropoffQrNonce` (proposed name, plus
+  `version`), stored in `delivery-qr-secrets` next to the farmer's nonce, never on the delivery, never
+  echoed. Only the delivery's trucker may set it, and only while the delivery is `pickedUp` or
+  `inTransit`; anyone else's value is dropped, as for `qrNonce` (SIM-41).
+- The buyer's `delivered` checks `scannedQrNonce` or `scannedQrCode` against the trucker's nonce when
+  one is stored, else against the farmer's (the 1.22.0 path, kept for deliveries picked up before
+  ESC-35 and for apps that do not issue one). Freshness, single use and deferral are the scan's rules.
+- The typed code is the 1.22.0 derivation keyed by the trucker's nonce. A new trucker nonce clears the
+  drop-off misses (`codeMissesDelivered`), so a locked drop-off code can be renewed by the trucker's
+  Regenerate: such a delivery answers `DELIVERY_CODE_LOCKED`, and `DELIVERY_CODE_LOCKED_DROPOFF` stays
+  for deliveries without a trucker nonce.
+- First step of ESC-35 (survey 4.5): check on a device, Android and web, that a trucker delivery can be
+  confirmed end to end today. Checked in code and tests (no device was available): since 1.22.0 it can
+  be, on both, when the trucker scanned or typed the farmer's QR on the same phone or browser that
+  shows the drop-off QR; it could not when the pickup was confirmed elsewhere (the drop-off QR said
+  "no drop-off code on this phone"), and a locked drop-off code could only go to support. 2.7.0 closes
+  both: the trucker can always make a code (New drop-off code, confirmed), and a new one unlocks it.
+
+### P.4 Delivery location, drop-off check-in, silent buyer and overdue delivery (BUILT in 2.10.0, ESC-36, flag `dropoffClassification`)
+
+> **BUILT in 2.10.0** behind `dropoffClassification` (env `DROPOFF_CLASSIFICATION_ENABLED` on the sync, deliveries,
+> order-cron and admin Lambdas, off in every environment, and only with `COMMITMENTS_ENABLED`). Its own flag, not
+> `pickupClassification`: that one goes on with the ESC-34 client (FUP-285), and T8 on before the app sends the
+> drop-off check-in would dispute every delivery a buyer did not confirm within 72 hours. Server only. Before the
+> flag goes on: the client (FUP-336), and the pushes that tell the buyer the trucker arrived and when the delivery
+> will be confirmed for them (FUP-338, built in 2.13.1: `notifications-api.md` 1.6.0): a silent buyer must be told
+> before T9 confirms for them. The text below
+> "As built" is the plan; where the two differ, "As built" wins.
+
+**As built (2.10.0).**
+
+- **Who is judged.** The order's first move out of `accepted` after a trucker's pickup (the system follow of
+  the delivery's `pickedUp`, or its `inTransit` when the first one was missed) also writes, with the flag on,
+  `dropoffJudgement: pending`, `dropoffDeadlineAt` (T8: the delivery's `pickedUpAt` plus 72 hours, the SSM
+  parameter `delivery-overdue-hours`, never below 24; and never before the stamp plus 24 hours, so a stamp that
+  lands late, after a first advance that failed, still leaves the trucker a day) and the drop-off points as they
+  are then: `dropoffOrderLatitude`/`dropoffOrderLongitude` (the order's own point) and
+  `dropoffTripLatitude`/`dropoffTripLongitude` (the trip's destination), with `dropoffTripRead: true` when the
+  trip was read. A point that is missing is left out, and the check-in reads it live point by point: the order's
+  own point whenever none was stamped (only the buyer sets it, and an extra point only helps the trucker); the
+  trip's destination only when the trip could not be read at pickup (a booked trip may gain a destination
+  later, and one the trucker adds after the handoff never counts). All server-only, never returned. An admin's
+  `handoff_confirmed` re-open of a judged pickup (FUP-287, `POST /admin/orders/{orderId}/reopen-pickup`) stamps
+  the same fields in its transaction, the pickup being the re-open itself. Only a stamped
+  order takes the drop-off check-in and is judged: an order picked up before the flag, or while it was off,
+  and every self-pickup keep the rules they had (spec K2). The buyer cannot move the drop-off after pickup
+  (2.1.0), and the stamp also keeps the trip's destination as it was, so neither party moves where the
+  drop-off is (FUP-204).
+- **The arrival photo.** `POST /deliveries/{id}/photos` takes `type: arrival` (section 4): the trucker's, only
+  while the delivery is `pickedUp` or `inTransit`. It is attached with `delivery_photo`
+  `{deliveryId}#arrival` (section 4b, the same steps; `DELIVERY_PHOTO_REFUSED` off the road) into
+  `arrivalPhotoRef` (`arrivalPhotoVersionId` server-only), and `GET /deliveries/{id}` signs it as
+  `arrivalPhotoUrl`. With the flag off the type does not exist (`400 DELIVERY_VALIDATION`,
+  `DELIVERY_PHOTO_INVALID`). **Late evidence (2.13.0, FUP-373):** both steps also take it on a delivery the
+  order cron disputed at T8 (`disputedBy: system`, `disputeReason` `delivery_overdue` or
+  `dropoff_out_of_range`) while no admin has decided the dispute (no `disputeResolution`): a check-in the
+  trucker made offline at the drop-off before T8 reaches the server after the T8 run, its photo first. The
+  attach writes `arrivalPhotoRef`, its version id and the server-only `arrivalPhotoLateAt` (the server's time)
+  in one update conditioned on the delivery still `disputed` with no `disputeResolution` (a verdict leaves
+  the status `disputed`, so a verdict landing after the read refuses it with `DELIVERY_PHOTO_REFUSED`), with no
+  `status`, `version` or `updatedAt` move, and writes the transaction-audit row `delivery_photo`
+  (`type=arrival;late=true`). The admin's Photos tab of the dispute marks it late with its attach time: it was
+  attached after the money froze, so it proves less than one taken on the road. T9's `silent_buyer` dispute, a
+  party's dispute and a decided one still refuse it (a counted check-in always had its photo).
+- **The drop-off check-in** is `handoff_check_in` kind `arrived_dropoff` (`sync-protocol.md` 1.59.0): the
+  order's trucker only (`CHECKIN_NOT_PARTY`; an outsider also writes `ROLE_FORBIDDEN`), GPS required
+  (`CHECKIN_VALIDATION`), the arrival photo attached first (`CHECKIN_PHOTO_REQUIRED`), within 5 km of either
+  point (`CHECKIN_TOO_FAR`). The first refused attempt that had its photo, before T8, is kept as the server-only
+  `dropoffAttempt` (the entry fields with `outOfRange: true`; the message adds "The attempt was kept for
+  review."); it never counts as a check-in and moves no deadline, but it changes T8 (below); the admin sees it on
+  the transaction timeline (the `handoff_check_in` row: `outOfRange=true`, the distance, the receipt time) and the
+  arrival photo on the transaction and dispute views. With no point to
+  measure against it is kept unmeasured
+  (`distanceChecked: false`), and T9 then never confirms automatically. It is taken while the order is
+  `pickup_confirmed` or `in_transit` with `dropoffJudgement: pending`, the delivery on the road, and the
+  server clock not past T8; else `CHECKIN_NOT_OPEN`. The first one is stored as the server-only
+  `dropoffCheckIn` (the entry fields of P.2) without moving `version` or `updatedAt`; the same write moves the
+  order's next deadline from T8 to T9. One received after T8, or after the overdue judgement, is kept with
+  `late: true`, never counted, and answered `CHECKIN_TOO_LATE` (the overdue dispute is already an admin's to
+  decide, so no queue entry). Since 2.13.0 (FUP-373) a late one is kept whether or not the arrival photo is
+  attached (`CHECKIN_PHOTO_REQUIRED` only before T8): it is evidence, never counted, and its photo, when it
+  came, is evidence of its own; before, a check-in queued offline before T8 whose photo the T8 dispute refused
+  lost its late entry. A late one more than 5 km from every point (the buyer's pin may be wrong, FUP-204) is
+  kept as the late `dropoffAttempt` (the entry fields with `late: true` and `outOfRange: true`) when no attempt
+  is stored, whatever the judgement, and answered `CHECKIN_TOO_LATE` (audit `outOfRange=true;...;late=true`);
+  received after T8 it never counts at T8, so it cannot turn `delivery_overdue` into `dropoff_out_of_range`.
+  With an attempt stored already it is `CHECKIN_TOO_FAR`, not kept. Once an admin decided the delivery's
+  dispute (its `disputeResolution`; the verdict never changes `dropoffJudgement`), a late check-in is
+  `CHECKIN_NOT_OPEN` and nothing is written. The parties read it as `checkIns.arrived_dropoff`
+  (`{receivedAt, capturedAt?, distanceChecked, late}`; no coordinates, no sender).
+- **T8** runs in the order cron's `commitment_deadlines` at `dropoffDeadlineAt` plus one minute (deadline
+  kind `delivery_overdue`, `order-lifecycle.md` 2.18.0), when no counted drop-off check-in is stored. The
+  escrow is frozen first (as a delivery dispute, `disputedBy: system`), then the delivery goes to `disputed`
+  (`disputedBy: system`, `disputeReason: delivery_overdue`, `disputedAt`; conditioned on the status read)
+  and the order to `disputed` (`disputeReason: delivery_overdue`, `dropoffJudgement: delivery_overdue`,
+  `dropoffJudgedAt`; version CAS). Reputation rule R12 reads the order's `disputeReason`:
+  `DELIVERY_OVERDUE` and the restriction pending review, with `reputationPenalties`. The order cron logs the
+  alarmed `ORDER_DELIVERY_OVERDUE ... outcome=disputed` (alarm `delivery-overdue`). Money that cannot be
+  frozen (no escrow, a refund armed, the manual payout queue, a settlement in flight, another delivery's
+  escrow, not held) moves nothing: the admin queue (`delivery_overdue`), then `dropoffJudgement: queued`, and
+  the alarmed line with `outcome=queued`. **A trucker who came out of range** (a `dropoffAttempt` received by
+  T8) is not judged overdue: the same freeze and system dispute run with the reason `dropoff_out_of_range`
+  (`dropoffJudgement` and the order's and the delivery's `disputeReason`), which R12 does not read, so no
+  reputation event and no fraud signal follow; an admin decides it through the normal dispute verdict, and the
+  alarmed line says `outcome=disputed ... reason=dropoff_out_of_range`. The buyer's own pin can be the only point
+  (a trip without a destination), so a buyer who pinned far from where they wait cannot put `DELIVERY_OVERDUE` on
+  a trucker who came. Money that cannot be frozen sends it to the admin queue (`dropoff_out_of_range`) as above.
+  Every queued outcome writes the queue entry first (a failure writes nothing and waits an hour); an order
+  already queued for another reason (the escrow's hold cap) keeps that entry and the alarmed
+  `DROPOFF_QUEUE_NOT_WRITTEN` line names it, while the order's own entry already standing (an earlier run's) is
+  no alarm. No money moves either way.
+- **T9** runs at the counted check-in's `receivedAt` plus 48 hours (the SSM parameter `silent-buyer-hours`,
+  never below 24) plus one minute (deadline kind `silent_buyer`). The delivery is confirmed for the silent
+  buyer only when the check-in was measured, the arrival photo is attached, the trucker's users row was read
+  and the trucker is neither `low` nor `restricted` (nor under an active restriction; a missing row holds),
+  and the order escrow holds the money plainly (`escrowed`, no refund armed, not in Manual Payouts, no
+  settlement lock, no confirm stamped). Then the delivery goes to `delivered` (`confirmedAt`,
+  `autoConfirmedAt`, the next version; conditioned on the status and version read; audited
+  `delivery_auto_confirmed`), the order to `delivered` (`dropoffJudgement: auto_confirmed`), and the escrow
+  is stamped as a buyer's confirm stamps it: `deliveryConfirmedAt` from `confirmedAt`, `disputeWindowEndsAt`
+  48 hours on and FRD-13's `releaseNotBefore`. The buyer keeps the normal dispute window, and the release
+  waits for the escrow cron with its payout delay and fraud hold. That release then does what it does after a
+  buyer's confirm: the clean-delivery credit of FUP-137 for the three parties (the silent buyer included) and,
+  at `settled`, `ORDER_COMPLETED` (R13) for the farmer and the trucker (decision for the owner). Anything
+  missing: the dispute of T8 with the reason `silent_buyer` (no alarm, no reputation event, no fraud signal);
+  money neither confirmable nor freezable: the admin queue (`silent_buyer`), then `queued`.
+- **A party first, and lost writes.** A delivery its buyer confirmed before the judgement is followed (the
+  order to `delivered`, `dropoffJudgement: closed`, the escrow stamped if the sync's stamp failed); one a
+  party disputed only ends the judgement (`closed`). The system's own dispute or confirm whose order write
+  was lost is finished on the next run without a second freeze. A read that fails (the delivery, the
+  trucker, the escrow) writes nothing and waits an hour. A known race, failing closed: a buyer's confirm that
+  lands between the freeze of T8 or of T9's dispute and the delivery write leaves the escrow as the system's
+  dispute on a delivered order (the buyer's escrow stamp then finds no `escrowed` row and stamps nothing); an
+  admin decides it in Disputes (FUP-340).
+- **Not done by the cron**, unlike a buyer's confirm in sync: the buyer-side patterns of a confirm (FRD-09:
+  there is no buyer action to judge), the trip's completion when
+  its last delivery is done (ESC-17, FUP-337). The pushes are the order notifier's, from the cron's writes
+  (2.13.1, FUP-338, `notifications-api.md` 1.6.0): `delivery_arrived` when the check-in counts, the silent
+  buyer's reminder (`dropoffReminderAt`, `reminder-lead-hours` before T9), and the judged outcomes in their
+  own words (`auto_confirmed` to the buyer and the farmer, the system's disputes to all three parties).
+  The trucker's `GPS_ANOMALY` row needs no judgement here either (2.16.1, FUP-366): T9's system confirm
+  needs a counted, measured drop-off check-in, and FUP-245's rule reads that check-in first and only clears
+  on it (fraud spec 3.38.0, Rule 4, "The drop-off check-in first"), so the cron would never write the row.
+- **Who can drive them (FUP-204).** T8 rests on the trucker's own missing check-in: the buyer can neither
+  move the drop-off after pickup (the stamped points) nor take the delivery off the road, a buyer who
+  withholds the scan after the trucker's check-in makes a T9, never a T8, and a buyer whose pin (set before
+  pickup, maybe the only point) is far from the trucker's check-in makes the dispute `dropoff_out_of_range`,
+  never `delivery_overdue`. T9 writes no reputation event and no fraud signal. `fraud-detection-architecture.md` 3.37.0
+  section 15.3.
+- **The flag turned off while orders wait:** a pending order's stamp is cleared when it falls due (stored as
+  a null attribute), so it leaves the deadline index and keeps the rules it had.
+
+**The plan (2.0.0).**
+
+- **Delivery location.** BUILT in 2.1.0 by LT-14 (`order-lifecycle.md` 2.9.0, Drop-off place): order
+  fields `deliveryLatitude` and `deliveryLongitude` (spec 4.4), set by the buyer at order time and
+  changed by the buyer until pickup; both or neither, inside the `location_ping` box (latitude 3 to
+  15, longitude 32.5 to 48.5). The clients start from the intent's place, else the registered place,
+  from the bundled place list (not `WoredaCentroids`); the server has no centroids, so an order
+  without a point falls back to the trip's destination point rather than always having one. The
+  drop-off GPS rule (GPS Validation) passes within 5 km of it or of the trip's destination point.
+  `arrived_dropoff` (below) should take the same two points when it is built.
+- **Arrival photo.** `POST /deliveries/{id}/photos` gains type `arrival`, taken by the trucker (key
+  `uploads/photos/{deliveryId}/arrival-{ms}.{webp|jpg}`, the section 4 and 4b rules), attached with a
+  `delivery_photo` `{deliveryId}#arrival`; the delivery gains `arrivalPhotoRef` and, on
+  `GET /deliveries/{id}`, `arrivalPhotoUrl`. The buyer's `dropoff` photo of 1.25.0 is unchanged.
+- **Drop-off check-in.** `arrived_dropoff` (P.2) needs GPS within 5 km of the delivery location and the
+  attached arrival photo.
+- **T9, silent buyer.** When the buyer neither confirms nor disputes within 48 hours of the
+  `arrived_dropoff` receipt, the order cron confirms the delivery as the system (`delivered`,
+  `confirmedAt`, audited `delivery_auto_confirmed`, the escrow stamped as a normal confirm), and the
+  normal 48 hour dispute window starts. Missing evidence, or a trucker whose reputation tier is low or
+  restricted (ESC-29), sends the order to `disputed` instead (reason `silent_buyer`), which freezes the
+  money like any dispute (1.10.0).
+- **T8, overdue delivery.** A delivery still `pickedUp` or `inTransit` 72 hours after `pickedUpAt`
+  moves the order to `disputed` (reason `delivery_overdue`, also the delivery's `disputeReason`), the
+  escrow freezes first (1.10.0), the trucker is restricted pending review (ESC-29), and the alarm
+  `DELIVERY_OVERDUE` fires. No money moves.
+
+### P.5 What else changes with the tickets
+
+- Order fields: `checkIns`, `deliveryLatitude`, `deliveryLongitude`; `transportFailure` gains
+  `trucker_no_show`; `cancelReason` gains `farmer_no_show` and `buyer_no_show`; `adminQueueReason`
+  gains `both_present_no_scan`, `late_pickup_evidence` and `unchecked_check_in` (`order-lifecycle.md` and `data-models.md`
+  bump with the tickets).
+- Delivery fields: `arrivalPhotoRef`, `arrivalPhotoUrl`; dispute reasons `silent_buyer`,
+  `delivery_overdue`.
+- Pushes from spec 4.12: `pickup_reminder`, `delivery_arrived` (`notifications-api.md` bumps with the
+  tickets). UI strings in en, am and om for every check-in, refusal and push.
+- Nothing in 2.0.0 changes a built transition, nonce rule, code or photo rule.
+- 2.6.0 (ESC-34) built P.2's order fields, codes and reasons. 2.10.0 (ESC-36) built P.4: `arrived_dropoff`, the arrival photo, `silent_buyer` and `delivery_overdue`. The clients followed (FUP-285, FUP-336); 2.13.1 notes the pushes of spec 4.12 as built (FUP-286, FUP-338, `notifications-api.md` 1.6.0): `pickup_reminder`, the counterpart's check-in notices, `delivery_arrived`, the silent buyer's reminder and the judged outcomes' words.
 
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.19.0 | 2026-11-26 | Handoff evidence (FUP-440, GCR-01, GCR-02; SPK-01 sections 2 and 6, `good-conduct-rewards.md` section 8 items 1 to 3; `sync-protocol.md` 1.71.0, `escrow-protocol.md` 2.30.0, `data-models.md` 1.24.0, `account-deletion.md` 1.7.4). A handoff may send `gpsStatus` in `data`, `capturedAt` and `accuracyM` inside its point, and the operation's `platform`; the server stamps, server-only and in the transition's own write, `{leg}GpsStatus`, `{leg}GpsCapturedAt`, `{leg}GpsAccuracyM`, `{leg}Method` (`qr` or `code`, from the nonce check), `{leg}Platform` and `dropoffCapturedAt` (Create/Update Delivery "Handoff evidence"). A bad value is left out, never refused; old clients are accepted with only the method stamped; never returned to a client, and a client value is an unknown field. The stored point stays latitude and longitude. Deploy the server first: an older one refuses `gpsStatus` as an unknown field. |
+| 2.18.0 | 2026-11-19 | A pickup without a fix (persona simulation BUG-5, FUP-448; fraud spec 3.44.0): still accepted, with the weight 0 review flag `PICKUP_NO_FIX` on the trucker; the trucker's `GPS_ANOMALY` row judges the check-ins against the listing's point when no `gpsPickup` was stored. A dispute stamps the handoff evidence for admins (`escrow-protocol.md` 2.28.0). No wire or client change. |
 | 1.0.0 | 2026-02-17 | Initial contract: CRUD endpoints, QR verification, GPS validation, photo evidence, state machine, offline behavior, Ethiopian context |
 | 1.1.0 | 2026-07-09 | Buyer self-pickup (`deliveryType: self_pickup`); QR nonce moved to a dedicated secret table (never echoed); server-side freshness + single-use; `deferred` sync status for unsynced secrets; listing-GPS mandatory for self-pickup confirmation |
 | 1.1.1 | 2026-07-11 | Doc fix: delivery statuses are camelCase on the wire (`pickedUp`, `inTransit`) — the server state machine rejects the previously-documented snake_case (`picked_up`, `in_transit`). `deliveryType: self_pickup` is unchanged (it is a type, not a status). |
@@ -1041,12 +2147,12 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.4.1 | 2026-09-25 | Dispute propagation (SIM-12): a delivery `disputed` moves the order to `disputed` and freezes the escrow; an escrow dispute marks the delivery `disputed`. |
 | 1.4.2 | 2026-09-25 | `orderId` returned on list and detail (SIM-14); mobile and web keep it locally and prefer it over the trip match when resolving the order behind a delivery. |
 | 1.5.0 | 2026-09-25 | Default list scoping (SIM-16): an unfiltered `GET /deliveries` is scoped to the caller by role (farmer/trucker/buyer index, `status` as a filter); new sparse `TruckerIdCreatedAtIndex` GSI with `truckerId=` (must be the caller); `role=` overrides the claim; `mine=true` now honours `status` server-side; a token without a role claim keeps the legacy `status` query. |
-| 1.6.0 | 2026-09-29 | Nonce-only farmer update: secret stored, delivery record not written, version unchanged; web clients register the nonce when the QR opens. |
 | 1.5.1 | 2026-09-28 | QR nonce (SIM-41): only the farmer may set `qrNonce`; a client value on create or from another party is dropped; the on-record fallback applies only without the secret store. |
+| 1.6.0 | 2026-09-29 | Nonce-only farmer update: secret stored, delivery record not written, version unchanged; web clients register the nonce when the QR opens. |
 | 1.6.1 | 2026-10-06 | Create: `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and `truckerName`/`truckerPhone` come from the users table (name falling back to the order row), client values ignored; unreadable profile rejected with `DELIVERY_VALIDATION`; self-pickup stores no trucker contact (SIM-46). |
 | 1.7.0 | 2026-10-06 | Photo evidence aligned with the shipped server (SIM-60): section 4 is JSON `{type}` in and a pre-signed S3 `PUT` (`uploadUrl`, `photoRef`, `issuedAt`, `expiresInSeconds`) out; keys are `uploads/photos/{deliveryId}/{type}-{ms}.webp`; a sync photo ref of any other shape fails the whole op (`DELIVERY_INVALID_FIELD`); size and per-type count are client-side rules; shipped clients keep the local path on the device and send a photo ref only when it is a server key (upload is FRD-12). |
-| 1.9.0 | 2026-10-09 | Delivery rules (ESC-08): cancel by update `{status, version}` or the legacy `delete` (same rules), any party, `pending` only, `DELIVERY_CANCEL_NOT_ALLOWED` after pickup (`pickedUp → cancelled` removed), `DELIVERY_UNAUTHORIZED` for anyone else, `conflict` with the row when already cancelled, other `data` fields refused, a failed write condition judged again on a fresh read; the cancel writes no `deletedAt` (the system cancel of a verdict neither), is audited `delivery_cancelled` (`via=update` or `via=delete`) and frees the slot; photo upload refuses a cancelled delivery by status too; slot claim and delivery row in one transaction, `activeDeliveryClaimedAt`, a dead holder (cancelled, or an untimed legacy claim without a row) taken over only from the claim that was read; trucker create must carry the order's `tripId` and `listingId` and a trip of the caller; validation and authorization sections brought in line with the server. |
 | 1.8.0 | 2026-10-09 | Dispute verdict (ESC-03): the admin's verdict marks a still `delivered` delivery `disputed` and stamps the server-only `disputeResolution` and `disputeResolvedAt` on the disputed delivery (status unchanged, one stamp per delivery, version incremented); a `buyer_wins` refund before pickup cancels a `pending` delivery (system soft delete); system writes audited in transaction-audit. |
+| 1.9.0 | 2026-10-09 | Delivery rules (ESC-08): cancel by update `{status, version}` or the legacy `delete` (same rules), any party, `pending` only, `DELIVERY_CANCEL_NOT_ALLOWED` after pickup (`pickedUp → cancelled` removed), `DELIVERY_UNAUTHORIZED` for anyone else, `conflict` with the row when already cancelled, other `data` fields refused, a failed write condition judged again on a fresh read; the cancel writes no `deletedAt` (the system cancel of a verdict neither), is audited `delivery_cancelled` (`via=update` or `via=delete`) and frees the slot; photo upload refuses a cancelled delivery by status too; slot claim and delivery row in one transaction, `activeDeliveryClaimedAt`, a dead holder (cancelled, or an untimed legacy claim without a row) taken over only from the claim that was read; trucker create must carry the order's `tripId` and `listingId` and a trip of the caller; validation and authorization sections brought in line with the server. |
 | 1.10.0 | 2026-10-10 | Dispute freezes first (ESC-07): a `disputed` transition freezes the order's escrow before the delivery is written (version checked on a consistent read first); a refused freeze writes nothing and answers `DELIVERY_DISPUTE_REFUSED` (manual payout, settlement in flight, escrow not holding the money, linked to another delivery, or no escrow for the order, alarmed `DISPUTE_NO_ESCROW`); an undecided freeze answers `DELIVERY_DISPUTE_RETRY`; a conflict after the freeze still marks the delivery and order; the delivery hop is audited `dispute`; the escrow mirror adds to the delivery version; status and transition text say any participant may dispute, as the authorization sections already did. |
 | 1.12.0 | 2026-10-10 | Refund sweep (ESC-10): an expired `/escrow/initiate` escrow with a `pending` delivery and no order in flight has the delivery cancelled by the system first (conditional on `pending`, audited `delivery_cancelled`, `reason=escrow_expired`), then is refunded; one whose delivery is `pickedUp` or `inTransit` is never refunded by the sweep. No client change. |
 | 1.13.0 | 2026-10-10 | The order follows the money (ESC-09): an admin refund of a plain escrowed order escrow cancels the order's `pending` delivery first (system actor, no `deletedAt`, audited `delivery_cancelled` with `source=admin_refund`), as the `buyer_wins` refund does; the delivery is otherwise unchanged (the order moves to `disbursing` and `settled` after the money, `order-lifecycle.md` 1.17.0). |
@@ -1055,9 +2161,35 @@ as a delivery with `deliveryType: "self_pickup"`:
 | 1.16.0 | 2026-10-22 | Dispute dispositions (FUP-16, `escrow-protocol.md` 1.21.0): an admin's disposition closes a delivery that never reached `delivered` as a system actor, conditional on the status read and on no verdict yet, version added to: `return_to_farmer` and `settle_now` to `cancelled` with `cancelReason` (`dispute_buyer_wins`, `dispute_farmer_wins`) and `cancelledAt`, `delivered_anyway` to `disputed` with `confirmedAt` set when missing; the verdict is stamped on both, audited in transaction-audit; a sync dispute still starts only from `delivered`, so the escrow's pickup rule (`ESCROW_041`) needs no change here. No client change: the statuses are known and the extra keys are ignored. |
 | 1.17.0 | 2026-10-23 | QR gate money check (FUP-42): with no nonce on record, a `pickedUp` or `delivered` (trucker flow and self-pickup) is money-bearing when the order's escrow `escrow-order-{orderId}` exists (strongly consistent, any status) or the `DeliveryIndex` finds an escrow; before, only the `DeliveryIndex` was asked, so an order escrow whose delivery link failed or lagged let the transition pass with no QR. A failed read answers `deferred` (`DELIVERY_NONCE_PENDING`), writes nothing, never hard-fails, and logs the alarmed `QR_GATE_UNDECIDED` (order escrow problems alarm); web shows its QR-pending text for it. Cash deliveries and the nonce checks are unchanged. No client change (`sync-protocol.md` 1.19.0). |
 | 1.19.0 | 2026-10-23 | Payout delay (FRD-13, `escrow-protocol.md` 1.33.0): the `delivered` transition stamps the linked escrow's `releaseNotBefore` in the same write as `deliveryConfirmedAt` and `disputeWindowEndsAt` (the trucker named by the delivery when the escrow has none yet); the automatic release waits for it. The dispute window and the delivery's own fields are unchanged; no client change on deliveries. |
+| 1.20.0 | 2026-10-28 | Check-in effects (LT-07, `live-trip-api.md` sections 4 and 5): a system `pickedUp → inTransit` when an accepted check-in captured after the pickup is 2 km or more from the pickup point (fresh read, conditional on the status and the version read, the trucker's write, audited with the actor `system` and `source=check_in`, the same order coupling to `in_transit`); the trucker's own `inTransit` on an `inTransit` delivery answers `conflict` with the row instead of `DELIVERY_INVALID_TRANSITION`; the server-only `nearbyNotifiedAt`, `nearbyDistanceKm` and `nearbyMinutes`, stamped once when a check-in is within 5 km of the drop-off point (conditional on `pickedUp` or `inTransit` and no stamp; `version` and `updatedAt` unchanged), which sends the buyer `truck_nearby` (`notifications-api.md` 1.3.0). No client change: the status is known and the extra keys are ignored. |
+| 1.21.0 | 2026-10-30 | Cargo on the row (Fieldway deliveries boards): the create stamps the server-only `cropType` and `quantity` (kg) from the order, `pickupPlace` from the listing's `locationName` and `pickupPlannedAt` from the trip's `departureDate` (none on a self-pickup), all returned on `GET /deliveries`, `GET /deliveries/{id}` and every `/sync` delivery row, so the list cards read "Teff · 1,500 kg" and "Kebede Alemu, Bichena · pickup Thu 30 Oct" without one order read per delivery; a client that sends them hits the field whitelist; deliveries created before 1.21.0 carry none and the clients fall back to the delivery number. |
+| 1.22.0 | 2026-11-04 | Typed handoff code and drop-off QR (usability audit T-1, T-3; see QR Secret Storage): `scannedQrCode` (nine digits, eight derived from the nonce and a Damm check digit) stands in for `scannedQrNonce` on `pickedUp` and `delivered`, compared in fixed time, with the scan's freshness, single-use and deferral rules; per-leg misses in the secret row (string sets of operation ids, cleared by a new nonce), `DELIVERY_CODE_LOCKED` from the fifth wrong code (a scan still works), `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED_DROPOFF` for a trucker's drop-off (support settles it), `DELIVERY_CODE_GPS_REQUIRED` for a typed code without GPS on a paid delivery, a malformed code is `DELIVERY_VALIDATION`; attempt ids carry a hash of the code, so a reused operation id cannot guess for free; the farmer's nonce op stores only the nonce and nothing once the delivery left `pending`; the secret row is read strongly consistent; `handoff=qr` or `handoff=code` in the transition's audit `metadata`. The trucker's phone keeps the farmer's pickup token and shows it as the drop-off QR the buyer scans (one nonce for both legs). Header drift fixed (the README and footer still said 1.20.0). |
+| 1.23.0 | 2026-11-06 | Pickup capture time (FRD-09, `fraud-detection-architecture.md` 3.12.0, section 15.1): the `pickedUp` transition also stamps the server-only `pickupCapturedAt`, the operation's `timestamp` when it is plausible (at most 5 minutes after the operation reached the server and not older than 30 days), so the fraud rule for a delivery too fast for its distance can tell a pickup synced late from an offline phone from a fast trip. Returned on `/sync` delivery rows like the other server-only fields; no request or answer changes, no client change. A confirmed delivery may write the `IMPOSSIBLE_DELIVERY_TIME` signal on its trucker, flag-only. |
+| 1.24.0 | 2026-11-07 | Pickup proof (FRD-11, see QR Secret Storage): a pickup at the farm (the trucker's `pickedUp`, the self-pickup buyer's `delivered`) with no farmer's nonce on record is `deferred` until the nonce syncs and refused with `DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server for this pickup. Contact support.` once 14 days have passed since the later of the delivery's creation and the scan (the operation's `timestamp` when plausible), whatever the money and with no escrow read; before, a delivery without an escrow passed with no QR. The drop-off keeps the money rule; its 14 days now count the same way (before, from creation only). The scan screen's Confirm waits for the fix taken at the scan (at most 30 seconds; a phone with no fix still confirms a scanned QR). No new code or field; shipped clients already send the farmer's nonce on every pickup and handle `deferred`. GPS Failure Handling says what is built. |
+| 1.25.0 | 2026-11-07 | Handoff photos (FRD-12): `POST /deliveries/{id}/photos` takes `sizeBytes` (1 to 204800, required) and `contentType` (`image/webp` default or `image/jpeg`, `.jpg` keys), signs both into the `PUT`, answers only the photo's taker (the trucker for `pickup`, the buyer for `dropoff`; anyone else `403`) `409 DELIVERY_PHOTO_EXISTS` once the handoff has its photo and `409 DELIVERY_PHOTO_REFUSED` for a cancelled delivery (was `404`); new create-only sync entity `delivery_photo` (`{deliveryId}#{type}`, `{photoRef}`) attaches the key after a `HEAD` (present, at most 200 KiB, its key's type), first photo kept, its S3 version id recorded and signed by every read (a later `PUT` to the key cannot swap it), no version or `updatedAt` move, `DELIVERY_PHOTO_INVALID` / `_FORBIDDEN` / `_REFUSED` / `_EXISTS` / `_MISSING` / `_TOO_LARGE` final and `DELIVERY_PHOTO_PENDING` deferred; a photo ref in a delivery create or update is still shape-checked but no longer written; `GET /deliveries/{id}` and the admin transaction view carry `pickupPhotoUrl` / `dropoffPhotoUrl` (15-minute presigned GETs), lists never; the uploads bucket gets CORS for the web app and admin. Clients: the phone queues the photo behind the handoff and uploads it when online, the browser uploads at capture and attaches after the confirm; the three parties see the photos on the delivery detail, admins on the transaction detail |
+| 2.0.0 | 2026-11-07 | P3 evidence, PLANNED (ESC-14 for ESC-34, ESC-35, ESC-36): a new section "Planned in 2.0.0" (P.1 to P.5) puts what is built next to what is planned: the check-in operation (`handoff_check_in`, kinds `arrived_pickup`, `crops_ready`, `arrived_dropoff`, judged by server receipt, proposed `CHECKIN_*` refusals, a listing without coordinates accepted unchecked with an unchecked farmer no-show sent to the admin queue) and the T7 pickup judgement table with no-show outcomes and late evidence (ESC-34, flag `pickupClassification`); a trucker-issued drop-off nonce (`dropoffQrNonce`) with the 1.22.0 code derivation (ESC-35; spec 4.8's 6-digit code is superseded by the built 9-digit code); the order's `deliveryLatitude` and `deliveryLongitude`, the trucker's `arrival` photo, the T9 silent-buyer auto-confirm and the T8 `delivery_overdue` dispute (ESC-36). Major because the evidence model changes; nothing built changes. Doc fixes against the code (survey 9.1, 9.3, 4.7): the QR payload carries the nonce `n`, the HMAC secret includes the farmer's device key and nobody recomputes it (the scanner checks structure, the server checks the nonce and only the length of `qrToken`); the drop-off QR is the farmer's token kept on the trucker's phone (1.22.0); QR Expiration states the built 14 day nonce freshness and 14 day deferral limit instead of the never built 7 and 14 day windows; GPS Validation states the built rules (pickup and trucker drop-off checked only when sent, against the listing and the trip's destination point; self-pickup mandatory); the changelog is in version order (1.5.1, 1.8.0, 1.19.0 and 1.24.0 were out of place; 1.11.0 and 1.18.0 were never used). Already fixed before 2.0.0: the cancel rules (1.9.0) and the header drift (1.22.0) |
+| 2.1.0 | 2026-11-07 | The order's delivery location (LT-14, `order-lifecycle.md` 2.9.0; the first bullet of P.4 built): a trucker delivery's `gpsDropoff` passes within 5 km of either the trip's destination point or the order's own `deliveryLatitude` and `deliveryLongitude` (read strongly consistent, only when the trip's point did not pass); an unreadable order then answers the retryable internal error. The too-far text now reads `Dropoff GPS is <d>km from the drop-off point (max 5km).` (the `DELIVERY_GPS_PROXIMITY` prefix the clients key on is unchanged). The admin dispute evidence's planned drop-off is the nearer of the two points (`escrow-protocol.md` 2.1.1). |
+| 2.3.0 | 2026-11-11 | No id as a name (FUP-130): on create, the order row's name is the fallback for a party without a profile name only when it is a real name; the party's id or any UUID there is ignored, so the create is rejected with `DELIVERY_VALIDATION` (no name known) instead of storing the id. Clients send an empty `farmerName` rather than the id. (2.2.0 is taken by a change on another open branch.) |
+| 2.2.0 | 2026-11-11 | Updates behind a cancel (FUP-128, `sync-protocol.md` 1.45.0): an update that reaches a `cancelled` delivery (or a legacy `deletedAt` row) with a `version` behind the stored one answers `conflict` with the scrubbed row to a caller who may make the change (trucker: `pickedUp`, `inTransit`, an update without a status; buyer: `delivered`; any party: `disputed`; farmer: an update storing `qrNonce`) instead of the `DELIVERY_ALREADY_CANCELLED` error, which stands for anyone else and at the stored version or without one; nothing is written and the transport-cancel pickup alarm still logs. The mobile queue no longer resends that error and puts the delivery back from the server |
+| 2.4.0 | 2026-11-12 | QR gate, a funded order without an escrow row (FUP-66, `escrow-protocol.md` 2.9.0): when neither the order's escrow nor the `DeliveryIndex` finds an escrow, the order is read (strongly consistent) and a `paymentVerifiedAt` on it makes the delivery money-bearing, so a trucker's drop-off with no nonce is `deferred` (then `DELIVERY_NONCE_MISSING` after 14 days) and a typed code needs the leg's GPS. Before, such a delivery passed as cash. A failed order read defers with `QR_GATE_UNDECIDED`, as the escrow reads do. An order never funded, or a delivery without an order, passes as before. Server only; no client change. |
+| 2.5.0 | 2026-11-12 | Each handoff point only from its own handoff (FUP-246, `sync-protocol.md` 1.54.0, `fraud-detection-architecture.md` 3.34.0): `gpsPickup` is written only with the trucker's `pickedUp`, `gpsDropoff` only with the buyer's `delivered`, `disputeReason` only with `disputed`; sent with any other status, on a create or on an update without a status, the field is dropped (not refused) and logged. A buyer's confirm moved the trucker's pickup point, and a dispute both points the admin dispute evidence shows. The impossible delivery time rule reads the pickup side from the row as stored before the confirm. No client change. |
+| 2.6.0 | 2026-11-12 | Arrival check-ins and the pickup judgement BUILT (ESC-34, P.2 "As built"), behind `pickupClassification` (off everywhere, only with `COMMITMENTS_ENABLED`): the accept of a flagged order stamps `pickupJudgement: pending`, an empty `checkIns` map and the farm's point; `handoff_check_in` (`sync-protocol.md` 1.55.0) takes `arrived_pickup` and `crops_ready` between `pickupDate` minus 24 hours and `pickupDeadlineAt` by server receipt, the arrival within 5 km of the stamped point (a farmer's far fix stored unmeasured, the farmer's GPS being optional), first kept, no version move; with the flag off the entity stays unsupported; the order cron judges at the deadline plus one minute: scan (stamped), trucker no-show (`awaiting_transport`, `trucker_no_show`), farmer no-show (`cancelled`, `farmer_no_show`, full refund), self-pickup buyer no-show (`buyer_no_show`, no points), both present or an unmeasured arrival (admin queue, money held); late check-ins kept as evidence (`CHECKIN_TOO_LATE`, admin queue `late_pickup_evidence` when they contradict the judgement); a pickup scan after the judgement refused `ORDER_DEADLINE_PASSED` (a real QR scan queued for the admin and alarmed); the buyer's deadline cancel refused for a flagged order; FUP-204: the trucker's check-in is measured against the point stamped at acceptance, and a farmer no-show's `NO_SHOW` signal goes through the attribution guard. `order-lifecycle.md` 2.15.0, `data-models.md` 1.14.0, `fraud-detection-architecture.md` 3.36.0, `reputation-architecture.md` 1.8.0 |
+| 2.7.0 | 2026-11-13 | The trucker's drop-off nonce BUILT (ESC-35, P.3; see QR Secret Storage), not flagged: the trucker's phone makes its own nonce after the pickup (tag `d.`) and registers it with a status-less update carrying only `dropoffQrNonce`, stored in `delivery-qr-secrets` (`dropoffNonce`, `dropoffIssuedAt`) next to the farmer's nonce, never on the delivery, no version move; only the trucker, `deferred` while the delivery is `pending` (refused after 14 days), nothing stored once delivered; the buyer's `delivered` of a trucker delivery is checked against it once stored (scan or typed code, its own 14-day freshness, the `delivered` leg's single use, a lock the trucker's new code clears with `DELIVERY_CODE_LOCKED`), else against the farmer's nonce (1.22.0, unchanged); a registration never replaces a stored code, only a renewal (`dropoffQrRenew`, the trucker's confirmed New drop-off code) does, and a code not stored answers `success` with `DROPOFF_CODE_SUPERSEDED` or `DROPOFF_CODE_NOT_STORED`; a tagged scan whose nonce has not synced, or that differs from the stored one but was scanned after it, is `deferred` without a signal (refused after 14 days with `DELIVERY_NONCE_MISSING`). Clients: the drop-off QR shows the trucker's own code, made at pickup, sent again on every open (never twice in a phone's queue), never made on open, made or replaced only by a confirmed New drop-off code (older queued codes dropped); the buyer's scan screen names the trucker in the wait and lock texts. Survey 4.5 answered in P.3. `sync-protocol.md` 1.58.0 |
+| 2.8.0 | 2026-11-13 | The admin side of the pickup judgement (FUP-287, P.2 "The admin side"): `GET /admin/transactions/{orderId}` returns `pickupEvidence` (the judgement, the deadline, the stamped farm point, each check-in with its receipt and capture times, fix, accuracy, distance, `distanceChecked`, `late`, `outOfRange` and sender, the exits the re-open takes and the last re-open), admin only, the parties' `OrderDto` unchanged. New `POST /admin/orders/{orderId}/reopen-pickup` (admin group; `exit`, a `reason` of 10 to 500 characters, `expectedVersion`, `deadlineHours` 1 to 168 with `pending`): only `both_present_no_scan` and `unchecked_check_in` on an `accepted` order whose escrow still simply holds the money; `pending` restamps the judgement with a new `pickupDeadlineAt` (judged again a minute after it, check-ins kept), `handoff_confirmed` moves the pending delivery to `pickedUp` and the order to `pickup_confirmed` (`scanned`), refused for a self-pickup; both answer the judgement's admin queue entry (removed, or kept as `hold_cap` when the escrow's hold cap rides on it; none may land on an order read without one) and stamp `pickupReopen`, in one transaction conditioned on what was read; new codes `PICKUP_REOPEN_INVALID`, `PICKUP_REOPEN_NOT_ALLOWED`, `PICKUP_REOPEN_CHANGED`, `PICKUP_REOPEN_MONEY_NOT_HELD`; a replay answers `alreadyApplied`; transaction-audit `admin_pickup_reopened`. No-show judgements are not re-opened (TASK FUP-330, FUP-331). Admin evidence card and action in en, am, om. `order-lifecycle.md` 2.16.0, `data-models.md` 1.16.0. 2.7.0 is ESC-35's |
+| 2.9.0 | 2026-11-13 | Admin cancel after pickup (FUP-19, spec E9; see the paragraph after Cancel): `POST /admin/deliveries/{id}/cancel` (route `POST /admin/deliveries/{id}/{action}`, admin group only) with a reason of 10 to 500 characters and the delivery version read moves a `pickedUp` or `inTransit` delivery to `cancelled` (`cancelReason: admin_cancelled`, `cancelledAt`, version plus one, no `deletedAt`) with its transaction-audit row `admin_delivery_cancelled` (the admin and the reason) in one transaction conditioned on the delivery's status and version and on the order's and every escrow's status as read; refused while any escrow of the order or the delivery is not `completed`, `cancelled` or `refunded` (`DELIVERY_ADMIN_CANCEL_MONEY_HELD`), for an order whose goods arrived or that is missing, and for a delivery not on the road (`DELIVERY_ADMIN_CANCEL_NOT_ALLOWED`); `DELIVERY_ADMIN_CANCEL_INVALID`, `DELIVERY_ADMIN_CANCEL_CHANGED`; a replay answers `alreadyCancelled`. No order, money, trip, booking or stock moves. A delivery an admin cancelled keeps its order's slot, so the order takes no new delivery. Admin: Cancel delivery on the transaction page, en, am and om. No app change: the apps already show a cancelled delivery with no action. |
+| 2.10.0 | 2026-11-13 | Silent buyer and overdue delivery BUILT (ESC-36, P.4 "As built"), server only, behind the new flag `dropoffClassification` (sync, deliveries and order-cron; off everywhere; only with `COMMITMENTS_ENABLED`). The order's first move out of `accepted` after a trucker's pickup stamps `dropoffJudgement: pending`, T8 (`dropoffDeadlineAt`, pickup plus 72 hours) and the drop-off points. New photo type `arrival` (the trucker's, on the road; `arrivalPhotoRef`, `arrivalPhotoUrl`) and the check-in kind `arrived_dropoff` (GPS within 5 km of a stamped point, the arrival photo first: new `CHECKIN_PHOTO_REQUIRED`; late kept as evidence). T8 without a counted check-in: the escrow frozen, then the delivery and the order `disputed` with `disputeReason: delivery_overdue` (R12), the alarmed `ORDER_DELIVERY_OVERDUE`. T9 48 hours after the check-in: the system confirm (`autoConfirmedAt`, the escrow stamped as a buyer's confirm, the normal dispute window and payout delay) when the evidence is complete, the trucker neither low nor restricted and the money plainly held; else `disputed` with `silent_buyer`. Money that can be neither frozen nor confirmed: `queued`, the admin queue. T8 and T9 timings in SSM, never below 24 hours; a stamp that lands late leaves a day. FUP-204: T8 rests on the trucker alone; a trucker who came but was out of range of every point (the buyer's pin may be the only one) is kept as `dropoffAttempt` and makes T8 the system dispute `dropoff_out_of_range` (no R12; the admin decides the verdict), never `delivery_overdue`; the admin views show the arrival photo; T9 is no event. The check-in reads a point missing from the stamp live, point by point (a trip destination added after the handoff never counts); an admin's `handoff_confirmed` re-open (FUP-287) stamps the order too. Before the flag: FUP-336 and FUP-338 |
+| 2.11.0 | 2026-11-13 | Re-open of a trucker no-show (FUP-330, P.2 "Re-open of a trucker no-show"): new `POST /admin/orders/{orderId}/reopen-no-show` (the route, admin group and body of `reopen-pickup`) takes a `trucker_no_show` order still `awaiting_transport` from the judgement (the buyer has not chosen) whose escrow still simply holds the money back in one transaction: `pending` to `accepted` (`pickupJudgement: pending`, a new `pickupDeadlineAt`, empty `checkIns` so the new window counts fresh ones, judged again; the trucker creates the new pending delivery) or `handoff_confirmed` to `pickup_confirmed` (`scanned`) with the delivery the judgement cancelled `cancelled → pickedUp` and the slot claimed for it (with `dropoffClassification` on, the drop-off judgement stamped in the same write); both restore `truckerResponse: accepted`, remove `transportFailure`, `faultParty`, `buyerChoiceDeadlineAt` and `buyerChoiceReminderAt`, take the trip booking back (conditioned on the room left and the trip `open` or `matched`), answer the admin queue entry as `reopen-pickup` does and stamp `pickupReopen`; refused when the trip is gone, cancelled, departed or full (new `409 PICKUP_REOPEN_TRIP_UNAVAILABLE`), when the buyer chose or the money moved, and on a changed version; a replay answers `alreadyApplied`. Then the trucker's `NO_SHOW` is excused through ESC-32's decision path (`noShowEvent` in the answer, audited `reputation_excused`). `pickupEvidence` gains `noShowReopenExits`; `reopen-pickup`'s refusal of a trucker no-show names the new action. New admin-only transition `cancelled → pickedUp`. No money moves; no app change. Admin: Re-open the no-show on the transaction page, en, am, om. `order-lifecycle.md` 2.20.0 |
+| 2.12.0 | 2026-11-13 | Gaps of the trucker no-show re-open (FUP-363, P.2): (a) the order cron closes a trip that carried only the no-show order within 15 minutes of the judgement (`cancelReason: expired`), so the re-open refused most single-order trips with `PICKUP_REOPEN_TRIP_UNAVAILABLE`; it now opens such a trip again in the re-open's transaction (`cancelled → open`, or `matched` when the order fills it, conditioned on the version read, `expired`, no booking and the room; audit `trip=revived`; `trip-listing-api.md` 2.7.0), while a trip its trucker cancelled stays refused. Decision: the cron's close is unchanged. (b) The judgement's own cancel of the pending delivery stamps the new server-only `cancelledByJudgementAt` in the same write, and a confirmed handoff brings back only a delivery that carries it (at or after the order's `pickupDeadlineAt`), instead of one cancelled at or after `pickupJudgedAt`: a judgement the cron retried after a failed order write now gets its delivery back, while a party's, an admin's (FUP-19) or an earlier window's cancel stays refused. The revive removes the stamp; the delivery update is also conditioned on it. Deliveries cancelled by a judgement before 2.12.0 carry no stamp: their orders take the `pending` exit only. Server only, no app or admin change. `order-lifecycle.md` 2.21.0 |
+| 2.13.0 | 2026-11-13 | Late drop-off evidence (FUP-373, P.4), behind `dropoffClassification` (flag off: nothing changes): a check-in the trucker made offline at the drop-off before T8 and synced after the order cron's T8 run kept no late entry, because the T8 dispute refused the arrival photo (`DELIVERY_PHOTO_REFUSED`) and the check-in then failed the photo check (`CHECKIN_PHOTO_REQUIRED`). Now (a) `POST /deliveries/{id}/photos` and `delivery_photo` `{deliveryId}#arrival` also take the arrival photo on the system's T8 dispute (`disputedBy: system`, `delivery_overdue` or `dropoff_out_of_range`) that no admin has decided (no `disputeResolution`), writing the photo, its version id and the new server-only `arrivalPhotoLateAt` (returned on the delivery reads) in one update conditioned on `disputed` and no `disputeResolution`, with no status, version or `updatedAt` move, and the audit row `delivery_photo` (`type=arrival;late=true`); T9's `silent_buyer`, a party's and a decided dispute still refuse it; (b) a late `arrived_dropoff` (after T8, or after the overdue or out-of-range judgement, or `queued`) skips the photo check and is kept with `late: true` and answered `CHECKIN_TOO_LATE`; a late one more than 5 km away is kept as the late `dropoffAttempt` (never counted at T8) when none is stored, also `CHECKIN_TOO_LATE`; (c) once an admin decided the delivery's dispute (`disputeResolution`), a late check-in is `CHECKIN_NOT_OPEN`. The admin's dispute Photos tab marks a late arrival photo with its attach time (en, am, om), the timeline shows the late entries. Clients (`sync-protocol.md` 1.60.0): the drop-off texts say the check-in was more than 5 km from the order's drop-off point, not that the trucker was (the buyer's pin may be wrong, FUP-204) |
+| 2.13.1 | 2026-11-13 | Doc only: the pushes of spec 4.12 are built (FUP-286 and FUP-338, `notifications-api.md` 1.6.0, `order-lifecycle.md` 2.23.0), behind the same flags: P.4's precondition for `dropoffClassification` (the buyer told when the trucker checks in, with T9, and again before T9) is met. No endpoint, field or code change here |
+| 2.14.0 | 2026-11-13 | Photo uploads lifecycle (FUP-140; 2.13.0 is FUP-373). Server: the `delivery_photo` attach copies the version it pins to the kept key `evidence/photos/{deliveryId}/{type}-{ms}.{ext}` before its write and records the copy in it (server-only `{type}PhotoKeptRef`, `{type}PhotoKeptVersionId`; a failed copy is `deferred`); every read signs the kept copy when the row records it; a `pickup` or `dropoff` photo whose handoff is not on the row yet is `deferred` (`DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet.`, judged on a strongly consistent read) instead of attaching to a delivery not picked up or not confirmed, except the buyer's drop-off photo on a dispute the order cron opened (T8 or T9) that no admin decided, kept as late evidence with the server-only `dropoffPhotoLateAt` and an audit row like FUP-373's arrival photo, and any other disputed delivery without the handoff refuses it for good (`DELIVERY_PHOTO_REFUSED`); new by-hand order-cron action `backfill_delivery_photo_copies` for the photos attached before. Infra: lifecycle rule `DeliveryPhotoUploadsExpiry` on `uploads/photos/` (30 days, noncurrent 1 day), deployed disabled behind `deliveryPhotoUploadExpiry` until the backfill ran; the Glacier rule on `photos/` (which matched no key) removed; grants for the copy (sync, order cron) and the signed reads (admin). Mobile: a pickup or delivery confirm answered `conflict` rejects its waiting photo unless the server's row shows that handoff (or, for the drop-off photo, an undecided dispute); Admin: the Photos tab marks a late drop-off photo (en, am, om); S3's `400 RequestTimeout` and `408` on a photo `PUT` no longer count toward the 3 refusals. See 4b and S3 Storage |
+| 2.17.0 | 2026-11-19 | Persona simulation fixes (Validation Rules; `sync-protocol.md` 1.70.0): the party check of an update comes before every rule that reads the row (an outsider always gets `DELIVERY_UNAUTHORIZED`, never `DELIVERY_INVALID_TRANSITION` with the stored status); an update without a status and with nothing to store writes nothing and keeps the version; the buyer who sends `qrNonce` reads `DELIVERY_UNAUTHORIZED: Only the farmer sets the pickup code.`; a confirm under an escrow disputed between pickup and delivery ends `disputed` through the dispute mirror (`order-lifecycle.md` 2.24.0). No client change. |
+| 2.16.1 | 2026-11-17 | P.4 "Not done by the cron" reworded (FUP-366, docs only): the trucker's `GPS_ANOMALY` row is not pending there. T9's system confirm needs a counted, measured drop-off check-in, which FUP-245's rule reads first and only clears on, so the cron needs no judgement (fraud spec 3.38.0 Rule 4) |
+| 2.16.0 | 2026-11-17 | Handoff points inside Ethiopia (FUP-444, SPK-01 1.4; Validation Rules 6): a delivery update whose `gpsPickup` or `gpsDropoff` is outside 3-15 N, 33-48 E, (0, 0) included, writes nothing and is answered `DELIVERY_VALIDATION: <field> must be inside Ethiopia (latitude 3 to 15, longitude 33 to 48).`, after the 5 km checks (which keep answering first where a reference point exists). The rule was written as a sanity check and never built. Server only, no client change |
+| 2.15.0 | 2026-11-13 | GPS refusal reasons (FUP-439, SPK-01 1.3; `sync-protocol.md` 1.62.0): the five handoff GPS refusals keep the `DELIVERY_GPS_PROXIMITY` code and name their reason right after it (`pickup_far`, `self_pickup_no_fix`, `self_pickup_no_farm_point`, `self_pickup_far`, `dropoff_far`); the distance in the pickup and self-pickup texts is now always written with a dot. The rules are unchanged. Mobile: every one is a permanent refusal that puts the delivery back from the server (it was resent three times and again on every reconnect, and the local `pickedUp` or `delivered` stayed), rejects the photo waiting behind it (and, for any pickup refused by a code that puts the delivery back, the trucker's drop-off code registration, which held the revert back) and is explained per reason (en, am, om); web shows the same text per reason instead of "Delivery operation failed". See GPS Validation, Refusal reasons |
 
 ---
 
-**Last Updated**: 2026-10-23
-**Version**: 1.19.0
+**Last Updated**: 2026-11-19
+**Version**: 2.18.0
 **Status**: Draft (Phase R4.2)

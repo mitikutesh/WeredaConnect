@@ -639,6 +639,51 @@ void main() {
         expect(op['idempotencyKey'], isNotEmpty);
         expect(op['data'], isA<Map<String, dynamic>>());
         expect(op['timestamp'], isNotEmpty);
+        // GCR-02: the phone's queue names its platform on every operation,
+        // beside the data, not inside it.
+        expect(op['platform'], 'android');
+        expect((op['data'] as Map).containsKey('platform'), isFalse);
+      });
+
+      test('every operation of a batch names the android platform (GCR-02)',
+          () async {
+        await enqueueTestOperation(operationId: 'op-platform-1');
+        await enqueueTestOperation(
+          operationId: 'op-platform-2',
+          entityType: 'order',
+          entityId: 'order-001',
+          action: 'update',
+          data: '{"status":"cancelled","version":1}',
+        );
+
+        Map<String, dynamic>? capturedRequest;
+        dioAdapter.onPost(
+          '/sync',
+          (server) {
+            server.reply(
+              200,
+              buildSuccessResponse(['op-platform-1', 'op-platform-2']),
+            );
+          },
+          data: Matchers.any,
+        );
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              capturedRequest = options.data as Map<String, dynamic>?;
+              handler.next(options);
+            },
+          ),
+        );
+
+        await executor.executeBatch();
+
+        final operations = capturedRequest!['operations'] as List;
+        expect(operations, hasLength(2));
+        for (final op in operations.cast<Map<String, dynamic>>()) {
+          expect(op['platform'], SyncQueue.platform);
+        }
+        expect(SyncQueue.platform, 'android');
       });
 
       test('client-only keys (`_` prefix) are never sent (ESC-44)', () async {
@@ -991,6 +1036,16 @@ void main() {
 
       expect(empty.merge(result).total, 2);
       expect(result.merge(empty).total, 2);
+    });
+
+    test('merge keeps accountDeleted after a successful batch (FUP-107)', () {
+      const ok = SyncBatchResult(total: 2, succeeded: 2);
+      const gone = SyncBatchResult(status: SyncBatchStatus.accountDeleted);
+
+      // accountDeleted is terminal; a preceding successful batch must not downgrade
+      // it, or syncNow's aggregated status hides it.
+      expect(ok.merge(gone).status, SyncBatchStatus.accountDeleted);
+      expect(gone.merge(ok).status, SyncBatchStatus.accountDeleted);
     });
   });
 }

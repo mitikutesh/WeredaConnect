@@ -54,6 +54,29 @@ void main() {
     );
   });
 
+  // SIM-28: the rating key is fixed per order and ratee, so a second rating
+  // with other stars reuses it and the server refuses the new payload.
+  test('a reused key refusal means it is already rated', () async {
+    answerSync({
+      'status': 'error',
+      'message': 'SYNC_VALIDATION: idempotency key already used for a '
+          'different operation payload; send this change with a new '
+          'idempotency key.',
+    });
+
+    await expectLater(rate(), throwsA(isA<AlreadyRatedException>()));
+  });
+
+  test('another SYNC_VALIDATION refusal is not taken for already rated',
+      () async {
+    answerSync({
+      'status': 'error',
+      'message': 'SYNC_VALIDATION: The rated user has deleted their account.',
+    });
+
+    await expectLater(rate(), throwsA(isA<SyncRejectedException>()));
+  });
+
   test('a refusal still throws the server rejection', () async {
     answerSync({
       'status': 'error',

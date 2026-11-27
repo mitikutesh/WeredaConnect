@@ -5,19 +5,30 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
-import 'package:wereda_connect/screens/profile_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
-import 'package:wereda_connect/shared/layout/breakpoints.dart';
-import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 
-/// Payments tab screen — GreenHeader + embedded PaymentHistoryScreen.
+/// Payments tab: the boards' page header (person · place, "My Payments",
+/// profile square) over the embedded [PaymentHistoryScreen], which brings
+/// the escrow summary card, the status pills and the history rows. One
+/// composition at every window size, centred by [FwContentWidth].
 ///
-/// Uses the existing PaymentHistoryScreen in embedded mode (no Scaffold/AppBar)
-/// so its filter chips and payment list render as tab content.
+/// Payments left the bottom bar (design canvas page M): on a phone the page
+/// is pushed from Home and the account sheet, on web it sits in the shell
+/// beside the sidebar. Pushed, it has no page under it to draw on, so it
+/// brings its own Scaffold and the round Back before the title; in the
+/// shell it is the plain column it always was. [pushed] says which; by
+/// default the page looks for a Scaffold above it.
 class PaymentsTabScreen extends StatelessWidget {
-  const PaymentsTabScreen({super.key});
+  const PaymentsTabScreen({this.pushed, super.key});
+
+  /// True for a page pushed on its own route (Back, own Scaffold), false
+  /// inside the shell. Null: pushed when no Scaffold is above.
+  final bool? pushed;
 
   @override
   Widget build(BuildContext context) {
@@ -26,113 +37,48 @@ class PaymentsTabScreen extends StatelessWidget {
     final isBuyer =
         authState is AuthAuthenticated && authState.role == UserRole.buyer;
 
-    final isMobile = Breakpoints.isMobile(context);
-    final isDesktop = Breakpoints.isDesktop(context);
-    final hPad = isDesktop ? 32.0 : 24.0;
-
-    // ── Profile avatar (shared between mobile and desktop headers) ──
-    final profileAvatar = GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          builder: (_) => const ProfileScreen(),
-        ),
+    final pushed = this.pushed ?? Scaffold.maybeOf(context) == null;
+    final header = FwPageHeader(
+      padding: EdgeInsets.zero,
+      eyebrow: fwPersonPlaceEyebrow(
+        authState,
+        isBuyer ? l10n.trackBuyerPayments : l10n.trackPayments,
       ),
-      child: CircleAvatar(
-        radius: 18,
-        backgroundColor:
-            isMobile ? Colors.white24 : AppTheme.textMuted.withAlpha(40),
-        child: Icon(
-          Icons.person,
-          size: 20,
-          color: isMobile ? Colors.white : AppTheme.textDark,
-        ),
-      ),
+      title: l10n.myPayments,
+      // The account sheet is where a pushed page came from: no bell and
+      // account buttons on it, the title gets the room.
+      trailing: pushed ? null : const HeaderActions(),
     );
 
-    // ── Mobile layout (unchanged) ─────────────────────────────────
-    if (isMobile) {
-      return Column(
+    final page = FwContentWidth(
+      child: Column(
         children: [
-          GreenHeader(
-            height: 120,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        l10n.myPayments,
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    profileAvatar,
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  isBuyer ? l10n.trackBuyerPayments : l10n.trackPayments,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.white.withAlpha(180),
-                  ),
-                ),
-              ],
+          Padding(
+            // The page draws under the status bar.
+            padding: EdgeInsets.fromLTRB(
+              20,
+              16 + MediaQuery.paddingOf(context).top,
+              20,
+              12,
             ),
+            child: pushed
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const FwBackButton(key: Key('payments_back')),
+                      const SizedBox(width: 12),
+                      Expanded(child: header),
+                    ],
+                  )
+                : header,
           ),
           const OfflineBanner(),
           const Expanded(
             child: PaymentHistoryScreen(embedded: true),
           ),
         ],
-      );
-    }
-
-    // ── Desktop / Tablet layout ───────────────────────────────────
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 900),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // ── Flat page header ──────────────────────────────────
-            Padding(
-              padding: EdgeInsets.fromLTRB(hPad, 28, hPad, 20),
-              child: Column(
-                children: [
-                  Text(
-                    l10n.myPayments,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textDark,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    isBuyer ? l10n.trackBuyerPayments : l10n.trackPayments,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: AppTheme.textMuted,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-            const Expanded(
-              child: PaymentHistoryScreen(embedded: true),
-            ),
-          ],
-        ),
       ),
     );
+    return pushed ? Scaffold(body: page) : page;
   }
 }

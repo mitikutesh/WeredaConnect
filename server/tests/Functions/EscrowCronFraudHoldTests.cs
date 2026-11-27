@@ -355,6 +355,7 @@ public class EscrowCronFraudHoldTests
         _holds[0].Hold.HeldFor.Should().Be("refund");
         _holds[0].Fence.Should().Be(new OrderFence(OrdersTable, "ord-f1", "2026-10-01T09:00:00.0000000Z", 7, "funded"));
         await _orders.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
+        await _orders.DidNotReceiveWithAnyArgs().TryUpdateWithAsync(default!, default!, default, default!, default!);
         await _crops.DidNotReceiveWithAnyArgs().TryRestoreStockAsync(default!, default!, default);
         await _crops.DidNotReceiveWithAnyArgs().RestoreStockAsync(default!, default!, default);
         await NoMoneyMovedAsync();
@@ -373,6 +374,7 @@ public class EscrowCronFraudHoldTests
 
         Logs.Should().Contain("ESCROW_FRAUD_HOLD_LOST escrowId=escrow-order-ord-f2 outcome=OrderChanged");
         await _orders.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
+        await _orders.DidNotReceiveWithAnyArgs().TryUpdateWithAsync(default!, default!, default, default!, default!);
         await NoMoneyMovedAsync();
 
         // The farmer's accept landed: the next run reads an accepted order and pushes the expiry, as today.
@@ -394,6 +396,7 @@ public class EscrowCronFraudHoldTests
         Logs.Should().Contain("RISK_SETTLEMENT_SKIPPED escrowId=escrow-order-ord-f3 sweep=auto-refund reason=flag_off");
         _holds.Should().BeEmpty();
         await _orders.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
+        await _orders.DidNotReceiveWithAnyArgs().TryUpdateWithAsync(default!, default!, default, default!, default!);
         await NoMoneyMovedAsync();
     }
 
@@ -512,13 +515,13 @@ public class EscrowCronFraudHoldTests
     public async Task AutoRefund_NoSuspendedParty_CancelsAndRefundsAsBefore()
     {
         _escrows.StubRefundSweep(StaleOrderEscrow("ord-f4"));
-        _orders.UpdateAsync("ord-f4", Arg.Any<Dictionary<string, object>>(), 4)
-            .Returns(AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object> { { "status", "cancelled" } }));
+        _orders.TryUpdateWithAsync("ord-f4", Arg.Any<Dictionary<string, object>>(), 4, Arg.Any<string>(), Arg.Any<IReadOnlyList<TransactWriteItem>>())
+            .Returns(new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written, new Dictionary<string, object> { { "status", "cancelled" } }));
 
         await RunAsync(Cron());
 
         _holds.Should().BeEmpty();
-        await _orders.Received(1).UpdateAsync("ord-f4", Arg.Any<Dictionary<string, object>>(), 4);
+        await _orders.Received(1).TryUpdateWithAsync("ord-f4", Arg.Any<Dictionary<string, object>>(), 4, Arg.Any<string>(), Arg.Any<IReadOnlyList<TransactWriteItem>>());
         await _gateway.Received(1).RefundFundsAsync(Arg.Any<RefundFundsRequest>());
     }
 
@@ -544,6 +547,7 @@ public class EscrowCronFraudHoldTests
         _holds[0].Hold.FromStatus.Should().Be("dispute_resolved");
         _holds[0].Hold.HeldFor.Should().Be(heldFor);
         await _orders.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
+        await _orders.DidNotReceiveWithAnyArgs().TryUpdateWithAsync(default!, default!, default, default!, default!);
         await _orders.DidNotReceive().GetByIdAsync("ord-d1", Arg.Any<bool>());
         await NoMoneyMovedAsync();
     }

@@ -143,27 +143,27 @@ void main() {
   }) async {
     await passFayda(tester, 'Farmer');
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Phone Number'),
+      find.byKey(const Key('register_phone')),
       '0912345678',
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Display Name'),
+      find.byKey(const Key('register_display_name')),
       name,
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Wereda'),
+      find.byKey(const Key('register_wereda')),
       woreda,
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Password'),
+      find.byKey(const Key('register_password')),
       'secure123',
     );
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Confirm Password'),
+      find.byKey(const Key('register_confirm_password')),
       'secure123',
     );
     await _settle(tester);
-    await tester.tap(find.text('Sign Up'));
+    await tester.tap(find.text('Register'));
     await _settle(tester);
   }
 
@@ -270,17 +270,17 @@ void main() {
     // The Fayda proof is kept: no way back to the Fayda step.
     expect(find.text('Personal Info'), findsOneWidget);
     expect(find.text('Retry'), findsNothing);
-    expect(find.text('Sign Up'), findsOneWidget);
+    expect(find.text('Register'), findsOneWidget);
 
     // The snackbar times out, the user edits the name and signs up again.
     await tester.pump(const Duration(seconds: 6));
     await _settle(tester);
     await tester.enterText(
-      find.widgetWithText(TextFormField, 'Display Name'),
+      find.byKey(const Key('register_display_name')),
       'Abebe K.',
     );
     await _settle(tester);
-    await tester.tap(find.text('Sign Up'));
+    await tester.tap(find.text('Register'));
     await _settle(tester);
 
     final sent = registrations();
@@ -313,4 +313,67 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
+
+  // Fieldway Join boards: one localized step counter for the whole flow. A
+  // farmer skips the role details step, so their last step is 3 of 3.
+  testWidgets('the step counter follows the role', (tester) async {
+    useTallPhone(tester);
+    await tester.pumpWidget(flow());
+    await _settle(tester);
+    expect(find.text('Step 1 of 4'), findsOneWidget);
+
+    await tester.tap(find.text('Farmer'));
+    await _settle(tester);
+    expect(find.text('Step 1 of 3'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a farmer ends on step 3 of 3', (tester) async {
+    await passFayda(tester, 'Farmer');
+
+    expect(find.text('Step 3 of 3'), findsOneWidget);
+    expect(find.text('Step 4 of 4'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  // Register personal board: labels above the fields, the display name
+  // first, the two passwords side by side.
+  testWidgets('personal info: labels above, passwords side by side',
+      (tester) async {
+    await passFayda(tester, 'Farmer');
+
+    final name = find.byKey(const Key('register_display_name'));
+    final phone = find.byKey(const Key('register_phone'));
+    expect(
+      tester.getBottomLeft(find.text('Display Name')).dy,
+      lessThanOrEqualTo(tester.getTopLeft(name).dy),
+    );
+    expect(tester.getTopLeft(name).dy, lessThan(tester.getTopLeft(phone).dy));
+    final password = find.byKey(const Key('register_password'));
+    final confirm = find.byKey(const Key('register_confirm_password'));
+    expect(tester.getTopLeft(confirm).dy, tester.getTopLeft(password).dy);
+    expect(
+      tester.getTopLeft(confirm).dx,
+      greaterThan(tester.getTopLeft(password).dx),
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('a trucker sees step 3 of 4 with Fayda already verified',
+      (tester) async {
+    await passFayda(tester, 'Trucker');
+
+    expect(find.text('Step 3 of 4'), findsOneWidget);
+    expect(find.text('Identity Verified'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('the step counter is localized', (tester) async {
+    useTallPhone(tester);
+    await tester.pumpWidget(flow(locale: const Locale('am')));
+    await _settle(tester);
+    final am = await AppLocalizations.delegate.load(const Locale('am'));
+    expect(find.text(am.registrationStepOf(1, 4)), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 }

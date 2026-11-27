@@ -15,15 +15,26 @@ public sealed class UserRepository : IUserRepository
     private readonly IAmazonDynamoDB _dynamoDb;
     private readonly string _tableName;
 
-    public UserRepository(IAmazonDynamoDB dynamoDb, string tableName)
+    /// <summary>FUP-317: where <see cref="UpdateUserWithAuditAsync"/> puts its row; null or empty, it writes none.</summary>
+    private readonly string? _transactionAuditTable;
+
+    public UserRepository(IAmazonDynamoDB dynamoDb, string tableName, string? transactionAuditTable = null)
     {
         _dynamoDb = dynamoDb ?? throw new ArgumentNullException(nameof(dynamoDb));
         _tableName = tableName ?? throw new ArgumentNullException(nameof(tableName));
+        _transactionAuditTable = transactionAuditTable;
     }
 
     public async Task<AuthResult<UserDto>> CreateUserAsync(UserDto user)
     {
         var item = ToItem(user);
+
+        // ESC-28 (rating-api.md 1.2.0, user-entity.md 2.0.0 section 2): a new account starts with an
+        // exact, empty rating aggregate, so the one-time backfill skips it. Only the rating create
+        // transaction, the backfill and the role-change rebuild write these afterwards.
+        item["ratingSum"] = new AttributeValue { N = "0" };
+        item["ratingCount"] = new AttributeValue { N = "0" };
+        item["ratingsAggregatedAt"] = new AttributeValue { S = string.IsNullOrEmpty(user.CreatedAt) ? DateTime.UtcNow.ToString("o") : user.CreatedAt };
 
         var request = new PutItemRequest
         {
@@ -92,10 +103,48 @@ public sealed class UserRepository : IUserRepository
         return FromItem(response.Items[0]);
     }
 
-    public async Task<AuthResult<UserDto>> UpdateUserAsync(UserDto user, int expectedVersion)
+    public Task<AuthResult<UserDto>> UpdateUserAsync(UserDto user, int expectedVersion)
+        => WriteUserAsync(user, expectedVersion, auditEntry: null);
+
+    /// <inheritdoc />
+    public Task<AuthResult<UserDto>> UpdateUserWithAuditAsync(
+        UserDto user, int expectedVersion, Dictionary<string, object> auditEntry)
+        => WriteUserAsync(user, expectedVersion, string.IsNullOrEmpty(_transactionAuditTable) ? null : auditEntry);
+
+    /// <summary>
+    /// The profile write. With <paramref name="auditEntry"/> (FUP-317) the same update and the transaction-audit row go
+    /// in one <c>TransactWriteItems</c>: both land or neither does.
+    /// </summary>
+    private async Task<AuthResult<UserDto>> WriteUserAsync(
+        UserDto user, int expectedVersion, Dictionary<string, object>? auditEntry)
     {
         var now = DateTime.UtcNow.ToString("o");
         var newVersion = expectedVersion + 1;
+
+        // SIM-56: a company buyer's companyName is written from the copy too (the profile edit
+        // changes it). Only when the copy has one: no writer clears it, and a farmer's or trucker's
+        // row never gets the attribute.
+        var companySet = user.CompanyName != null ? ", #company = :company" : "";
+
+        // SIM-56: faydaId is the key of FaydaIdIndex and woreda the sort key of RoleWaredaIndex, and
+        // DynamoDB refuses a NULL or empty index key ("Invalid attribute value type"). A row without a
+        // Fayda ID, or without a woreda (FromItem reads a missing one as "", FUP-162), gets the
+        // attribute removed (a no-op when absent) instead (user-entity.md 2.2.0).
+        var hasFayda = !string.IsNullOrEmpty(user.FaydaId);
+        var hasWoreda = !string.IsNullOrEmpty(user.Woreda);
+        var optionalSets = (hasFayda ? ", #fayda = :fayda" : "") + (hasWoreda ? ", #woreda = :woreda" : "");
+        var removes = new List<string>();
+        if (!hasFayda)
+        {
+            removes.Add("#fayda");
+        }
+
+        if (!hasWoreda)
+        {
+            removes.Add("#woreda");
+        }
+
+        var removeClause = removes.Count > 0 ? " REMOVE " + string.Join(", ", removes) : "";
 
         var request = new UpdateItemRequest
         {
@@ -105,9 +154,9 @@ public sealed class UserRepository : IUserRepository
                 { "userId", new AttributeValue { S = user.UserId } }
             },
             UpdateExpression = "SET #phone = :phone, #name = :name, #fullName = :fullName, #role = :role, " +
-                               "#woreda = :woreda, #lang = :lang, #verified = :verified, " +
-                               "#photo = :photo, #fayda = :fayda, #faydaV = :faydaV, #faydaVAt = :faydaVAt, #faydaAuthAt = :faydaAuthAt, " +
-                               "#devices = :devices, #updated = :updated, #v = :newVersion",
+                               "#lang = :lang, #verified = :verified, " +
+                               "#photo = :photo, #faydaV = :faydaV, #faydaVAt = :faydaVAt, #faydaAuthAt = :faydaAuthAt, " +
+                               "#devices = :devices, #updated = :updated, #v = :newVersion" + companySet + optionalSets + removeClause,
             // ACC-02: never on a deleting or deleted account, so no profile write can put the
             // personal data back on a tombstone.
             ConditionExpression = "#v = :expectedVersion AND attribute_not_exists(#deletionState)",
@@ -136,11 +185,9 @@ public sealed class UserRepository : IUserRepository
                 { ":name", user.DisplayName != null ? new AttributeValue { S = user.DisplayName } : new AttributeValue { NULL = true } },
                 { ":fullName", user.FullName != null ? new AttributeValue { S = user.FullName } : new AttributeValue { NULL = true } },
                 { ":role", new AttributeValue { S = user.Role } },
-                { ":woreda", new AttributeValue { S = user.Woreda } },
                 { ":lang", new AttributeValue { S = user.PreferredLanguage } },
                 { ":verified", new AttributeValue { BOOL = user.IsPhoneVerified } },
                 { ":photo", user.ProfilePhotoRef != null ? new AttributeValue { S = user.ProfilePhotoRef } : new AttributeValue { NULL = true } },
-                { ":fayda", user.FaydaId != null ? new AttributeValue { S = user.FaydaId } : new AttributeValue { NULL = true } },
                 { ":faydaV", new AttributeValue { BOOL = user.FaydaVerified } },
                 { ":faydaVAt", user.FaydaVerifiedAt != null ? new AttributeValue { S = user.FaydaVerifiedAt } : new AttributeValue { NULL = true } },
                 { ":faydaAuthAt", user.FaydaAuthenticatedAt != null ? new AttributeValue { S = user.FaydaAuthenticatedAt } : new AttributeValue { NULL = true } },
@@ -151,9 +198,32 @@ public sealed class UserRepository : IUserRepository
             }
         };
 
+        if (user.CompanyName != null)
+        {
+            request.ExpressionAttributeNames["#company"] = "companyName";
+            request.ExpressionAttributeValues[":company"] = new AttributeValue { S = user.CompanyName };
+        }
+
+        if (hasFayda)
+        {
+            request.ExpressionAttributeValues[":fayda"] = new AttributeValue { S = user.FaydaId };
+        }
+
+        if (hasWoreda)
+        {
+            request.ExpressionAttributeValues[":woreda"] = new AttributeValue { S = user.Woreda };
+        }
+
         try
         {
-            await _dynamoDb.UpdateItemAsync(request);
+            if (auditEntry == null)
+            {
+                await _dynamoDb.UpdateItemAsync(request);
+            }
+            else
+            {
+                await _dynamoDb.TransactWriteItemsAsync(WithAuditRow(request, auditEntry));
+            }
 
             var updatedUser = user with
             {
@@ -168,7 +238,58 @@ public sealed class UserRepository : IUserRepository
             return AuthResult<UserDto>.Failure(409, "AUTH_019",
                 "User was modified by another request. Please retry.", "version");
         }
+        catch (TransactionCanceledException ex) when (IsConflict(ex))
+        {
+            // FUP-317: the version or deletion condition, the audit key, or a concurrent transaction on either row.
+            return AuthResult<UserDto>.Failure(409, "AUTH_019",
+                "User was modified by another request. Please retry.", "version");
+        }
     }
+
+    /// <summary>
+    /// FUP-317: the users update of <paramref name="update"/> and the audit row's put, in that order. The put is
+    /// conditional, so a row at the same key is never overwritten (the audit table is append-only).
+    /// </summary>
+    private TransactWriteItemsRequest WithAuditRow(UpdateItemRequest update, Dictionary<string, object> auditEntry)
+        => new()
+        {
+            TransactItems =
+            [
+                new TransactWriteItem
+                {
+                    Update = new Update
+                    {
+                        TableName = update.TableName,
+                        Key = update.Key,
+                        UpdateExpression = update.UpdateExpression,
+                        ConditionExpression = update.ConditionExpression,
+                        ExpressionAttributeNames = update.ExpressionAttributeNames,
+                        ExpressionAttributeValues = update.ExpressionAttributeValues
+                    }
+                },
+                new TransactWriteItem
+                {
+                    Put = new Put
+                    {
+                        // Set: UpdateUserWithAuditAsync passes no row without it.
+                        TableName = _transactionAuditTable!,
+                        Item = auditEntry
+                            .Where(kv => kv.Value != null)
+                            .ToDictionary(kv => kv.Key, kv => DynamoDbHelper.ToAttributeValue(kv.Value)),
+                        ConditionExpression = "attribute_not_exists(transactionId)"
+                    }
+                }
+            ]
+        };
+
+    /// <summary>
+    /// A cancelled transaction that a retry can get through: a failed condition or a concurrent transaction. A
+    /// validation error or throttling is thrown, as <see cref="UpdateUserAsync"/> throws it.
+    /// </summary>
+    private static bool IsConflict(TransactionCanceledException ex)
+        => ex.CancellationReasons is { Count: > 0 } reasons
+           && reasons.Any(r => r?.Code is "ConditionalCheckFailed" or "TransactionConflict")
+           && reasons.All(r => r?.Code is null or "None" or "ConditionalCheckFailed" or "TransactionConflict");
 
     public Task DeleteUserAsync(string userId)
         => _dynamoDb.DeleteItemAsync(new DeleteItemRequest
@@ -181,11 +302,23 @@ public sealed class UserRepository : IUserRepository
         });
 
     /// <summary>Rounds of BatchGetItem for the keys DynamoDB left unprocessed (throttling, size cap).</summary>
-    private const int MaxPhoneBatchAttempts = 3;
+    private const int MaxBatchGetAttempts = 3;
 
-    public async Task<IReadOnlyDictionary<string, string>> GetPhoneNumbersAsync(IReadOnlyCollection<string> userIds)
+    public Task<IReadOnlyDictionary<string, string>> GetPhoneNumbersAsync(IReadOnlyCollection<string> userIds)
+        => GetStringAttributeAsync(userIds, "phoneNumber");
+
+    public Task<IReadOnlyDictionary<string, string>> GetPreferredLanguagesAsync(IReadOnlyCollection<string> userIds)
+        => GetStringAttributeAsync(userIds, "preferredLanguage");
+
+    /// <summary>
+    /// One string attribute of many users by userId (BatchGetItem, that attribute only). Users with
+    /// no row or no value are left out, and so are keys DynamoDB still left unprocessed after a few
+    /// retries: callers degrade (no phone shown, default language) rather than fail.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, string>> GetStringAttributeAsync(
+        IReadOnlyCollection<string> userIds, string attribute)
     {
-        var phones = new Dictionary<string, string>(StringComparer.Ordinal);
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
         var distinct = userIds.Where(id => !string.IsNullOrEmpty(id)).Distinct(StringComparer.Ordinal).ToList();
 
         // BatchGetItem takes at most 100 keys per request.
@@ -199,12 +332,12 @@ public sealed class UserRepository : IUserRepository
                     {
                         { "userId", new AttributeValue { S = id } }
                     }).ToList(),
-                    ProjectionExpression = "userId, phoneNumber"
+                    ProjectionExpression = $"userId, {attribute}"
                 }
             };
 
             // The low-level client does not retry UnprocessedKeys by itself.
-            for (var attempt = 0; requestItems.Count > 0 && attempt < MaxPhoneBatchAttempts; attempt++)
+            for (var attempt = 0; requestItems.Count > 0 && attempt < MaxBatchGetAttempts; attempt++)
             {
                 if (attempt > 0)
                 {
@@ -217,10 +350,10 @@ public sealed class UserRepository : IUserRepository
                     foreach (var item in items)
                     {
                         var id = item.TryGetValue("userId", out var uid) ? uid.S : null;
-                        var phone = item.TryGetValue("phoneNumber", out var pn) ? pn.S : null;
-                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(phone))
+                        var value = item.TryGetValue(attribute, out var av) ? av.S : null;
+                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(value))
                         {
-                            phones[id] = phone;
+                            values[id] = value;
                         }
                     }
                 }
@@ -231,7 +364,7 @@ public sealed class UserRepository : IUserRepository
             }
         }
 
-        return phones;
+        return values;
     }
 
     public async Task<UserDto?> GetUserByFaydaIdAsync(string faydaId)
@@ -355,6 +488,10 @@ public sealed class UserRepository : IUserRepository
             DeletionState = item.TryGetValue("deletionState", out var ds) && ds.S != null ? ds.S : null,
             DeletionRequestedAt = item.TryGetValue("deletionRequestedAt", out var dra) && dra.S != null ? dra.S : null,
             DeletedAt = item.TryGetValue("deletedAt", out var da) && da.S != null ? da.S : null,
+            Reputation = ReputationEventRepository.SnapshotFromItem(item),
+            RatingSum = item.TryGetValue("ratingSum", out var rs) && long.TryParse(rs.N, out var sum) ? sum : 0,
+            RatingCount = item.TryGetValue("ratingCount", out var rc) && long.TryParse(rc.N, out var count) ? count : 0,
+            RatingsAggregatedAt = item.TryGetValue("ratingsAggregatedAt", out var raa) && raa.S != null ? raa.S : null,
             CreatedAt = item["createdAt"].S,
             UpdatedAt = item["updatedAt"].S,
             Version = item.TryGetValue("version", out var ver) && ver.N != null ? int.Parse(ver.N) : 1

@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { subjectForFin } = require('./crypto');
 
 // Seeded test identities. FINs are 16 digits like real Fayda FINs.
 // The WeredaConnect server decides what each identity means (for example,
@@ -23,15 +24,20 @@ const FAMILY_NAMES = ['Abdi', 'Alemu', 'Bekele', 'Desta', 'Gebre', 'Girma', 'Hai
 
 const isValidFin = (fin) => typeof fin === 'string' && /^\d{16}$/.test(fin);
 
+/** A stable name for [seed]: the same seed always picks the same person. */
+function syntheticName(seed) {
+  const h = crypto.createHash('sha256').update(seed).digest();
+  const givenName = GIVEN_NAMES[h[0] % GIVEN_NAMES.length];
+  const familyName = FAMILY_NAMES[h[1] % FAMILY_NAMES.length];
+  return { name: `${givenName} ${familyName}`, givenName, familyName };
+}
+
 /**
  * Synthetic identity for a FIN outside the seeded list. It carries no phone,
  * so the server cannot treat the phone as Fayda-proven and asks for the SMS OTP.
  */
 function syntheticUser(fin) {
-  const h = crypto.createHash('sha256').update(`fayda-mock-name:${fin}`).digest();
-  const givenName = GIVEN_NAMES[h[0] % GIVEN_NAMES.length];
-  const familyName = FAMILY_NAMES[h[1] % FAMILY_NAMES.length];
-  return { fin, name: `${givenName} ${familyName}`, givenName, familyName, phone: null, hint: 'synthetic', synthetic: true };
+  return { fin, ...syntheticName(`fayda-mock-name:${fin}`), phone: null, hint: 'synthetic', synthetic: true };
 }
 
 /** Seeded user for a known FIN, synthetic user for any other 16-digit FIN, else null. */
@@ -39,6 +45,23 @@ function findUser(fin) {
   if (!isValidFin(fin)) return null;
   return TEST_USERS.find((u) => u.fin === fin) || syntheticUser(fin);
 }
+
+/**
+ * The identity behind a subject the relying party already holds (the app's
+ * login_hint at payment or profile verification). A seeded user's subject gives
+ * that user back; any other subject is honoured as it is, since the FIN behind a
+ * generated or typed identity is not kept anywhere: a sub-only identity with a
+ * stable synthetic name, no FIN claim and no phone. Null for an empty subject.
+ */
+function userForSub(sub) {
+  if (typeof sub !== 'string' || !sub) return null;
+  const seeded = TEST_USERS.find((u) => subjectForFin(u.fin) === sub);
+  if (seeded) return seeded;
+  return { sub, fin: null, ...syntheticName(`fayda-mock-sub:${sub}`), phone: null, hint: 'account identity', synthetic: true };
+}
+
+/** The subject a user signs in as: its own for a sub-only identity, else derived from the FIN. */
+const subjectOf = (user) => user.sub || subjectForFin(user.fin);
 
 /**
  * Ethiopian mobile number in the server's canonical form (+2519XXXXXXXX or
@@ -78,4 +101,6 @@ function generateFin() {
   }
 }
 
-module.exports = { TEST_USERS, findUser, isValidFin, generateFin, normalizePhone, userForPhone };
+module.exports = {
+  TEST_USERS, findUser, isValidFin, generateFin, normalizePhone, userForPhone, userForSub, subjectOf,
+};

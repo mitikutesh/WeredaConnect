@@ -699,6 +699,262 @@ public class EscrowFunctionTests
         Assert.Equal(400, response.StatusCode);
     }
 
+    // SIM-27 (escrow-protocol 1.37.0): a missing or blank field answers that field's code, not
+    // ESCROW_001 "Invalid JSON", and nothing is read.
+    [Theory]
+    [InlineData("escrowId", "ESCROW_VALIDATION")]
+    [InlineData("trigger", "ESCROW_VALIDATION")]
+    [InlineData("idempotencyKey", "ESCROW_003")]
+    public async Task HandleRelease_MissingField_AnswersThatFieldsCode(string field, string code)
+    {
+        var body = new Dictionary<string, string>
+        {
+            ["escrowId"] = "escrow-001",
+            ["trigger"] = "delivery_confirmed",
+            ["deliveryId"] = "delivery-001",
+            ["idempotencyKey"] = "system:escrow-001:release:1708171200000",
+        };
+        body.Remove(field);
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/release", JsonSerializer.Serialize(body), "system"), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+        await _mockEscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+    }
+
+    // FUP-139 (escrow-protocol 2.5.0): deliveryId is optional on a release. A self-pickup escrow has no
+    // delivery, so a body without one (absent, null or blank) is not refused for it and reaches the service.
+    [Theory]
+    [InlineData("")]
+    [InlineData(",\"deliveryId\":null")]
+    [InlineData(",\"deliveryId\":\" \"")]
+    public async Task HandleRelease_WithoutDeliveryId_IsNotRefusedForIt(string deliveryJson)
+    {
+        var body = "{\"escrowId\":\"escrow-001\",\"trigger\":\"delivery_confirmed\","
+                   + "\"idempotencyKey\":\"system:escrow-001:release:1708171200000\"" + deliveryJson + "}";
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/release", body, "system"), _context);
+
+        Assert.DoesNotContain("ESCROW_002", response.Body);
+        Assert.DoesNotContain("\"field\":\"deliveryId\"", response.Body);
+        await _mockEscrowRepo.Received().GetByIdAsync("escrow-001");
+    }
+
+    [Fact]
+    public async Task HandleRelease_BlankEscrowId_AnswersEscrowValidation()
+    {
+        var body = "{\"escrowId\":\" \",\"trigger\":\"delivery_confirmed\",\"deliveryId\":\"d-1\","
+                   + "\"idempotencyKey\":\"system:escrow-001:release:1708171200000\"}";
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/release", body, "system"), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"ESCROW_VALIDATION\"", response.Body);
+        Assert.Contains("\"field\":\"escrowId\"", response.Body);
+    }
+
+    [Theory]
+    [InlineData("escrowId", "ESCROW_VALIDATION")]
+    [InlineData("trigger", "ESCROW_VALIDATION")]
+    [InlineData("idempotencyKey", "ESCROW_003")]
+    public async Task HandleRefund_MissingField_AnswersThatFieldsCode(string field, string code)
+    {
+        var body = new Dictionary<string, string>
+        {
+            ["escrowId"] = "escrow-001",
+            ["trigger"] = "delivery_timeout",
+            ["idempotencyKey"] = "system:escrow-001:refund:1708257600000",
+        };
+        body.Remove(field);
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/refund", JsonSerializer.Serialize(body), "system"), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+        await _mockEscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task HandleRefund_WithoutDeliveryId_IsNotRefusedForIt()
+    {
+        // The refund body has no deliveryId, and a release takes an optional one (FUP-139).
+        var body = "{\"escrowId\":\"escrow-001\",\"trigger\":\"delivery_timeout\","
+                   + "\"idempotencyKey\":\"system:escrow-001:refund:1708257600000\"}";
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/refund", body, "system"), _context);
+
+        Assert.DoesNotContain("deliveryId", response.Body);
+        Assert.DoesNotContain("ESCROW_002", response.Body);
+    }
+
+    // FUP-127 (escrow-protocol 2.3.0): initiate and dispute answer a missing field with that field's
+    // code, as release and refund do since SIM-27. Nothing is read or written.
+    private static Dictionary<string, object> InitiateBody() => new()
+    {
+        ["deliveryId"] = "delivery-001",
+        ["buyerId"] = BuyerId,
+        ["farmerId"] = FarmerId,
+        ["amount"] = 500.00m,
+        ["currency"] = "ETB",
+        ["idempotencyKey"] = $"{BuyerId}:delivery-001:initiate:1708084800000",
+    };
+
+    private static Dictionary<string, object> DisputeBody() => new()
+    {
+        ["escrowId"] = "escrow-001",
+        ["disputedBy"] = BuyerId,
+        ["reason"] = "damaged_goods",
+        ["idempotencyKey"] = $"{BuyerId}:escrow-001:dispute:1708171200000",
+    };
+
+    [Theory]
+    [InlineData("deliveryId", "ESCROW_002")]
+    [InlineData("buyerId", "ESCROW_VALIDATION")]
+    [InlineData("farmerId", "ESCROW_VALIDATION")]
+    [InlineData("amount", "ESCROW_001")]
+    [InlineData("currency", "ESCROW_004")]
+    [InlineData("idempotencyKey", "ESCROW_003")]
+    public async Task HandleInitiate_MissingField_AnswersThatFieldsCode(string field, string code)
+    {
+        var body = InitiateBody();
+        body.Remove(field);
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/initiate", JsonSerializer.Serialize(body), BuyerId), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+        Assert.DoesNotContain("Invalid JSON", response.Body);
+        await _mockIdempotencyRepo.DidNotReceive().GetAsync(Arg.Any<string>());
+        await _mockEscrowRepo.DidNotReceive().GetByDeliveryIdAsync(Arg.Any<string>());
+    }
+
+    [Theory]
+    [InlineData("deliveryId", "null", "ESCROW_002")]
+    [InlineData("deliveryId", "\" \"", "ESCROW_002")]
+    [InlineData("buyerId", "null", "ESCROW_VALIDATION")]
+    [InlineData("farmerId", "\"\"", "ESCROW_VALIDATION")]
+    [InlineData("amount", "0", "ESCROW_001")]
+    [InlineData("currency", "null", "ESCROW_004")]
+    [InlineData("idempotencyKey", "\"\"", "ESCROW_003")]
+    public async Task HandleInitiate_NullOrBlankField_AnswersThatFieldsCode(string field, string json, string code)
+    {
+        var body = JsonSerializer.Serialize(InitiateBody());
+        var current = JsonSerializer.Serialize(InitiateBody()[field]);
+        body = body.Replace($"\"{field}\":{current}", $"\"{field}\":{json}");
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/initiate", body, BuyerId), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleInitiate_MissingField_IsAnsweredBeforeTheRole()
+    {
+        // As on release and refund: the body is answered where a malformed one is, so a caller of
+        // any role learns which field is missing.
+        var body = InitiateBody();
+        body.Remove("deliveryId");
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/initiate", JsonSerializer.Serialize(body), FarmerId, role: "farmer"), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"ESCROW_002\"", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleInitiate_AllFieldsPresent_IsNotRefusedAsMissing()
+    {
+        // The full body still reaches the role check: a farmer is refused for the role, not a field.
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/initiate", JsonSerializer.Serialize(InitiateBody()), FarmerId, role: "farmer"),
+            _context);
+
+        Assert.Equal(403, response.StatusCode);
+        Assert.Contains("\"code\":\"ESCROW_025\"", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleInitiate_MalformedJson_StillAnswersEscrow001InvalidJson()
+    {
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/initiate", body: "{{bad json", userId: BuyerId), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"ESCROW_001\"", response.Body);
+        Assert.Contains("Invalid JSON", response.Body);
+    }
+
+    [Theory]
+    [InlineData("escrowId", "ESCROW_VALIDATION")]
+    [InlineData("disputedBy", "ESCROW_VALIDATION")]
+    [InlineData("reason", "ESCROW_017")]
+    [InlineData("idempotencyKey", "ESCROW_003")]
+    public async Task HandleDispute_MissingField_AnswersThatFieldsCode(string field, string code)
+    {
+        var body = DisputeBody();
+        body.Remove(field);
+
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", JsonSerializer.Serialize(body), BuyerId), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+        Assert.DoesNotContain("Invalid JSON", response.Body);
+        await _mockEscrowRepo.DidNotReceive().GetByIdAsync(Arg.Any<string>());
+        await _mockIdempotencyRepo.DidNotReceive().GetAsync(Arg.Any<string>());
+    }
+
+    [Theory]
+    [InlineData("escrowId", "null", "ESCROW_VALIDATION")]
+    [InlineData("disputedBy", "\" \"", "ESCROW_VALIDATION")]
+    [InlineData("reason", "null", "ESCROW_017")]
+    [InlineData("idempotencyKey", "\"\"", "ESCROW_003")]
+    public async Task HandleDispute_NullOrBlankField_AnswersThatFieldsCode(string field, string json, string code)
+    {
+        var body = JsonSerializer.Serialize(DisputeBody());
+        var current = JsonSerializer.Serialize(DisputeBody()[field]);
+        body = body.Replace($"\"{field}\":{current}", $"\"{field}\":{json}");
+
+        var response = await _function.FunctionHandler(MakePostRequest("/escrow/dispute", body, BuyerId), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains($"\"code\":\"{code}\"", response.Body);
+        Assert.Contains($"\"field\":\"{field}\"", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleDispute_WithoutOptionalFields_IsNotRefusedAsMissing()
+    {
+        // description and evidenceRefs are optional: the body goes on to the escrow read (no such escrow).
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", JsonSerializer.Serialize(DisputeBody()), BuyerId), _context);
+
+        Assert.Equal(404, response.StatusCode);
+        Assert.Contains("\"code\":\"ESCROW_016\"", response.Body);
+    }
+
+    [Fact]
+    public async Task HandleDispute_MalformedJson_StillAnswersEscrow001InvalidJson()
+    {
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", body: "{{bad json", userId: BuyerId), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"ESCROW_001\"", response.Body);
+        Assert.Contains("Invalid JSON", response.Body);
+    }
+
     [Fact]
     public async Task HandleDispute_InvalidJson_Returns400()
     {
@@ -959,6 +1215,99 @@ public class EscrowFunctionTests
         Assert.Contains("ESCROW_020", response.Body);
     }
 
+    // ── FRD-09: a buyer's dispute feeds the buyer's dispute rate ──
+
+    private (EscrowFunction Function, IFraudDetectionService Fraud) FunctionWithPatternRules()
+    {
+        var fraud = Substitute.For<IFraudDetectionService>();
+        var service = new EscrowService(_mockEscrowRepo, _mockAuditRepo, _mockIdempotencyRepo, _mockTelebirrGateway);
+        var function = new EscrowFunction(service, fraud)
+        {
+            PatternRules = new TransactionPatternService(null, _mockEscrowRepo, TransactionPatternSettings.Default)
+        };
+        return (function, fraud);
+    }
+
+    private static Dictionary<string, object> PastEscrow(string id, string status, string? disputedBy = null)
+    {
+        var escrow = new Dictionary<string, object>
+        {
+            { "escrowId", id }, { "buyerId", BuyerId }, { "status", status },
+            { "createdAt", DateTime.UtcNow.AddDays(-10).ToString("o", System.Globalization.CultureInfo.InvariantCulture) }
+        };
+        if (disputedBy != null)
+        {
+            escrow["disputedBy"] = disputedBy;
+        }
+
+        return escrow;
+    }
+
+    [Fact]
+    public async Task Dispute_BuyerWhoDisputesOften_IsFlaggedWithTheEscrow()
+    {
+        SetupEscrow("escrow-small", 5_000m);
+        _mockEscrowRepo.QueryByBuyerAsync(BuyerId, null, 50, null).Returns((new List<Dictionary<string, object>>
+        {
+            PastEscrow("e-1", "dispute_resolved", disputedBy: BuyerId),
+            PastEscrow("e-2", "completed"), PastEscrow("e-3", "completed"), PastEscrow("e-4", "released")
+        }, (Dictionary<string, AttributeValue>?)null));
+        var (function, fraud) = FunctionWithPatternRules();
+
+        var response = await function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-small"), BuyerId), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await fraud.Received(1).RecordFraudSignalAsync(BuyerId, "DISPUTE_RATE", "escrow-small", "escrow",
+            Arg.Is<string>(d => d.StartsWith("The buyer disputed 2 of 5 paid orders")));
+    }
+
+    [Fact]
+    public async Task Dispute_BuyersFirstDisputes_AreNotFlagged()
+    {
+        SetupEscrow("escrow-small", 5_000m);
+        _mockEscrowRepo.QueryByBuyerAsync(BuyerId, null, 50, null).Returns((new List<Dictionary<string, object>>
+        {
+            PastEscrow("e-1", "completed"), PastEscrow("e-2", "completed"), PastEscrow("e-3", "completed"),
+            PastEscrow("e-4", "completed")
+        }, (Dictionary<string, AttributeValue>?)null));
+        var (function, fraud) = FunctionWithPatternRules();
+
+        var response = await function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-small"), BuyerId), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+    }
+
+    [Fact]
+    public async Task Dispute_HistoryReadFails_TheDisputeStillSucceeds()
+    {
+        SetupEscrow("escrow-small", 5_000m);
+        _mockEscrowRepo.QueryByBuyerAsync(BuyerId, null, 50, null).ThrowsAsync(new ProvisionedThroughputExceededException("busy"));
+        var (function, fraud) = FunctionWithPatternRules();
+
+        var response = await function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-small"), BuyerId), _context);
+
+        Assert.Equal(200, response.StatusCode);
+        await fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+        Assert.Contains("Pattern check dispute_rate skipped for escrow", ((TestLambdaLogger)_context.Logger).Buffer.ToString());
+    }
+
+    [Fact]
+    public async Task Dispute_RefusedDispute_ReadsNoHistory()
+    {
+        SetupEscrow("escrow-big", 15_000m); // a stale password: AUTH_040, nothing disputed
+        var (function, _) = FunctionWithPatternRules();
+
+        var response = await function.FunctionHandler(
+            MakePostRequest("/escrow/dispute", DisputeBody("escrow-big"), BuyerId), _context);
+
+        Assert.Equal(403, response.StatusCode);
+        await _mockEscrowRepo.DidNotReceiveWithAnyArgs().QueryByBuyerAsync(default!, default, default, default);
+    }
+
     [Fact]
     public async Task Dispute_NonParty_GetsServiceErrorNotStepUp()
     {
@@ -1131,6 +1480,34 @@ public class EscrowFunctionTests
 
         Assert.Equal(400, response.StatusCode);
         Assert.Contains("ESCROW_033", response.Body);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"orderId":null}""")]
+    [InlineData("""{"orderId":" "}""")]
+    public async Task OrderCheckout_MissingOrderId_NamesTheField(string body)
+    {
+        // FUP-148 (escrow-protocol 2.26.0): an absent orderId was "Invalid JSON in request body." with no
+        // field; now it is answered as a null or blank one.
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/order-checkout", body, BuyerId), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"code\":\"ESCROW_033\"", response.Body);
+        Assert.Contains("\"message\":\"orderId is required.\"", response.Body);
+        Assert.Contains("\"field\":\"orderId\"", response.Body);
+    }
+
+    [Fact]
+    public async Task OrderCheckout_BodyNotJson_KeepsInvalidJsonWithoutAField()
+    {
+        var response = await _function.FunctionHandler(
+            MakePostRequest("/escrow/order-checkout", "{{bad json", BuyerId), _context);
+
+        Assert.Equal(400, response.StatusCode);
+        Assert.Contains("\"message\":\"Invalid JSON in request body.\"", response.Body);
+        Assert.DoesNotContain("\"field\"", response.Body);
     }
 
     [Fact]

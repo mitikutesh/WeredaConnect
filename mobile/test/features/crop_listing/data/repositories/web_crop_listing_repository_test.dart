@@ -2,10 +2,12 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/web_crop_listing_repository.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import '../../../../helpers/crop_photo_fixtures.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -16,7 +18,10 @@ void main() {
 
     setUp(() {
       api = _MockApiClient();
-      repository = WebCropListingRepository(api: api);
+      repository = WebCropListingRepository(
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
     });
 
     test('parses the {"crop": {...}} envelope (API field names)', () async {
@@ -41,6 +46,49 @@ void main() {
       expect(listing!.listingId, 'crop-1');
       expect(listing.cropType, 'teff');
       expect(listing.quantity, 100);
+    });
+
+    test('ESC-31: reads the owner reputation copy when the row carries it',
+        () async {
+      Map<String, dynamic> row(Map<String, dynamic> extra) => {
+            'crop': {
+              'cropId': 'crop-1',
+              'farmerId': 'farmer-1',
+              'cropType': 'teff',
+              'quantityKg': 100,
+              'pricePerKg': 55,
+              'status': 'available',
+              'createdAt': '2026-07-11T00:00:00.000Z',
+              'updatedAt': '2026-07-11T00:00:00.000Z',
+              'version': 1,
+              ...extra,
+            },
+          };
+      when(() => api.get<Map<String, dynamic>>('/crops/crop-1')).thenAnswer(
+        (_) async => row({
+          'ownerTier': 'low',
+          'ownerEffectiveRating': 4.2,
+          'ownerRatingCount': 12,
+          'ownerReliabilityPct': 83,
+          'ownerReputationAt': '2026-11-07T09:00:00.000Z',
+        }),
+      );
+      final listing = (await repository.getListingById('crop-1'))!;
+      expect(listing.ownerTier, 'low');
+      expect(listing.ownerEffectiveRating, 4.2);
+      expect(listing.ownerRatingCount, 12);
+      expect(listing.ownerReliabilityPct, 83);
+      expect(listing.ownerReputationAt, DateTime.utc(2026, 11, 7, 9));
+
+      // The public reputation flag is off: no owner field, as today.
+      when(() => api.get<Map<String, dynamic>>('/crops/crop-1'))
+          .thenAnswer((_) async => row(const {}));
+      final plain = (await repository.getListingById('crop-1'))!;
+      expect(plain.ownerTier, isNull);
+      expect(plain.ownerEffectiveRating, isNull);
+      expect(plain.ownerRatingCount, isNull);
+      expect(plain.ownerReliabilityPct, isNull);
+      expect(plain.ownerReputationAt, isNull);
     });
 
     test('returns null on failure (offline / 403 / 404)', () async {
@@ -78,7 +126,10 @@ void main() {
 
     setUp(() {
       api = _MockApiClient();
-      repository = WebCropListingRepository(api: api);
+      repository = WebCropListingRepository(
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
       when(
         () => api.get<Map<String, dynamic>>(
           '/crops',
@@ -139,7 +190,205 @@ void main() {
       ).captured;
       expect(captured, hasLength(1));
       final params = captured.single as Map<String, dynamic>;
-      expect(params, {'status': 'available', 'limit': '100'});
+      expect(params, {'status': 'available', 'limit': '50'});
+    });
+  });
+
+  // FUP-126: the farmer's own lists read the first page (20) only.
+  group('WebCropListingRepository farmer lists over every page (FUP-126)', () {
+    late _MockApiClient api;
+    late WebCropListingRepository repository;
+    late List<Map<String, dynamic>> sent;
+
+    Map<String, dynamic> crop(String id, String status) => {
+          'cropId': id,
+          'farmerId': 'farmer-1',
+          'cropType': 'teff',
+          'quantityKg': 10,
+          'pricePerKg': 50,
+          'status': status,
+          'createdAt': '2026-11-01T00:00:00.000Z',
+          'updatedAt': '2026-11-01T00:00:00.000Z',
+          'version': 1,
+        };
+
+    /// Answers [pages] in order, recording each query.
+    void serve(List<Map<String, dynamic>> pages) {
+      var next = 0;
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/crops',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((invocation) async {
+        sent.add(
+          Map<String, dynamic>.from(
+            invocation.namedArguments[#queryParameters] as Map,
+          ),
+        );
+        return pages[next++ % pages.length];
+      });
+    }
+
+    setUp(() {
+      api = _MockApiClient();
+      repository = WebCropListingRepository(
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
+      sent = [];
+    });
+
+    test('getListingsByFarmer follows nextToken to the last page', () async {
+      serve([
+        {
+          'crops': [crop('c1', 'available'), crop('c2', 'reserved')],
+          'nextToken': 't1',
+          'hasMore': true,
+        },
+        {
+          'crops': [crop('c3', 'sold')],
+          'hasMore': false,
+        },
+      ]);
+
+      final listings = await repository.getListingsByFarmer('farmer-1');
+
+      expect(listings.map((l) => l.listingId), ['c1', 'c2', 'c3']);
+      expect(sent, [
+        {'farmerId': 'farmer-1', 'limit': '50'},
+        {'farmerId': 'farmer-1', 'limit': '50', 'nextToken': 't1'},
+      ]);
+    });
+
+    test('getListingsByFarmerFiltered keeps its filters on every page',
+        () async {
+      serve([
+        {
+          'crops': [crop('c1', 'available')],
+          'nextToken': 't1',
+        },
+        {
+          'crops': [crop('c2', 'available')],
+        },
+      ]);
+
+      final listings = await repository.getListingsByFarmerFiltered(
+        farmerId: 'farmer-1',
+        cropTypeFilter: 'teff',
+      );
+
+      expect(listings, hasLength(2));
+      expect(sent, [
+        {'farmerId': 'farmer-1', 'cropType': 'teff', 'limit': '50'},
+        {
+          'farmerId': 'farmer-1',
+          'cropType': 'teff',
+          'limit': '50',
+          'nextToken': 't1',
+        },
+      ]);
+    });
+
+    test('a token that never ends stops at maxPages', () async {
+      serve([
+        {
+          'crops': [crop('c', 'available')],
+          'nextToken': 'again',
+        },
+      ]);
+
+      final listings = await repository.getListingsByFarmer('farmer-1');
+
+      expect(sent, hasLength(WebCropListingRepository.maxPages));
+      expect(listings, hasLength(WebCropListingRepository.maxPages));
+    });
+
+    test('the buyer browse is bounded the same way', () async {
+      serve([
+        {
+          'crops': [crop('c', 'available')],
+          'nextToken': 'again',
+        },
+      ]);
+
+      await repository.getActiveListings();
+
+      expect(sent, hasLength(WebCropListingRepository.maxPages));
+      expect(sent.first, {'status': 'available', 'limit': '50'});
+    });
+  });
+
+  // FUP-149: the web parse read a status the app has no name for as
+  // `active`. The server leaves deleted listings out of its lists and
+  // answers 404 for one (crop-listing-api 1.10.0); a deleted row that still
+  // comes is left out the same way.
+  group('WebCropListingRepository deleted rows (FUP-149)', () {
+    late _MockApiClient api;
+    late WebCropListingRepository repository;
+
+    Map<String, dynamic> crop(String id, Map<String, dynamic> extra) => {
+          'cropId': id,
+          'farmerId': 'farmer-1',
+          'cropType': 'teff',
+          'quantityKg': 10,
+          'pricePerKg': 50,
+          'status': 'available',
+          'createdAt': '2026-11-01T00:00:00.000Z',
+          'updatedAt': '2026-11-01T00:00:00.000Z',
+          'version': 1,
+          ...extra,
+        };
+
+    final deletions = <Map<String, dynamic>>[
+      {'status': 'deleted', 'deletedAt': '2026-11-12T08:00:00.000Z'},
+      {'status': 'deleted'},
+      {'deletedAt': '2026-11-12T08:00:00.000Z'},
+    ];
+
+    setUp(() {
+      api = _MockApiClient();
+      repository = WebCropListingRepository(
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/crops',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'crops': [
+            crop('live', {}),
+            for (var i = 0; i < deletions.length; i++)
+              crop('gone-$i', deletions[i]),
+          ],
+        },
+      );
+    });
+
+    test("the buyer's browse leaves them out", () async {
+      final listings = await repository.getActiveListings();
+      expect(listings.map((l) => l.listingId), ['live']);
+    });
+
+    test("the farmer's own list leaves them out", () async {
+      final listings = await repository.getListingsByFarmer('farmer-1');
+      expect(listings.map((l) => l.listingId), ['live']);
+    });
+
+    test('a deleted row read by id is not found', () async {
+      for (final deletion in deletions) {
+        when(() => api.get<Map<String, dynamic>>('/crops/gone')).thenAnswer(
+          (_) async => {'crop': crop('gone', deletion)},
+        );
+        expect(
+          await repository.getListingById('gone'),
+          isNull,
+          reason: '$deletion',
+        );
+      }
     });
   });
 
@@ -153,7 +402,10 @@ void main() {
 
     setUp(() {
       api = _MockApiClient();
-      repository = WebCropListingRepository(api: api);
+      repository = WebCropListingRepository(
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
       sentBody = null;
       when(
         () => api.post<Map<String, dynamic>>(
@@ -240,6 +492,156 @@ void main() {
     });
   });
 
+  // SIM-56: the farmer's edit goes straight to the server, the changed fields
+  // only, at the version of the listing the form showed.
+  group('WebCropListingRepository.updateListing', () {
+    late _MockApiClient api;
+    late WebCropListingRepository repository;
+    Map<String, dynamic>? sentBody;
+
+    setUp(() {
+      api = _MockApiClient();
+      repository = WebCropListingRepository(
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
+      sentBody = null;
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        sentBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+        return {
+          'results': [
+            {'status': 'success'},
+          ],
+        };
+      });
+    });
+
+    CropListing formCopy({int version = 3}) => CropListing()
+      ..listingId = 'crop-1'
+      ..farmerId = 'farmer-1'
+      ..cropType = 'teff'
+      ..quantity = 10
+      ..pricePerKg = 45
+      ..description = 'Teff'
+      ..status = ListingStatus.active
+      ..version = version;
+
+    Map<String, dynamic> sentOp() =>
+        (sentBody!['operations'] as List).first as Map<String, dynamic>;
+
+    test('sends the changed fields at the version the form showed', () async {
+      final listing = formCopy();
+
+      final saved = await repository.updateListing(
+        listing: listing,
+        farmerId: 'farmer-1',
+        quantity: 42.5,
+        description: 'White teff',
+      );
+
+      final op = sentOp();
+      expect(op['entityType'], 'crop_listing');
+      expect(op['action'], 'update');
+      expect(op['entityId'], 'crop-1');
+      expect(op['data'], {
+        'listingId': 'crop-1',
+        'quantity': 42.5,
+        'description': 'White teff',
+        'version': 3,
+      });
+      expect(saved.quantity, 42.5);
+      expect(saved.pricePerKg, 45);
+      expect(saved.description, 'White teff');
+      expect(saved.version, 4);
+      // No read at save time: the version is the form's.
+      verifyNever(() => api.get<Map<String, dynamic>>(any()));
+    });
+
+    test('changed since the form opened is not overwritten', () async {
+      // My Crops showed 10 quintals at version 2; a buyer's funding took 4
+      // since (version 3 on the server). A price-only edit goes at version 2
+      // without the stock, and the server's conflict fails the save.
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        sentBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+        return {
+          'results': [
+            {'status': 'conflict', 'message': 'Version conflict.'},
+          ],
+        };
+      });
+      final listing = formCopy(version: 2);
+
+      await expectLater(
+        repository.updateListing(
+          listing: listing,
+          farmerId: 'farmer-1',
+          pricePerKg: 50,
+        ),
+        throwsA(isA<SyncConflictException>()),
+      );
+
+      expect(sentOp()['data'], {
+        'listingId': 'crop-1',
+        'pricePerKg': 50,
+        'version': 2,
+      });
+      verifyNever(() => api.get<Map<String, dynamic>>(any()));
+      // The form's copy is left as it was.
+      expect(listing.pricePerKg, 45);
+      expect(listing.version, 2);
+    });
+
+    test("another farmer's listing is refused before anything is sent",
+        () async {
+      await expectLater(
+        repository.updateListing(
+          listing: formCopy(),
+          farmerId: 'farmer-2',
+          pricePerKg: 50,
+        ),
+        throwsStateError,
+      );
+      expect(sentBody, isNull);
+    });
+
+    test('a refusal throws with the server message', () async {
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'results': [
+            {
+              'status': 'error',
+              'message': 'CROP_CONTACT_IN_TEXT: Remove the phone number.',
+            },
+          ],
+        },
+      );
+
+      await expectLater(
+        repository.updateListing(
+          listing: formCopy(),
+          farmerId: 'farmer-1',
+          description: 'Call me',
+        ),
+        throwsA(isA<SyncRejectedException>()),
+      );
+    });
+  });
+
   // ESC-12 part B (sync-protocol.md 1.17.0): web has no queue, so a refusal
   // is a failure that carries the server message for its own text.
   group('WebCropListingRepository part B refusals (FUP-01)', () {
@@ -248,7 +650,10 @@ void main() {
 
     setUp(() {
       api = _MockApiClient();
-      repository = WebCropListingRepository(api: api);
+      repository = WebCropListingRepository(
+        api: api,
+        photoUploader: FakeCropPhotoUploader(),
+      );
       when(() => api.get<Map<String, dynamic>>('/crops/crop-1')).thenAnswer(
         (_) async => {
           'crop': {'cropId': 'crop-1', 'farmerId': 'farmer-1', 'version': 3},
@@ -281,6 +686,7 @@ void main() {
 
         await expectLater(
           repository.createListing(
+            photos: testCropPhotos(),
             farmerId: 'farmer-1',
             cropType: 'teff',
             quantity: 10,

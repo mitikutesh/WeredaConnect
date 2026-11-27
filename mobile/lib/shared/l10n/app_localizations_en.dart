@@ -32,7 +32,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get offlineMode => 'Offline Mode';
 
   @override
-  String get syncPending => 'Sync Pending';
+  String get syncPending => 'Waiting to be sent';
 
   @override
   String get taglineShort => 'Connecting Farmers, Truckers & Buyers';
@@ -41,19 +41,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get telebirrPayment => 'Telebirr Payment';
 
   @override
-  String get syncInProgress => 'Syncing...';
+  String get syncInProgress => 'Sending...';
 
   @override
-  String get syncComplete => 'Sync Complete';
+  String get syncComplete => 'Everything is sent';
 
   @override
-  String get syncFailed => 'Sync Failed';
+  String get syncFailed => 'Not sent';
 
   @override
   String get retry => 'Retry';
 
   @override
-  String get syncNow => 'Sync Now';
+  String get syncNow => 'Send now';
 
   @override
   String get selectLanguagePrompt => 'Select Your Language';
@@ -124,8 +124,15 @@ class AppLocalizationsEn extends AppLocalizations {
       'This order could not be placed, so it was removed. Please order again.';
 
   @override
-  String get errorChangeNotSaved =>
-      'This change could not be saved on the server.';
+  String get errorChangeNotSaved => 'This change was not accepted.';
+
+  @override
+  String get errorListingDetailsNotAccepted =>
+      'Your crop listing details were not accepted. Check them and try again.';
+
+  @override
+  String get errorTripDetailsNotAccepted =>
+      'Your trip details were not accepted. Check them and try again.';
 
   @override
   String get showingCachedResults =>
@@ -136,7 +143,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your data will sync when you\'re back online';
 
   @override
-  String get offlineReady => 'Offline Ready';
+  String get offlineReady => 'Works without network';
 
   @override
   String get home => 'Home';
@@ -203,6 +210,11 @@ class AppLocalizationsEn extends AppLocalizations {
       'Connecting Ethiopian farmers, truckers, and buyers';
 
   @override
+  String aboutMapDataCredit(String credit) {
+    return 'Map data: $credit';
+  }
+
+  @override
   String get activeListings => 'active listings';
 
   @override
@@ -213,6 +225,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get password => 'Password';
+
+  @override
+  String get showPassword => 'Show password';
+
+  @override
+  String get hidePassword => 'Hide password';
 
   @override
   String get confirmPassword => 'Confirm Password';
@@ -276,6 +294,51 @@ class AppLocalizationsEn extends AppLocalizations {
   String get forgotPassword => 'Forgot Password?';
 
   @override
+  String get loginYourRole => 'Your role';
+
+  @override
+  String get loginAsFarmer => 'Login as Farmer';
+
+  @override
+  String get loginAsTrucker => 'Login as Trucker';
+
+  @override
+  String get loginAsBuyer => 'Login as Buyer';
+
+  @override
+  String get loginTaglineFarmer => 'Sell your harvest and follow every order';
+
+  @override
+  String get loginTaglineTrucker => 'Fill your truck and get paid on delivery';
+
+  @override
+  String get loginTaglineBuyer => 'Find crops and transport in one place';
+
+  @override
+  String get orderCheckoutApproveNote =>
+      'You need to approve the payment in Telebirr. Then the money is held in escrow until you confirm delivery.';
+
+  @override
+  String get paymentNotPaidPill => 'Not paid';
+
+  @override
+  String get paymentFailedTitle => 'Payment did not go through';
+
+  @override
+  String get paymentFailedBody =>
+      'No money was taken from your Telebirr account, and your order is still saved.';
+
+  @override
+  String get paymentTryAgain => 'Try payment again';
+
+  @override
+  String get paymentOfflineBody =>
+      'Payment needs a connection. Your order is saved on this phone.';
+
+  @override
+  String get paymentBackToOrder => 'Back to order';
+
+  @override
   String get getStarted => 'Get Started';
 
   @override
@@ -285,7 +348,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get loginOffline => 'Login Offline';
 
   @override
-  String get offlineModeIndicator => 'You are in offline mode';
+  String get offlineModeIndicator =>
+      'No network. Your work is saved on your phone.';
 
   @override
   String get passwordRequirements =>
@@ -456,9 +520,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get selectCropType => 'Select Crop Type';
 
   @override
-  String get quantityInQuintals => 'Quantity (quintals)';
-
-  @override
   String get priceInBirr => 'Price (ETB/kg)';
 
   @override
@@ -494,6 +555,32 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get listingDeleted => 'Listing deleted';
+
+  @override
+  String get editListing => 'Edit listing';
+
+  @override
+  String get editListingNote =>
+      'Change how much is left, the price or the description. To change the crop, the photos or the place, delete this listing and list it again.';
+
+  @override
+  String get deleteListingTitle => 'Delete this listing?';
+
+  @override
+  String get deleteListingBody =>
+      'Buyers will no longer see it. This cannot be undone.';
+
+  @override
+  String get editListingChanged =>
+      'This listing changed since you opened it, maybe an order took some. Check it and edit again.';
+
+  @override
+  String get editListingWaiting =>
+      'Your last change to this listing has not been sent yet. Edit it again once you are online and it has gone out.';
+
+  @override
+  String get deleteListingOrdersUnreadable =>
+      'Could not check this listing\'s orders. Try again when you are online.';
 
   @override
   String get allCrops => 'All';
@@ -558,6 +645,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get myTrips => 'My Trips';
 
   @override
+  String get listsRouteFrom => 'From';
+
+  @override
+  String get listsRouteTo => 'To';
+
+  @override
+  String get listsMyTripsPrivacyNote =>
+      'Only you see your trips here. Buyers find them in the Market.';
+
+  @override
+  String get listsAllTripsNote => 'Every open trip from every trucker.';
+
+  @override
+  String get listsKeepTrip => 'Keep trip';
+
+  @override
   String get tripDetails => 'Trip Details';
 
   @override
@@ -568,12 +671,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get departureDate => 'Departure Date';
-
-  @override
-  String get capacity => 'Capacity (quintals)';
-
-  @override
-  String get pricePerQuintal => 'Price per Quintal (ETB)';
 
   @override
   String get tripStatusOpen => 'Open';
@@ -622,10 +719,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get capacityRequired => 'Capacity is required';
-
-  @override
-  String get invalidCapacity =>
-      'Capacity must be between 0.1 and 1000 quintals';
 
   @override
   String get invalidPrice => 'Price must be between 0.01 and 10000 ETB';
@@ -679,6 +772,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryDetails => 'Delivery Details';
+
+  @override
+  String get restDeliveryTimeline => 'Delivery Timeline';
 
   @override
   String get deliveryScanQrCode => 'Scan QR Code';
@@ -783,7 +879,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get deliveryGpsNotCaptured => 'Not captured';
 
   @override
-  String get deliveryGpsPermissionDenied => 'Location permission denied';
+  String get deliveryGpsPermissionDenied =>
+      'Location was not allowed. Tap Try location again and allow it.';
 
   @override
   String get deliveryQrShowInstructionBuyer =>
@@ -873,6 +970,15 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deliveryAddPhoto => 'Add Photo';
+
+  @override
+  String get restNoPhoto => 'No photo';
+
+  @override
+  String get deliveryPhotoOnlineOnly => 'Shows when online';
+
+  @override
+  String get deliveryPhotoFailed => 'The photo could not be saved. Try again.';
 
   @override
   String get deliveryMarkInTransit => 'Mark In Transit';
@@ -971,6 +1077,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String escrowCommission(String rate) {
     return 'Commission ($rate%)';
   }
+
+  @override
+  String get escrowPlatformCommission => 'Platform Commission';
 
   @override
   String get escrowFarmerReceives => 'Farmer Receives';
@@ -1210,6 +1319,19 @@ class AppLocalizationsEn extends AppLocalizations {
       'A dispute can be opened only after the goods are picked up. Before pickup, cancel the order instead, or contact support.';
 
   @override
+  String get escrowErrorDisputeRefundScheduled =>
+      'A refund to the buyer is already scheduled for this payment, so it can no longer be disputed. Contact support if you disagree.';
+
+  @override
+  String get escrowErrorDisputeGoodsOnTheWay =>
+      'The goods are still on the way. You can report them as not delivered once the delivery deadline has passed. For another problem, choose another reason.';
+
+  @override
+  String escrowErrorDisputeGoodsOnTheWayAfter(String time) {
+    return 'The goods are still on the way. You can report them as not delivered after $time. For another problem, choose another reason.';
+  }
+
+  @override
   String get escrowErrorInvalidTransition =>
       'This action is not allowed in the current payment state.';
 
@@ -1217,6 +1339,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String escrowEtbAmount(String amount) {
     return 'ETB $amount';
   }
+
+  @override
+  String get profileSectionAccount => 'Account';
+
+  @override
+  String get profileSectionMoney => 'Money';
+
+  @override
+  String get profileSectionApp => 'App';
+
+  @override
+  String get profileSettingsLanguageTime => 'Language and time';
+
+  @override
+  String get profileSettingsData => 'Data';
 
   @override
   String get profileRestartApp => 'Please restart the app';
@@ -1487,27 +1624,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get filterMax => 'Max';
 
   @override
-  String get selectTrip => 'Select Trip';
-
-  @override
-  String get buyerInformation => 'Buyer Information';
-
-  @override
-  String get buyerNameLabel => 'Buyer Name';
-
-  @override
-  String get buyerPhoneIdLabel => 'Buyer Phone / ID';
-
-  @override
-  String get buyerNameRequired => 'Buyer name is required';
-
-  @override
-  String get buyerIdRequired => 'Buyer phone or ID is required';
-
-  @override
-  String get tripSelectionRequired => 'Please select a trip';
-
-  @override
   String get chooseTripHint => 'Choose a trip';
 
   @override
@@ -1521,6 +1637,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get copiedToClipboard => 'Copied to clipboard';
+
+  @override
+  String ratingStarsOf(int count, int max) {
+    return '$count of $max stars';
+  }
 
   @override
   String get forgotPasswordContactSupport =>
@@ -2019,6 +2140,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get trackBuyerPayments => 'Track your payments & escrow';
 
   @override
+  String get listsPaymentsNote =>
+      'Each row is one escrow. Tap it for the timeline.';
+
+  @override
   String get noDeliveries => 'No deliveries yet';
 
   @override
@@ -2068,7 +2193,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get splashSubtitle =>
-      'One platform for farmers, truckers, and buyers — with secure escrow.';
+      'One platform for farmers, truckers, and buyers, with secure escrow.';
 
   @override
   String get orderFunded => 'Funded';
@@ -2122,9 +2247,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get transportCost => 'Transport Cost';
-
-  @override
-  String get platformCommission => 'Platform Commission (5%)';
 
   @override
   String get orderTotal => 'Total';
@@ -2286,6 +2408,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get orderTimeline => 'Order Timeline';
 
   @override
+  String get orderTimelineStepDone => 'Done';
+
+  @override
+  String get orderTimelineStepNow => 'Now';
+
+  @override
+  String get orderTimelineStepLater => 'Not yet';
+
+  @override
   String etbCurrency(String amount) {
     return '$amount ETB';
   }
@@ -2339,6 +2470,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String restMatchesFor(String crop) {
+    return 'Matches for $crop';
+  }
+
+  @override
   String get noMatchesYet => 'No matches yet';
 
   @override
@@ -2388,11 +2524,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get transportCostLabel => 'Transport Cost';
 
   @override
-  String get commissionLabel => 'Commission (5%)';
-
-  @override
   String syncedAgo(String time) {
-    return 'Synced $time ago';
+    return 'Updated $time ago';
   }
 
   @override
@@ -2421,7 +2554,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get enterDeliveryWoredaError => 'Enter your delivery woreda';
 
   @override
-  String get maxPriceOptionalHint => 'Optional — leave empty to see all prices';
+  String get maxPriceOptionalHint =>
+      'Price is optional. Leave it empty to see all prices.';
 
   @override
   String get anyPrice => 'Any price';
@@ -2466,9 +2600,32 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String quintalsInParens(String count) {
+    return '($count quintals)';
+  }
+
+  @override
+  String get oneQuintalInParens => '(1 quintal)';
+
+  @override
   String orderQuantityExceedsStock(String available) {
     return 'Only $available kg available. Enter a smaller quantity.';
   }
+
+  @override
+  String orderQuantityAvailable(String available) {
+    return '$available kg available';
+  }
+
+  @override
+  String get cropFormPriceHighWarning =>
+      'This price is for 1 kg and looks very high. If you typed the price of a quintal, divide it by 100.';
+
+  @override
+  String get myCropsSegmentEmpty => 'No listings here';
+
+  @override
+  String get myCropsSegmentEmptyHint => 'Listings with this status show here.';
 
   @override
   String get neededByDate => 'Needed by (optional)';
@@ -2558,20 +2715,103 @@ class AppLocalizationsEn extends AppLocalizations {
   String get tapToListCrops => 'List your crops and reach buyers directly';
 
   @override
-  String get synced => 'Synced';
+  String get synced => 'All sent';
 
   @override
-  String get offline => 'Offline';
+  String get offline => 'No network';
 
   @override
   String syncFailureCount(int count) {
-    return '$count operations need attention';
+    return '$count could not be sent';
   }
 
   @override
   String syncPendingCount(int count) {
-    return '$count waiting to sync';
+    return '$count waiting to be sent';
   }
+
+  @override
+  String cropFormTotalLine(String total, String perQuintal) {
+    return 'Total: $total ETB ($perQuintal ETB per quintal)';
+  }
+
+  @override
+  String logoutUnsentChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count changes on this phone are not sent yet. Logging out deletes them.',
+      one: '1 change on this phone is not sent yet. Logging out deletes it.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String logoutUnpaidPayments(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count payments waiting to be sent will be cancelled.',
+      one: '1 payment waiting to be sent will be cancelled.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get logoutOfflineNeedsInternet =>
+      'You are offline. Logging in again will need internet.';
+
+  @override
+  String get logoutAnyway => 'Log out anyway';
+
+  @override
+  String get savedOnPhoneWillSend =>
+      'Saved on your phone. It will be sent when you have network.';
+
+  @override
+  String syncStillWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count changes are still waiting. They will be sent again by themselves.',
+      one: '1 change is still waiting. It will be sent again by itself.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get listingNotSentYet => 'Not sent yet';
+
+  @override
+  String get listingNotSentYetNote =>
+      'Saved on this phone only. Buyers will see it once it is sent.';
+
+  @override
+  String get myCropsNotSentNote =>
+      'Listings marked \"Not sent yet\" are saved on this phone only. Buyers see them once they are sent.';
+
+  @override
+  String get authNetworkTooSlow =>
+      'The network is too slow right now. Move to a place with better signal and try again.';
+
+  @override
+  String get orderAcceptedSent => 'You accepted the order.';
+
+  @override
+  String get orderRejectedSent =>
+      'You declined the order. The buyer gets the money back.';
+
+  @override
+  String get homeTilesLoadFailed => 'These numbers could not be loaded.';
+
+  @override
+  String get homeActionNeededLoadFailed =>
+      'Could not check for orders that need you.';
+
+  @override
+  String get deliveriesLoadFailed => 'Your deliveries could not be loaded.';
 
   @override
   String paymentStatusTitle(String status) {
@@ -2750,8 +2990,16 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get stepUpDisputeMessage =>
+      'For your safety, confirm it\'s you before this dispute is sent.';
+
+  @override
+  String get faydaStepUpDisputeMessage =>
+      'Confirm it\'s you with Fayda to send this dispute. You may also be asked for your password.';
+
+  @override
   String get faydaStepUpMessage =>
-      'This payment needs a Fayda login, not your password. Confirm it\'s you with Fayda and your payment continues right after.';
+      'Confirm it\'s you with Fayda to continue with this payment. You may also be asked for your password.';
 
   @override
   String get stepUpTitle => 'Confirm it\'s you';
@@ -2770,6 +3018,17 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get stepUpDone => 'Confirmed. Retrying your payment.';
+
+  @override
+  String get stepUpOtherMessage =>
+      'For your safety, confirm it\'s you before you continue.';
+
+  @override
+  String get faydaStepUpOtherMessage =>
+      'Confirm it\'s you with Fayda to continue. You may also be asked for your password.';
+
+  @override
+  String get stepUpDoneRetrying => 'Confirmed. Trying again.';
 
   @override
   String get faydaStateMismatch =>
@@ -2840,6 +3099,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get kycFarmerNotVerifiedMessage =>
       'The farmer\'s identity is not verified yet, so this payment was not sent. You can pay once the farmer verifies.';
+
+  @override
+  String get kycUnknownReasonMessage =>
+      'This payment was not sent because an identity check is still missing. Update the app or contact support to see what is needed.';
 
   @override
   String get kycUnavailableMessage =>
@@ -2988,6 +3251,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'You get back everything you paid, including transport and the platform commission.';
 
   @override
+  String get errorOrderCancelPaymentBusy =>
+      'This order can\'t be cancelled now because its payment is under dispute or being settled. Wait for the outcome or contact support.';
+
+  @override
   String get errorOrderCancelNotAllowed =>
       'This order can\'t be cancelled now. It can be cancelled only when the crops were not collected in time and nothing was picked up.';
 
@@ -3020,6 +3287,10 @@ class AppLocalizationsEn extends AppLocalizations {
       'This trip has booked orders, so this change can\'t be made.';
 
   @override
+  String get errorDuplicateTrip =>
+      'You already have a trip on this route on that day, so this one was not posted. Edit that trip instead. If this is a second truck, add its plate number.';
+
+  @override
   String get errorCropHasActiveOrders =>
       'This listing has open orders. Handle them first.';
 
@@ -3030,6 +3301,24 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get errorAppUpdateRequiredKept =>
       'Please update the app. This change is kept on your phone and will be sent after the update.';
+
+  @override
+  String get appUpdateBannerMessage =>
+      'Please update the app to place or change orders. Everything else still works.';
+
+  @override
+  String get appUpdateBannerUpdate => 'Update';
+
+  @override
+  String get appUpdateBannerReload => 'Reload page';
+
+  @override
+  String get appUpdateBannerStoreHint =>
+      'If the store does not open or does not show the app, get the latest WeredaConnect from where you got it.';
+
+  @override
+  String get appUpdateReloadFailed =>
+      'Could not get the latest version. Check your connection and try again.';
 
   @override
   String get errorContactInText =>
@@ -3170,4 +3459,3183 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get deletedUser => 'Deleted user';
+
+  @override
+  String get unnamedUser => 'User';
+
+  @override
+  String get statusAwaitingTransport => 'Transport fell through';
+
+  @override
+  String get statusAwaitingTransportInfo =>
+      'The trucker can\'t carry this order. The money stays held safely. The buyer can cancel for a full refund; without a decision in time the order is cancelled and refunded.';
+
+  @override
+  String get orderStatusUpdating => 'Updating';
+
+  @override
+  String get orderStatusUpdatingInfo =>
+      'This order changed in a way this app version can\'t show yet. Please update the app.';
+
+  @override
+  String get commitmentTitle => 'Who has agreed';
+
+  @override
+  String get commitmentAccepted => 'Accepted';
+
+  @override
+  String commitmentWaitingUntil(String time) {
+    return 'Waiting, answer due $time';
+  }
+
+  @override
+  String get commitmentWaiting => 'Waiting for an answer';
+
+  @override
+  String get commitmentDeclined => 'Declined';
+
+  @override
+  String get commitmentExpired => 'Did not answer in time';
+
+  @override
+  String get commitmentNotAskedYet => 'Asked once the farmer accepts';
+
+  @override
+  String get commitmentTripCancelled => 'Trip cancelled';
+
+  @override
+  String get commitmentTripFull => 'Trip was full';
+
+  @override
+  String get commitmentDroppedOut => 'Dropped out';
+
+  @override
+  String commitmentAnswerBy(String time) {
+    return 'Please answer by $time.';
+  }
+
+  @override
+  String get commitmentBuyerWaitingNote =>
+      'Your money is held safely. The farmer is asked first, then the trucker. A paid order can\'t be cancelled while they decide.';
+
+  @override
+  String get commitmentTruckerNotAskedNote =>
+      'The farmer has not accepted yet. You will be asked once they do.';
+
+  @override
+  String get truckerAcceptRequest => 'Accept transport';
+
+  @override
+  String get truckerDeclineRequest => 'Decline';
+
+  @override
+  String get declineReasonTitle => 'Why are you declining?';
+
+  @override
+  String get declineReasonDate => 'The date doesn\'t work';
+
+  @override
+  String get declineReasonCapacity => 'Not enough room';
+
+  @override
+  String get declineReasonPrice => 'The price doesn\'t work';
+
+  @override
+  String get declineReasonRoute => 'The route doesn\'t work';
+
+  @override
+  String get declineReasonCropNotReady => 'The crops are not ready';
+
+  @override
+  String get declineReasonOther => 'Another reason';
+
+  @override
+  String get truckerDropOut => 'I can\'t make this delivery';
+
+  @override
+  String get truckerDropOutWarning =>
+      'The buyer is told and may cancel for a full refund. Dropping out after you accepted counts against you. You will be asked to sign in again.';
+
+  @override
+  String get farmerCancelWithoutPenalty => 'Cancel without penalty';
+
+  @override
+  String get farmerCancelCommittedWarning =>
+      'Cancelling after you accepted counts against you, and the buyer gets a full refund. You will be asked to sign in again.';
+
+  @override
+  String get farmerCancelAwaitingTransportBody =>
+      'The transport fell through, so cancelling does not count against you. The buyer gets a full refund.';
+
+  @override
+  String transportFailedBuyerBody(String deadline) {
+    return 'The trucker can\'t carry this order. Cancel for a full refund by $deadline. If you don\'t decide by then, the order is cancelled and refunded for you.';
+  }
+
+  @override
+  String get transportFailedBuyerBodyNoDeadline =>
+      'The trucker can\'t carry this order. You can cancel it for a full refund.';
+
+  @override
+  String get transportFailedFarmerBody =>
+      'The transport for this order fell through. Please keep the crops until the buyer decides.';
+
+  @override
+  String get cancelOrderAwaitingTransportBody =>
+      'The money held for this order comes back to you in full.';
+
+  @override
+  String get errorResponseNotPending =>
+      'This request is not open for you: the farmer has not accepted yet, or it was already answered.';
+
+  @override
+  String get transportFailureTruckerDeclined => 'The trucker declined';
+
+  @override
+  String get transportFailureTruckerExpired =>
+      'The trucker did not answer in time';
+
+  @override
+  String get transportFailureTruckerCancelled => 'The trucker dropped out';
+
+  @override
+  String get transportFailureTripCancelled => 'The trip was cancelled';
+
+  @override
+  String get transportFailureTripFull => 'The trip was full';
+
+  @override
+  String get actionNeededTitle => 'Action needed';
+
+  @override
+  String get actionAnswerOrder => 'Answer the new order';
+
+  @override
+  String get actionAnswerTransport => 'Answer the transport request';
+
+  @override
+  String get actionKeepCrops => 'Keep the crops: the buyer is deciding';
+
+  @override
+  String get actionSetUpDelivery => 'Set up the delivery';
+
+  @override
+  String get actionPay => 'Pay for the order';
+
+  @override
+  String get actionPayAgain => 'Payment failed: pay again';
+
+  @override
+  String get actionDecideTransport => 'Transport fell through: decide';
+
+  @override
+  String get actionCheckDelivery => 'Check the delivery';
+
+  @override
+  String get actionCheckInAtFarm => 'Check in when you reach the farm';
+
+  @override
+  String get actionCropsReady => 'Check in when the crops are ready';
+
+  @override
+  String get actionCheckInAtDropoff => 'Check in when you reach the drop-off';
+
+  @override
+  String get actionConfirmDelivery => 'Confirm the delivery';
+
+  @override
+  String actionDueBy(String time) {
+    return 'Due $time';
+  }
+
+  @override
+  String get tripBookings => 'Booked orders';
+
+  @override
+  String get tripNoBookings => 'No orders booked yet';
+
+  @override
+  String get chooseTrip => 'Choose a truck';
+
+  @override
+  String get notifGenericTitle => 'Order update';
+
+  @override
+  String get notifGenericBody => 'Open the order to see what changed.';
+
+  @override
+  String get notifPaymentConfirmedTitle => 'Payment received';
+
+  @override
+  String get notifPaymentConfirmedBody =>
+      'Your payment is held safely. We will tell you when the farmer answers.';
+
+  @override
+  String get notifOrderRequestTitle => 'New order';
+
+  @override
+  String notifOrderRequestBody(String buyer) {
+    return '$buyer paid, and the money is held safely until delivery. Please accept or decline.';
+  }
+
+  @override
+  String get notifFarmerAcceptedTitle => 'Farmer accepted';
+
+  @override
+  String notifFarmerAcceptedBody(String farmer) {
+    return '$farmer accepted your order. We are now asking the trucker.';
+  }
+
+  @override
+  String get notifTransportRequestTitle => 'Transport request';
+
+  @override
+  String notifTransportRequestBody(String farmer) {
+    return '$farmer accepted an order on your trip. Please accept or decline the transport.';
+  }
+
+  @override
+  String get notifOrderConfirmedTitle => 'Order confirmed';
+
+  @override
+  String get notifOrderConfirmedBody => 'Everyone has agreed to the order.';
+
+  @override
+  String get notifOrderRejectedTitle => 'Order declined';
+
+  @override
+  String notifOrderRejectedBody(String farmer) {
+    return '$farmer declined your order. Your money will be returned to you.';
+  }
+
+  @override
+  String get notifTransportFailedTitle => 'Transport fell through';
+
+  @override
+  String get notifTransportFailedBody =>
+      'The trucker can\'t carry your order. Please decide: you can cancel for a full refund.';
+
+  @override
+  String get notifTransportFailedKeepCropsTitle => 'Transport fell through';
+
+  @override
+  String get notifTransportFailedKeepCropsBody =>
+      'The trucker for this order dropped out. Please keep the crops until the buyer decides.';
+
+  @override
+  String get notifRequestExpiredTitle => 'Request closed';
+
+  @override
+  String get notifRequestExpiredBody =>
+      'The request closed because it was not answered in time.';
+
+  @override
+  String get notifRequestOnHoldTitle => 'Request on hold';
+
+  @override
+  String get notifRequestOnHoldBody =>
+      'Transport for this order is not available. The buyer is deciding, so you do not need to answer now.';
+
+  @override
+  String get notifOrderCancelledTitle => 'Order cancelled';
+
+  @override
+  String get notifOrderCancelledBody =>
+      'The order was cancelled. Any money held goes back to the buyer.';
+
+  @override
+  String get notifOrderExpiredUnpaidTitle => 'Order closed';
+
+  @override
+  String get notifOrderExpiredUnpaidBody =>
+      'Your order was closed because it was not paid in time. You can place a new order.';
+
+  @override
+  String get notifCommissionChangedTitle => 'Order total changed';
+
+  @override
+  String notifCommissionChangedBody(String rate, String total) {
+    return 'The platform commission on this order is now $rate. New total: $total. Nothing has been paid yet.';
+  }
+
+  @override
+  String get notifCommissionChangedBodyNoTotal =>
+      'The platform commission on this order changed. Open the order to see the new total before you pay.';
+
+  @override
+  String get notifPaymentFailedTitle => 'Payment failed';
+
+  @override
+  String get notifPaymentFailedBody =>
+      'Your payment did not go through. Please try again.';
+
+  @override
+  String get notifRequestReminderTitle => 'Your answer is needed';
+
+  @override
+  String get notifRequestReminderBody =>
+      'This order is waiting for your answer.';
+
+  @override
+  String get notifPickupOverdueTitle => 'Pickup is late';
+
+  @override
+  String get notifPickupOverdueBody =>
+      'Your order was not picked up on time. Open it to see your options, including a full refund.';
+
+  @override
+  String get notifPickupMissedTitle => 'Pickup missed';
+
+  @override
+  String get notifPickupMissedBody =>
+      'The order was not picked up on time. The buyer may now cancel it for a refund.';
+
+  @override
+  String get notifDeliveryScheduledTitle => 'Transport arranged';
+
+  @override
+  String notifDeliveryScheduledBody(String trucker) {
+    return '$trucker will carry the order.';
+  }
+
+  @override
+  String get notifBuyerCollectingTitle => 'Buyer is coming';
+
+  @override
+  String notifBuyerCollectingBody(String buyer) {
+    return '$buyer will collect the order from you. Please have the crops ready.';
+  }
+
+  @override
+  String get notifPickedUpTitle => 'Crops picked up';
+
+  @override
+  String get notifPickedUpBody => 'Your order was picked up from the farmer.';
+
+  @override
+  String get notifHandoffRecordedTitle => 'Handoff recorded';
+
+  @override
+  String get notifHandoffRecordedBody =>
+      'The handoff is recorded. You are paid after the buyer receives the crops.';
+
+  @override
+  String get notifInTransitTitle => 'On the way';
+
+  @override
+  String get notifInTransitBody => 'Your order is on the way to you.';
+
+  @override
+  String get notifTruckNearbyTitle => 'Truck nearby';
+
+  @override
+  String notifTruckNearbyBody(String trucker) {
+    return '$trucker is less than 5 km from you. Please be ready to receive the crops.';
+  }
+
+  @override
+  String get notifDeliveredTitle => 'Order delivered';
+
+  @override
+  String get notifDeliveredBody =>
+      'Your order was delivered. If something is wrong, report it before the time is up. If not, the farmer is paid.';
+
+  @override
+  String get notifDeliveredPayoutPendingTitle => 'Delivered, payment coming';
+
+  @override
+  String get notifDeliveredPayoutPendingBody =>
+      'The order was delivered. Your payment is sent after the buyer\'s 48 hour check.';
+
+  @override
+  String get notifOrderSettledTitle => 'Order complete';
+
+  @override
+  String get notifOrderSettledBody =>
+      'The order is complete and everyone is paid. Thank you.';
+
+  @override
+  String get notifRefundSentTitle => 'Refund sent';
+
+  @override
+  String get notifRefundSentBody => 'Your refund has been sent to you.';
+
+  @override
+  String get notifPayoutSentTitle => 'Payment sent';
+
+  @override
+  String get notifPayoutSentBody =>
+      'Your payment has been sent to you. Thank you.';
+
+  @override
+  String get notifPayoutBlockedTitle => 'Payment on hold';
+
+  @override
+  String notifPayoutBlockedBody(String hint) {
+    return 'Your payment is waiting. $hint';
+  }
+
+  @override
+  String get notifPayoutProcessingTitle => 'Payment being processed';
+
+  @override
+  String get notifPayoutProcessingBody =>
+      'Our team is sending your payment by hand. It can take a few days.';
+
+  @override
+  String get notifDisputeOpenedTitle => 'Problem reported';
+
+  @override
+  String get notifDisputeOpenedBody =>
+      'A problem was reported on your order. The money stays held until our team decides.';
+
+  @override
+  String get notifDisputeReceivedTitle => 'Report received';
+
+  @override
+  String get notifDisputeReceivedBody =>
+      'We received your report. The money stays held until our team decides.';
+
+  @override
+  String get notifDisputeResolvedTitle => 'Decision made';
+
+  @override
+  String get notifUnderReviewTitle => 'Payment under review';
+
+  @override
+  String get notifUnderReviewBody =>
+      'Our team is checking the payment for your order. We will tell you when it is done.';
+
+  @override
+  String get notifDisputeResolvedFarmerWins =>
+      'Our team has decided: the money goes to the farmer.';
+
+  @override
+  String get notifDisputeResolvedBuyerWins =>
+      'Our team has decided: the money goes back to the buyer.';
+
+  @override
+  String get notifDisputeResolvedBody =>
+      'Our team has decided on the reported problem. Open the order for the details.';
+
+  @override
+  String get notifPayoutHintFayda => 'Please verify your Fayda ID in the app.';
+
+  @override
+  String get notifPayoutHintPhone =>
+      'Please verify your phone number in the app.';
+
+  @override
+  String get notifPayoutHintProfile =>
+      'Please complete your profile in the app.';
+
+  @override
+  String get notifPayoutHintOther => 'Open the app to see what is needed.';
+
+  @override
+  String get clockSetting => 'Clock';
+
+  @override
+  String get clockAuto => 'Auto';
+
+  @override
+  String get clockAutoHint => 'Follows the app language';
+
+  @override
+  String get clockEthiopian => 'Ethiopian';
+
+  @override
+  String get clockInternational => 'International (24-hour)';
+
+  @override
+  String clockNight(String time) {
+    return '$time at night';
+  }
+
+  @override
+  String clockMorning(String time) {
+    return '$time in the morning';
+  }
+
+  @override
+  String clockDay(String time) {
+    return '$time in the afternoon';
+  }
+
+  @override
+  String clockEvening(String time) {
+    return '$time in the evening';
+  }
+
+  @override
+  String get liveTripNotificationTitle => 'Sharing the truck\'s location';
+
+  @override
+  String get liveTripNotificationText =>
+      'Buyers and farmers on this trip see where the truck is. Sharing stops after the last delivery.';
+
+  @override
+  String get liveTripNotificationChannel => 'Trip location';
+
+  @override
+  String get liveTripConsentTitle => 'Share where the truck is?';
+
+  @override
+  String get liveTripConsentLede =>
+      'Buyers and farmers who can see the truck worry less and call you less while you drive.';
+
+  @override
+  String get liveTripConsentWhoTitle => 'Who sees it';
+
+  @override
+  String get liveTripConsentWhoText =>
+      'The buyer and farmer of each order on this trip, each only for their own order. Other truckers and buyers browsing trips never see it.';
+
+  @override
+  String get liveTripConsentOftenTitle => 'How often';
+
+  @override
+  String get liveTripConsentOftenText =>
+      'About once an hour and at each QR scan. Every 15 minutes when you are near a drop-off.';
+
+  @override
+  String get liveTripConsentStopsTitle => 'When it stops';
+
+  @override
+  String get liveTripConsentStopsText =>
+      'By itself when the last delivery on this trip is done. You can pause any time.';
+
+  @override
+  String get liveTripConsentDataTitle => 'Data';
+
+  @override
+  String get liveTripConsentDataText =>
+      'About 170 KB a day. With no network, check-ins wait on the phone and send later.';
+
+  @override
+  String get liveTripConsentAndroidNote =>
+      'Android shows a notification while sharing is on.';
+
+  @override
+  String get liveTripConsentWebNote =>
+      'On the web, check-ins are sent only while this page is open.';
+
+  @override
+  String get liveTripConsentShare => 'Share trip location';
+
+  @override
+  String get liveTripConsentDecline => 'Not now, scans only';
+
+  @override
+  String get liveTripSharingStarted =>
+      'Sharing the truck\'s location for this trip.';
+
+  @override
+  String get liveTripScansOnlyChosen =>
+      'Scans only for this trip. You can still share from trip mode.';
+
+  @override
+  String get tripModeTitle => 'Trip mode';
+
+  @override
+  String get tripModeOpen => 'Open trip';
+
+  @override
+  String tripModeOrders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count orders',
+      one: '1 order',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tripModeSharingLive => 'Sharing your location';
+
+  @override
+  String tripModeLastCheckIn(String time) {
+    return 'Last check-in $time';
+  }
+
+  @override
+  String get tripModeNoCheckInYet => 'No check-in yet';
+
+  @override
+  String tripModeNextBy(String time) {
+    return 'next by $time';
+  }
+
+  @override
+  String get tripModePrivacy =>
+      'Each buyer and farmer sees only the part for their own order.';
+
+  @override
+  String get tripModePause => 'Pause';
+
+  @override
+  String get tripModeCheckInNow => 'Check in now';
+
+  @override
+  String get tripModePausedTitle => 'Sharing paused';
+
+  @override
+  String tripModePausedUntil(String time) {
+    return 'Comes back by itself at $time';
+  }
+
+  @override
+  String get tripModeResume => 'Resume now';
+
+  @override
+  String get tripModeScansOnlyTitle => 'Scans only';
+
+  @override
+  String get tripModeScansOnlyText =>
+      'Your location is not shared. QR scans still record pickup and delivery.';
+
+  @override
+  String get tripModeEndedTitle => 'Sharing ended';
+
+  @override
+  String get tripModeEndedText =>
+      'Every delivery on this trip is done, so sharing stopped.';
+
+  @override
+  String get tripModeNoTrip =>
+      'No trip is on the road. Trip mode starts with your first pickup scan.';
+
+  @override
+  String get tripModeNextPickup => 'Next stop: pickup';
+
+  @override
+  String get tripModeNextDropoff => 'Next stop: drop-off';
+
+  @override
+  String get tripModeArrived => 'I\'ve arrived';
+
+  @override
+  String get tripModeStops => 'Stops';
+
+  @override
+  String tripModeStopPickup(String name) {
+    return 'Pickup: $name';
+  }
+
+  @override
+  String tripModeStopDropoff(String name) {
+    return 'Drop-off: $name';
+  }
+
+  @override
+  String tripModeScannedAt(String time) {
+    return 'scanned $time';
+  }
+
+  @override
+  String tripModeDeliveredAt(String time) {
+    return 'delivered $time';
+  }
+
+  @override
+  String get tripModeNextLabel => 'Next';
+
+  @override
+  String get tripModePayTitle => 'Your pay for this trip';
+
+  @override
+  String get tripModePayNote => 'Paid 48 h after each drop-off';
+
+  @override
+  String get tripModeCheckInSaved => 'Check-in saved.';
+
+  @override
+  String get tripModeNoFix =>
+      'No location right now. Check that location is on, then try again.';
+
+  @override
+  String get tripModeNotSharing => 'This trip does not share its location.';
+
+  @override
+  String get tripBookingsLoadFailed =>
+      'Could not load the bookings of this trip.';
+
+  @override
+  String get tripModeLoadFailed => 'Could not load the stops of this trip.';
+
+  @override
+  String get tripModeOfflineTitle => 'No network here';
+
+  @override
+  String tripModeOfflineWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count check-ins wait on this phone. They send by themselves when you are back in coverage.',
+      one:
+          '1 check-in waits on this phone. It sends by itself when you are back in coverage.',
+      zero:
+          'Check-ins wait on this phone and send by themselves when you are back in coverage.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tripModeCardTitle => 'Trip on the road';
+
+  @override
+  String get pauseSheetTitle => 'Pause sharing?';
+
+  @override
+  String get pauseSheetText =>
+      'For a rest stop or the night. Buyers and farmers see that sharing is paused and when it comes back.';
+
+  @override
+  String get pauseSheetFor => 'Pause for';
+
+  @override
+  String get pauseSheet15 => '15 minutes';
+
+  @override
+  String get pauseSheet30 => '30 minutes';
+
+  @override
+  String get pauseSheet60 => '1 hour';
+
+  @override
+  String pauseSheetOvernight(String time) {
+    return 'Overnight, until $time';
+  }
+
+  @override
+  String pauseSheetBackAt(String time) {
+    return 'back at $time';
+  }
+
+  @override
+  String get pauseSheetNote =>
+      'Sharing comes back by itself. QR scans still record their place.';
+
+  @override
+  String get pauseSheetConfirm => 'Pause sharing';
+
+  @override
+  String get pauseSheetKeep => 'Keep sharing';
+
+  @override
+  String get sharingDefaultSetting => 'Trip location';
+
+  @override
+  String get sharingDefaultHint =>
+      'What happens at the first pickup scan of a trip. The buyer and farmer of each order see the truck until their delivery.';
+
+  @override
+  String get sharingDefaultAsk => 'Ask on each trip';
+
+  @override
+  String get sharingDefaultShare => 'Always share';
+
+  @override
+  String get sharingDefaultScansOnly => 'Never share (scans only)';
+
+  @override
+  String get liveTripTitle => 'Live trip';
+
+  @override
+  String get liveTripOnTheRoadNow => 'On the road now';
+
+  @override
+  String get liveTripWaitingForPickup => 'Waiting for pickup';
+
+  @override
+  String get liveTripMapStartsAtPickup =>
+      'The map appears once the driver scans the farmer\'s QR.';
+
+  @override
+  String liveTripDurationMinutes(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String liveTripDurationHours(int hours, int minutes) {
+    return '$hours h $minutes min';
+  }
+
+  @override
+  String liveTripAgo(String duration) {
+    return '$duration ago';
+  }
+
+  @override
+  String get liveTripJustNow => 'Just now';
+
+  @override
+  String liveTripCheckedInAgo(String duration) {
+    return 'Checked in $duration ago';
+  }
+
+  @override
+  String get liveTripCheckedInJustNow => 'Checked in just now';
+
+  @override
+  String liveTripNoCheckInFor(String duration) {
+    return 'No check-in for $duration';
+  }
+
+  @override
+  String get liveTripPaused => 'Paused';
+
+  @override
+  String liveTripUntil(String time) {
+    return 'until $time';
+  }
+
+  @override
+  String get liveTripScansOnly => 'Scans only';
+
+  @override
+  String get liveTripScansOnlyChip => 'Location not shared';
+
+  @override
+  String get liveTripSharingEnded => 'Sharing ended at delivery';
+
+  @override
+  String get liveTripStatusOnTheRoad => 'On the road';
+
+  @override
+  String get liveTripStatusArriving => 'Arriving';
+
+  @override
+  String liveTripArrivingAt(String place) {
+    return 'Arriving at $place';
+  }
+
+  @override
+  String get liveTripArrivalWindow => 'Expected arrival';
+
+  @override
+  String liveTripKmToGo(String km) {
+    return 'About $km km to go, from the last check-in';
+  }
+
+  @override
+  String get liveTripWholeRoute => 'Whole route';
+
+  @override
+  String get liveTripNearTruck => 'Near the truck';
+
+  @override
+  String get liveTripZoomIn => 'Zoom in';
+
+  @override
+  String get liveTripZoomOut => 'Zoom out';
+
+  @override
+  String get liveTripViewPhoto => 'View photo';
+
+  @override
+  String get liveTripLegendLabel => 'Map legend';
+
+  @override
+  String get liveTripLegendDriven => 'Driven';
+
+  @override
+  String get liveTripLegendAhead => 'Road ahead';
+
+  @override
+  String get liveTripLegendTruck => 'Truck is about here';
+
+  @override
+  String get liveTripCall => 'Call';
+
+  @override
+  String liveTripNothingToDoWindow(String time) {
+    return 'Nothing for you to do. The payment is released when the check window ends, $time, unless you report a problem.';
+  }
+
+  @override
+  String liveTripFarmerNothingToDo(String buyer) {
+    return 'Nothing for you to do now. $buyer must confirm delivery. Then the 48 h check window runs and the money is paid out to you.';
+  }
+
+  @override
+  String liveTripFarmerNothingToDoWindow(String time) {
+    return 'Nothing for you to do. You are paid when the check window ends, $time, unless the buyer reports a problem.';
+  }
+
+  @override
+  String liveTripNextScanAt(String place) {
+    return 'Next: you scan the driver\'s QR at $place.';
+  }
+
+  @override
+  String get liveTripNextScan =>
+      'Next: you scan the driver\'s QR when the truck arrives.';
+
+  @override
+  String liveTripQuintalsCount(String count) {
+    return '$count quintals';
+  }
+
+  @override
+  String get delivOpenMap => 'Open map';
+
+  @override
+  String get delivOpen => 'Open';
+
+  @override
+  String delivNothingToDoReleased(String time) {
+    return 'Nothing for you to do. The payment is released after $time unless you report a problem.';
+  }
+
+  @override
+  String delivNothingToDoPaid(String time) {
+    return 'Nothing for you to do. You are paid after $time unless the buyer reports a problem.';
+  }
+
+  @override
+  String get delivEmptyTitle => 'Nothing on the road yet';
+
+  @override
+  String get delivEmptyBodyBuyer =>
+      'When a driver picks up one of your orders, you can follow the truck here.';
+
+  @override
+  String get delivEmptyBodyFarmer =>
+      'When a driver picks up one of your crops, you can follow the truck here.';
+
+  @override
+  String get delivEmptyBodyTrucker =>
+      'When you pick up a load, its delivery shows here.';
+
+  @override
+  String get delivEmptyFindCrops => 'Find crops';
+
+  @override
+  String get delivEmptySeeOrders => 'See my orders';
+
+  @override
+  String get delivEmptySeeTrips => 'See my trips';
+
+  @override
+  String get liveTripWiderWindow => 'Wider window: no check-in for a while';
+
+  @override
+  String get liveTripNoEta => 'No arrival estimate yet';
+
+  @override
+  String get liveTripStepAgreed => 'Agreed';
+
+  @override
+  String get liveTripStepPickedUp => 'Picked up';
+
+  @override
+  String liveTripEscrowNote(String amount) {
+    return 'Your $amount stays in escrow until you scan the driver\'s QR.';
+  }
+
+  @override
+  String get liveTripEscrowNoteNoAmount =>
+      'Your money stays in escrow until you scan the driver\'s QR.';
+
+  @override
+  String liveTripLateNote(String trucker) {
+    return 'Likely no network on this road. Check-ins saved on $trucker\'s phone will show when it reconnects.';
+  }
+
+  @override
+  String liveTripPausedNote(String trucker, String time) {
+    return '$trucker paused sharing for a rest stop. It turns back on by itself at $time.';
+  }
+
+  @override
+  String liveTripScansOnlyNote(String trucker) {
+    return '$trucker chose not to share the truck\'s location. The QR scans still record the pickup and the delivery.';
+  }
+
+  @override
+  String liveTripOfflineNote(String time) {
+    return 'You are offline. This is the map from $time, it updates when you reconnect.';
+  }
+
+  @override
+  String get liveTripOfflineNoMap =>
+      'You are offline. The map shows when you reconnect.';
+
+  @override
+  String get liveTripUnavailable => 'The map cannot be updated right now.';
+
+  @override
+  String get liveTripNotFound => 'This trip cannot be found.';
+
+  @override
+  String get liveTripTripLogLink => 'Trip log and order';
+
+  @override
+  String liveTripCheckIns(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count check-ins',
+      one: '1 check-in',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get liveTripTripLogTitle => 'Trip log';
+
+  @override
+  String liveTripKm(String km) {
+    return '$km km';
+  }
+
+  @override
+  String get liveTripStatDone => 'done';
+
+  @override
+  String get liveTripStatToGo => 'to go';
+
+  @override
+  String get liveTripStatOnTheRoad => 'on the road';
+
+  @override
+  String get liveTripStatDriven => 'driven';
+
+  @override
+  String get liveTripStatCheckIns => 'check-ins';
+
+  @override
+  String get liveTripCheckInCadence => 'Check-ins about every hour';
+
+  @override
+  String get liveTripLogPickup => 'Picked up, the farmer\'s QR was scanned';
+
+  @override
+  String get liveTripLogHourly => 'Hourly check-in';
+
+  @override
+  String get liveTripLogNearStop => 'Check-in near a stop';
+
+  @override
+  String get liveTripLogManual => 'The driver checked in';
+
+  @override
+  String get liveTripLogArrived => 'The driver arrived at a stop';
+
+  @override
+  String get liveTripLogStart => 'Sharing started';
+
+  @override
+  String get liveTripLogOtherStop => 'Another stop on this truck';
+
+  @override
+  String get liveTripLogCheckIn => 'Check-in';
+
+  @override
+  String get liveTripLogPaused => 'Sharing paused';
+
+  @override
+  String get liveTripLogLatest => 'latest';
+
+  @override
+  String get liveTripCheckInsTitle => 'Check-ins';
+
+  @override
+  String get liveTripAboutEveryHour => 'about every hour';
+
+  @override
+  String get liveTripLogNext => 'next';
+
+  @override
+  String get liveTripLogThen => 'then';
+
+  @override
+  String liveTripLogSentLateUntil(String time) {
+    return 'Sent late, no network until $time';
+  }
+
+  @override
+  String get liveTripExpectedToday => 'expected today';
+
+  @override
+  String get liveTripLogSentLate => 'Sent late, no network';
+
+  @override
+  String get liveTripLogPassed => 'passed';
+
+  @override
+  String get liveTripLogAhead => 'Ahead';
+
+  @override
+  String get liveTripLogYourDropoff =>
+      'Your drop-off: you scan the driver\'s QR here';
+
+  @override
+  String get liveTripPickupProof => 'Pickup proof';
+
+  @override
+  String get liveTripDropoffProof => 'Drop-off proof';
+
+  @override
+  String liveTripQrScannedAt(String time) {
+    return 'QR scanned $time';
+  }
+
+  @override
+  String get liveTripGpsRecorded => 'GPS recorded';
+
+  @override
+  String get liveTripInEscrow => 'In escrow';
+
+  @override
+  String liveTripPayoutNote(String farmer, String farmerAmount, String trucker,
+      String truckerAmount) {
+    return '$farmer is paid $farmerAmount and $trucker $truckerAmount, 48 h after you confirm delivery.';
+  }
+
+  @override
+  String liveTripPayoutNoteFarmerOnly(String farmer, String amount) {
+    return '$farmer is paid $amount, 48 h after you confirm delivery.';
+  }
+
+  @override
+  String get liveTripHelpTitle => 'Something wrong on the way?';
+
+  @override
+  String liveTripHelpBody(String trucker, String farmer) {
+    return 'A picked-up order can no longer be cancelled. Talk to $trucker or $farmer now. After delivery you have 48 h to report a problem, and the money waits until it is settled.';
+  }
+
+  @override
+  String liveTripMessageParty(String name) {
+    return 'Message $name';
+  }
+
+  @override
+  String liveTripPrivacyNote(String farmer) {
+    return 'Only you and $farmer see where this truck is, from the pickup until your delivery. Other stops are never named.';
+  }
+
+  @override
+  String get liveTripGreyRingsNote =>
+      'Grey rings are other stops on this truck. They are never named.';
+
+  @override
+  String get liveTripArrivingTitle => 'Truck arriving';
+
+  @override
+  String liveTripArrivingMinutes(String trucker, int minutes) {
+    return '$trucker is about $minutes min away';
+  }
+
+  @override
+  String liveTripArrivingNear(String trucker) {
+    return '$trucker is less than 5 km away';
+  }
+
+  @override
+  String liveTripKmFromDropoff(String km) {
+    return '$km km from the drop-off';
+  }
+
+  @override
+  String get liveTripBeforeYouScan => 'Before you scan';
+
+  @override
+  String get liveTripCheckCount => 'Count the sacks and check the total weight';
+
+  @override
+  String get liveTripCheckQuality => 'Check the crop is dry and clean';
+
+  @override
+  String get liveTripCheckWeigh => 'Weigh a few sacks if you can';
+
+  @override
+  String liveTripScanConfirmsNote(String farmer, String trucker) {
+    return 'Scanning confirms delivery. $farmer and $trucker are paid after a 48 h check window, unless you report a problem.';
+  }
+
+  @override
+  String get liveTripScanDriversQr => 'Scan driver\'s QR';
+
+  @override
+  String liveTripDeliveredAt(String time) {
+    return 'Delivered at $time';
+  }
+
+  @override
+  String get liveTripEnded => 'This trip has ended';
+
+  @override
+  String liveTripReportProblemUntil(String time) {
+    return 'Report a problem until $time';
+  }
+
+  @override
+  String get liveTripHowDidItGo => 'How did it go?';
+
+  @override
+  String liveTripFarmerTitle(String crop) {
+    return 'Your $crop is on the road';
+  }
+
+  @override
+  String get liveTripFarmerTitleNoCrop => 'Your order is on the road';
+
+  @override
+  String liveTripFarmerTo(String quantity, String buyer) {
+    return '$quantity to $buyer';
+  }
+
+  @override
+  String liveTripArrives(String time) {
+    return 'Arrives $time';
+  }
+
+  @override
+  String get liveTripYourPayment => 'Your payment';
+
+  @override
+  String get liveTripPayStepPaid => 'Buyer paid, held in escrow';
+
+  @override
+  String get liveTripPayStepHandedOver => 'You handed over, QR scanned';
+
+  @override
+  String get liveTripPayStepBuyerConfirms => 'Buyer confirms delivery';
+
+  @override
+  String get liveTripPayStepPaidOut => '48 h check window, then paid out';
+
+  @override
+  String get liveTripOrderDetailsLink => 'Order details, price and timeline';
+
+  @override
+  String get liveTripAfterPickupHint =>
+      'After pickup you will see the truck on a map in Deliveries.';
+
+  @override
+  String orderTripOn(String day) {
+    return '$day trip';
+  }
+
+  @override
+  String liveTripFrom(String name) {
+    return 'From $name';
+  }
+
+  @override
+  String liveTripMapSemantics(String place) {
+    return 'Map of the trip. The truck was last near $place.';
+  }
+
+  @override
+  String get liveTripMapSemanticsNoPlace => 'Map of the trip';
+
+  @override
+  String get liveTripYou => 'You';
+
+  @override
+  String get liveTripDropoff => 'Drop-off';
+
+  @override
+  String get liveTripPickup => 'Pickup';
+
+  @override
+  String liveTripOnTheRoadSince(String time) {
+    return 'On the road since $time';
+  }
+
+  @override
+  String get loginEscrowFooter => 'Payments held safely in escrow';
+
+  @override
+  String get loginNoAccountRegister => 'Don\'t have an account? Register';
+
+  @override
+  String get otpFaydaNumberNote =>
+      'We ask for this only when the number differs from your Fayda record.';
+
+  @override
+  String get faydaDigitalIdLabel => 'Digital ID';
+
+  @override
+  String get faydaVerifiedWith => 'Verified with Fayda';
+
+  @override
+  String get faydaLegalNameNote =>
+      'Your legal name comes from Fayda. Nobody can register in your name.';
+
+  @override
+  String registrationStepOf(int current, int total) {
+    return 'Step $current of $total';
+  }
+
+  @override
+  String get registrationRoleNextNote =>
+      'Next you verify with Fayda, then add your details. Farmers skip the role details step.';
+
+  @override
+  String get joinFaydaNeedsInternet => 'Needs internet for this step.';
+
+  @override
+  String get joinWeredaHelper => 'Search places and towns, works offline';
+
+  @override
+  String get fromFayda => 'From Fayda';
+
+  @override
+  String get placeLicenseHere => 'Place the license here';
+
+  @override
+  String get retakeLicensePhoto => 'Retake License Photo';
+
+  @override
+  String get removeLicensePhoto => 'Remove License Photo';
+
+  @override
+  String get totalListingValue => 'Total Listing Value';
+
+  @override
+  String get checkoutHeldInEscrowNote =>
+      'Held in escrow until you confirm delivery';
+
+  @override
+  String get placeOrderEscrowNote =>
+      'Your money is held safely. The farmer is asked first, then the trucker.';
+
+  @override
+  String get deliveriesSearchHint => 'Crop, farmer or driver';
+
+  @override
+  String get delivSegmentActive => 'Active';
+
+  @override
+  String delivPickupOn(String date) {
+    return 'pickup $date';
+  }
+
+  @override
+  String delivDeliveredOn(String date) {
+    return 'Delivered $date';
+  }
+
+  @override
+  String delivSummaryOnTheRoad(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count on the road',
+      one: '1 on the road',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count waiting for pickup',
+      one: '1 waiting for pickup',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryCheckWindow(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count in the check window',
+      one: '1 in the check window',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get delivArrivingCaption => 'arriving';
+
+  @override
+  String delivWaitingForPickupOn(String date) {
+    return 'Waiting for pickup $date';
+  }
+
+  @override
+  String get delivMapStartsAtPickup => 'map starts at pickup';
+
+  @override
+  String delivReportProblemUntil(String time) {
+    return 'report a problem until $time';
+  }
+
+  @override
+  String get savedOnPhoneFirstNote =>
+      'Saved on your phone first, sent when you have network.';
+
+  @override
+  String get myCropsPrivacyNote =>
+      'Only you see your listings here. Buyers see them in Find Crops.';
+
+  @override
+  String get homeToday => 'Today';
+
+  @override
+  String homeDueToday(String time) {
+    return 'Due today $time';
+  }
+
+  @override
+  String homeActionMore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count more',
+      one: '1 more',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String homeNextDropoffAbout(String place, String time) {
+    return 'Next: drop-off in $place, about $time';
+  }
+
+  @override
+  String homeNextDropoffIn(String place) {
+    return 'Next: drop-off in $place';
+  }
+
+  @override
+  String homeNextPickupIn(String place) {
+    return 'Next: pickup in $place';
+  }
+
+  @override
+  String homeNextPickup(String name) {
+    return 'Next: pickup at $name';
+  }
+
+  @override
+  String homeNextDropoff(String name) {
+    return 'Next: drop-off at $name';
+  }
+
+  @override
+  String get homeTripNoneHint => 'Post a trip and buyers can book space on it.';
+
+  @override
+  String get homeTripMatchedLine => 'Scan each farmer\'s QR at pickup';
+
+  @override
+  String homeTileActiveReserved(int active, int reserved) {
+    return '$active active, $reserved reserved';
+  }
+
+  @override
+  String get homeTileWaitingForYou => 'waiting for you';
+
+  @override
+  String get ordersFilterWaitingForYou => 'Waiting for you';
+
+  @override
+  String get homeTileHeldInEscrow => 'held in escrow';
+
+  @override
+  String get homeTileInTransit => 'in transit';
+
+  @override
+  String get homeTileInProgress => 'in progress';
+
+  @override
+  String get homeTileAvailableNow => 'available now';
+
+  @override
+  String get homeTileBrowseAllTrips => 'all trucks heading out';
+
+  @override
+  String homeRecentLine(String event) {
+    return 'Recent: $event';
+  }
+
+  @override
+  String tripPricePerQuintalValue(String price) {
+    return '$price ETB per quintal';
+  }
+
+  @override
+  String createTripRouteDistance(int km) {
+    return 'About $km km in a straight line, drawn on your phone';
+  }
+
+  @override
+  String createTripRoutePreviewLabel(String from, String to) {
+    return 'Route preview from $from to $to';
+  }
+
+  @override
+  String get createTripSwapRoute => 'Swap origin and destination';
+
+  @override
+  String get createTripDriverHint =>
+      'We could not fill your name and phone from your profile. Please add them.';
+
+  @override
+  String get tripSpaceTitle => 'Space on this trip';
+
+  @override
+  String get invalidCapacityKg => 'Capacity must be between 10 and 100,000 kg';
+
+  @override
+  String get capacityKg => 'Capacity (kg)';
+
+  @override
+  String get pricePer100Kg => 'Price per 100 kg (ETB)';
+
+  @override
+  String get perQuintalInParens => '(per quintal)';
+
+  @override
+  String get quintalInParens => '(quintal)';
+
+  @override
+  String tripPricePer100KgValue(String price) {
+    return '$price ETB per 100 kg';
+  }
+
+  @override
+  String get etbPer100KgShort => 'ETB/100 kg';
+
+  @override
+  String tripKgOfKg(String amount, String capacity) {
+    return '$amount of $capacity kg';
+  }
+
+  @override
+  String tripKgLeft(String left) {
+    return '$left kg left';
+  }
+
+  @override
+  String tripKgBooked(String booked, String capacity) {
+    return '$booked of $capacity kg booked';
+  }
+
+  @override
+  String tripKgFree(String kg) {
+    return '$kg kg free';
+  }
+
+  @override
+  String get tripYourTurnNote =>
+      'It is your turn to answer. After you accept, contact opens.';
+
+  @override
+  String get tripOpenLink => 'Open';
+
+  @override
+  String get tripModeCheckInSends => 'Sends where you are now.';
+
+  @override
+  String tripModeNextDueBy(String time) {
+    return 'Next check-in is due by $time.';
+  }
+
+  @override
+  String tripModeAboutTime(String time) {
+    return 'about $time';
+  }
+
+  @override
+  String tripModeAboutKm(String km) {
+    return 'about $km km';
+  }
+
+  @override
+  String get qrFailedTitle => 'The scan did not work';
+
+  @override
+  String get qrFailedNothingLost => 'Nothing was lost.';
+
+  @override
+  String get qrFailedBackToTrip => 'Back to trip';
+
+  @override
+  String get qrFailedOfflineNote => 'Scanning also works without network.';
+
+  @override
+  String get qrFailedPickupScan => 'Pickup scan';
+
+  @override
+  String get qrFailedDeliveryScan => 'Delivery scan';
+
+  @override
+  String get tripBookedTermsNote =>
+      'Booked trips keep their date, price and route.';
+
+  @override
+  String get tripScanAtPickupNote =>
+      'On the trip day, scan each farmer\'s QR at pickup. Live trip starts with the first scan.';
+
+  @override
+  String get tripCancelBookedNote =>
+      'Cancelling hands booked orders back to their buyers, who can cancel for a full refund.';
+
+  @override
+  String get tripFindCrops => 'Find crops on this route';
+
+  @override
+  String tripFindCropsNote(String from) {
+    return 'Crops listed in $from. Order one with this truck.';
+  }
+
+  @override
+  String tripCropsTitle(String from) {
+    return 'Crops in $from';
+  }
+
+  @override
+  String tripCropsEmpty(String from) {
+    return 'No crops listed in $from right now';
+  }
+
+  @override
+  String get tripCropsEmptyHint =>
+      'New listings show here as farmers add them.';
+
+  @override
+  String tripCropsFootnote(String from) {
+    return 'Crops listed in $from, where this truck starts. Order one with transport to book this truck.';
+  }
+
+  @override
+  String get tripLeftChooseAnother =>
+      'This truck already left. Choose another truck.';
+
+  @override
+  String get tripStatusDatePassed => 'Date passed';
+
+  @override
+  String get orderYouReceive => 'You receive';
+
+  @override
+  String get orderYourTransportPay => 'Your transport pay';
+
+  @override
+  String get deliveriesNoSearchMatch => 'No delivery matches that name.';
+
+  @override
+  String get farmerRejectRefundNote => 'The buyer gets a full refund.';
+
+  @override
+  String get farmerAnswerNote =>
+      'Contact with the buyer opens when you accept. Rejecting asks why and refunds the buyer.';
+
+  @override
+  String get checkoutConfirmItsYouNote =>
+      'Payments over 10,000 ETB need Fayda. Smaller ones ask for your password.';
+
+  @override
+  String get checkoutConfirmedWithFayda => 'Confirmed with Fayda';
+
+  @override
+  String get checkoutConfirmedWithPassword => 'Confirmed with your password';
+
+  @override
+  String myCropsOrderedOf(String ordered, String total) {
+    return '$ordered of $total quintals ordered';
+  }
+
+  @override
+  String myCropsNoOrdersYet(String quantity) {
+    return '$quantity quintals, no orders yet';
+  }
+
+  @override
+  String get homeWelcomeBack => 'Welcome back,';
+
+  @override
+  String get homeOpen => 'Open';
+
+  @override
+  String get homeTileHeldUntilConfirmed =>
+      'held for you until the buyer confirms delivery';
+
+  @override
+  String homeTripLoadedKg(String loaded, String capacity) {
+    return '$loaded of $capacity kg loaded';
+  }
+
+  @override
+  String quintalsOfInParens(String part, String total) {
+    return '($part of $total quintals)';
+  }
+
+  @override
+  String homePaymentsInEscrow(String amount) {
+    return '$amount ETB in escrow';
+  }
+
+  @override
+  String myCropsOrderedOfKg(String ordered, String total) {
+    return '$ordered of $total kg ordered';
+  }
+
+  @override
+  String get myCropsNoOrdersShort => 'no orders yet';
+
+  @override
+  String get myCropsEmptyTitle => 'No crops listed yet';
+
+  @override
+  String get myCropsEmptyBody =>
+      'List your first crop so buyers can find it and send you orders.';
+
+  @override
+  String get myCropsEmptyAction => 'List a crop';
+
+  @override
+  String get quantityInKg => 'Quantity (kg)';
+
+  @override
+  String get kgUnit => 'kg';
+
+  @override
+  String quintalsShortInParens(String count) {
+    return '($count q)';
+  }
+
+  @override
+  String get quantityKgTooSmall => 'Enter at least 1 kg.';
+
+  @override
+  String get quantityKgTooLarge => 'Enter at most 1,000,000 kg.';
+
+  @override
+  String get createTripBookingCutoffNote =>
+      'Buyers can book until 24 h before you leave.';
+
+  @override
+  String myCropsListedOn(String date) {
+    return 'listed $date';
+  }
+
+  @override
+  String get cropsListedToday => 'listed today';
+
+  @override
+  String get cropsDrafts => 'Drafts';
+
+  @override
+  String get detailYourPay => 'your pay';
+
+  @override
+  String get detailBookingWaitingFarmer => 'Waiting for the farmer';
+
+  @override
+  String get detailBookingAskedNext => 'you are asked next';
+
+  @override
+  String get detailBookingAcceptedContactOpen => 'contact open';
+
+  @override
+  String detailBookedOf(String booked, String capacity) {
+    return '$booked of $capacity quintals';
+  }
+
+  @override
+  String detailLeft(String left) {
+    return '$left left';
+  }
+
+  @override
+  String get detailCropHere => 'crop here';
+
+  @override
+  String detailFarmerAcceptedAnswerBy(String time) {
+    return 'The farmer accepted. Please answer by $time.';
+  }
+
+  @override
+  String get detailBooked => 'Booked';
+
+  @override
+  String detailQuintalsLeft(String quintals) {
+    return '$quintals quintals left';
+  }
+
+  @override
+  String detailKmToYou(int km) {
+    return 'About $km km to you';
+  }
+
+  @override
+  String detailForQuantity(String quantity) {
+    return 'For $quantity';
+  }
+
+  @override
+  String get detailEtbPerQuintalShort => 'ETB/q';
+
+  @override
+  String detailFitsTrip(String quintals) {
+    return 'fits this trip ($quintals quintals left)';
+  }
+
+  @override
+  String detailExceedsTrip(String quintals) {
+    return 'more than this trip has room for ($quintals quintals left)';
+  }
+
+  @override
+  String get detailChange => 'Change';
+
+  @override
+  String get detailLess => 'Less';
+
+  @override
+  String get detailMore => 'More';
+
+  @override
+  String get detailGpsPickFromList =>
+      'No GPS? Pick your wereda from the list instead.';
+
+  @override
+  String get detailNoPhoneNumbersNote =>
+      'No phone numbers: contact opens after payment is held in escrow.';
+
+  @override
+  String get detailYourFarm => 'Your farm';
+
+  @override
+  String get detailNewOrderTitle => 'New order';
+
+  @override
+  String detailFromYourListing(String what) {
+    return '$what from your listing';
+  }
+
+  @override
+  String get detailPaidIntoEscrow => 'Paid into escrow';
+
+  @override
+  String get detailPickupLabel => 'Pickup';
+
+  @override
+  String detailTruckOf(String name) {
+    return '$name\'s truck';
+  }
+
+  @override
+  String get detailBuyerCollects => 'The buyer collects it';
+
+  @override
+  String get detailHeldInEscrow => 'Held in escrow';
+
+  @override
+  String detailPartyPaid(String party) {
+    return '$party paid';
+  }
+
+  @override
+  String detailPartyRole(String name, String role) {
+    return '$name, $role';
+  }
+
+  @override
+  String get detailYou => 'You';
+
+  @override
+  String detailTimelineThen(String steps) {
+    return 'Then $steps. Tap a step to read what it means.';
+  }
+
+  @override
+  String get detailTimelineTapStep => 'Tap a step to read what it means.';
+
+  @override
+  String detailListAnd(String head, String last) {
+    return '$head and $last';
+  }
+
+  @override
+  String get detailContactOpensWhenTruckerAccepts =>
+      'Contact opens when the trucker accepts';
+
+  @override
+  String detailMessageParty(String name) {
+    return 'Message $name';
+  }
+
+  @override
+  String detailCallParty(String name) {
+    return 'Call $name';
+  }
+
+  @override
+  String liveTripLogStopAhead(int minutes) {
+    return 'About $minutes min, then on to you';
+  }
+
+  @override
+  String marketQuintalsRoom(String quintals) {
+    return '$quintals q room';
+  }
+
+  @override
+  String detailQuintalsRoom(String quintals) {
+    return '$quintals quintals room';
+  }
+
+  @override
+  String marketTransportOn(String day) {
+    return 'Transport $day';
+  }
+
+  @override
+  String marketTripsThisWeek(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count trips this week',
+      one: '1 trip this week',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get marketNoTripYet => 'No trip yet';
+
+  @override
+  String marketFootnote(String place) {
+    return 'Every farmer\'s listing, sorted by the best match for $place.';
+  }
+
+  @override
+  String get marketFootnoteNoPlace =>
+      'Every farmer\'s listing, sorted by the best transport match.';
+
+  @override
+  String marketQuintalsLeft(String quantity) {
+    return '$quantity quintals left';
+  }
+
+  @override
+  String get actionOpen => 'Open';
+
+  @override
+  String commitmentAnswerDue(String time) {
+    return 'Answer due $time';
+  }
+
+  @override
+  String get commitmentTheFarmer => 'the farmer';
+
+  @override
+  String get commitmentTheTrucker => 'the trucker';
+
+  @override
+  String commitmentWhoFarmer(String name) {
+    return '$name, the farmer,';
+  }
+
+  @override
+  String commitmentWhoTrucker(String name) {
+    return '$name, the trucker,';
+  }
+
+  @override
+  String commitmentBuyerWaitingOnBy(String who, String time) {
+    return 'Now waiting for $who to answer by $time. You do not need to do anything.';
+  }
+
+  @override
+  String commitmentBuyerWaitingOn(String who) {
+    return 'Now waiting for $who to answer. You do not need to do anything.';
+  }
+
+  @override
+  String get commitmentThenTruckerAsked =>
+      'When the farmer accepts, the trucker is asked next.';
+
+  @override
+  String get commitmentContactOpensOnTruckerAccept =>
+      'When the trucker accepts, contact opens here.';
+
+  @override
+  String commitmentYourTurnBy(String time) {
+    return 'It is your turn: accept or reject by $time.';
+  }
+
+  @override
+  String get commitmentYourTurn => 'It is your turn: accept or reject.';
+
+  @override
+  String get commitmentFarmerAcceptThenTrucker =>
+      'When you accept, the trucker is asked next and the buyer\'s payment stays in escrow.';
+
+  @override
+  String get commitmentFarmerAcceptEscrowStays =>
+      'When you accept, the buyer\'s payment stays in escrow.';
+
+  @override
+  String get rejectConfirmTitle => 'Reject this order?';
+
+  @override
+  String get rejectConfirmBody =>
+      'The buyer is told you cannot fill this order, and their payment is refunded from escrow.';
+
+  @override
+  String rejectConfirmReason(String reason) {
+    return 'Reason: $reason';
+  }
+
+  @override
+  String get rejectConfirmYes => 'Yes, reject order';
+
+  @override
+  String get rejectConfirmKeep => 'Keep order';
+
+  @override
+  String get contactMessageLabel => 'Message';
+
+  @override
+  String placeOrderFitsTripKg(String quantity) {
+    return 'fits this trip, $quantity left';
+  }
+
+  @override
+  String placeOrderExceedsTripKg(String quantity) {
+    return 'more than this trip has room for, $quantity left';
+  }
+
+  @override
+  String pricePerQuintalInParens(String price) {
+    return '($price/quintal)';
+  }
+
+  @override
+  String transportPricePerKgAndQuintal(String perKg, String perQuintal) {
+    return '$perKg ETB per kg ($perQuintal per quintal)';
+  }
+
+  @override
+  String get quantityNeededKg => 'Quantity needed (kg)';
+
+  @override
+  String marketKgLeft(String quantity) {
+    return '$quantity left';
+  }
+
+  @override
+  String marketKgRoom(String quantity) {
+    return '$quantity room';
+  }
+
+  @override
+  String get marketSearchToggle => 'Search and price filters';
+
+  @override
+  String liveTripEscrowAmount(String amount) {
+    return '$amount in escrow';
+  }
+
+  @override
+  String get liveTripReleasePending => 'Release pending';
+
+  @override
+  String get liveTripYouConfirmedDelivery => 'You confirmed delivery';
+
+  @override
+  String get liveTripCheckWindowEnds => 'Check window ends';
+
+  @override
+  String liveTripPartyGets(String name, String amount) {
+    return '$name gets $amount';
+  }
+
+  @override
+  String get cropPhotosTitle => 'Photos of your crop';
+
+  @override
+  String get cropPhotosHint =>
+      'Add 2 to 4 clear photos in daylight: the whole pile and a close-up of the grain.';
+
+  @override
+  String cropPhotosCount(int count, int max) {
+    return '$count of $max';
+  }
+
+  @override
+  String get cropPhotosTake => 'Take photo';
+
+  @override
+  String get cropPhotosGallery => 'From gallery';
+
+  @override
+  String get cropPhotosRemove => 'Remove photo';
+
+  @override
+  String cropPhotosRequired(int min) {
+    return 'Add at least $min photos of your crop.';
+  }
+
+  @override
+  String cropPhotosLimitReached(int max) {
+    return 'You can add up to $max photos.';
+  }
+
+  @override
+  String get cropPhotosUnsupported =>
+      'That file is not a photo we can use. Choose a JPEG, PNG or WebP photo.';
+
+  @override
+  String get cropPhotosTooLarge =>
+      'That photo is too large. Choose a smaller one.';
+
+  @override
+  String get cropPhotosPickFailed =>
+      'Could not open the camera or gallery. Check the app\'s permissions and try again.';
+
+  @override
+  String get cropPhotosUploadFailed =>
+      'The photos did not upload. Check your connection and save again.';
+
+  @override
+  String get cropPhotoCover => 'Cover';
+
+  @override
+  String cropPhotoPosition(int index, int count) {
+    return 'Photo $index of $count';
+  }
+
+  @override
+  String cropPhotosCountLabel(int count) {
+    return '$count photos';
+  }
+
+  @override
+  String get cropPhotoUnavailable => 'Photo not available yet';
+
+  @override
+  String get cropPhotoPrevious => 'Previous photo';
+
+  @override
+  String get cropPhotoNext => 'Next photo';
+
+  @override
+  String get qrTypeCodeInstead => 'Type the code instead';
+
+  @override
+  String get qrTypeCodeTitle => 'Type the code';
+
+  @override
+  String get qrTypeCodePickupHint =>
+      'Ask the farmer to tap \"Camera not working?\" on their QR screen, then type the 9 digits shown there.';
+
+  @override
+  String get qrTypeCodeDropoffHint =>
+      'Ask the trucker to open the drop-off QR and tap \"Camera not working?\", then type the 9 digits shown there. Type it only when the crops are in front of you.';
+
+  @override
+  String get qrTypeCodeSelfPickupHint =>
+      'Ask the farmer to tap \"Camera not working?\" on their QR screen, then type the 9 digits shown there. Type it only when the crops are in front of you.';
+
+  @override
+  String get qrTypeCodeLabel => '9-digit code';
+
+  @override
+  String get qrTypeCodeCheck => 'Check code';
+
+  @override
+  String get qrTypeCodeTypo =>
+      'This code has a typo. Check each digit and type it again.';
+
+  @override
+  String get qrTypeCodeIncomplete => 'Type all 9 digits.';
+
+  @override
+  String get deliveryQrReadCheckedOnline =>
+      'QR code read. The server checks it when your phone is online.';
+
+  @override
+  String get deliveryCodeTypedCheckedOnline =>
+      'Code typed. The server checks it when your phone is online.';
+
+  @override
+  String get qrTypedCodeNeedsGps =>
+      'A typed code needs your location. Turn on location, then tap Try location again.';
+
+  @override
+  String get qrRetryLocation => 'Try location again';
+
+  @override
+  String get qrSelfPickupNeedsGps =>
+      'Confirming a pickup at the farm needs your location.';
+
+  @override
+  String get qrLocationNoSignal =>
+      'No location signal yet. Check that location is on, move to an open spot outside, then tap Try location again.';
+
+  @override
+  String get qrPickupSavedCheckOnline =>
+      'Pickup saved. The code is checked when your phone is online.';
+
+  @override
+  String get qrDeliverySavedCheckOnline =>
+      'Delivery saved. The code is checked when your phone is online.';
+
+  @override
+  String get qrCameraDeniedTitle => 'The camera is not allowed';
+
+  @override
+  String get qrCameraDeniedText =>
+      'Allow the camera for WeredaConnect in your phone\'s settings, then tap Try Again.';
+
+  @override
+  String get qrCameraDeniedTextWeb =>
+      'Allow the camera for this site in your browser\'s settings, then tap Try Again.';
+
+  @override
+  String get qrCameraUnavailableTitle => 'The camera is not working';
+
+  @override
+  String get qrCameraUnavailableText =>
+      'Close other apps that use the camera, then tap Try Again. You can also type the code instead.';
+
+  @override
+  String get qrCameraOpenSettings => 'Open settings';
+
+  @override
+  String get qrCameraNotWorking => 'Camera not working?';
+
+  @override
+  String get qrShowCodeTitle => 'Code to type instead of scanning';
+
+  @override
+  String get qrShowCodeWarning =>
+      'Show this code only to the person in front of you. Never read it out on the phone or send it in a message.';
+
+  @override
+  String get deliveryShowDropoffQr => 'Show drop-off QR';
+
+  @override
+  String get deliveryDropoffQrTitle => 'Drop-off QR';
+
+  @override
+  String get deliveryDropoffQrInstruction =>
+      'Show this QR code to the buyer when you hand over the crops';
+
+  @override
+  String get deliveryDropoffQrNote =>
+      'Kept on this phone from your pickup scan. It works offline, and the buyer\'s scan confirms the delivery.';
+
+  @override
+  String get deliveryDropoffCodeOnly =>
+      'You confirmed the pickup with a typed code, so there is no QR to show. The buyer types this code instead.';
+
+  @override
+  String get deliveryErrorCodeMismatch =>
+      'The typed code does not match this delivery, so it was not confirmed. Check the code and try again.';
+
+  @override
+  String get deliveryErrorCodeLocked =>
+      'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the person showing it to make a new code.';
+
+  @override
+  String get deliveryDisputeNotConfirmed =>
+      'Dispute not sent. Confirm it\'s you to send it.';
+
+  @override
+  String get deliveryErrorCodeGpsRequired =>
+      'A typed code needs your location. Turn on location and try again.';
+
+  @override
+  String get tripModeStopSharing => 'Stop sharing';
+
+  @override
+  String get tripModeStopSharingTitle => 'Stop sharing for this trip?';
+
+  @override
+  String get tripModeStopSharingBody =>
+      'The buyer loses the truck\'s live position, and the automatic in-transit check-ins stop. QR scans still confirm pickup and delivery. Sharing cannot be turned back on for this trip.';
+
+  @override
+  String get tripModeStoppedTitle => 'Sharing stopped';
+
+  @override
+  String get tripModeStoppedText =>
+      'You stopped sharing for this trip. QR scans still confirm pickup and delivery.';
+
+  @override
+  String get tripModeNotSharingYet =>
+      'Your location is not shared for this trip yet. It is set at your first pickup scan.';
+
+  @override
+  String get homeTripLoadFailed =>
+      'Could not load your trip. Check your connection and try again.';
+
+  @override
+  String tripScanPickupQrFor(String name) {
+    return 'Scan pickup QR: $name';
+  }
+
+  @override
+  String get deliveryErrorCodeLockedDropoff =>
+      'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR if they have one. If not, contact support: they can confirm the handoff with you and the trucker.';
+
+  @override
+  String get deliveryDropoffQrOwnNote =>
+      'Made on this phone for this delivery. It works offline, and the buyer\'s scan or typed code confirms the delivery. Lost or locked? Make a new code.';
+
+  @override
+  String get deliveryDropoffNewCode => 'New drop-off code';
+
+  @override
+  String get deliveryDropoffQrNotSent =>
+      'Not on the server yet. It is sent again each time you open this QR while online, and the buyer\'s confirm waits for it.';
+
+  @override
+  String get deliveryErrorDropoffQrPending =>
+      'The trucker\'s drop-off code has not reached the server yet. Ask the trucker to open the drop-off QR while online, then try again.';
+
+  @override
+  String get deliveryErrorDropoffCodeLocked =>
+      'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR instead, or ask the trucker to make a new code.';
+
+  @override
+  String get deliveryDropoffNoCodeHere =>
+      'This phone has no drop-off code for this delivery. If you made one on another phone or browser, show that one. Or make a new code here.';
+
+  @override
+  String get deliveryDropoffQrSuperseded =>
+      'A newer drop-off code was made on another phone or browser, so this one does not work. Show that one, or make a new code here.';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmTitle => 'Make a new drop-off code?';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmBody =>
+      'Any drop-off code shown before, on this or another phone, stops working. Show the buyer only the new one.';
+
+  @override
+  String get deliveryQrAlreadyPickedUp =>
+      'This delivery was already picked up, so no new QR code is made. The trucker now shows the buyer a drop-off code of their own.';
+
+  @override
+  String get dropoffNoteLabel => 'Drop-off landmark (optional)';
+
+  @override
+  String get dropoffNoteHint => 'e.g. Merkato, near Anwar Mosque';
+
+  @override
+  String get dropoffNoteHelper =>
+      'Helps the driver find you. The farmer and the driver see it. You can change it until pickup.';
+
+  @override
+  String get dropoffNoteTitle => 'Drop-off landmark';
+
+  @override
+  String get dropoffNoteEmpty => 'Add a landmark so the driver finds you.';
+
+  @override
+  String get dropoffNoteAdd => 'Add';
+
+  @override
+  String get dropoffNoteSaved => 'Drop-off landmark saved.';
+
+  @override
+  String get errorDropoffNoteLocked =>
+      'The goods were picked up, so the drop-off landmark can no longer be changed.';
+
+  @override
+  String get reportListing => 'Report this listing';
+
+  @override
+  String get reportListingTitle => 'What is wrong with this listing?';
+
+  @override
+  String get reportListingPrivacyNote =>
+      'The owner will not see who reported it. Our team reviews every report.';
+
+  @override
+  String get reportReasonContactInfo =>
+      'Shares a phone number or other contact';
+
+  @override
+  String get reportReasonMisleading => 'Wrong or misleading details';
+
+  @override
+  String get reportReasonScam => 'Looks like a scam';
+
+  @override
+  String get reportReasonOffensive => 'Offensive or inappropriate';
+
+  @override
+  String get reportReasonOther => 'Something else';
+
+  @override
+  String get reportListingSend => 'Send report';
+
+  @override
+  String get reportListingSent =>
+      'Thank you. Our team will review this listing.';
+
+  @override
+  String get reportListingAlreadySent => 'You already reported this listing.';
+
+  @override
+  String get errorReportNotSent => 'Your report could not be sent.';
+
+  @override
+  String errorReportLimitReached(int count) {
+    return 'You can send up to $count reports a day. Try again tomorrow.';
+  }
+
+  @override
+  String get deliveryPlaceLabel => 'Drop-off place';
+
+  @override
+  String get deliveryPlaceHelper =>
+      'Where the truck brings the goods. The farmer and the driver see it. You can change it until pickup.';
+
+  @override
+  String get deliveryPlaceNone => 'The truck\'s destination';
+
+  @override
+  String get deliveryPlaceChange => 'Change';
+
+  @override
+  String get deliveryPlacePickFromList => 'Pick a place from the list.';
+
+  @override
+  String get deliveryPlaceSaved => 'Drop-off place saved.';
+
+  @override
+  String get errorDeliveryLocationLocked =>
+      'The goods were picked up, so the drop-off place can no longer be changed.';
+
+  @override
+  String get reputationLowTag => 'Low reputation';
+
+  @override
+  String get reputationLowInfo =>
+      'Recently cancelled or missed several paid orders.';
+
+  @override
+  String reputationReliability(String pct) {
+    return '$pct% of orders completed';
+  }
+
+  @override
+  String reputationAsOf(String date) {
+    return 'As of $date';
+  }
+
+  @override
+  String get reputationLowOrderTitle => 'Order anyway?';
+
+  @override
+  String get reputationLowOrderFarmer =>
+      'This farmer has a Low reputation label. They recently cancelled or missed several paid orders. You can still order.';
+
+  @override
+  String get reputationLowOrderTrucker =>
+      'This trucker has a Low reputation label. They recently cancelled or missed several paid orders. You can still order.';
+
+  @override
+  String get reputationLowOrderBoth =>
+      'This farmer and this trucker both have a Low reputation label. They recently cancelled or missed several paid orders. You can still order.';
+
+  @override
+  String get reputationLowOrderContinue => 'Order anyway';
+
+  @override
+  String errorReputationRestrictedUntil(String date) {
+    return 'Your account can\'t take new orders, listings or trips until $date, so this change was not saved. Your current orders continue.';
+  }
+
+  @override
+  String get reputationMyTitle => 'My reputation';
+
+  @override
+  String get reputationMySubtitle => 'Rating, penalty points and appeals';
+
+  @override
+  String get reputationTierGood => 'Good standing';
+
+  @override
+  String get reputationTierGoodBody =>
+      'Nothing to do. Keep completing your orders.';
+
+  @override
+  String get reputationTierWarning => 'Please take care';
+
+  @override
+  String reputationWarning(int threshold) {
+    return 'At $threshold points, buyers will see a Low reputation label.';
+  }
+
+  @override
+  String get reputationTierLowBody =>
+      'Buyers see a Low reputation label on your listings and trips, and are asked to confirm before they order.';
+
+  @override
+  String get reputationTierRestricted => 'New orders paused';
+
+  @override
+  String reputationRestrictedUntil(String date) {
+    return 'You can\'t take new orders until $date. Your current orders continue.';
+  }
+
+  @override
+  String get reputationRestrictedReview =>
+      'You can\'t take new orders while our team reviews a late delivery. Your current orders continue.';
+
+  @override
+  String reputationMyPoints(int points) {
+    String _temp0 = intl.Intl.pluralLogic(
+      points,
+      locale: localeName,
+      other: '$points penalty points',
+      one: '1 penalty point',
+      zero: 'No penalty points',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reputationRestrictAt(int threshold) {
+    return 'At $threshold points, new orders are paused for a while.';
+  }
+
+  @override
+  String reputationNextExpiry(String date) {
+    return 'Your oldest points expire on $date.';
+  }
+
+  @override
+  String get reputationRecoverHint =>
+      'Points expire with time, and a completed order can remove one.';
+
+  @override
+  String reputationRatingBreakdown(String stars, String deduction) {
+    return '$stars from buyers, $deduction deducted for cancellations';
+  }
+
+  @override
+  String reputationRatingFromBuyers(String stars) {
+    return '$stars from buyers';
+  }
+
+  @override
+  String reputationShownToBuyers(String stars) {
+    return 'Buyers see $stars';
+  }
+
+  @override
+  String reputationCompletedOrders(int completed, int total) {
+    return '$completed of $total orders completed in the last 90 days';
+  }
+
+  @override
+  String reputationOverrideLow(String date) {
+    return 'Our team added the Low reputation label until $date.';
+  }
+
+  @override
+  String reputationOverrideClear(String date) {
+    return 'Our team removed the Low reputation label until $date.';
+  }
+
+  @override
+  String get reputationEventsTitle => 'History';
+
+  @override
+  String get reputationEventsEmpty => 'Nothing recorded.';
+
+  @override
+  String get reputationEventDeclined => 'Declined a paid order';
+
+  @override
+  String get reputationEventExpired => 'Didn\'t respond in time';
+
+  @override
+  String get reputationEventCancelled => 'Cancelled after accepting';
+
+  @override
+  String get reputationEventLateCancel =>
+      'Cancelled less than a day before pickup';
+
+  @override
+  String get reputationEventTripCancelled =>
+      'Cancelled a trip with booked orders';
+
+  @override
+  String get reputationEventNoShow => 'Missed the pickup';
+
+  @override
+  String get reputationEventOverdue => 'Delivery overdue';
+
+  @override
+  String get reputationEventTransportFailedCancel =>
+      'Cancelled after the transport failed';
+
+  @override
+  String get reputationEventCompleted =>
+      'Completed an order, one point removed';
+
+  @override
+  String get reputationEventOther => 'Order event';
+
+  @override
+  String reputationEventPoints(int points) {
+    String _temp0 = intl.Intl.pluralLogic(
+      points,
+      locale: localeName,
+      other: '$points points',
+      one: '1 point',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reputationEventNoPoints => 'No points counted';
+
+  @override
+  String reputationEventRemaining(int points) {
+    return '$points still counted';
+  }
+
+  @override
+  String reputationPointExpires(String date) {
+    return 'Expires $date';
+  }
+
+  @override
+  String get reputationEventStatusExpired => 'Expired';
+
+  @override
+  String get reputationEventStatusExcused => 'Excused';
+
+  @override
+  String get reputationAppeal => 'Appeal';
+
+  @override
+  String reputationAppealBy(String date) {
+    return 'You can appeal until $date.';
+  }
+
+  @override
+  String get reputationAppealPending => 'Appeal sent. Our team will review it.';
+
+  @override
+  String get reputationAppealReview => 'Our team is reviewing this.';
+
+  @override
+  String get reputationAppealAccepted =>
+      'Appeal accepted. The points were removed.';
+
+  @override
+  String get reputationAppealUpheld => 'Appeal reviewed. The points stay.';
+
+  @override
+  String reputationAppealNote(String note) {
+    return 'Note from our team: $note';
+  }
+
+  @override
+  String get reputationAppealHint =>
+      'Explain what happened. Our team will review it. You can appeal each record once.';
+
+  @override
+  String get reputationAppealTextLabel => 'What happened';
+
+  @override
+  String get reputationAppealAddPhoto => 'Add a photo (optional)';
+
+  @override
+  String get reputationAppealPhotoAdded => 'Photo added';
+
+  @override
+  String get reputationAppealRemovePhoto => 'Remove photo';
+
+  @override
+  String get reputationAppealNeedsConnection =>
+      'Sending an appeal needs a connection. Your text is kept on this device until you send it.';
+
+  @override
+  String get reputationAppealSend => 'Send appeal';
+
+  @override
+  String get reputationAppealSent => 'Appeal sent.';
+
+  @override
+  String get reputationAppealFailed =>
+      'The appeal was not sent. Check your connection and try again.';
+
+  @override
+  String get reputationAppealClosed => 'This can no longer be appealed.';
+
+  @override
+  String get reputationAppealExists => 'An appeal was already sent for this.';
+
+  @override
+  String get reputationAppealPhotoProblem =>
+      'This photo is too large or can\'t be used. Try another one, or send without a photo.';
+
+  @override
+  String get reputationAppealUnavailable =>
+      'Appeals are not available right now.';
+
+  @override
+  String get reputationOfflineNoCopy =>
+      'Connect to the internet to see your reputation.';
+
+  @override
+  String reputationShowingSaved(String date) {
+    return 'You\'re offline. Showing what was saved on $date.';
+  }
+
+  @override
+  String get reputationLoadMore => 'Show more';
+
+  @override
+  String get reputationHistoryNeedsConnection =>
+      'Connect to the internet to see your history.';
+
+  @override
+  String get profileRatingNone => 'None yet';
+
+  @override
+  String get notifPenaltyRecordedTitle => 'Penalty points added';
+
+  @override
+  String notifPenaltyRecordedBody(String reason, String points) {
+    return '$reason. Points added: $points. Open My reputation to see the details or appeal.';
+  }
+
+  @override
+  String get notifTierChangedTitle => 'Your reputation changed';
+
+  @override
+  String get notifTierGoodBody => 'You are back in good standing.';
+
+  @override
+  String get notifTierWarningBody =>
+      'You have penalty points. Buyers see nothing yet. Open My reputation for the details.';
+
+  @override
+  String get notifPickupReminderTitle => 'Check in for the pickup';
+
+  @override
+  String get notifPickupReminderBody =>
+      'The pickup check-in closes soon. Please open the order and check in.';
+
+  @override
+  String get notifTruckerArrivedTitle => 'The trucker has arrived';
+
+  @override
+  String notifTruckerArrivedBody(String trucker) {
+    return '$trucker has arrived to collect the order. Please have the crops and your QR code ready.';
+  }
+
+  @override
+  String get notifBuyerArrivedTitle => 'The buyer has arrived';
+
+  @override
+  String notifBuyerArrivedBody(String buyer) {
+    return '$buyer has arrived to collect the order. Please have the crops and your QR code ready.';
+  }
+
+  @override
+  String get notifCropsReadyTitle => 'The crops are ready';
+
+  @override
+  String notifCropsReadyBody(String farmer) {
+    return '$farmer says the crops are ready for pickup.';
+  }
+
+  @override
+  String get notifDeliveryArrivedTitle => 'The truck has arrived';
+
+  @override
+  String notifDeliveryArrivedBody(String trucker) {
+    return '$trucker has checked in at the drop-off. Please confirm the delivery or report a problem. If you do neither by the time below, it may be confirmed for you.';
+  }
+
+  @override
+  String get notifDeliveryConfirmReminderTitle => 'Confirm your delivery';
+
+  @override
+  String get notifDeliveryConfirmReminderBody =>
+      'Please confirm the delivery or report a problem. If you do neither by the time below, it may be confirmed for you.';
+
+  @override
+  String get notifTruckerNoShowTitle => 'The trucker did not check in';
+
+  @override
+  String get notifTruckerNoShowBuyerBody =>
+      'The trucker did not check in at the farm by the deadline. Please decide: you can cancel for a full refund.';
+
+  @override
+  String get notifTruckerNoShowFarmerBody =>
+      'The trucker did not check in at your farm by the deadline. Please keep the crops until the buyer decides.';
+
+  @override
+  String get notifPickupCheckInMissedTitle => 'Pickup check-in missed';
+
+  @override
+  String get notifPickupCheckInMissedBody =>
+      'No arrival check-in reached us by the pickup deadline. The buyer now decides. If you were there, contact support.';
+
+  @override
+  String get notifFarmerNoShowBody =>
+      'The order was cancelled because the crops were not marked ready by the deadline. The money goes back to the buyer.';
+
+  @override
+  String get notifBuyerNoShowBody =>
+      'The order was cancelled because it was not collected by the deadline. The money goes back to the buyer.';
+
+  @override
+  String get notifPickupReviewTitle => 'Pickup under review';
+
+  @override
+  String get notifPickupReviewBody =>
+      'The pickup was not confirmed with the QR code. Our team is checking it; the money stays held.';
+
+  @override
+  String get notifAutoConfirmedTitle => 'Delivery confirmed for you';
+
+  @override
+  String get notifAutoConfirmedBuyerBody =>
+      'Your order was confirmed as delivered because there was no answer. If something is wrong, report it before the time is up.';
+
+  @override
+  String get notifAutoConfirmedPayeeBody =>
+      'The delivery was confirmed by the system after the buyer did not answer. You are paid after the 48 hour check.';
+
+  @override
+  String get notifDeliveryReviewTitle => 'Delivery under review';
+
+  @override
+  String get notifDeliveryOverdueBody =>
+      'The delivery was not recorded by its deadline. Our team is checking it; the money stays held.';
+
+  @override
+  String get notifSilentBuyerBody =>
+      'The delivery was not confirmed after the truck arrived. Our team is checking it; the money stays held.';
+
+  @override
+  String get notifDropoffOutOfRangeBody =>
+      'The truck\'s arrival could not be matched to the drop-off place. Our team is checking it; the money stays held.';
+
+  @override
+  String get profileEditTitle => 'Edit profile';
+
+  @override
+  String get profileEditSubtitle => 'Name and woreda';
+
+  @override
+  String get profileEditNote =>
+      'Listings, trips and orders you create from now on show your new name and woreda. The ones you already made keep the old details.';
+
+  @override
+  String get profileEditSaved => 'Profile saved.';
+
+  @override
+  String get profileEditSavedQueued =>
+      'Profile saved on this phone. It is sent when you are online.';
+
+  @override
+  String get profileEditFailed =>
+      'Your profile could not be saved. Check your connection and try again.';
+
+  @override
+  String get profileEditTooLong => 'Use 100 characters or fewer.';
+
+  @override
+  String get profileEditNameUnavailable =>
+      'This name is not available. Choose another.';
+
+  @override
+  String get profileEditRefused =>
+      'These details were not accepted. Check each field and try again.';
+
+  @override
+  String get checkInTitle => 'Arrival check-ins';
+
+  @override
+  String get checkInPartyTrucker => 'Trucker at the farm';
+
+  @override
+  String get checkInPartyBuyer => 'Buyer at the farm';
+
+  @override
+  String get checkInPartyFarmer => 'Crops ready';
+
+  @override
+  String checkInReceived(String time) {
+    return 'Received $time';
+  }
+
+  @override
+  String checkInReceivedLate(String time) {
+    return 'Late, received $time';
+  }
+
+  @override
+  String checkInSavedOnPhone(String time) {
+    return 'Saved on this phone $time, not sent yet';
+  }
+
+  @override
+  String checkInSentFromPhone(String time) {
+    return 'Sent $time';
+  }
+
+  @override
+  String get checkInNotYet => 'Not yet';
+
+  @override
+  String checkInOpensAt(String time) {
+    return 'You can check in from $time.';
+  }
+
+  @override
+  String get checkInPendingNote =>
+      'If the QR code is not scanned by the pickup deadline, these check-ins decide what happens. What counts is when the server receives each one.';
+
+  @override
+  String get checkInDeadlinePassedNote =>
+      'The pickup deadline has passed. The outcome follows soon.';
+
+  @override
+  String get checkInArrivedButton => 'I have arrived';
+
+  @override
+  String get checkInCropsReadyButton => 'Crops are ready';
+
+  @override
+  String get checkInLocating => 'Finding your location';
+
+  @override
+  String get checkInNeedsLocation =>
+      'We could not read your location. Turn on location and try again at the farm.';
+
+  @override
+  String get checkInSent => 'Check-in sent.';
+
+  @override
+  String get pickupJudgementScanned => 'The crops were picked up.';
+
+  @override
+  String get pickupJudgementTruckerNoShow =>
+      'Nobody checked in at the farm by the deadline. The buyer now chooses what happens to the order.';
+
+  @override
+  String get pickupJudgementFarmerNoShow =>
+      'The farmer did not say the crops were ready by the deadline. The order was cancelled and the buyer gets a full refund.';
+
+  @override
+  String get pickupJudgementBuyerNoShow =>
+      'The buyer did not come to collect the crops by the deadline. The order was cancelled and the money goes back to the buyer.';
+
+  @override
+  String get pickupJudgementBothPresent =>
+      'Both checked in, but the QR code was not scanned. Support is looking into it and the money stays held.';
+
+  @override
+  String get pickupJudgementUnchecked =>
+      'The arrival could not be checked against the farm\'s location. Support is looking into it and the money stays held.';
+
+  @override
+  String get pickupJudgementOther => 'The pickup was judged.';
+
+  @override
+  String get commitmentTruckerNoShow => 'Did not come';
+
+  @override
+  String get commitmentFarmerNoShow => 'Crops not ready';
+
+  @override
+  String get transportFailureTruckerNoShow =>
+      'The trucker did not come to the farm';
+
+  @override
+  String get errorCheckInNotOpen =>
+      'Check-ins are not open for this order, so your check-in was not saved.';
+
+  @override
+  String get errorCheckInNotParty =>
+      'Only the order\'s farmer says the crops are ready, and only its trucker (or the buyer collecting it) says they have arrived. Your check-in was not saved.';
+
+  @override
+  String get errorCheckInTooEarly =>
+      'Too early: check-ins open 24 hours before the pickup day. Your check-in was not saved, so check in again then.';
+
+  @override
+  String get errorCheckInTooFar =>
+      'You are more than 5 km from the farm. Your check-in was not saved, so check in again when you get there.';
+
+  @override
+  String get errorCheckInTooLate =>
+      'Your check-in reached the server after the pickup deadline, so it does not count. It was kept for review.';
+
+  @override
+  String get errorCheckInValidation =>
+      'Your check-in was not saved. Try again, and update the app if it keeps happening.';
+
+  @override
+  String get errorCheckInClosed =>
+      'The pickup deadline has passed, so check-ins are closed. Your check-in was not saved.';
+
+  @override
+  String get checkInLocationBlocked =>
+      'Location is blocked for this app. Allow it in the app settings, then try again at the farm.';
+
+  @override
+  String get checkInLocationBlockedWeb =>
+      'Location is blocked for this site. Allow it in the browser\'s site settings, then try again at the farm.';
+
+  @override
+  String get checkInOpenSettings => 'Open settings';
+
+  @override
+  String get checkInAlreadyGiven => 'You have already checked in.';
+
+  @override
+  String get deliveryPhotoArrival => 'Arrival Photo';
+
+  @override
+  String deliveryAutoConfirmedAt(String time) {
+    return 'Confirmed by the system $time, after the buyer did not respond to the trucker\'s check-in at the drop-off.';
+  }
+
+  @override
+  String get dropoffCheckInTitle => 'Drop-off check-in';
+
+  @override
+  String get dropoffCheckInPartyTrucker => 'Trucker at the drop-off';
+
+  @override
+  String get dropoffCheckInButton => 'Arrived at drop-off';
+
+  @override
+  String get dropoffCheckInPhotoHint =>
+      'First take a photo of the goods at the drop-off, then your location is read.';
+
+  @override
+  String dropoffCheckInTruckerNote(String time) {
+    return 'Check in when you reach the drop-off, by $time. Without a check-in by then, the delivery goes to support as overdue.';
+  }
+
+  @override
+  String dropoffCheckInWaitingNote(String time) {
+    return 'The trucker checks in at the drop-off by $time. Without a check-in by then, the delivery goes to support as overdue.';
+  }
+
+  @override
+  String dropoffCheckInBuyerConfirmBy(String time) {
+    return 'The trucker has checked in at the drop-off. Confirm the delivery when you have the crops. If you have not confirmed by $time, the delivery may be confirmed for you.';
+  }
+
+  @override
+  String dropoffCheckInPartyConfirmBy(String time) {
+    return 'The trucker has checked in at the drop-off. If the buyer has not confirmed by $time, the delivery may be confirmed for them.';
+  }
+
+  @override
+  String get dropoffCheckInOutcomeSoon =>
+      'The deadline has passed. The outcome follows soon.';
+
+  @override
+  String get dropoffCheckInNeedsLocation =>
+      'We could not read your location. Turn on location and try again at the drop-off.';
+
+  @override
+  String get dropoffCheckInLocationBlocked =>
+      'Location is blocked for this app. Allow it in the app settings, then try again at the drop-off.';
+
+  @override
+  String get dropoffCheckInLocationBlockedWeb =>
+      'Location is blocked for this site. Allow it in the browser\'s site settings, then try again at the drop-off.';
+
+  @override
+  String get dropoffJudgementClosed =>
+      'The delivery was confirmed or disputed before the deadline.';
+
+  @override
+  String get dropoffJudgementAutoConfirmed =>
+      'Confirmed by the system: the buyer did not respond after the trucker checked in at the drop-off. The buyer can still report a problem within the usual 48 hours.';
+
+  @override
+  String get dropoffJudgementSilentBuyer =>
+      'The buyer did not respond after the trucker checked in, and the delivery could not be confirmed automatically. Support is looking into it and the money stays held.';
+
+  @override
+  String get dropoffJudgementDeliveryOverdue =>
+      'No drop-off check-in arrived by the delivery deadline. Support is looking into it and the money stays held.';
+
+  @override
+  String get dropoffJudgementOutOfRange =>
+      'The trucker\'s check-in was more than 5 km from the order\'s drop-off point. Support is looking into it and the money stays held.';
+
+  @override
+  String get dropoffJudgementQueued =>
+      'Support is reviewing this delivery. The money stays held.';
+
+  @override
+  String get dropoffJudgementOther => 'The delivery was judged.';
+
+  @override
+  String get errorCheckInPhotoRequired =>
+      'The arrival photo has not reached the server. Take the arrival photo first, then check in at the drop-off again.';
+
+  @override
+  String get errorDropoffCheckInNotOpen =>
+      'Drop-off check-ins are not open for this delivery, so your check-in was not saved.';
+
+  @override
+  String get errorDropoffCheckInNotParty =>
+      'Only the order\'s trucker checks in at the drop-off. Your check-in was not saved.';
+
+  @override
+  String get errorDropoffCheckInTooFar =>
+      'Your check-in was more than 5 km from the order\'s drop-off point, so it was not saved. Check in again nearer that point.';
+
+  @override
+  String get errorDropoffCheckInTooFarKept =>
+      'Your check-in was more than 5 km from the order\'s drop-off point, so it was not saved, but this attempt was kept for review. Check in again nearer that point.';
+
+  @override
+  String get errorDropoffCheckInTooLate =>
+      'Your check-in reached the server after the delivery deadline, so it does not count. It was kept for review.';
+
+  @override
+  String get errorDropoffCheckInClosed =>
+      'The delivery deadline has passed, so check-ins are closed. Your check-in was not saved.';
+
+  @override
+  String get deliveryErrorGpsPickupFar =>
+      'Pickup not saved: your location was more than 5 km from the farm. Scan the farmer\'s QR code again at the farm before you leave with the goods.';
+
+  @override
+  String get deliveryErrorGpsSelfPickupNoFix =>
+      'Pickup not confirmed: your phone sent no location, and the farmer is not paid yet. Turn on location and scan the farmer\'s QR code again at the farm.';
+
+  @override
+  String get deliveryErrorGpsSelfPickupNoFarmPoint =>
+      'Pickup not confirmed: this listing has no farm location to check yours against, and the farmer is not paid yet. Contact support.';
+
+  @override
+  String get deliveryErrorGpsSelfPickupFar =>
+      'Pickup not confirmed: your location was more than 5 km from the farm, and the farmer is not paid yet. Scan the farmer\'s QR code again at the farm.';
+
+  @override
+  String get deliveryErrorGpsDropoffFar =>
+      'Delivery not confirmed: your location was more than 5 km from the drop-off point. Scan the trucker\'s QR code again where you receive the goods, or contact support.';
 }

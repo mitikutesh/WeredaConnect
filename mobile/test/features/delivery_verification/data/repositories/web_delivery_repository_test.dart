@@ -1,10 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/features/delivery_verification/data/repositories/web_delivery_repository.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
+import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -270,6 +273,88 @@ void main() {
     expect(delivery.version, 3);
   });
 
+  // FRD-12: web reads the handoff photo keys, so the delivery detail can load
+  // their presigned URLs for the three parties.
+  group('handoff photo keys on reads', () {
+    const pickupKey = 'uploads/photos/del-1/pickup-1700000000000.webp';
+    const dropoffKey = 'uploads/photos/del-1/dropoff-1700000000000.jpg';
+    final row = {
+      'deliveryId': 'del-1',
+      'status': 'delivered',
+      'pickupPhotoRef': pickupKey,
+      'dropoffPhotoRef': dropoffKey,
+      'version': 4,
+    };
+
+    test('GET by id carries both keys', () async {
+      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1'))
+          .thenAnswer((_) async => {'delivery': row});
+
+      final delivery =
+          await repository.getDeliveryById('del-1', userId: 'buyer-1');
+
+      expect(delivery!.pickupPhotoRef, pickupKey);
+      expect(delivery.dropoffPhotoRef, dropoffKey);
+    });
+
+    test('the list carries both keys', () async {
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/deliveries',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'deliveries': [row],
+        },
+      );
+
+      final deliveries =
+          await repository.getDeliveriesByUser('farmer-1', role: 'farmer');
+
+      expect(deliveries.single.pickupPhotoRef, pickupKey);
+      expect(deliveries.single.dropoffPhotoRef, dropoffKey);
+    });
+
+    test('a delivery without photos has no keys', () async {
+      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1')).thenAnswer(
+        (_) async => {
+          'delivery': {'deliveryId': 'del-1', 'status': 'pending'},
+        },
+      );
+
+      final delivery =
+          await repository.getDeliveryById('del-1', userId: 'buyer-1');
+
+      expect(delivery!.pickupPhotoRef, isNull);
+      expect(delivery.dropoffPhotoRef, isNull);
+      expect(delivery.arrivalPhotoRef, isNull);
+      expect(delivery.autoConfirmedAt, isNull);
+    });
+
+    // FUP-336 (ESC-36): the trucker's arrival photo and the system's confirm
+    // for a silent buyer.
+    test("GET by id carries the arrival photo and the system's confirm",
+        () async {
+      const arrivalKey = 'uploads/photos/del-1/arrival-1700000000000.jpg';
+      when(() => api.get<Map<String, dynamic>>('/deliveries/del-1')).thenAnswer(
+        (_) async => {
+          'delivery': {
+            ...row,
+            'arrivalPhotoRef': arrivalKey,
+            'autoConfirmedAt': '2026-11-10T08:01:00Z',
+          },
+        },
+      );
+
+      final delivery =
+          await repository.getDeliveryById('del-1', userId: 'buyer-1');
+
+      expect(delivery!.arrivalPhotoRef, arrivalKey);
+      expect(delivery.autoConfirmedAt, DateTime.utc(2026, 11, 10, 8, 1));
+    });
+  });
+
   group('persistQrNonce', () {
     setUp(() {
       when(() => api.get<Map<String, dynamic>>('/deliveries/del-1')).thenAnswer(
@@ -328,6 +413,106 @@ void main() {
     });
   });
 
+  group('persistDropoffQrNonce (ESC-35)', () {
+    setUp(() => stubCurrentVersion(4));
+
+    test('registers the trucker\'s nonce alone, at the current version',
+        () async {
+      answerSync({
+        'results': [
+          {'status': 'success'},
+        ],
+      });
+
+      final registration = await repository.persistDropoffQrNonce(
+        deliveryId: 'del-1',
+        nonce: 'd.trucker-nonce',
+        truckerId: 'trucker-1',
+      );
+
+      expect(registration, DropoffCodeRegistration.sent);
+      final op = sentOp();
+      expect(op['entityType'], 'delivery');
+      expect(op['action'], 'update');
+      expect(op['entityId'], 'del-1');
+      expect(op['data'], {'dropoffQrNonce': 'd.trucker-nonce', 'version': 4});
+    });
+
+    test('New drop-off code asks to renew', () async {
+      answerSync({
+        'results': [
+          {'status': 'success'},
+        ],
+      });
+
+      await repository.persistDropoffQrNonce(
+        deliveryId: 'del-1',
+        nonce: 'd.renewed',
+        truckerId: 'trucker-1',
+        renew: true,
+      );
+
+      expect(sentOp()['data'], {
+        'dropoffQrNonce': 'd.renewed',
+        'dropoffQrRenew': true,
+        'version': 4,
+      });
+    });
+
+    for (final (message, expected) in [
+      (
+        'DROPOFF_CODE_SUPERSEDED: Another drop-off code is on record for this '
+            'delivery. Show that one, or make a new code.',
+        DropoffCodeRegistration.superseded,
+      ),
+      (
+        'DROPOFF_CODE_NOT_STORED: This delivery has no pickup code on the '
+            'server, so its drop-off code is not kept.',
+        DropoffCodeRegistration.notStored,
+      ),
+    ]) {
+      test('a code the server did not keep reads as $expected', () async {
+        answerSync({
+          'results': [
+            {'status': 'success', 'message': message},
+          ],
+        });
+
+        expect(
+          await repository.persistDropoffQrNonce(
+            deliveryId: 'del-1',
+            nonce: 'd.trucker-nonce',
+            truckerId: 'trucker-1',
+          ),
+          expected,
+        );
+      });
+    }
+
+    test(
+        'a deferral (the pickup not on the server yet) throws, to be sent '
+        'again on the next open', () async {
+      answerSync({
+        'results': [
+          {
+            'status': 'deferred',
+            'message': 'DELIVERY_NONCE_PENDING: Waiting for the pickup to '
+                'sync. Will retry automatically.',
+          },
+        ],
+      });
+
+      await expectLater(
+        repository.persistDropoffQrNonce(
+          deliveryId: 'del-1',
+          nonce: 'd.trucker-nonce',
+          truckerId: 'trucker-1',
+        ),
+        throwsA(isA<SyncDeferredException>()),
+      );
+    });
+  });
+
   // SIM-60: a local file path never travels in the sync op (the server accepts
   // only its own upload key and refuses the whole op otherwise); same rule as
   // the mobile repository.
@@ -355,17 +540,93 @@ void main() {
       expect(sentData().containsKey('pickupPhotoRef'), isFalse);
     });
 
-    test('confirmPickup sends a server photo key', () async {
+    /// Every /sync body sent, in order.
+    List<Map<String, dynamic>> sentBodies() => verify(
+          () => api.post<Map<String, dynamic>>(
+            '/sync',
+            data: captureAny<dynamic>(named: 'data'),
+          ),
+        ).captured.cast<Map<String, dynamic>>();
+
+    Map<String, dynamic> opOf(Map<String, dynamic> body) =>
+        (body['operations'] as List).single as Map<String, dynamic>;
+
+    // FRD-12: the browser uploaded the photo when it was taken; after the
+    // handoff succeeded, its key is attached by a delivery_photo op.
+    test('confirmPickup attaches the uploaded photo after the pickup',
+        () async {
       await repository.confirmPickup(
         deliveryId: 'del-1',
         truckerId: 'trucker-1',
-        photoRef: 'uploads/photos/del-1/pickup-1700000000000.webp',
+        photoRef: 'uploads/photos/del-1/pickup-1700000000000.jpg',
       );
 
-      expect(
-        sentData()['pickupPhotoRef'],
-        'uploads/photos/del-1/pickup-1700000000000.webp',
+      final bodies = sentBodies();
+      expect(bodies, hasLength(2));
+      final handoff = opOf(bodies[0]);
+      expect((handoff['data'] as Map)['status'], 'pickedUp');
+      expect((handoff['data'] as Map).containsKey('pickupPhotoRef'), isFalse);
+      final photo = opOf(bodies[1]);
+      expect(photo['entityType'], 'delivery_photo');
+      expect(photo['entityId'], 'del-1#pickup');
+      expect(photo['action'], 'create');
+      expect(photo['data'], {
+        'photoRef': 'uploads/photos/del-1/pickup-1700000000000.jpg',
+      });
+    });
+
+    test('a refused photo attach leaves the confirmed handoff standing',
+        () async {
+      var calls = 0;
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer((_) async {
+        calls++;
+        return calls == 1
+            ? {
+                'results': [
+                  {'status': 'success'},
+                ],
+              }
+            : {
+                'results': [
+                  {
+                    'status': 'error',
+                    'message': 'DELIVERY_PHOTO_EXISTS: This handoff already '
+                        'has its photo.',
+                  },
+                ],
+              };
+      });
+
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        photoRef: 'uploads/photos/del-1/dropoff-1700000000000.jpg',
       );
+
+      expect(calls, 2);
+    });
+
+    test('a refused handoff attaches no photo', () async {
+      answerSync({
+        'results': [
+          {'status': 'error', 'message': 'DELIVERY_NONCE_MISMATCH: no'},
+        ],
+      });
+
+      await expectLater(
+        repository.confirmPickup(
+          deliveryId: 'del-1',
+          truckerId: 'trucker-1',
+          photoRef: 'uploads/photos/del-1/pickup-1700000000000.jpg',
+        ),
+        throwsA(isA<SyncRejectedException>()),
+      );
+      expect(sentBodies(), hasLength(1));
     });
 
     test('confirmDelivery omits a local photo path', () async {
@@ -380,17 +641,193 @@ void main() {
       expect(sentData().containsKey('dropoffPhotoRef'), isFalse);
     });
 
-    test('confirmDelivery sends a server photo key', () async {
+    // T-1: a typed code travels as scannedQrCode, never with a nonce.
+    test('confirmPickup sends a typed code as scannedQrCode', () async {
+      await repository.confirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        scannedQrCode: '757555978',
+      );
+
+      expect(sentData()['scannedQrCode'], '757555978');
+      expect(sentData().containsKey('scannedQrNonce'), isFalse);
+    });
+
+    test('confirmDelivery sends a typed code as scannedQrCode', () async {
       await repository.confirmDelivery(
         deliveryId: 'del-1',
         buyerId: 'buyer-1',
-        photoRef: 'uploads/photos/del-1/dropoff-1700000000000.webp',
+        scannedQrCode: '757555978',
       );
 
-      expect(
-        sentData()['dropoffPhotoRef'],
-        'uploads/photos/del-1/dropoff-1700000000000.webp',
+      expect(sentData()['scannedQrCode'], '757555978');
+      expect(sentData().containsKey('scannedQrNonce'), isFalse);
+    });
+
+    test('a scanned nonce is sent alone', () async {
+      await repository.confirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        scannedQrNonce: 'nonce-1',
       );
+
+      expect(sentData()['scannedQrNonce'], 'nonce-1');
+      expect(sentData().containsKey('scannedQrCode'), isFalse);
+    });
+
+    test('confirmDelivery attaches the uploaded drop-off photo', () async {
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        photoRef: 'uploads/photos/del-1/dropoff-1700000000000.jpg',
+      );
+
+      final bodies = sentBodies();
+      expect(bodies, hasLength(2));
+      expect(
+        (opOf(bodies[0])['data'] as Map).containsKey('dropoffPhotoRef'),
+        isFalse,
+      );
+      expect(opOf(bodies[1])['entityId'], 'del-1#dropoff');
+    });
+
+    test('a local path is never attached', () async {
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        photoRef:
+            '/data/user/0/app/files/photos/del-1/dropoff-1700000000000.webp',
+      );
+
+      expect(sentBodies(), hasLength(1));
+    });
+  });
+
+  // FUP-440: each handoff confirm says why it has no fix, or with a fix its
+  // own time and accuracy.
+  group('handoff GPS evidence (FUP-440)', () {
+    final fixAt = DateTime.utc(2026, 11, 26, 7, 30, 5);
+
+    setUp(() {
+      stubCurrentVersion(2);
+      answerSync({
+        'results': [
+          {'status': 'success'},
+        ],
+      });
+    });
+
+    Map<String, dynamic> sentData() => sentOp()['data'] as Map<String, dynamic>;
+
+    LatLng point(GpsCaptureResult fix) => LatLng()
+      ..latitude = fix.latitude!
+      ..longitude = fix.longitude!;
+
+    test('a trucker pickup with a fix sends its time and accuracy', () async {
+      final fix = GpsCaptureResult.success(
+        latitude: 9.0192,
+        longitude: 38.7525,
+        accuracy: 14.5,
+        capturedAt: fixAt,
+      );
+
+      await repository.confirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        gpsPickup: point(fix),
+        gpsCapture: fix,
+      );
+
+      expect(sentData()['gpsStatus'], 'fix');
+      expect(sentData()['gpsPickup'], {
+        'latitude': 9.0192,
+        'longitude': 38.7525,
+        'capturedAt': '2026-11-26T07:30:05.000Z',
+        'accuracyM': 14.5,
+      });
+    });
+
+    test('a pickup without a fix says why and sends no point', () async {
+      await repository.confirmPickup(
+        deliveryId: 'del-1',
+        truckerId: 'trucker-1',
+        gpsCapture: const GpsCaptureResult.unavailable(
+          GpsCaptureResult.permissionDeniedReason,
+        ),
+      );
+
+      expect(sentData()['gpsStatus'], 'denied');
+      expect(sentData().containsKey('gpsPickup'), isFalse);
+    });
+
+    test('a drop-off with an approximate fix says so', () async {
+      final fix = GpsCaptureResult.success(
+        latitude: 8.9806,
+        longitude: 38.7578,
+        accuracy: 1800,
+        capturedAt: fixAt,
+        approximate: true,
+      );
+
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        gpsDropoff: point(fix),
+        gpsCapture: fix,
+      );
+
+      expect(sentData()['status'], 'delivered');
+      expect(sentData()['gpsStatus'], 'approximate');
+      expect(sentData()['gpsDropoff'], {
+        'latitude': 8.9806,
+        'longitude': 38.7578,
+        'capturedAt': '2026-11-26T07:30:05.000Z',
+        'accuracyM': 1800.0,
+      });
+    });
+
+    // The self-pickup confirm is the buyer's confirmDelivery at the farm.
+    test('a drop-off or self-pickup without a fix says why', () async {
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        gpsCapture: const GpsCaptureResult.unavailable(
+          GpsCaptureResult.permanentlyDeniedReason,
+        ),
+      );
+
+      expect(sentData()['gpsStatus'], 'denied_forever');
+      expect(sentData().containsKey('gpsDropoff'), isFalse);
+    });
+
+    test('a fix without its time or accuracy sends the point alone', () async {
+      const fix = GpsCaptureResult.success(
+        latitude: 8.9806,
+        longitude: 38.7578,
+        accuracy: null,
+      );
+
+      await repository.confirmDelivery(
+        deliveryId: 'del-1',
+        buyerId: 'buyer-1',
+        gpsDropoff: point(fix),
+        gpsCapture: fix,
+      );
+
+      expect(sentData()['gpsStatus'], 'fix');
+      expect(
+        sentData()['gpsDropoff'],
+        {'latitude': 8.9806, 'longitude': 38.7578},
+      );
+    });
+
+    test('no capture tried sends no status', () async {
+      await repository.confirmPickup(deliveryId: 'del-1', truckerId: 't-1');
+      expect(sentData().containsKey('gpsStatus'), isFalse);
+
+      await repository.confirmDelivery(deliveryId: 'del-1', buyerId: 'b-1');
+      expect(sentData().containsKey('gpsStatus'), isFalse);
+      expect(sentData().containsKey('gpsDropoff'), isFalse);
     });
   });
 
@@ -581,6 +1018,121 @@ void main() {
           ),
         ),
       );
+    });
+
+    // FUP-43: the resend after the password prompt is the same operation.
+    group('step-up', () {
+      const stepUp = {
+        'results': [
+          {'status': 'error', 'message': 'AUTH_040: Confirm it is you.'},
+        ],
+      };
+      const done = {
+        'results': [
+          {'status': 'success'},
+        ],
+      };
+
+      Future<Map<String, dynamic>> dispute(String reason) async {
+        try {
+          await repository.raiseDispute(
+            deliveryId: 'del-1',
+            userId: 'buyer-1',
+            reason: reason,
+          );
+        } on SyncRejectedException {
+          // The op that was sent is what the test reads.
+        }
+        return sentOp();
+      }
+
+      test('AUTH_040 throws with its code and writes nothing else', () async {
+        stubCurrentVersion(2);
+        answerSync(stepUp);
+
+        await expectLater(
+          repository.raiseDispute(
+            deliveryId: 'del-1',
+            userId: 'buyer-1',
+            reason: 'wet bags',
+          ),
+          throwsA(
+            isA<SyncRejectedException>().having(
+              (e) => e.message,
+              'message',
+              startsWith(stepUpRequiredCode),
+            ),
+          ),
+        );
+      });
+
+      test('the resend carries the same operation id and idempotency key',
+          () async {
+        stubCurrentVersion(2);
+        answerSync(stepUp);
+        final first = await dispute('wet bags');
+
+        answerSync(done);
+        final second = await dispute('wet bags');
+
+        expect(second['operationId'], first['operationId']);
+        expect(second['idempotencyKey'], first['idempotencyKey']);
+        expect(second['timestamp'], first['timestamp']);
+        expect(second['data'], first['data']);
+      });
+
+      test('a 403 AUTH_040 on the request is held the same way', () async {
+        stubCurrentVersion(2);
+        Map<String, dynamic>? firstOp;
+        when(
+          () => api.post<Map<String, dynamic>>(
+            '/sync',
+            data: any<dynamic>(named: 'data'),
+          ),
+        ).thenAnswer((invocation) async {
+          final body = invocation.namedArguments[#data] as Map<String, dynamic>;
+          firstOp = (body['operations'] as List).first as Map<String, dynamic>;
+          throw const StepUpRequiredException('step-up required');
+        });
+        await expectLater(
+          repository.raiseDispute(
+            deliveryId: 'del-1',
+            userId: 'buyer-1',
+            reason: 'wet bags',
+          ),
+          throwsA(isA<StepUpRequiredException>()),
+        );
+
+        answerSync(done);
+        final second = await dispute('wet bags');
+
+        expect(second['idempotencyKey'], firstOp!['idempotencyKey']);
+        expect(second['operationId'], firstOp!['operationId']);
+      });
+
+      test('a changed reason is a new dispute', () async {
+        stubCurrentVersion(2);
+        answerSync(stepUp);
+        final first = await dispute('wet bags');
+
+        answerSync(done);
+        final second = await dispute('two bags missing');
+
+        expect(second['operationId'], isNot(first['operationId']));
+      });
+
+      test('a dispute that went through is not sent again as the same one',
+          () async {
+        stubCurrentVersion(2);
+        answerSync(stepUp);
+        final first = await dispute('wet bags');
+        answerSync(done);
+        await dispute('wet bags');
+
+        final third = await dispute('wet bags');
+
+        expect(third['operationId'], isNot(first['operationId']));
+      });
     });
 
     test('a conflict that left the delivery disputed is done', () async {

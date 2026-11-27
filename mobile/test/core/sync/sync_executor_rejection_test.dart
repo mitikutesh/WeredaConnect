@@ -8,6 +8,7 @@ import 'package:http_mock_adapter/http_mock_adapter.dart';
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
@@ -278,6 +279,9 @@ void main() {
         expect(reverts, hasLength(1));
         expect(reverts.single.$1.entityType, 'delivery');
         expect(reverts.single.$2, message);
+        // FUP-25: put back and explained, so it leaves the failed count.
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
         final event = rejections().single;
         expect(event.entityType, 'delivery');
         expect(event.entityId, 'del-1');
@@ -285,7 +289,10 @@ void main() {
       });
     }
 
-    test('DELIVERY_UNAUTHORIZED keeps retrying and is not reverted', () async {
+    // FUP-110: a non-participant's cancel can never pass, so it is not
+    // resent; the honest app never sends it, so there is nothing to undo.
+    test('DELIVERY_UNAUTHORIZED is permanent, not reverted, still counted',
+        () async {
       await enqueue(
         'op-1',
         entityType: 'delivery',
@@ -297,11 +304,749 @@ void main() {
       ]);
 
       await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      expect(await syncQueue.retryFailed(), 0);
+      expect(reverts, isEmpty);
+      expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+      expect(await syncQueue.getFailedCount(), 1);
+    });
+  });
+
+  // T-1: a typed code the server refused is never sent again (a retry would
+  // only spend more of the five tries); the local pickup is undone and
+  // explained.
+  group('a refused typed handoff code is permanent and reverted', () {
+    for (final message in [
+      'DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.',
+      'DELIVERY_CODE_LOCKED: Too many wrong codes for this delivery. Scan the '
+          'QR code, or ask the farmer for a new code.',
+      'DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this drop-off. '
+          "Scan the trucker's drop-off QR, or contact support.",
+      'DELIVERY_CODE_GPS_REQUIRED: Location is required to confirm a paid '
+          'delivery with a typed code.',
+    ]) {
+      test(message.split(':').first, () async {
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          data: '{"status":"pickedUp","scannedQrCode":"757555978","version":1}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts, hasLength(1));
+        expect(reverts.single.$1.entityType, 'delivery');
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+      });
+    }
+  });
+
+  // FUP-128: a change sent at the cancelled version (one queued behind the
+  // change that lost the race and got the conflict) is refused the same way
+  // every time, so it is never resent and the delivery goes back to the
+  // server's view. The same for a trip that is over.
+  group('a change to a cancelled delivery is permanent and reverted', () {
+    for (final (who, data) in [
+      ('trucker pickup', '{"status":"pickedUp","version":3}'),
+      ('buyer confirmation', '{"status":"delivered","version":3}'),
+      ('farmer dispute', '{"status":"disputed","version":3}'),
+    ]) {
+      test(who, () async {
+        const message =
+            'DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery.';
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          data: data,
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.operationId, 'op-1');
+        expect(reverts.single.$2, message);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        // A reconnect sends nothing.
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+  });
+
+  group('a change to a trip that is over is permanent and reverted', () {
+    for (final (action, data, message) in [
+      (
+        'update',
+        '{"status":"inTransit","version":4}',
+        'TRIP_TERMINAL_STATE: Cannot update a terminal-state trip.',
+      ),
+      (
+        'update',
+        '{"capacity":90,"version":4}',
+        'TRIP_ALREADY_CANCELLED: Cannot update a deleted trip.',
+      ),
+      (
+        'delete',
+        '{"tripId":"trip-1","version":4}',
+        'TRIP_TERMINAL_STATE: Cannot delete a terminal-state trip.',
+      ),
+    ]) {
+      test('$action: ${message.split(':').first}', () async {
+        await enqueue(
+          'op-1',
+          entityType: 'trip',
+          entityId: 'trip-1',
+          action: action,
+          data: data,
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.entityType, 'trip');
+        expect(reverts.single.$2, message);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+  });
+
+  // ESC-34, FUP-147 (sync-protocol.md 1.55.0): a pickup scan that reaches an
+  // order whose pickup was already judged is refused ORDER_DEADLINE_PASSED on
+  // a delivery operation. Like every ORDER_* refusal it is permanent: never
+  // resent, the local pickup goes back to the server's view (the handler gets
+  // the delivery operation), its waiting photo is rejected with it, and the
+  // user is told why.
+  group('a pickup refused after the pickup judgement', () {
+    for (final (status, message) in [
+      (
+        'pickedUp',
+        'ORDER_DEADLINE_PASSED: The pickup of this order was already judged, '
+            'so the scan was not applied. It was sent to support to review.',
+      ),
+      (
+        'delivered',
+        'ORDER_DEADLINE_PASSED: The pickup of this order was already judged, '
+            'so the scan was not applied. Contact support if the crops '
+            'changed hands.',
+      ),
+    ]) {
+      test('$status is permanent and reverted', () async {
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          data: '{"status":"$status","scannedQrNonce":"n","version":1}',
+        );
+        await enqueue(
+          'op-photo',
+          entityType: 'delivery_photo',
+          entityId: status == 'pickedUp' ? 'del-1#pickup' : 'del-1#dropoff',
+          data: '{"photoRef":"uploads/photos/del-1/pickup-1.webp"}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await isRejected('op-photo'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.operationId, 'op-1');
+        expect(reverts.single.$1.entityType, 'delivery');
+        expect(reverts.single.$2, message);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        // A reconnect sends nothing.
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+  });
+
+  // FUP-138: a handoff without the farmer's QR nonce gets the same answer
+  // every time (the op carries none, or the farmer's never reached the
+  // server in 14 days), so it is never resent; the local pickup or delivery
+  // goes back to the server's view and leaves the failed count.
+  group('a handoff refused without the QR nonce is permanent and reverted', () {
+    for (final (status, message) in [
+      (
+        'pickedUp',
+        'DELIVERY_NONCE_MISSING: QR nonce verification required for this '
+            'transition.',
+      ),
+      (
+        'pickedUp',
+        "DELIVERY_NONCE_MISSING: The farmer's QR code never reached the "
+            'server for this pickup. Contact support.',
+      ),
+      (
+        'delivered',
+        'DELIVERY_NONCE_MISSING: QR verification could not be completed for '
+            'this payment. Contact support.',
+      ),
+    ]) {
+      test('$status: ${message.substring(24, 60)}', () async {
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          data: '{"status":"$status","version":1}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.operationId, 'op-1');
+        expect(reverts.single.$2, message);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        // A reconnect sends nothing.
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+
+    test('DELIVERY_NONCE_MISMATCH still retries (a new QR may sync)', () async {
+      await enqueue(
+        'op-1',
+        entityType: 'delivery',
+        entityId: 'del-1',
+        data: '{"status":"pickedUp","scannedQrNonce":"n","version":1}',
+      );
+      replyWith([
+        error(
+          'op-1',
+          'DELIVERY_NONCE_MISMATCH: Scanned QR nonce does not match '
+              "generator's nonce.",
+        ),
+      ]);
+
+      await executor.executeBatch();
 
       final op = await syncQueue.getOperation('op-1');
       expect(op!.status, SyncStatus.pending);
       expect(op.retryCount, 1);
       expect(reverts, isEmpty);
+    });
+  });
+
+  // FUP-439 (sync-protocol.md 1.62.0): a pickup or delivery confirm refused
+  // for its GPS gets the same answer every time, so it is never resent (it
+  // was retried three times and again on every reconnect); the local pickup
+  // or delivery goes back to the server's view, its waiting photo goes with
+  // it, it leaves the failed count, and the user is told why. A server
+  // without the reason token (before FUP-439) is handled the same way.
+  group('a handoff refused for its GPS is permanent and reverted', () {
+    for (final (who, status, photo, message) in [
+      (
+        'trucker pickup',
+        'pickedUp',
+        'del-1#pickup',
+        'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is 11.1km from '
+            'listing location (max 5km).',
+      ),
+      (
+        'self-pickup without a fix',
+        'delivered',
+        'del-1#dropoff',
+        'DELIVERY_GPS_PROXIMITY: self_pickup_no_fix: Location is required to '
+            'confirm self-pickup at the farm.',
+      ),
+      (
+        'self-pickup on a listing without a point',
+        'delivered',
+        'del-1#dropoff',
+        'DELIVERY_GPS_PROXIMITY: self_pickup_no_farm_point: This listing has '
+            'no registered location, so self-pickup cannot be verified.',
+      ),
+      (
+        'self-pickup far from the farm',
+        'delivered',
+        'del-1#dropoff',
+        'DELIVERY_GPS_PROXIMITY: self_pickup_far: You are 11.1km from the '
+            'farm location (max 5km).',
+      ),
+      (
+        'drop-off far from both points',
+        'delivered',
+        'del-1#dropoff',
+        'DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is 16.2km from the '
+            'drop-off point (max 5km).',
+      ),
+      (
+        'a server without the reason',
+        'pickedUp',
+        'del-1#pickup',
+        'DELIVERY_GPS_PROXIMITY: Pickup GPS is 11.1km from listing location '
+            '(max 5km).',
+      ),
+    ]) {
+      test(who, () async {
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          data: '{"status":"$status","scannedQrNonce":"n","version":1}',
+        );
+        await enqueue(
+          'op-photo',
+          entityType: 'delivery_photo',
+          entityId: photo,
+          data: '{"photoRef":"uploads/photos/del-1/handoff-1.webp"}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await isRejected('op-photo'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.operationId, 'op-1');
+        expect(reverts.single.$1.entityType, 'delivery');
+        expect(reverts.single.$2, message);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        // A reconnect sends nothing.
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+  });
+
+  // The trucker's phone queues its drop-off code behind every pickup
+  // (ESC-35). The server holds it back (`deferred`) while the delivery is
+  // pending, so it would wait, and the revert skips a delivery with an
+  // upload on its way: a pickup refused by a code that undoes it rejects the
+  // registration first, and the revert flags both (FUP-439).
+  group('the drop-off code queued behind a refused pickup', () {
+    Future<void> enqueueHandoff(String data) async {
+      await enqueue(
+        'op-1',
+        entityType: 'delivery',
+        entityId: 'del-1',
+        data: data,
+      );
+      await enqueue(
+        'op-dropoff-code',
+        entityType: 'delivery',
+        entityId: 'del-1',
+        action: 'update-dropoff',
+        data: '{"dropoffQrNonce":"d.abc","version":2}',
+      );
+    }
+
+    void replyWithRegistrationHeldBack(Map<String, dynamic> handoffAnswer) {
+      replyWith([
+        handoffAnswer,
+        {
+          'operationId': 'op-dropoff-code',
+          'status': 'deferred',
+          'message': 'DELIVERY_NONCE_PENDING: Waiting for the pickup to sync. '
+              'Will retry automatically.',
+        },
+      ]);
+    }
+
+    const pickup = '{"status":"pickedUp","scannedQrNonce":"n","version":1}';
+
+    for (final message in [
+      'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is 11.1km from '
+          'listing location (max 5km).',
+      'DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.',
+      "DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server "
+          'for this pickup. Contact support.',
+    ]) {
+      test('is rejected before the revert: ${message.split(':').first}',
+          () async {
+        final waitingAtRevert = <int>[];
+        executor.dispose();
+        executor = buildExecutor(
+          securityEvents: events,
+          onPermanentRejection: (op, message) async {
+            waitingAtRevert.add(
+              (await syncQueue.waitingOperationsFor('delivery', 'del-1'))
+                  .length,
+            );
+            reverts.add((op, message));
+          },
+        );
+        await enqueueHandoff(pickup);
+        replyWithRegistrationHeldBack(error('op-1', message));
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-dropoff-code'), isTrue);
+        expect(waitingAtRevert, [0]);
+        expect(reverts.single.$1.operationId, 'op-1');
+        // Flagged with the pickup: neither counts as "Sync failed".
+        expect(
+          (await syncQueue.getOperation('op-dropoff-code'))!.reverted,
+          isTrue,
+        );
+        expect(await syncQueue.getFailedCount(), 0);
+        // One announcement for the delivery.
+        expect(rejections(), hasLength(1));
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+
+    // Nothing is reverted, so nothing would flag a rejected registration:
+    // the user would see a "Sync failed" operation they never made.
+    test('a permanent refusal that undoes nothing leaves it waiting', () async {
+      await enqueueHandoff(pickup);
+      replyWithRegistrationHeldBack(
+        error(
+          'op-1',
+          'DELIVERY_UNAUTHORIZED: Only the trucker can mark as pickedUp.',
+        ),
+      );
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      expect(reverts, isEmpty);
+      final registration = await syncQueue.getOperation('op-dropoff-code');
+      expect(SyncQueue.isRejected(registration!), isFalse);
+      expect(registration.status, SyncStatus.pending);
+      // Only the refused pickup counts, as before.
+      expect(await syncQueue.getFailedCount(), 1);
+    });
+
+    test('a transient pickup failure keeps it', () async {
+      await enqueueHandoff(pickup);
+      replyWithRegistrationHeldBack(error('op-1', 'Internal server error.'));
+
+      await executor.executeBatch();
+
+      final refused = await syncQueue.getOperation('op-1');
+      expect(SyncQueue.isRejected(refused!), isFalse);
+      expect(refused.retryCount, 1);
+      final registration = await syncQueue.getOperation('op-dropoff-code');
+      expect(SyncQueue.isRejected(registration!), isFalse);
+      expect(registration.status, SyncStatus.pending);
+      expect(reverts, isEmpty);
+    });
+
+    test('a refused delivery confirm leaves it waiting', () async {
+      await enqueueHandoff(
+        '{"status":"delivered","scannedQrNonce":"n","version":2}',
+      );
+      replyWithRegistrationHeldBack(
+        error(
+          'op-1',
+          'DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is 16.2km from '
+              'the drop-off point (max 5km).',
+        ),
+      );
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      final registration = await syncQueue.getOperation('op-dropoff-code');
+      expect(SyncQueue.isRejected(registration!), isFalse);
+      expect(registration.status, SyncStatus.pending);
+    });
+  });
+
+  // FUP-456: the trucker's "Mark in transit" queued offline behind a pickup
+  // is sent at the pickup's version plus one. While the server holds the
+  // delivery `pending` it answers `DELIVERY_INVALID_TRANSITION`, which
+  // retries, and the revert skips a delivery with an upload on its way, so
+  // the phone stayed in transit. A pickup refused by a code that undoes it
+  // now rejects the same user's status changes queued after it, before the
+  // revert, which flags them with the pickup.
+  group('status changes queued behind a refused pickup', () {
+    const pickup = '{"status":"pickedUp","scannedQrNonce":"n","version":1}';
+    const gpsRefusal = 'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is '
+        '11.1km from listing location (max 5km).';
+    const invalidTransition = 'DELIVERY_INVALID_TRANSITION: Cannot transition '
+        "from 'pending' to 'inTransit'.";
+
+    // Ops of one user for one entity use distinct actions: the idempotency
+    // key has millisecond resolution.
+    Future<void> enqueueAs(
+      String userId,
+      String operationId, {
+      required String action,
+      required String data,
+      String entityId = 'del-1',
+    }) =>
+        syncQueue.enqueue(
+          userId: userId,
+          entityType: 'delivery',
+          entityId: entityId,
+          action: action,
+          data: data,
+          operationId: operationId,
+        );
+
+    Future<void> enqueuePickup() =>
+        enqueueAs('trucker-1', 'op-1', action: 'update', data: pickup);
+
+    Future<void> enqueueInTransit({String entityId = 'del-1'}) => enqueueAs(
+          'trucker-1',
+          'op-transit',
+          action: 'update-transit',
+          data: '{"status":"inTransit","version":2}',
+          entityId: entityId,
+        );
+
+    Map<String, dynamic> transient(String operationId) =>
+        error(operationId, 'Internal server error.');
+
+    for (final message in [
+      gpsRefusal,
+      'DELIVERY_CODE_MISMATCH: The typed code does not match this delivery.',
+      "DELIVERY_NONCE_MISSING: The farmer's QR code never reached the server "
+          'for this pickup. Contact support.',
+    ]) {
+      test(
+          'the in-transit mark is rejected before the revert: '
+          '${message.split(':').first}', () async {
+        final waitingAtRevert = <int>[];
+        executor.dispose();
+        executor = buildExecutor(
+          securityEvents: events,
+          onPermanentRejection: (op, message) async {
+            waitingAtRevert.add(
+              (await syncQueue.waitingOperationsFor('delivery', 'del-1'))
+                  .length,
+            );
+            reverts.add((op, message));
+          },
+        );
+        // The phone's queue: the pickup, the drop-off code the scan screen
+        // queues behind it (ESC-35), then the trucker's "Mark in transit".
+        await enqueuePickup();
+        await enqueueAs(
+          'trucker-1',
+          'op-dropoff-code',
+          action: 'update-dropoff',
+          data: '{"dropoffQrNonce":"d.abc","version":2}',
+        );
+        await enqueueInTransit();
+        replyWith([
+          error('op-1', message),
+          {
+            'operationId': 'op-dropoff-code',
+            'status': 'deferred',
+            'message': 'DELIVERY_NONCE_PENDING: Waiting for the pickup to '
+                'sync. Will retry automatically.',
+          },
+          error('op-transit', invalidTransition),
+        ]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-transit'), isTrue);
+        expect(await isRejected('op-dropoff-code'), isTrue);
+        expect(waitingAtRevert, [0]);
+        expect(reverts.single.$1.operationId, 'op-1');
+        // Flagged with the pickup: none counts as "Sync failed".
+        expect((await syncQueue.getOperation('op-transit'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        // One announcement for the delivery: the pickup's refusal.
+        expect(rejections().single.message, message);
+        // A reconnect sends nothing.
+        expect(await syncQueue.retryFailed(), 0);
+        await executor.syncNow();
+        expect(syncPosts, 1);
+      });
+    }
+
+    // A build before FUP-439 retried a GPS refusal: the mark may already be
+    // out of retries when the pickup is refused for good. A reconnect would
+    // send it again (SyncQueue.retryFailed).
+    test('a mark out of retries is rejected too', () async {
+      await enqueuePickup();
+      await enqueueInTransit();
+      for (var i = 0; i < SyncQueue.maxRetries; i++) {
+        await syncQueue.markAsFailed('op-transit');
+      }
+      replyWith([error('op-1', gpsRefusal)]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(sentOperationIds.single, ['op-1']);
+      expect(await isRejected('op-transit'), isTrue);
+      expect((await syncQueue.getOperation('op-transit'))!.reverted, isTrue);
+      expect(await syncQueue.retryFailed(), 0);
+      expect(await syncQueue.getFailedCount(), 0);
+    });
+
+    // Never another user's operation: the farmer's QR nonce and the buyer's
+    // confirm on a shared phone settle on their own answers.
+    test("another user's operations stay", () async {
+      await enqueuePickup();
+      await enqueueAs(
+        'farmer-2',
+        'op-farmer-nonce',
+        action: 'update',
+        data: '{"qrNonce":"q","version":1}',
+      );
+      await enqueueAs(
+        'buyer-1',
+        'op-buyer-confirm',
+        action: 'update',
+        data: '{"status":"delivered","scannedQrNonce":"n","version":2}',
+      );
+      replyWith([
+        error('op-1', gpsRefusal),
+        transient('op-farmer-nonce'),
+        transient('op-buyer-confirm'),
+      ]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      for (final id in ['op-farmer-nonce', 'op-buyer-confirm']) {
+        final op = await syncQueue.getOperation(id);
+        expect(SyncQueue.isRejected(op!), isFalse, reason: id);
+        expect(op.status, SyncStatus.pending, reason: id);
+      }
+    });
+
+    // Only what the pickup carries: the delivery's create is queued before
+    // it, and another delivery's mark is not built on it.
+    test(
+        'an operation queued before the pickup, or of another delivery, '
+        'stays', () async {
+      await enqueueAs(
+        'trucker-1',
+        'op-create',
+        action: 'create',
+        data: '{"status":"pending","version":1}',
+      );
+      await enqueuePickup();
+      await enqueueInTransit(entityId: 'del-2');
+      replyWith([
+        transient('op-create'),
+        error(
+            'op-1',
+            'DELIVERY_CODE_MISMATCH: The typed code does not match '
+                'this delivery.'),
+        error('op-transit', invalidTransition),
+      ]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      for (final id in ['op-create', 'op-transit']) {
+        final op = await syncQueue.getOperation(id);
+        expect(SyncQueue.isRejected(op!), isFalse, reason: id);
+        expect(op.status, SyncStatus.pending, reason: id);
+      }
+    });
+
+    // Nothing is reverted, so nothing would flag a rejected mark: the user
+    // would see a "Sync failed" operation for a change still on the phone.
+    test('a permanent refusal that undoes nothing leaves it waiting', () async {
+      await enqueuePickup();
+      await enqueueInTransit();
+      replyWith([
+        error(
+          'op-1',
+          'DELIVERY_UNAUTHORIZED: Only the trucker can mark as pickedUp.',
+        ),
+        error('op-transit', invalidTransition),
+      ]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      expect(reverts, isEmpty);
+      final mark = await syncQueue.getOperation('op-transit');
+      expect(SyncQueue.isRejected(mark!), isFalse);
+      expect(mark.status, SyncStatus.pending);
+    });
+
+    test('a transient pickup failure keeps it', () async {
+      await enqueuePickup();
+      await enqueueInTransit();
+      replyWith([transient('op-1'), error('op-transit', invalidTransition)]);
+
+      await executor.executeBatch();
+
+      for (final id in ['op-1', 'op-transit']) {
+        final op = await syncQueue.getOperation(id);
+        expect(SyncQueue.isRejected(op!), isFalse, reason: id);
+        expect(op.status, SyncStatus.pending, reason: id);
+      }
+      expect(reverts, isEmpty);
+    });
+
+    // Only a pickup: the buyer's dispute behind a refused delivery confirm
+    // is left to its own answer (FUP-479).
+    test('a refused delivery confirm leaves a dispute behind it', () async {
+      await enqueueAs(
+        'buyer-1',
+        'op-1',
+        action: 'update',
+        data: '{"status":"delivered","scannedQrNonce":"n","version":2}',
+      );
+      await enqueueAs(
+        'buyer-1',
+        'op-dispute',
+        action: 'update-dispute',
+        data: '{"status":"disputed","disputeReason":"Short","version":3}',
+      );
+      replyWith([
+        error(
+          'op-1',
+          'DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is 16.2km from '
+              'the drop-off point (max 5km).',
+        ),
+        error(
+          'op-dispute',
+          'DELIVERY_INVALID_TRANSITION: Cannot transition from '
+              "'pickedUp' to 'disputed'.",
+        ),
+      ]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      final dispute = await syncQueue.getOperation('op-dispute');
+      expect(SyncQueue.isRejected(dispute!), isFalse);
+      expect(dispute.status, SyncStatus.pending);
     });
   });
 
@@ -384,6 +1129,9 @@ void main() {
       expect(reverts, hasLength(1));
       expect(reverts.single.$1.entityType, 'message');
       expect(reverts.single.$2, message);
+      // Its local copy was removed: nothing is left to act on.
+      expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+      expect(await syncQueue.getFailedCount(), 0);
       expect(rejections().single.entityType, 'message');
       expect(rejections().single.message, message);
     });
@@ -564,6 +1312,24 @@ void main() {
     expect(await isRejected('op-1'), isTrue);
     expect(reverts.single.$2, 'FRAUD_PAYMENT: blocked');
     expect(rejections().single.entityId, 'order-1');
+  });
+
+  // sync-protocol.md 1.38.0 (SIM-28): a key the server already holds for
+  // another payload is refused under SYNC_VALIDATION, so it is never resent
+  // and the order goes back to the server's row.
+  test('a reused idempotency key is rejected for good and reverted', () async {
+    const message = 'SYNC_VALIDATION: idempotency key already used for a '
+        'different operation payload; send this change with a new '
+        'idempotency key.';
+    await enqueue('op-1');
+    replyWith([error('op-1', message)]);
+
+    await executor.executeBatch();
+    await waitFor(() => rejections().isNotEmpty);
+
+    expect(await isRejected('op-1'), isTrue);
+    expect(await syncQueue.retryFailed(), 0);
+    expect(reverts.single.$2, message);
   });
 
   test(
@@ -834,20 +1600,63 @@ void main() {
     expect(await syncQueue.getFailedCount(), 0);
   });
 
+  // FUP-74 (sync-protocol.md 1.72.0): the owner's profile decides these, not
+  // the operation, so a retry can pass them; an older server still sends
+  // them under CROP_VALIDATION and TRIP_VALIDATION.
   group('part B: CROP_* and TRIP_* codes the client cannot trust keep retrying',
       () {
     for (final (entityType, entityId, message) in [
-      ('crop_listing', 'crop-1', 'CROP_UNAUTHORIZED: Only farmers can list.'),
       (
         'crop_listing',
         'crop-1',
-        'CROP_VALIDATION: The farmer profile could not be read. Please try '
+        'CROP_PROFILE_UNAVAILABLE: Your profile could not be read. Please try '
             'again later.',
       ),
-      ('trip', 'trip-1', 'TRIP_UNAUTHORIZED: Only truckers can add trips.'),
-      ('trip', 'trip-1', 'TRIP_VALIDATION: bad'),
+      (
+        'crop_listing',
+        'crop-1',
+        'CROP_PROFILE_INCOMPLETE: Add your name to your profile before '
+            'creating a listing.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'TRIP_PROFILE_UNAVAILABLE: Your profile could not be read. Please try '
+            'again later.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'TRIP_PROFILE_INCOMPLETE: Add your name to your profile before '
+            'creating a listing.',
+      ),
+      // An older server.
+      (
+        'crop_listing',
+        'crop-1',
+        'CROP_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+      ),
+      (
+        'crop_listing',
+        'crop-1',
+        'CROP_VALIDATION: Add your name to your profile before creating a '
+            'listing.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'TRIP_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'TRIP_VALIDATION: Add your name to your profile before creating a '
+            'listing.',
+      ),
     ]) {
-      test(message.split(':').first, () async {
+      test(message, () async {
         await enqueue(
           'op-1',
           entityType: entityType,
@@ -862,6 +1671,157 @@ void main() {
         expect(op!.status, SyncStatus.pending);
         expect(op.retryCount, 1);
         expect(op.reverted, isFalse);
+        expect(reverts, isEmpty);
+        expect(rejections(), isEmpty);
+      });
+    }
+  });
+
+  // FUP-74 (sync-protocol.md 1.72.0): with the profile refusals out of them,
+  // CROP_VALIDATION and TRIP_VALIDATION judge only the operation. Never
+  // resent, not reverted (they say nothing the server holds), still counted,
+  // explained with the details texts.
+  group('CROP_VALIDATION and TRIP_VALIDATION are permanent, not reverted', () {
+    for (final (entityType, entityId, action, message, code) in [
+      (
+        'crop_listing',
+        'crop-1',
+        'create',
+        'CROP_VALIDATION: Invalid cropType.',
+        AppErrorCode.listingDetailsNotAccepted,
+      ),
+      (
+        'crop_listing',
+        'crop-1',
+        'update',
+        'CROP_VALIDATION: Unknown fields: photos',
+        AppErrorCode.listingDetailsNotAccepted,
+      ),
+      (
+        'trip',
+        'trip-1',
+        'create',
+        'TRIP_VALIDATION: capacity is required and must be a number.',
+        AppErrorCode.tripDetailsNotAccepted,
+      ),
+      (
+        'trip',
+        'trip-1',
+        'update',
+        'TRIP_VALIDATION: departureDate must be in the future when changed.',
+        AppErrorCode.tripDetailsNotAccepted,
+      ),
+    ]) {
+      test('$entityType $action: $message', () async {
+        await enqueue(
+          'op-1',
+          entityType: entityType,
+          entityId: entityId,
+          action: action,
+          data: '{"version":2}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        await executor.syncNow();
+        expect(syncPosts, 1, reason: 'never resent');
+        expect(reverts, isEmpty);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+        expect(await syncQueue.getFailedCount(), 1);
+        expect(rejections().single.message, message);
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: action,
+            message: message,
+          ),
+          code,
+        );
+      });
+    }
+  });
+
+  // FUP-315 (sync-protocol.md 1.72.0): a profile edit refused for its values
+  // gets the same answer every time. Never resent, the handler puts the
+  // server's profile back, and it leaves the "Sync failed" count.
+  group('a profile edit refused for its values', () {
+    for (final message in [
+      'USER_PROFILE_VALIDATION: displayName must be at most 100 characters.',
+      'AUTH_027: Remove the phone number from displayName, woreda. Contact '
+          'opens after payment is held in escrow.',
+    ]) {
+      test('${message.split(':').first} is permanent and reverted', () async {
+        await enqueue(
+          'op-1',
+          entityType: 'user',
+          entityId: 'farmer-1',
+          data: '{"displayName":"Abebe 0911223344"}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        await executor.syncNow();
+        expect(syncPosts, 1, reason: 'never resent');
+        expect(reverts, hasLength(1));
+        expect(reverts.single.$1.operationId, 'op-1');
+        expect(reverts.single.$2, message);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        final event = rejections().single;
+        expect(event.entityType, 'user');
+        expect(event.entityId, 'farmer-1');
+        expect(event.message, message);
+      });
+    }
+
+    test('a revert that threw keeps it counted', () async {
+      executor.dispose();
+      executor = buildExecutor(
+        securityEvents: events,
+        onPermanentRejection: (op, message) async => throw StateError('x'),
+      );
+      await enqueue(
+        'op-1',
+        entityType: 'user',
+        entityId: 'farmer-1',
+        data: '{"woreda":"Meki"}',
+      );
+      replyWith([error('op-1', 'USER_PROFILE_VALIDATION: woreda is empty.')]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+      expect(await syncQueue.getFailedCount(), 1);
+    });
+
+    for (final (entityType, entityId, message) in [
+      // A rare concurrent write and a failed read: the same edit can pass.
+      ('user', 'farmer-1', 'USER_PROFILE_CONFLICT: try again.'),
+      ('user', 'farmer-1', 'USER_PROFILE_UNAVAILABLE: try again.'),
+      // The codes mean nothing to the queue on another entity.
+      ('crop_listing', 'crop-1', 'AUTH_027: Remove the phone number.'),
+      ('order', 'order-1', 'USER_PROFILE_VALIDATION: x'),
+    ]) {
+      test('$entityType "${message.split(':').first}" keeps retrying',
+          () async {
+        await enqueue('op-1', entityType: entityType, entityId: entityId);
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+
+        final op = await syncQueue.getOperation('op-1');
+        expect(op!.status, SyncStatus.pending);
+        expect(op.retryCount, 1);
         expect(reverts, isEmpty);
         expect(rejections(), isEmpty);
       });
@@ -1191,6 +2151,84 @@ void main() {
     expect(updates, hasLength(1));
   });
 
+  group('ESC-25: the server minimum-build gate refuses an order for good', () {
+    // The exact text the server sends (sync-protocol.md 1.41.0).
+    const message = 'APP_UPDATE_REQUIRED: This version of the app is too old '
+        'for orders. Update WeredaConnect to continue.';
+
+    for (final action in ['create', 'update']) {
+      test('on $action: rejected, reverted, not counted, flag raised',
+          () async {
+        final updates = <void>[];
+        final flagSub = events.onAppUpdateRequired.listen(updates.add);
+        addTearDown(flagSub.cancel);
+        await enqueue('op-1', action: action);
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty && updates.isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        expect(reverts.single.$1.entityType, 'order');
+        expect(reverts.single.$2, message);
+        expect(await syncQueue.getFailedCount(), 0);
+        expect(rejections().single.message, message);
+        expect(
+          syncRejectionErrorCode(
+            entityType: 'order',
+            action: action,
+            message: message,
+          ),
+          AppErrorCode.appUpdateRequired,
+        );
+        expect(events.appUpdateRequired, isTrue);
+      });
+    }
+  });
+
+  // FUP-75: the gate runs first on every order operation, so an accepted one
+  // proves this build passes it (a minimum raised by mistake, rolled back).
+  group('FUP-75: an accepted order clears the app update flag', () {
+    for (final status in ['success', 'duplicate']) {
+      test('on $status', () async {
+        events.reportAppUpdateRequired();
+        final updates = <bool>[];
+        final flagSub = events.onAppUpdateRequired.listen(updates.add);
+        addTearDown(flagSub.cancel);
+        await enqueue('op-1');
+        replyWith([
+          {'operationId': 'op-1', 'status': status, 'serverVersion': 3},
+        ]);
+
+        await executor.executeBatch();
+        await waitFor(() => updates.isNotEmpty);
+
+        expect(events.appUpdateRequired, isFalse);
+        expect(updates, [false]);
+      });
+    }
+
+    test('any other entity accepted leaves it set', () async {
+      events.reportAppUpdateRequired();
+      await enqueue(
+        'op-1',
+        entityType: 'trip',
+        entityId: 'trip-1',
+        action: 'create',
+      );
+      replyWith([
+        {'operationId': 'op-1', 'status': 'success', 'serverVersion': 1},
+      ]);
+
+      await executor.executeBatch();
+      await waitFor(() async => await syncQueue.getPendingCount() == 0);
+
+      expect(await syncQueue.getPendingCount(), 0);
+      expect(events.appUpdateRequired, isTrue);
+    });
+  });
+
   test(
       'part B: a revert handler that throws leaves the crop op counted as '
       'failed', () async {
@@ -1215,5 +2253,204 @@ void main() {
     expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
     expect(await syncQueue.getFailedCount(), 1);
     expect(rejections(), hasLength(1));
+  });
+
+  // FUP-110 (sync-protocol.md 1.27.0, FRD-08): refusals no retry can pass
+  // are never resent, so a reconnect does not score the caller again. The
+  // honest apps never send them: not reverted, still counted, explained.
+  group('FRD-08 refusals no retry can pass are permanent', () {
+    for (final (entityType, entityId, action, message) in [
+      (
+        'crop_listing',
+        'crop-1',
+        'create',
+        'CROP_UNAUTHORIZED: farmerId must match authenticated user.',
+      ),
+      (
+        'crop_listing',
+        'crop-1',
+        'update',
+        'CROP_UNAUTHORIZED: You can only update your own crop listings.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'create',
+        'TRIP_UNAUTHORIZED: truckerId must match authenticated user.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'delete',
+        'TRIP_UNAUTHORIZED: You can only delete your own trips.',
+      ),
+      (
+        'delivery',
+        'del-1',
+        'update',
+        'DELIVERY_UNAUTHORIZED: Only the buyer can confirm delivery.',
+      ),
+      (
+        'buyer_intent',
+        'intent-1',
+        'create',
+        'INTENT_UNAUTHORIZED: buyerId must match authenticated user.',
+      ),
+      (
+        'rating',
+        'rating-1',
+        'create',
+        'RATING_UNAUTHORIZED: raterId must match authenticated user.',
+      ),
+      (
+        'rating',
+        'rating-1',
+        'create',
+        'RATING_FORBIDDEN: You can only rate your own orders.',
+      ),
+      (
+        'message',
+        'msg-1',
+        'create',
+        'MESSAGE_UNAUTHORIZED: senderId must match authenticated user.',
+      ),
+      (
+        'user',
+        'farmer-1',
+        'update',
+        'USER_PROFILE_UNAUTHORIZED: A user can only update their own '
+            'profile.',
+      ),
+      (
+        'crop_listing',
+        'crop-1',
+        'update',
+        'CROP_VALIDATION: farmerId is immutable and cannot be changed on '
+            'update.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'update',
+        'TRIP_VALIDATION: truckerPhone is immutable and cannot be changed on '
+            'update.',
+      ),
+      (
+        'delivery',
+        'del-1',
+        'update',
+        'DELIVERY_VALIDATION: orderId is immutable and cannot be changed on '
+            'update.',
+      ),
+    ]) {
+      test('$entityType $action: ${message.split(':').first}', () async {
+        await enqueue(
+          'op-1',
+          entityType: entityType,
+          entityId: entityId,
+          action: action,
+          data: '{"version":2}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        await executor.syncNow();
+        expect(syncPosts, 1, reason: 'never resent');
+        expect(reverts, isEmpty);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+        expect(await syncQueue.getFailedCount(), 1);
+        expect(rejections().single.message, message);
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: action,
+            message: message,
+          ),
+          AppErrorCode.changeNotSaved,
+        );
+      });
+    }
+
+    test('a refused background match event is permanent and not announced',
+        () async {
+      await enqueue(
+        'op-1',
+        entityType: 'match_event',
+        entityId: 'match-1',
+        action: 'create',
+        data: '{"buyerId":"buyer-2"}',
+      );
+      replyWith([
+        error(
+          'op-1',
+          'MATCH_EVENT_UNAUTHORIZED: buyerId must match authenticated user.',
+        ),
+      ]);
+
+      await executor.executeBatch();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(await isRejected('op-1'), isTrue);
+      expect(rejections(), isEmpty);
+    });
+
+    for (final (entityType, entityId, message) in [
+      // The order may still be delivered: the same rating can pass later.
+      (
+        'rating',
+        'rating-1',
+        'RATING_FORBIDDEN: You can only rate a delivered order (delivered, '
+            'disbursing or settled).',
+      ),
+      // CROP_VALIDATION and TRIP_VALIDATION are permanent since 1.72.0
+      // (FUP-74); DELIVERY_VALIDATION still carries a failed profile read.
+      ('delivery', 'del-1', 'DELIVERY_VALIDATION: Invalid gpsPickup.'),
+      // Not an _UNAUTHORIZED code, only text that contains the word.
+      ('delivery', 'del-1', 'Delivery update was UNAUTHORIZED somehow.'),
+      // A role gate also answers a token without the role claim (a client
+      // set-up problem): the same operation passes with the right token.
+      (
+        'crop_listing',
+        'crop-1',
+        'CROP_UNAUTHORIZED: Only farmers can create crop listings.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'TRIP_UNAUTHORIZED: Only truckers can create trip listings.',
+      ),
+      (
+        'buyer_intent',
+        'intent-1',
+        'INTENT_UNAUTHORIZED: Only buyers can create purchase intents.',
+      ),
+      (
+        'rating',
+        'rating-1',
+        'RATING_UNAUTHORIZED: Only buyers can rate counterparties.',
+      ),
+    ]) {
+      test('$entityType "${message.split(':').first}" keeps retrying',
+          () async {
+        await enqueue(
+          'op-1',
+          entityType: entityType,
+          entityId: entityId,
+          action: 'create',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+
+        final op = await syncQueue.getOperation('op-1');
+        expect(op!.status, SyncStatus.pending);
+        expect(op.retryCount, 1);
+        expect(reverts, isEmpty);
+      });
+    }
   });
 }

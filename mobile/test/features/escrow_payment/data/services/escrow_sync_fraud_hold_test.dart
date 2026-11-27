@@ -121,14 +121,52 @@ void main() {
     expect(emitted.whereType<StepUpRequired>(), isEmpty);
   });
 
-  test('any other 403 keeps the old retry budget', () async {
-    answerPost(const AuthException('not the buyer', 403, 'ESCROW_026'));
+  test('a 403 without an escrow code keeps the old retry budget', () async {
+    answerPost(const AuthException('forbidden', 403));
 
     await service.processQueuedIntents();
 
     final intent = (await isar.paymentIntents.where().findAll()).single;
     expect(intent.status, IntentStatus.pendingSync);
     expect(intent.retryCount, 1);
+    expect(intent.lastError, 'ESCROW_CLIENT');
     expect(emitted.whereType<SyncOperationRejected>(), isEmpty);
+  });
+
+  // FUP-70: a typed refusal never changes for the same request.
+  test('a 403 with an escrow code fails at once, with no account message',
+      () async {
+    answerPost(const AuthException('not the buyer', 403, 'ESCROW_026'));
+
+    await service.processQueuedIntents();
+    await service.processQueuedIntents();
+
+    final intent = (await isar.paymentIntents.where().findAll()).single;
+    expect(intent.status, IntentStatus.failed);
+    expect(intent.retryCount, 1);
+    expect(intent.lastError, 'ESCROW_026');
+    verify(
+      () => api.post<Map<String, dynamic>>(
+        any(),
+        data: any<dynamic>(named: 'data'),
+      ),
+    ).called(1);
+    // The buyer is told once, with the code only (no server text).
+    await Future<void>.delayed(Duration.zero);
+    final event = emitted.whereType<SyncOperationRejected>().single;
+    expect(event.entityType, 'payment_intent');
+    expect(event.entityId, 'del-1');
+    expect(event.userId, 'buyer-1');
+    expect(event.message, 'ESCROW_026');
+  });
+
+  test('an expired session (401) is retried, not failed', () async {
+    answerPost(const AuthException('expired', 401, 'ESCROW_005'));
+
+    await service.processQueuedIntents();
+
+    final intent = (await isar.paymentIntents.where().findAll()).single;
+    expect(intent.status, IntentStatus.pendingSync);
+    expect(intent.lastError, 'ESCROW_005');
   });
 }

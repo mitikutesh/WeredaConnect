@@ -9,7 +9,8 @@ import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_list
 
 /// BLoC for managing crop listing state.
 ///
-/// Handles creating, loading, filtering, and deleting crop listings.
+/// Handles creating, loading, filtering, editing (SIM-56) and deleting crop
+/// listings.
 /// All operations go through the BaseCropListingRepository (mobile or web).
 class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
   final BaseCropListingRepository _repository;
@@ -20,7 +21,10 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
 
   /// Mobile-only: pulls all active crops into Isar before the Buyer browses
   /// the marketplace ([LoadActiveListings]). Null on web (API-backed reads).
-  /// Owner-scoped events (a Farmer's own listings) never trigger a pull.
+  /// Owner-scoped events (a Farmer's own listings) never pull the market:
+  /// [LoadCropListings] pulls only the farmer's own list
+  /// ([MarketplaceSync.pullOwnCrops]: FUP-498 removes the listings deleted
+  /// elsewhere, BUG-31 stores the farmer's own rows).
   final MarketplaceSync? _marketplaceSync;
 
   CropListingBloc({
@@ -32,6 +36,7 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
     on<LoadCropListings>(_onLoadCropListings);
     on<LoadActiveListings>(_onLoadActiveListings);
     on<CreateCropListing>(_onCreateCropListing);
+    on<UpdateCropListing>(_onUpdateCropListing);
     on<DeleteCropListing>(_onDeleteCropListing);
     on<FilterCropListings>(_onFilterCropListings);
   }
@@ -44,9 +49,37 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
 
     try {
       final listings = await _repository.getListingsByFarmer(event.farmerId);
-      emit(CropListingsLoaded(listings: listings));
+      final shown = CropListingsLoaded(listings: listings);
+      emit(shown);
+      // FUP-498: the stored list paints first; it is read again only when
+      // the pull removed, added or changed a listing (BUG-31), and only
+      // while nothing else (a filter, a delete) painted since.
+      if (!await _refreshOwnListings(event.farmerId)) return;
+      if (!identical(state, shown)) return;
+      emit(
+        CropListingsLoaded(
+          listings: await _repository.getListingsByFarmer(event.farmerId),
+        ),
+      );
     } on Object catch (e) {
       emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  /// FUP-498: take the farmer's listings deleted on the web or another phone
+  /// off this phone, and (BUG-31) store the farmer's own listings as the
+  /// server holds them. Best effort like [_refreshMarketplace]: offline the
+  /// stored list stands. No-op on web (null sync), whose list reads the
+  /// server. True when a listing was removed, added or changed.
+  Future<bool> _refreshOwnListings(String farmerId) async {
+    final sync = _marketplaceSync;
+    if (sync == null) return false;
+    try {
+      return await sync.pullOwnCrops(farmerId: farmerId);
+    } on Object catch (e) {
+      debugPrint('[CropListingBloc] own listing pull failed, '
+          'showing the stored listings: $e');
+      return false;
     }
   }
 
@@ -98,9 +131,33 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
         audioNoteRef: event.audioNoteRef,
         woreda: event.woreda,
         placeId: event.placeId,
+        photos: event.photos,
+        listingId: event.listingId,
       );
       emit(CropListingCreated(listing: listing));
     } on Object catch (e) {
+      emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  Future<void> _onUpdateCropListing(
+    UpdateCropListing event,
+    Emitter<CropListingState> emit,
+  ) async {
+    emit(const CropListingLoading());
+
+    try {
+      final listing = await _repository.updateListing(
+        listing: event.listing,
+        farmerId: event.farmerId,
+        quantity: event.quantity,
+        pricePerKg: event.pricePerKg,
+        description: event.description,
+      );
+      event.done?.complete(listing);
+      emit(CropListingUpdated(listing: listing));
+    } on Object catch (e) {
+      event.done?.completeError(e);
       emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }
@@ -111,15 +168,21 @@ class CropListingBloc extends Bloc<CropListingEvent, CropListingState> {
   ) async {
     emit(const CropListingLoading());
 
+    var deleted = false;
     try {
       await _repository.deleteListing(
         listingId: event.listingId,
         farmerId: event.farmerId,
       );
+      deleted = true;
+      event.done?.complete();
       // Reload listings after delete
       final listings = await _repository.getListingsByFarmer(event.farmerId);
       emit(CropListingsLoaded(listings: listings));
     } on Object catch (e) {
+      // A reload that fails after the delete was saved is not the delete's
+      // failure.
+      if (!deleted) event.done?.completeError(e);
       emit(CropListingError(message: e.toString(), code: mapErrorToCode(e)));
     }
   }

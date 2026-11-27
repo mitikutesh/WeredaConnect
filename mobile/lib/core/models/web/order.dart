@@ -42,6 +42,70 @@ class Order {
   String? buyerPhone;
   String? farmerPhone;
   String? truckerPhone;
+
+  /// ESC-15 commitment fields (server-written; see the Isar schema).
+  String? fulfillment;
+  String? farmerResponse;
+  String? truckerResponse;
+  DateTime? pickupDate;
+  DateTime? farmerDeadlineAt;
+  DateTime? truckerDeadlineAt;
+  DateTime? buyerChoiceDeadlineAt;
+  String? transportFailure;
+  String? declineReason;
+  String? cancelledBy;
+
+  /// The order's own places (order-lifecycle 2.2.0, server-written; see the
+  /// Isar schema): the farm and the buyer's drop-off.
+  String? pickupPlace;
+  String? dropoffPlace;
+
+  /// LT-12: the buyer's drop-off landmark (order-lifecycle 2.5.0; see the
+  /// Isar schema).
+  String? dropoffNote;
+
+  /// LT-14: the order's own drop-off point (order-lifecycle 2.9.0; see the
+  /// Isar schema).
+  double? deliveryLatitude;
+  double? deliveryLongitude;
+
+  /// ESC-34: the pickup judgement, when it was made, and the arrival
+  /// check-ins (order-lifecycle 2.15.0; see the Isar schema).
+  String? pickupJudgement;
+  DateTime? pickupJudgedAt;
+  List<OrderCheckIn> checkIns = [];
+
+  /// ESC-36: the drop-off judgement, when it was made, T8 and the system's
+  /// dispute reason (order-lifecycle 2.18.0; see the Isar schema).
+  String? dropoffJudgement;
+  DateTime? dropoffJudgedAt;
+  DateTime? dropoffDeadlineAt;
+  String? disputeReason;
+
+  /// FUP-370: T9 as the server computes it (order-lifecycle 2.22.0; see the
+  /// Isar schema).
+  DateTime? dropoffConfirmAt;
+
+  /// FUP-285: check-ins made on the phone and not refused. Always empty on
+  /// web, which sends a check-in at once (see the Isar schema).
+  Map<String, QueuedCheckIn> queuedCheckIns = const {};
+}
+
+/// FUP-285: a check-in made on the phone (see the Isar schema).
+class QueuedCheckIn {
+  const QueuedCheckIn({required this.madeAt, this.sent = false});
+
+  final DateTime madeAt;
+  final bool sent;
+}
+
+/// ESC-34: one arrival check-in as the parties read it (see the Isar schema).
+class OrderCheckIn {
+  String kind = '';
+  DateTime? receivedAt;
+  DateTime? capturedAt;
+  bool distanceChecked = false;
+  bool isLate = false;
 }
 
 /// Status of an order in its lifecycle.
@@ -61,4 +125,6 @@ enum OrderStatus {
   paymentFailed,
   disputed,
   disputeResolved,
+  awaitingTransport,
+  unknown,
 }

@@ -101,11 +101,35 @@ void main() {
       );
 
       final icon = tester.widget<Icon>(find.byType(Icon));
-      expect(icon.size, 20);
+      expect(icon.size, 18);
 
       final text = tester.widget<Text>(find.text('Delivered'));
-      expect(text.style?.fontSize, 16);
-      expect(text.style?.fontWeight, FontWeight.w700);
+      expect(text.style?.fontSize, 14);
+      expect(text.style?.fontWeight, FontWeight.w800);
+    });
+
+    testWidgets('a stadium pill, 26 tall (32 large), icon and label',
+        (tester) async {
+      for (final large in [false, true]) {
+        await _pump(
+          tester,
+          StatusChip(label: 'Funded', kind: StatusKind.info, large: large),
+        );
+        final box = tester.widget<Container>(
+          find.ancestor(
+            of: find.text('Funded'),
+            matching: find.byType(Container),
+          ),
+        );
+        final decoration = box.decoration! as BoxDecoration;
+        expect(decoration.borderRadius, BorderRadius.circular(999));
+        expect(decoration.border, isNull);
+        expect(
+          tester.getSize(find.byType(StatusChip)).height,
+          large ? 32 : 26,
+        );
+        expect(find.byType(Icon), findsOneWidget);
+      }
     });
 
     testWidgets('every kind renders without error', (tester) async {
@@ -113,6 +137,70 @@ void main() {
         await _pump(tester, StatusChip(label: kind.name, kind: kind));
         expect(find.text(kind.name), findsOneWidget);
       }
+    });
+  });
+
+  group('LoadErrorChip', () {
+    const omMessage = 'Lakkoofsonni kun fe\'amuu hin dandeenye.';
+    const omRetry = 'Irra Deebi\'ii Yaali';
+
+    Future<void> pumpChip(
+      WidgetTester tester, {
+      required double textScale,
+      String message = omMessage,
+      String retryLabel = omRetry,
+    }) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(
+              size: const Size(360, 640),
+              textScaler: TextScaler.linear(textScale),
+            ),
+            child: Scaffold(
+              body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: LoadErrorChip(
+                  message: message,
+                  retryLabel: retryLabel,
+                  onRetry: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('a short retry label keeps one line at 100%', (tester) async {
+      await pumpChip(
+        tester,
+        textScale: 1,
+        message: 'These numbers could not be loaded.',
+        retryLabel: 'Retry',
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(tester.getSize(find.text('Retry')).height, lessThan(20));
+    });
+
+    testWidgets('Oromo at 200%: the retry label wraps, nothing overflows',
+        (tester) async {
+      await pumpChip(tester, textScale: 2);
+
+      expect(tester.takeException(), isNull);
+      final row = tester.getSize(find.byType(LoadErrorChip));
+      final button = tester.getSize(find.byType(TextButton));
+      final message = tester.getSize(
+        find.text(omMessage),
+      );
+      expect(button.width, lessThanOrEqualTo(row.width / 2));
+      expect(message.width, greaterThan(100));
+      // The label wrapped rather than pushing the row wider.
+      expect(tester.getSize(find.text(omRetry)).height, greaterThan(26));
     });
   });
 }

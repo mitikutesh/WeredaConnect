@@ -17,7 +17,11 @@ public interface ICropRepository
         Dictionary<string, object> data);
 
     /// <summary>
-    /// Update an existing crop listing with optimistic concurrency.
+    /// Update an existing crop listing with optimistic concurrency. FUP-152: a deleted listing
+    /// (<see cref="CropRepository.IsDeleted"/>) is never written; that failure carries
+    /// <see cref="CropRepository.AlreadyDeletedCode"/>, a version mismatch <c>SYNC_CONFLICT</c>.
+    /// FUP-495: nor is a sold listing (<see cref="CropRepository.IsSold"/>); that failure carries
+    /// <see cref="CropRepository.SoldCode"/>.
     /// </summary>
     Task<AuthResult<Dictionary<string, object>>> UpdateAsync(
         string cropId,
@@ -25,7 +29,9 @@ public interface ICropRepository
         int expectedVersion);
 
     /// <summary>
-    /// Soft-delete a crop listing (set deletedAt timestamp).
+    /// Soft-delete a crop listing (set deletedAt timestamp). FUP-494: a listing already deleted
+    /// (<see cref="CropRepository.IsDeleted"/>) is not written again; that failure carries
+    /// <see cref="CropRepository.AlreadyDeletedCode"/>, a version mismatch <c>SYNC_CONFLICT</c>.
     /// </summary>
     Task<AuthResult<Dictionary<string, object>>> DeleteAsync(
         string cropId,
@@ -35,6 +41,12 @@ public interface ICropRepository
     /// Get a crop listing by ID. Returns null if not found.
     /// </summary>
     Task<Dictionary<string, object>?> GetByIdAsync(string cropId);
+
+    /// <summary>
+    /// FUP-152: <see cref="GetByIdAsync"/> with a strongly consistent read, for the answer to a write
+    /// the table just refused (a delete that landed after the caller's read must be what comes back).
+    /// </summary>
+    Task<Dictionary<string, object>?> GetByIdConsistentAsync(string cropId) => GetByIdAsync(cropId);
 
     /// <summary>
     /// SIM-13: give the listing back the stock a funded order took, when that order is
@@ -51,10 +63,12 @@ public interface ICropRepository
     Task<StockRestoreResult> RestoreStockAsync(string cropId, string orderId, double quintals);
 
     /// <summary>
-    /// ESC-01: take a funded order's stock off the listing (clamped at 0; the listing
-    /// becomes <c>reserved</c> at 0). Idempotent per <paramref name="orderId"/> through the
-    /// listing's <c>stockDecrementedFor</c> set and race-safe (version CAS with retry), so
-    /// a payment redelivery can safely repeat it.
+    /// ESC-01: take a funded order's stock off the listing (the listing becomes <c>reserved</c>
+    /// at 0). Idempotent per <paramref name="orderId"/> through the listing's
+    /// <c>stockDecrementedFor</c> set and race-safe (version CAS with retry), so a payment
+    /// redelivery can safely repeat it. ESC-18: the write requires <c>quantity &gt;= quintals</c>;
+    /// when the listing holds less, nothing is taken, the order is added to the listing's
+    /// <c>stockRefusedFor</c> set and the result is <see cref="StockDecrementResult.InsufficientStock"/>.
     /// </summary>
     Task<StockDecrementResult> TryDecrementStockAsync(string cropId, string orderId, double quintals);
 
@@ -101,6 +115,12 @@ public enum StockDecrementResult
 
     /// <summary>The listing does not exist.</summary>
     ListingNotFound,
+
+    /// <summary>
+    /// ESC-18: the listing holds less than the order needs (another funding took the stock first,
+    /// or it never had enough). Nothing was taken; the funding lost the race.
+    /// </summary>
+    InsufficientStock,
 }
 
 /// <summary>
@@ -115,7 +135,10 @@ public enum StockRestoreResult
     /// <summary>This call gave the stock back.</summary>
     Restored,
 
-    /// <summary>The stock was already given back for this order; nothing changed.</summary>
+    /// <summary>
+    /// The stock was already given back for this order, or (ESC-18) the order's funding was refused
+    /// for lack of stock and took none; nothing changed.
+    /// </summary>
     AlreadyRestored,
 
     /// <summary>The listing does not exist.</summary>

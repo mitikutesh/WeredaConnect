@@ -11,9 +11,12 @@ import 'package:wereda_connect/core/database/schemas/payment.dart';
 import 'package:wereda_connect/core/database/schemas/sync_operation.dart';
 import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
+import 'package:wereda_connect/features/crop_listing/domain/repositories/base_crop_listing_repository.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import '../../../../helpers/crop_photo_fixtures.dart';
 
 void main() {
   group('CropListingRepository', () {
@@ -42,10 +45,18 @@ void main() {
       );
       syncQueue = SyncQueue(isar);
       repository = CropListingRepository(
+        photoFiles: tempCropPhotoFileStore(),
         isar: isar,
         syncQueue: syncQueue,
       );
     });
+
+    /// Every queued operation reached the server.
+    Future<void> sentAll() async {
+      for (final op in await syncQueue.getPendingOperations()) {
+        await syncQueue.markAsSynced(op.operationId);
+      }
+    }
 
     tearDown(() async {
       await isar.close(deleteFromDisk: true);
@@ -56,6 +67,7 @@ void main() {
 
     test('createListing saves to Isar with correct fields', () async {
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         farmerName: 'Abebe Kebede',
         cropType: 'teff',
@@ -91,6 +103,7 @@ void main() {
 
     test('getListingById returns the listing or null when absent', () async {
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,
@@ -111,6 +124,7 @@ void main() {
     test('createListing defaults farmerName to empty string when omitted',
         () async {
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-002',
         cropType: 'wheat',
         quantity: 30.0,
@@ -126,6 +140,7 @@ void main() {
 
     test('createListing enqueues sync operation', () async {
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'wheat',
         quantity: 30.0,
@@ -146,6 +161,7 @@ void main() {
 
     test('getListingsByFarmer returns only that farmer listings', () async {
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,
@@ -156,6 +172,7 @@ void main() {
         description: 'Teff',
       );
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-002',
         cropType: 'wheat',
         quantity: 30.0,
@@ -166,6 +183,7 @@ void main() {
         description: 'Wheat',
       );
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'barley',
         quantity: 20.0,
@@ -186,6 +204,7 @@ void main() {
 
     test('getActiveListings with filter returns filtered results', () async {
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,
@@ -196,6 +215,7 @@ void main() {
         description: 'Teff',
       );
       await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'wheat',
         quantity: 30.0,
@@ -225,6 +245,7 @@ void main() {
         required double price,
       }) async {
         final listing = await repository.createListing(
+          photos: testCropPhotos(),
           farmerId: 'farmer-${farmerName.hashCode}',
           farmerName: farmerName,
           cropType: cropType,
@@ -309,6 +330,7 @@ void main() {
 
     test('deleteListing marks as expired and enqueues sync', () async {
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,
@@ -342,6 +364,279 @@ void main() {
       final deleteData = jsonDecode(pending.last.data) as Map<String, dynamic>;
       expect(deleteData['version'], 1);
       expect(deleteData['status'], ListingStatus.expired.name);
+    });
+
+    group('updateListing (SIM-56)', () {
+      /// A listing whose create already reached the server: nothing of it
+      /// waits in the queue.
+      Future<CropListing> seed() async {
+        final listing = await repository.createListing(
+          photos: testCropPhotos(),
+          farmerId: 'farmer-001',
+          cropType: 'teff',
+          quantity: 50.0,
+          pricePerKg: 45.0,
+          latitude: 9.0,
+          longitude: 38.0,
+          locationName: 'Ada',
+          description: 'Teff',
+        );
+        await sentAll();
+        return listing;
+      }
+
+      Future<CropListing> stored(String listingId) async =>
+          (await isar.cropListings
+              .filter()
+              .listingIdEqualTo(listingId)
+              .findFirst())!;
+
+      Future<List<Map<String, dynamic>>> waitingUpdates() async => [
+            for (final op in await syncQueue.getPendingOperations())
+              if (op.action == 'update')
+                jsonDecode(op.data) as Map<String, dynamic>,
+          ];
+
+      test('saves on the phone and queues the changed fields at the form base',
+          () async {
+        final listing = await seed();
+
+        final saved = await repository.updateListing(
+          listing: listing,
+          farmerId: 'farmer-001',
+          quantity: 42.5,
+          pricePerKg: 47.25,
+          description: 'White teff',
+        );
+
+        expect(saved.quantity, 42.5);
+        final fromDb = await stored(listing.listingId);
+        expect(fromDb.quantity, 42.5);
+        expect(fromDb.pricePerKg, 47.25);
+        expect(fromDb.description, 'White teff');
+        expect(fromDb.version, 2);
+        // Untouched: the crop, the place and the status.
+        expect(fromDb.cropType, 'teff');
+        expect(fromDb.locationName, 'Ada');
+        expect(fromDb.status, ListingStatus.active);
+
+        expect(await waitingUpdates(), [
+          {
+            'listingId': listing.listingId,
+            'quantity': 42.5,
+            'pricePerKg': 47.25,
+            'description': 'White teff',
+            'version': 1,
+          },
+        ]);
+      });
+
+      test('a price-only edit sends the price only, never the stock', () async {
+        final listing = await seed();
+
+        await repository.updateListing(
+          listing: listing,
+          farmerId: 'farmer-001',
+          pricePerKg: 52,
+        );
+
+        expect(await waitingUpdates(), [
+          {'listingId': listing.listingId, 'pricePerKg': 52, 'version': 1},
+        ]);
+        final fromDb = await stored(listing.listingId);
+        expect(fromDb.quantity, 50.0);
+        expect(fromDb.description, 'Teff');
+        expect(fromDb.pricePerKg, 52);
+      });
+
+      test('once the first edit went out, the next goes at the next version',
+          () async {
+        final listing = await seed();
+        await repository.updateListing(
+          listing: listing,
+          farmerId: 'farmer-001',
+          quantity: 40,
+        );
+        await sentAll();
+
+        await repository.updateListing(
+          listing: await stored(listing.listingId),
+          farmerId: 'farmer-001',
+          quantity: 30,
+        );
+
+        expect(
+          (await waitingUpdates()).map((data) => data['version']),
+          [2],
+        );
+      });
+
+      test(
+          'scenario B: a second edit is refused while the first still waits, '
+          'so it cannot land after an order took stock', () async {
+        // Two offline edits would queue at versions 1 and 2. An order moving
+        // the server to 2 would make the first conflict and let the second,
+        // at 2, write its stock over the order's.
+        final listing = await seed();
+        final first = await repository.updateListing(
+          listing: listing,
+          farmerId: 'farmer-001',
+          quantity: 12,
+        );
+
+        await expectLater(
+          repository.updateListing(
+            listing: first,
+            farmerId: 'farmer-001',
+            quantity: 10,
+          ),
+          throwsA(isA<ListingChangeWaitingException>()),
+        );
+
+        expect(await waitingUpdates(), hasLength(1));
+        expect((await stored(listing.listingId)).quantity, 12);
+      });
+
+      test(
+          'a change failed out of retries still waits (a reconnect resends it)',
+          () async {
+        final listing = await seed();
+        final first = await repository.updateListing(
+          listing: listing,
+          farmerId: 'farmer-001',
+          quantity: 12,
+        );
+        final op = (await syncQueue.getPendingOperations()).single;
+        for (var i = 0; i < SyncQueue.maxRetries; i++) {
+          await syncQueue.markAsFailed(op.operationId);
+        }
+
+        expect(await repository.hasChangeWaiting(listing.listingId), isTrue);
+        await expectLater(
+          repository.updateListing(
+            listing: first,
+            farmerId: 'farmer-001',
+            quantity: 10,
+          ),
+          throwsA(isA<ListingChangeWaitingException>()),
+        );
+      });
+
+      test('a change the server refused for good no longer blocks an edit',
+          () async {
+        final listing = await seed();
+        await repository.updateListing(
+          listing: listing,
+          farmerId: 'farmer-001',
+          description: 'Call 0911223344',
+        );
+        final op = (await syncQueue.getPendingOperations()).single;
+        await syncQueue.markAsRejected(op.operationId);
+
+        expect(await repository.hasChangeWaiting(listing.listingId), isFalse);
+        await repository.updateListing(
+          listing: await stored(listing.listingId),
+          farmerId: 'farmer-001',
+          description: 'White teff',
+        );
+        expect(await waitingUpdates(), hasLength(1));
+      });
+
+      test(
+          'scenario A: a copy that kept its version number but not its stock '
+          'is not edited', () async {
+        // The server held 10 at version 1. The farmer edits offline to 12
+        // (version 2 on the phone) and the detail keeps that copy. An order
+        // takes 5 (the server goes to version 2, stock 5). On reconnect the
+        // edit conflicts and the server's copy (5 at version 2) replaces the
+        // phone's. An edit from the kept copy (12 at version 2) must not go
+        // out at version 2 and put the stock back.
+        final listing = await seed();
+        final kept = await repository.updateListing(
+          listing: listing,
+          farmerId: 'farmer-001',
+          quantity: 12,
+        );
+        await sentAll();
+        await isar.writeTxn(() async {
+          final row = await stored(listing.listingId);
+          row
+            ..quantity = 5
+            ..version = 2
+            ..updatedAt = DateTime.utc(2026, 11, 12, 10);
+          await isar.cropListings.put(row);
+        });
+        expect(kept.version, 2);
+
+        await expectLater(
+          repository.updateListing(
+            listing: kept,
+            farmerId: 'farmer-001',
+            quantity: 10,
+          ),
+          throwsA(isA<SyncConflictException>()),
+        );
+
+        expect((await stored(listing.listingId)).quantity, 5);
+        expect(await waitingUpdates(), isEmpty);
+      });
+
+      test('changed since the form opened is not overwritten', () async {
+        // The form read version 1; the phone's copy moved on to 2 since (a
+        // pull brought the server's copy after an order took stock).
+        final listing = await seed();
+        final formCopy = await stored(listing.listingId);
+        await isar.writeTxn(() async {
+          final row = await stored(listing.listingId);
+          row
+            ..quantity = 6
+            ..version = 2;
+          await isar.cropListings.put(row);
+        });
+
+        await expectLater(
+          repository.updateListing(
+            listing: formCopy,
+            farmerId: 'farmer-001',
+            pricePerKg: 60,
+          ),
+          throwsA(isA<SyncConflictException>()),
+        );
+
+        final fromDb = await stored(listing.listingId);
+        expect(fromDb.quantity, 6);
+        expect(fromDb.pricePerKg, 45.0);
+        expect(fromDb.version, 2);
+        expect(await waitingUpdates(), isEmpty);
+      });
+
+      test("another farmer's listing is refused and nothing changes", () async {
+        final listing = await seed();
+
+        await expectLater(
+          repository.updateListing(
+            listing: listing,
+            farmerId: 'farmer-002',
+            quantity: 1,
+          ),
+          throwsStateError,
+        );
+
+        final fromDb = await stored(listing.listingId);
+        expect(fromDb.quantity, 50.0);
+        expect(fromDb.version, 1);
+        expect(await waitingUpdates(), isEmpty);
+      });
+
+      test('an edit that changes nothing is refused', () async {
+        final listing = await seed();
+
+        await expectLater(
+          repository.updateListing(listing: listing, farmerId: 'farmer-001'),
+          throwsArgumentError,
+        );
+        expect(await waitingUpdates(), isEmpty);
+      });
     });
   });
 }

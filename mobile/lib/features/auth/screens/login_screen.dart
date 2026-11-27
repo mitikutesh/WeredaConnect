@@ -1,37 +1,52 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
+import 'package:wereda_connect/core/auth/models/auth_error.dart';
 import 'package:wereda_connect/core/auth/presentation/auth_error_l10n.dart';
+import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/utils/phone_utils.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/screens/forgot_password_screen.dart';
 import 'package:wereda_connect/features/auth/screens/otp_verification_screen.dart';
 import 'package:wereda_connect/features/auth/screens/register_screen.dart';
-import 'package:wereda_connect/features/onboarding/bloc/onboarding_bloc.dart';
-import 'package:wereda_connect/features/onboarding/bloc/onboarding_event.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
-import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/providers/settings_provider.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/core/utils/phone_utils.dart';
-import 'package:wereda_connect/shared/widgets/language_selection_dialog.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
+import 'package:wereda_connect/shared/widgets/labeled_field.dart';
+import 'package:wereda_connect/shared/widgets/language_segmented_picker.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
-/// Login screen with Ethiopian phone input and offline mode support.
+/// The board "Welcome and login" (specs/design-canvas/WelcomeM): a pastel
+/// header in the picked role's colour (brand tile, the Offline Ready pill,
+/// the role's tagline, the welcome title and the role's sketch), the "Your
+/// role" switch, then the language pills, the phone and password fields and
+/// the orange "Login as ..." button; Register and the escrow line sit at
+/// the foot.
 ///
-/// Features:
-/// - Ethiopian phone number input (accepts +251, 00251, or 0 prefix)
-/// - Password input with visibility toggle
-/// - Offline mode indicator
-/// - Large touch targets (48dp minimum per Material Design)
-/// - Localized error messages (Amharic/Oromo/English)
+/// The role switch only dresses this screen (colours, tagline, sketch, the
+/// button's words). It never decides or restricts who signs in: nothing of
+/// it is sent, the server tells the account's role, and after sign-in the
+/// app wears that role. The switch opens on the role that last signed in
+/// on this device ([SettingsProvider.lastSignInRole]), Farmer the first
+/// time.
+///
+/// One composition at every width: on a wide window the phone column is
+/// centred instead of a separate desktop layout.
 ///
 /// Ethiopian context:
 /// - Phone number formats: +251XXXXXXXXX, 00251XXXXXXXXX, 0XXXXXXXXX
-/// - Simple error messages for low-literacy users
-/// - Visual feedback (colors, icons) more than text
+/// - The language switch comes before the fields, so a person picks their
+///   language before reading anything else
+/// - Localized error messages (Amharic, Afaan Oromoo, English)
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -45,6 +60,10 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
 
   bool _obscurePassword = true;
+
+  /// The look the screen wears; see the class comment. Never sent anywhere.
+  late UserRole _role;
+  late ThemeData _roleTheme;
   String? _errorMessage;
 
   /// Bumped on every [AuthError], see the error banner.
@@ -53,6 +72,36 @@ class _LoginScreenState extends State<LoginScreen> {
   /// Per-field autovalidation, switched on by the first submit (see
   /// [_handleLogin]).
   AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
+
+  /// Whether the "signed out because the account is suspended" text was
+  /// already taken from the bloc's state when this screen opened.
+  bool _suspensionChecked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _setRole(
+      Provider.of<SettingsProvider?>(context, listen: false)?.lastSignInRole ??
+          UserRole.farmer,
+    );
+  }
+
+  void _setRole(UserRole role) {
+    _role = role;
+    _roleTheme = AppTheme.light(role: role);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The sign-out happens before this screen is built, so a listener
+    // would miss it: read the state once, when the localizations exist.
+    if (_suspensionChecked) return;
+    _suspensionChecked = true;
+    if (context.read<AuthBloc>().state is AuthSuspendedSignedOut) {
+      _errorMessage = _localizeAuthError(AuthErrorCode.accountSuspended, '');
+    }
+  }
 
   @override
   void dispose() {
@@ -119,29 +168,47 @@ class _LoginScreenState extends State<LoginScreen> {
         );
   }
 
-  void _showLanguageSelectionDialog(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => const LanguageSelectionDialog(),
+  void _openForgotPassword() {
+    final phone = _phoneController.text.trim();
+    if (kIsWeb) {
+      final query =
+          phone.isNotEmpty ? '?phone=${Uri.encodeComponent(phone)}' : '';
+      GoRouter.of(context).go('/forgot-password$query');
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ForgotPasswordScreen(initialPhoneNumber: phone),
+        ),
+      );
+    }
+  }
+
+  void _openRegister() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const RegisterScreen()),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final windowClass = Breakpoints.of(context);
 
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is AuthAuthenticated) {
+          // The account's real role, whatever the switch showed: the next
+          // visit to this screen opens in it.
+          unawaited(
+            Provider.of<SettingsProvider?>(context, listen: false)
+                ?.rememberSignInRole(state.role),
+          );
           // Close the OTP screen this login opened, if any.
           if (_otpScreenOpen && Navigator.of(context).canPop()) {
             _otpScreenOpen = false;
             Navigator.of(context).pop();
           }
-          // Pop self if pushed on top of AuthGate (e.g. from WelcomeScreen).
-          // AuthGate will then show MainNavigation.
+          // Pop self if pushed on top of AuthGate. AuthGate will then show
+          // MainNavigation.
           if (Navigator.of(context).canPop()) {
             Navigator.of(context).pop();
           }
@@ -152,6 +219,13 @@ class _LoginScreenState extends State<LoginScreen> {
           if (!_otpScreenOpen && (ModalRoute.of(context)?.isCurrent ?? true)) {
             _openOtpScreen(state);
           }
+        } else if (state is AuthSuspendedSignedOut) {
+          // Signed out while this screen was already open (a stale tab).
+          setState(() {
+            _errorSerial++;
+            _errorMessage =
+                _localizeAuthError(AuthErrorCode.accountSuspended, '');
+          });
         } else if (state is AuthError) {
           setState(() {
             _errorSerial++;
@@ -163,164 +237,98 @@ class _LoginScreenState extends State<LoginScreen> {
           });
         }
       },
-      child: Scaffold(
-        // Show AppBar only on mobile (non-web) — desktop/tablet use inline controls
-        appBar: windowClass == WindowClass.mobile && !kIsWeb
-            ? AppBar(
-                leading: IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () => _navigateBack(context, l10n),
-                  tooltip: l10n.backToHome,
-                ),
-                title: Text(l10n.login),
-                elevation: 0,
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.language),
-                    onPressed: () => _showLanguageSelectionDialog(context),
-                    tooltip: l10n.language,
-                  ),
-                ],
-              )
-            : null,
-        body: SafeArea(
-          child: switch (windowClass) {
-            WindowClass.desktop => _buildDesktopLayout(context, l10n, theme),
-            WindowClass.tablet => _buildTabletLayout(context, l10n, theme),
-            WindowClass.mobile => _buildMobileLayout(context, l10n, theme),
-          },
-        ),
-      ),
-    );
-  }
-
-  void _navigateBack(BuildContext context, AppLocalizations l10n) {
-    // Cancel any in-flight login before navigating away
-    if (context.read<AuthBloc>().state is AuthLoading) {
-      context.read<AuthBloc>().add(const AuthCancelRequested());
-    }
-    if (Navigator.of(context).canPop()) {
-      // Pushed as a route (e.g. from WelcomeScreen) — pop back
-      Navigator.of(context).pop();
-    } else {
-      // Rendered inline by AuthGate — tell AuthGate to show WelcomeScreen
-      context.read<OnboardingBloc>().add(const ShowWelcomeScreen());
-    }
-  }
-
-  // ── Desktop: split-screen with hero panel left, form right ──────────
-
-  Widget _buildDesktopLayout(
-    BuildContext context,
-    AppLocalizations l10n,
-    ThemeData theme,
-  ) {
-    return Row(
-      children: [
-        // Left hero/branding panel (45%)
-        Expanded(
-          flex: 45,
-          child: _LoginHeroPanel(l10n: l10n),
-        ),
-        // Right form panel (55%)
-        Expanded(
-          flex: 55,
-          child: Stack(
-            children: [
-              Container(
-                color: AppTheme.surfaceWhite,
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 420),
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(48.0),
-                      child: _buildLoginForm(context, l10n, theme),
-                    ),
-                  ),
-                ),
-              ),
-              // Language selector floating top-right
-              Positioned(
-                top: 16,
-                right: 24,
-                child: _LanguageButton(
-                  onPressed: () => _showLanguageSelectionDialog(context),
-                  tooltip: l10n.language,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── Tablet: centered card layout ────────────────────────────────────
-
-  Widget _buildTabletLayout(
-    BuildContext context,
-    AppLocalizations l10n,
-    ThemeData theme,
-  ) {
-    return Stack(
-      children: [
-        Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(32.0),
-              child: Card(
-                elevation: 4,
-                shadowColor: Colors.black26,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(36.0),
-                  child: _buildLoginForm(context, l10n, theme),
-                ),
+      // The whole screen wears the picked role: links, the header, the
+      // focused field's edge.
+      child: Theme(
+        data: _roleTheme,
+        child: Scaffold(
+          backgroundColor: AppTheme.ground,
+          body: FwContentWidth(
+            maxWidth: 480,
+            // The column's width, measured here: the page below sizes
+            // itself by intrinsic height, where a LayoutBuilder cannot sit.
+            child: LayoutBuilder(
+              builder: (context, constraints) => _page(
+                context,
+                l10n,
+                contentWidth: constraints.maxWidth - 40,
               ),
             ),
           ),
         ),
-        // Language selector floating top-right
-        Positioned(
-          top: 16,
-          right: 24,
-          child: _LanguageButton(
-            onPressed: () => _showLanguageSelectionDialog(context),
-            tooltip: l10n.language,
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  // ── Mobile: original layout (no AppBar back button on web) ──────────
-
-  Widget _buildMobileLayout(
+  Widget _page(
     BuildContext context,
-    AppLocalizations l10n,
-    ThemeData theme,
-  ) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: _buildLoginForm(context, l10n, theme),
+    AppLocalizations l10n, {
+    required double contentWidth,
+  }) {
+    return JoinPage(
+      padding: EdgeInsets.only(
+        bottom: 24 + MediaQuery.paddingOf(context).bottom,
+      ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _LoginHeader(role: _role, width: contentWidth),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+            child: _RoleSwitch(
+              width: contentWidth,
+              selected: _role,
+              onChanged: (role) => setState(() => _setRole(role)),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+            child: _buildLoginForm(context, l10n),
+          ),
+        ],
+      ),
+      footer: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            OutlinedButton(
+              onPressed: _openRegister,
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(54),
+                side: const BorderSide(color: AppTheme.fieldBorder),
+              ),
+              child: Text(
+                l10n.loginNoAccountRegister,
+                textAlign: TextAlign.center,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '${l10n.loginEscrowFooter} · ${l10n.telebirrPayment}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppTheme.slate,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // ── Shared login form (used by all layouts) ─────────────────────────
+  /// The board's input: a bold label above a 52 tall paper field.
+  InputDecoration _fieldDecoration() =>
+      const InputDecoration(errorMaxLines: 10);
 
-  Widget _buildLoginForm(
-    BuildContext context,
-    AppLocalizations l10n,
-    ThemeData theme,
-  ) {
+  String _loginLabel(AppLocalizations l10n) => switch (_role) {
+        UserRole.farmer => l10n.loginAsFarmer,
+        UserRole.trucker => l10n.loginAsTrucker,
+        UserRole.buyer => l10n.loginAsBuyer,
+      };
+
+  Widget _buildLoginForm(BuildContext context, AppLocalizations l10n) {
     return Form(
       key: _formKey,
       child: Builder(
@@ -330,233 +338,132 @@ class _LoginScreenState extends State<LoginScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // App logo/icon
-              const SizedBox(height: 16),
-              Icon(
-                Icons.agriculture,
-                size: 80,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(height: 16),
+              // Language first: the user may not read English yet.
+              const LanguageSegmentedPicker(),
+              const SizedBox(height: 18),
 
-              // Welcome message
-              Text(
-                l10n.welcomeMessage,
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 48),
-
-              // Phone number input
-              TextFormField(
-                controller: _phoneController,
-                // Set per field, not on the Form: a Form-level mode would
-                // revalidate (and re-announce) every field on each keystroke.
-                autovalidateMode: _autovalidateMode,
-                decoration: InputDecoration(
-                  labelText: l10n.phoneNumber,
-                  prefixIcon: const Icon(Icons.phone),
-                  hintText: l10n.ethiopianPhoneExample,
-                  border: const OutlineInputBorder(),
-                  // Large touch target
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 20,
-                  ),
-                  // Wrap long errors (Oromo, large text scale, narrow
-                  // phones) instead of cutting them to one ellipsized line,
-                  // which is what null means.
-                  errorMaxLines: 10,
-                ),
-                keyboardType: TextInputType.phone,
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[+\d]')),
-                ],
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return l10n.phoneNumberRequired;
-                  }
-                  if (!isValidEthiopianPhone(value)) {
-                    return l10n.invalidPhoneFormat;
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-
-              // Password input
-              TextFormField(
-                controller: _passwordController,
-                autovalidateMode: _autovalidateMode,
-                decoration: InputDecoration(
-                  labelText: l10n.password,
-                  prefixIcon: const Icon(Icons.lock),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscurePassword
-                          ? Icons.visibility_off
-                          : Icons.visibility,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _obscurePassword = !_obscurePassword;
-                      });
-                    },
-                    // Large touch target
-                    iconSize: 24,
-                    padding: const EdgeInsets.all(12),
-                  ),
-                  border: const OutlineInputBorder(),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 20,
-                  ),
-                  errorMaxLines: 10,
-                ),
-                obscureText: _obscurePassword,
-                maxLength: 128,
-                validator: (value) {
-                  // Login only requires a non-empty password. Do NOT enforce a
-                  // minimum length here: the server validates credentials, and a
-                  // client-side rule both leaks the policy and could reject a valid
-                  // existing password. (Returning l10n.password showed the field
-                  // label "Password" as the error.)
-                  if (value == null || value.isEmpty) {
-                    return l10n.fieldRequired;
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 8),
-
-              // Forgot password link
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () {
-                    final phone = _phoneController.text.trim();
-                    if (kIsWeb) {
-                      final query = phone.isNotEmpty
-                          ? '?phone=${Uri.encodeComponent(phone)}'
-                          : '';
-                      GoRouter.of(context).go('/forgot-password$query');
-                    } else {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => ForgotPasswordScreen(
-                            initialPhoneNumber: phone,
-                          ),
-                        ),
-                      );
+              LabeledField(
+                label: l10n.phoneNumber,
+                field: TextFormField(
+                  controller: _phoneController,
+                  autovalidateMode: _autovalidateMode,
+                  decoration: _fieldDecoration(),
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [EthiopianPhoneInputFormatter()],
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return l10n.phoneNumberRequired;
                     }
+                    if (!isValidEthiopianPhone(value)) {
+                      return l10n.invalidPhoneFormat;
+                    }
+                    return null;
                   },
-                  child: Text(l10n.forgotPassword),
                 ),
               ),
-              const SizedBox(height: 24),
+              // The board's example line under the field: its own text,
+              // outside the field's semantics and not a helper, so a
+              // corrected field drops its error at once.
+              const SizedBox(height: 6),
+              Text(
+                l10n.ethiopianPhoneExample,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: AppTheme.slate,
+                ),
+              ),
+              const SizedBox(height: 14),
 
-              // Error message. Its own semantics node flagged as a live
-              // region, so TalkBack/VoiceOver and the web aria-live element
-              // announce it when it appears. A new key per AuthError makes
-              // it a new node, so a repeated identical error is announced
-              // again even when it lands in the same frame as the submit
-              // that cleared it (Android and the web engine skip a live
-              // region whose label did not change).
+              LabeledField(
+                label: l10n.password,
+                field: TextFormField(
+                  controller: _passwordController,
+                  autovalidateMode: _autovalidateMode,
+                  decoration: _fieldDecoration().copyWith(
+                    counterText: '',
+                    suffixIcon: IconButton(
+                      tooltip: _obscurePassword
+                          ? l10n.showPassword
+                          : l10n.hidePassword,
+                      icon: Icon(
+                        _obscurePassword
+                            ? Icons.visibility_off
+                            : Icons.visibility,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _obscurePassword = !_obscurePassword;
+                        });
+                      },
+                      iconSize: 22,
+                    ),
+                  ),
+                  obscureText: _obscurePassword,
+                  maxLength: 128,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return l10n.fieldRequired;
+                    }
+                    return null;
+                  },
+                ),
+              ),
+
+              // Forgot password: a link in the role's colour, at the end
+              // of the line as on the board.
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton(
+                  onPressed: _openForgotPassword,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(48, 48),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
+                  child: Text(
+                    l10n.forgotPassword,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: context.roleColors.primary,
+                      decoration: TextDecoration.underline,
+                      decorationColor: context.roleColors.primary,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+
+              // Error banner if any
               if (_errorMessage != null)
                 KeyedSubtree(
                   key: ValueKey<int>(_errorSerial),
-                  child: Semantics(
-                    key: const Key('login_error_banner'),
-                    container: true,
-                    liveRegion: true,
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.errorContainer,
-                        border: Border.all(
-                          color: AppTheme.statusError.withAlpha(80),
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            color: theme.colorScheme.error,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              _errorMessage!,
-                              style: TextStyle(
-                                color: theme.colorScheme.error,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: JoinErrorBanner(
+                      key: const Key('login_error_banner'),
+                      message: _errorMessage!,
                     ),
                   ),
                 ),
 
-              // Login button
+              // The one orange action. Its words follow the role switch;
+              // what it sends does not.
               ElevatedButton(
+                key: const Key('login_submit'),
                 onPressed: isLoading ? null : _handleLogin,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  minimumSize: const Size.fromHeight(48), // Large touch target
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
                 child: isLoading
-                    ? Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
-                              ),
-                            ),
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppTheme.ink,
                           ),
-                          const SizedBox(width: 12),
-                          Text(
-                            l10n.pleaseWait,
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                        ],
-                      )
-                    : Text(
-                        l10n.login,
-                        style: const TextStyle(fontSize: 16),
-                      ),
-              ),
-              const SizedBox(height: 24),
-
-              // Register link
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(l10n.dontHaveAccount),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const RegisterScreen(),
                         ),
-                      );
-                    },
-                    child: Text(l10n.register),
-                  ),
-                ],
+                      )
+                    : Text(_loginLabel(l10n), textAlign: TextAlign.center),
               ),
             ],
           );
@@ -566,163 +473,344 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// ── Desktop hero/branding panel ─────────────────────────────────────────
+/// The board's header: a block in the role's pastel with rounded bottom
+/// corners. It runs under the status bar, so the colour reaches the top
+/// edge of the screen.
+class _LoginHeader extends StatelessWidget {
+  final UserRole role;
 
-/// Left-side branding panel shown on desktop login layout.
-class _LoginHeroPanel extends StatelessWidget {
-  final AppLocalizations l10n;
+  /// The width its text has (the column less the side padding).
+  final double width;
 
-  const _LoginHeroPanel({required this.l10n});
+  const _LoginHeader({required this.role, required this.width});
+
+  static const TextStyle _titleStyle = TextStyle(
+    fontSize: 32,
+    fontWeight: FontWeight.w800,
+    letterSpacing: -1.1,
+    height: 1.05,
+    color: AppTheme.ink,
+  );
+
+  static const TextStyle _taglineStyle = TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w500,
+    color: AppTheme.inkSoft,
+  );
+
+  /// The sketch's drawn width per role, as on the board.
+  static double _sketchWidth(UserRole role) => switch (role) {
+        UserRole.farmer => 100,
+        UserRole.trucker => 118,
+        UserRole.buyer => 100,
+      };
+
+  /// The narrowest the sketch is drawn; with less room it is left out.
+  static const double _sketchMinWidth = 64;
+
+  /// How wide the sketch may be at the header's lower right, or null when
+  /// the words leave it no room. The lines of the title beside it (and the
+  /// tagline, when the sketch reaches up to it) must end before it starts:
+  /// no text on top of a sketch.
+  static double? _sketchWidthFor(
+    BuildContext context, {
+    required String tagline,
+    required String title,
+    required double width,
+    required Size sketch,
+  }) {
+    if (!RoleSketch.sketchesShown(context)) return null;
+    final base = DefaultTextStyle.of(context).style;
+    final direction = Directionality.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final titlePainter = TextPainter(
+      text: TextSpan(text: title, style: base.merge(_titleStyle)),
+      textDirection: direction,
+      textScaler: scaler,
+    )..layout(maxWidth: width);
+    var textWidth = 0.0;
+    var top = 0.0;
+    for (final line in titlePainter.computeLineMetrics()) {
+      final bottom = top + line.height;
+      // Lines inside the sketch's height, measured up from the bottom.
+      if (bottom > titlePainter.height - sketch.height &&
+          line.width > textWidth) {
+        textWidth = line.width;
+      }
+      top = bottom;
+    }
+    final titleHeight = titlePainter.height;
+    titlePainter.dispose();
+    if (sketch.height > titleHeight + 12) {
+      final taglinePainter = TextPainter(
+        text: TextSpan(text: tagline, style: base.merge(_taglineStyle)),
+        textDirection: direction,
+        textScaler: scaler,
+      )..layout(maxWidth: width);
+      final last = taglinePainter.computeLineMetrics().last.width;
+      taglinePainter.dispose();
+      if (last > textWidth) textWidth = last;
+    }
+    final room = width - textWidth - 6;
+    if (room < _sketchMinWidth) return null;
+    return room < sketch.width ? room : sketch.width;
+  }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final colors = context.roleColors;
+    final tagline = switch (role) {
+      UserRole.farmer => l10n.loginTaglineFarmer,
+      UserRole.trucker => l10n.loginTaglineTrucker,
+      UserRole.buyer => l10n.loginTaglineBuyer,
+    };
+    final boardWidth = _sketchWidth(role);
+    final boardSize =
+        Size(boardWidth, boardWidth / RoleSketch.aspectRatio(role));
+
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppTheme.primaryGreenDark,
-            AppTheme.primaryGreen,
-          ],
-        ),
+      padding: EdgeInsets.fromLTRB(
+        20,
+        24 + MediaQuery.paddingOf(context).top,
+        20,
+        24,
       ),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 48.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+      decoration: BoxDecoration(
+        color: colors.soft,
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // The brand and the Offline Ready pill; with large text the pill
+          // takes the next line instead of pushing out.
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              const Icon(
-                Icons.agriculture,
-                size: 100,
-                color: Colors.white,
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'WeredaConnect',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                  letterSpacing: 0.5,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                l10n.aboutTagline,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.white.withAlpha(200),
-                  height: 1.5,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 48),
-              // Feature icons row
               Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  _HeroFeatureIcon(
-                    icon: Icons.cloud_off,
-                    label: l10n.offlineReady,
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(
+                      Icons.agriculture,
+                      color: colors.primary,
+                      size: 25,
+                    ),
                   ),
-                  const SizedBox(width: 32),
-                  _HeroFeatureIcon(
-                    icon: Icons.lock_outline,
-                    label: l10n.telebirrPayment,
-                  ),
-                  const SizedBox(width: 32),
-                  _HeroFeatureIcon(
-                    icon: Icons.translate,
-                    label: l10n.language,
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      l10n.appName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                        color: AppTheme.ink,
+                      ),
+                    ),
                   ),
                 ],
               ),
+              JoinStatusPill(
+                label: l10n.offlineReady,
+                background: Colors.white,
+                foreground: AppTheme.ink,
+                iconColor: colors.primary,
+              ),
             ],
           ),
-        ),
+          const SizedBox(height: 22),
+          Builder(
+            builder: (context) {
+              final sketchWidth = _sketchWidthFor(
+                context,
+                tagline: tagline,
+                title: l10n.welcomeMessage,
+                width: width,
+                sketch: boardSize,
+              );
+              final text = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(tagline, style: _taglineStyle),
+                  const SizedBox(height: 4),
+                  Semantics(
+                    header: true,
+                    child: Text(l10n.welcomeMessage, style: _titleStyle),
+                  ),
+                ],
+              );
+              if (sketchWidth == null) return text;
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  text,
+                  // The board's sketch: the lower right of the header, a
+                  // faint black line.
+                  PositionedDirectional(
+                    end: -2,
+                    bottom: -2,
+                    child: RoleSketch(
+                      key: ValueKey('login_sketch_${role.name}'),
+                      role: role,
+                      width: sketchWidth,
+                      color: AppTheme.ink.withValues(alpha: 0.3),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Small feature icon with label for the hero panel.
-class _HeroFeatureIcon extends StatelessWidget {
-  final IconData icon;
-  final String label;
+/// "Your role": Farmer, Trucker, Buyer as three pills, the picked one
+/// black. Equal thirds while the labels fit; a long label (Afaan Oromoo,
+/// large text) widens its pill and the row wraps instead of overflowing.
+class _RoleSwitch extends StatelessWidget {
+  final UserRole selected;
+  final ValueChanged<UserRole> onChanged;
 
-  const _HeroFeatureIcon({required this.icon, required this.label});
+  /// The width the row has.
+  final double width;
+
+  const _RoleSwitch({
+    required this.selected,
+    required this.onChanged,
+    required this.width,
+  });
+
+  static const double _gap = 8;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white.withAlpha(30),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: Colors.white, size: 24),
-        ),
-        const SizedBox(height: 8),
-        SizedBox(
-          width: 80,
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.white.withAlpha(200),
-            ),
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
+    final l10n = AppLocalizations.of(context)!;
+    String label(UserRole role) => switch (role) {
+          UserRole.farmer => l10n.farmer,
+          UserRole.trucker => l10n.trucker,
+          UserRole.buyer => l10n.buyer,
+        };
+    return Semantics(
+      container: true,
+      label: l10n.loginYourRole,
+      child: Builder(
+        builder: (context) {
+          final third = ((width - 2 * _gap) / 3).floorToDouble();
+          return Wrap(
+            spacing: _gap,
+            children: [
+              for (final role in UserRole.values)
+                _RolePill(
+                  key: ValueKey('login_role_${role.name}'),
+                  role: role,
+                  label: label(role),
+                  selected: role == selected,
+                  minWidth: third,
+                  maxWidth: width,
+                  onTap: () => onChanged(role),
+                ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
 
-/// Floating language button for desktop/tablet layouts.
-class _LanguageButton extends StatelessWidget {
-  final VoidCallback onPressed;
-  final String tooltip;
+class _RolePill extends StatelessWidget {
+  final UserRole role;
+  final String label;
+  final bool selected;
+  final double minWidth;
+  final double maxWidth;
+  final VoidCallback onTap;
 
-  const _LanguageButton({required this.onPressed, required this.tooltip});
+  const _RolePill({
+    required this.role,
+    required this.label,
+    required this.selected,
+    required this.minWidth,
+    required this.maxWidth,
+    required this.onTap,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      elevation: 2,
-      borderRadius: BorderRadius.circular(24),
-      color: AppTheme.surfaceWhite,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(24),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.language,
-                size: 20,
-                color: AppTheme.primaryGreen,
+    final foreground = selected ? Colors.white : AppTheme.inkSoft;
+    final icon = switch (role) {
+      UserRole.farmer => FwSprout(size: 15, color: foreground),
+      UserRole.trucker =>
+        Icon(Icons.local_shipping_outlined, size: 16, color: foreground),
+      UserRole.buyer =>
+        Icon(Icons.shopping_bag_outlined, size: 16, color: foreground),
+    };
+    return Semantics(
+      button: true,
+      selected: selected,
+      inMutuallyExclusiveGroup: true,
+      label: label,
+      excludeSemantics: true,
+      onTap: onTap,
+      // A 44 tall pill in a 48 tall hit area.
+      child: FwTapTarget(
+        onTap: onTap,
+        child: Material(
+          color: selected ? AppTheme.ink : Colors.transparent,
+          shape: StadiumBorder(
+            side: BorderSide(
+              color: selected ? AppTheme.ink : AppTheme.fieldBorder,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: 44,
+                minWidth: minWidth,
+                maxWidth: maxWidth,
               ),
-              const SizedBox(width: 8),
-              Text(
-                tooltip,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.primaryGreen,
-                  fontWeight: FontWeight.w500,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    icon,
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.w500,
+                          color: foreground,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),

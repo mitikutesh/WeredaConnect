@@ -52,6 +52,22 @@ public class UserRepositoryTests
     }
 
     [Fact]
+    public async Task CreateUserAsync_StartsAnExactEmptyRatingAggregate()
+    {
+        // ESC-28 (rating-api.md 1.2.0): a new account needs no backfill.
+        PutItemRequest? sent = null;
+        _mockDynamoDb.PutItemAsync(Arg.Do<PutItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new PutItemResponse());
+
+        await _repository.CreateUserAsync(CreateTestUser());
+
+        Assert.Equal("0", sent!.Item["ratingSum"].N);
+        Assert.Equal("0", sent.Item["ratingCount"].N);
+        Assert.Equal("2026-01-01T00:00:00Z", sent.Item["ratingsAggregatedAt"].S);
+        Assert.False(sent.Item.ContainsKey("reputation"));
+    }
+
+    [Fact]
     public async Task CreateUserAsync_DuplicateId_ReturnsFailure()
     {
         _mockDynamoDb.PutItemAsync(Arg.Any<PutItemRequest>(), Arg.Any<CancellationToken>())
@@ -150,6 +166,85 @@ public class UserRepositoryTests
     }
 
     [Fact]
+    public async Task UpdateUserAsync_WithoutFaydaId_RemovesTheIndexKeyInsteadOfSettingNull()
+    {
+        // SIM-56: DynamoDB refuses a NULL FaydaIdIndex key ("Invalid attribute value type").
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(CreateTestUser(), 1);
+
+        Assert.EndsWith(" REMOVE #fayda", sent!.UpdateExpression);
+        Assert.DoesNotContain("#fayda = :fayda", sent.UpdateExpression);
+        Assert.False(sent.ExpressionAttributeValues.ContainsKey(":fayda"));
+        Assert.Equal("faydaId", sent.ExpressionAttributeNames["#fayda"]);
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_WithFaydaId_SetsIt()
+    {
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(CreateTestUser() with { FaydaId = "1234567890123456" }, 1);
+
+        Assert.Contains("#fayda = :fayda", sent!.UpdateExpression);
+        Assert.Contains("#woreda = :woreda", sent.UpdateExpression);
+        Assert.DoesNotContain("REMOVE", sent.UpdateExpression);
+        Assert.Equal("1234567890123456", sent.ExpressionAttributeValues[":fayda"].S);
+        Assert.Equal("Adama", sent.ExpressionAttributeValues[":woreda"].S);
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_WithoutWoreda_RemovesTheIndexKeyInsteadOfWritingEmpty()
+    {
+        // SIM-56: FromItem reads a missing woreda as "" (FUP-162 rows), and DynamoDB refuses an empty
+        // RoleWaredaIndex sort key.
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(CreateTestUser() with { Woreda = "" }, 1);
+
+        Assert.EndsWith(" REMOVE #fayda, #woreda", sent!.UpdateExpression);
+        Assert.DoesNotContain("#woreda = :woreda", sent.UpdateExpression);
+        Assert.False(sent.ExpressionAttributeValues.ContainsKey(":woreda"));
+        Assert.Equal("woreda", sent.ExpressionAttributeNames["#woreda"]);
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_CompanyBuyer_WritesTheCompanyName()
+    {
+        // SIM-56: the profile edit changes a company buyer's companyName.
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(
+            CreateTestUser() with { Role = "buyer", BuyerType = "company", CompanyName = "Meki Traders" }, 1);
+
+        Assert.Contains("#company = :company", sent!.UpdateExpression);
+        Assert.Equal("companyName", sent.ExpressionAttributeNames["#company"]);
+        Assert.Equal("Meki Traders", sent.ExpressionAttributeValues[":company"].S);
+    }
+
+    [Fact]
+    public async Task UpdateUserAsync_WithoutCompanyName_NeverNamesIt()
+    {
+        UpdateItemRequest? sent = null;
+        _mockDynamoDb.UpdateItemAsync(Arg.Do<UpdateItemRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        await _repository.UpdateUserAsync(CreateTestUser(), 1);
+
+        Assert.DoesNotContain("#company", sent!.UpdateExpression);
+        Assert.False(sent.ExpressionAttributeNames.ContainsKey("#company"));
+        Assert.False(sent.ExpressionAttributeValues.ContainsKey(":company"));
+    }
+
+    [Fact]
     public async Task UpdateUserAsync_VersionConflict_ReturnsFailure()
     {
         _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
@@ -160,6 +255,102 @@ public class UserRepositoryTests
         Assert.False(result.IsSuccess);
         Assert.Equal("AUTH_019", result.Error!.Code);
         Assert.Equal(409, result.Error.HttpStatus);
+    }
+
+    // --- FUP-317: the profile edit with its transaction-audit row ---
+
+    private const string AuditTable = "test-transaction-audit";
+
+    private static Dictionary<string, object> AuditEntry() => new()
+    {
+        ["auditId"] = "txaudit-profile-user-123",
+        ["transactionId"] = "profile-user-123",
+        ["timestamp"] = "2026-11-13T10:00:00.0000000Z",
+        ["entityType"] = "user",
+        ["entityId"] = "user-123",
+        ["action"] = "profile_edited",
+        ["actor"] = "user-123",
+        ["metadata"] = "[{\"field\":\"displayName\",\"from\":\"Abebe\",\"to\":\"Abebe K.\"}]"
+    };
+
+    [Fact]
+    public async Task UpdateUserWithAuditAsync_WritesTheUserAndTheRowInOneTransaction()
+    {
+        TransactWriteItemsRequest? sent = null;
+        _mockDynamoDb.TransactWriteItemsAsync(Arg.Do<TransactWriteItemsRequest>(r => sent = r), Arg.Any<CancellationToken>())
+            .Returns(new TransactWriteItemsResponse());
+        var repository = new UserRepository(_mockDynamoDb, TableName, AuditTable);
+
+        var result = await repository.UpdateUserWithAuditAsync(CreateTestUser() with { DisplayName = "Abebe K." }, 1, AuditEntry());
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, result.Value!.Version);
+        await _mockDynamoDb.DidNotReceive().UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+        Assert.Equal(2, sent!.TransactItems.Count);
+
+        // The same update as UpdateUserAsync: version and deletion guarded.
+        var update = sent.TransactItems[0].Update;
+        Assert.Equal(TableName, update.TableName);
+        Assert.Equal("user-123", update.Key["userId"].S);
+        Assert.Equal("#v = :expectedVersion AND attribute_not_exists(#deletionState)", update.ConditionExpression);
+        Assert.Equal("Abebe K.", update.ExpressionAttributeValues[":name"].S);
+        Assert.Equal("2", update.ExpressionAttributeValues[":newVersion"].N);
+
+        // The row, append-only.
+        var put = sent.TransactItems[1].Put;
+        Assert.Equal(AuditTable, put.TableName);
+        Assert.Equal("attribute_not_exists(transactionId)", put.ConditionExpression);
+        Assert.Equal("profile-user-123", put.Item["transactionId"].S);
+        Assert.Equal("profile_edited", put.Item["action"].S);
+        Assert.Equal(AuditEntry()["metadata"], put.Item["metadata"].S);
+    }
+
+    [Theory]
+    [InlineData("ConditionalCheckFailed", "None")]
+    [InlineData("None", "ConditionalCheckFailed")]
+    [InlineData("TransactionConflict", "None")]
+    public async Task UpdateUserWithAuditAsync_ACancelledTransaction_IsTheVersionConflict(string userReason, string auditReason)
+    {
+        _mockDynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TransactionCanceledException("cancelled")
+            {
+                CancellationReasons = [new CancellationReason { Code = userReason }, new CancellationReason { Code = auditReason }]
+            });
+        var repository = new UserRepository(_mockDynamoDb, TableName, AuditTable);
+
+        var result = await repository.UpdateUserWithAuditAsync(CreateTestUser(), 1, AuditEntry());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("AUTH_019", result.Error!.Code);
+        Assert.Equal(409, result.Error.HttpStatus);
+    }
+
+    [Fact]
+    public async Task UpdateUserWithAuditAsync_AValidationError_IsThrown_LikeUpdateUserAsync()
+    {
+        _mockDynamoDb.TransactWriteItemsAsync(Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TransactionCanceledException("cancelled")
+            {
+                CancellationReasons = [new CancellationReason { Code = "ValidationError" }, new CancellationReason { Code = "None" }]
+            });
+        var repository = new UserRepository(_mockDynamoDb, TableName, AuditTable);
+
+        await Assert.ThrowsAsync<TransactionCanceledException>(
+            () => repository.UpdateUserWithAuditAsync(CreateTestUser(), 1, AuditEntry()));
+    }
+
+    [Fact]
+    public async Task UpdateUserWithAuditAsync_WithoutAnAuditTable_IsThePlainUpdate()
+    {
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new UpdateItemResponse());
+
+        var result = await _repository.UpdateUserWithAuditAsync(CreateTestUser(), 1, AuditEntry());
+
+        Assert.True(result.IsSuccess);
+        await _mockDynamoDb.Received(1).UpdateItemAsync(Arg.Any<UpdateItemRequest>(), Arg.Any<CancellationToken>());
+        await _mockDynamoDb.DidNotReceive().TransactWriteItemsAsync(
+            Arg.Any<TransactWriteItemsRequest>(), Arg.Any<CancellationToken>());
     }
 
     // --- Marshalling ---

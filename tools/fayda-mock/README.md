@@ -36,7 +36,7 @@ curl -s localhost:8788/v1/esignet/oidc/.well-known/openid-configuration
 |--------|------|-------|
 | GET | `/v1/esignet/oidc/.well-known/openid-configuration` | Discovery (same fields as live Fayda; `jwks_uri` points at `/.well-known/jwks.json`, which answers 404 like on Fayda) |
 | GET | `/v1/esignet/oauth/.well-known/jwks.json` | Public signing key |
-| GET | `/authorize` | Test-user picker + OTP page. `auto=1&fin=<FIN>` (or `fin=new`) skips it, `simulate=denied` or `simulate=down` |
+| GET | `/authorize` | Test-user picker + OTP page. `auto=1&fin=<FIN>` (or `fin=new`, `fin=hint`, `phone=<number>`) skips it, `simulate=denied` or `simulate=down`. A `login_hint` (`sub:<subject>` or `phone:<number>`) puts the identity on the caller's account first and preselected |
 | POST | `/authorize/complete` | Form target of the picker, redirects with `code` + `state` |
 | POST | `/v1/esignet/oauth/v2/token` | `authorization_code` only, PKCE required, `private_key_jwt` (aud = this URL, single-use jti) |
 | GET | `/v1/esignet/oidc/userinfo` | `Authorization: Bearer <access_token>`. Signed JWT (`application/jwt`) with `sub` + requested claims |
@@ -82,15 +82,34 @@ always sends the SMS OTP.
 
 On the picker page choose **Generate new identity** (a random FIN) or **Type a
 FIN**. For automation use `auto=1&fin=new` or `auto=1&fin=<any 16 digits>`.
-Anything that is not exactly 16 digits is rejected.
+Anything that is not exactly 16 digits is rejected. A generated FIN is never shown;
+to sign in as that identity again, start from the app (next section).
 
-### Identity for my phone number (accounts that will pay)
+### Continue as ... (the identity on the account)
 
 The server only links the Fayda identity of the account's owner: the Fayda ID
 already on the account, else one whose `phone_number` equals the account phone
-(`FAYDA_005`/`006`/`007` otherwise, see `specs/contracts/auth-api.md` 2.3.0).
-A generated or typed identity has no phone and its FIN is never shown, so it can
-neither link an account at payment time nor be used to verify again later.
+(`FAYDA_005`/`006`/`007` otherwise, see `specs/contracts/auth-api.md` 2.3.0). A
+generated or typed identity has no phone, and nobody knows its FIN, so no picker
+choice could reproduce it once the account held it.
+
+So when an account verifies again (payment above 10,000 ETB, the profile, a KYC
+prompt), the WeredaConnect server puts a `login_hint` on the authorize URL, in mock
+mode only (`FAYDA_MOCK=true`): `sub:<the Fayda ID on the account>`, or
+`phone:<the account phone>` while the account holds none. The picker then shows
+**Continue as <name>** first and preselected, and the mock signs in as exactly that
+subject. A seeded subject gives the seeded person back (name, phone). Any other
+subject is honoured as it is: a sub-only identity with a stable synthetic name, no
+`individual_id` and no `phone_number`, so the name may differ from the one shown at
+sign-up (the app only shows it for a moment, and the server compares the subject).
+A `phone:` hint preselects **Identity for my phone number** with the number filled in.
+
+The hint is only advice: the server still refuses any identity that is not the
+account's own, so rewriting it buys nothing. Automation: `auto=1&fin=hint` (with the
+`login_hint` on the URL); without a usable hint it redirects with
+`error=invalid_request`.
+
+### Identity for my phone number (accounts that will pay)
 
 **Identity for my phone number** acts like a real Fayda record: type the phone
 (`+2519XXXXXXXX`, `2519...`, `09...` or `07...`) and the mock signs in as that
@@ -98,5 +117,6 @@ phone's owner. A seeded phone returns its seeded person; any other phone gets a
 synthetic person whose FIN (`9` + 15 digits) is derived from the phone. The same
 phone always returns the same person, with the `phone_number` claim set (in userinfo). Use it
 for any account you will pay with: sign up with it, then pick it again with the
-same phone whenever Fayda is asked for. Automation: `auto=1&phone=<number>`; a
-malformed number redirects with `error=invalid_request`.
+same phone whenever Fayda is asked for (or take the preselected **Continue as**).
+Automation: `auto=1&phone=<number>`; a malformed number redirects with
+`error=invalid_request`.

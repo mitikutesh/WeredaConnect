@@ -60,6 +60,12 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new SyncFunction().FunctionHandler, serializer),
 
+            // crop-listing-api 1.6.0: S3 ObjectCreated on the crop photo incoming bucket (raw Stream
+            // in, parsed with JsonDocument; S3 ignores the async result, so nothing comes out).
+            var h when h.Contains("CropPhotoProcessorFunction") =>
+                HandlerWrapper.GetHandlerWrapper(
+                    (Func<Stream, ILambdaContext, Task>)new CropPhotoProcessorFunction().HandleAsync),
+
             var h when h.Contains("CropFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new CropFunction().FunctionHandler, serializer),
@@ -95,6 +101,30 @@ public static class Program
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new AdminFunction().FunctionHandler, serializer),
 
+            // ESC-21: DynamoDB Streams consumer for the orders/deliveries/escrows tables (raw Stream
+            // in/out, like CropMatchStreamFunction). Checked BEFORE the Order* handlers so the
+            // substring match is unambiguous.
+            var h when h.Contains("OrderNotifyStreamFunction") =>
+                HandlerWrapper.GetHandlerWrapper(
+                    (Func<Stream, ILambdaContext, Task<Stream>>)new OrderNotifyStreamFunction().ProcessStreamAsync),
+
+            // ESC-28: the second orders stream consumer (raw Stream in/out like the other stream
+            // consumers); records reputation events. Its name holds no other handler's name.
+            var h when h.Contains("ReputationStreamFunction") =>
+                HandlerWrapper.GetHandlerWrapper(
+                    (Func<Stream, ILambdaContext, Task<Stream>>)new ReputationStreamFunction().ProcessStreamAsync),
+
+            // ESC-21: GET /notifications (the inbox the stream consumer fills).
+            var h when h.Contains("NotificationFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new NotificationFunction().FunctionHandler, serializer),
+
+            // FRD-19: the hourly AI advisory run (fraud spec section 21). It invokes the separate non-AOT
+            // reviewer Lambda; this bootstrap never calls Bedrock.
+            var h when h.Contains("FraudAdvisoryCronFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new FraudAdvisoryCronFunction().FunctionHandler, serializer),
+
             var h when h.Contains("OrderCronFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new OrderCronFunction().FunctionHandler, serializer),
@@ -102,6 +132,12 @@ public static class Program
             var h when h.Contains("OrderFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
                     new OrderFunction().FunctionHandler, serializer),
+
+            // ESC-29: GET /reputation/* and the appeal (reputation-api.md sections 2 to 6). The
+            // stream consumer above is matched first; its name does not hold this one.
+            var h when h.Contains("ReputationFunction") =>
+                HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(
+                    new ReputationFunction().FunctionHandler, serializer),
 
             var h when h.Contains("RatingFunction") =>
                 HandlerWrapper.GetHandlerWrapper<APIGatewayProxyRequest, APIGatewayProxyResponse>(

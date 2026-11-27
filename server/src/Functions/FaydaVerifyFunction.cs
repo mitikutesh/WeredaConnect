@@ -21,6 +21,9 @@ namespace WeredaConnect.Server.Functions;
 /// inside the ID token, the PKCE verifier never leaves the server.
 /// Dev bypass: DEV_FAYDA_BYPASS=true accepts test-code-123 on fayda-verify and fayda-link. Its identity
 /// (FAYDA-DEV-001) has no phone, so fayda-link only accepts it for an account that already holds it.
+/// Sandbox mode (FAYDA_SANDBOX=true, non-prod): the provider is given the shared sandbox client's
+/// registered redirect (FAYDA_SANDBOX_REDIRECT_URI) on authorize and token exchange, while the app
+/// keeps its own redirect, which the state row stores and verify / link must repeat as before.
 /// </summary>
 public class FaydaVerifyFunction
 {
@@ -35,6 +38,7 @@ public class FaydaVerifyFunction
     private readonly IUserRepository _userRepository;
     private readonly IAuthStateRepository _authState;
     private readonly IRateLimitService? _rateLimitService;
+    private readonly Func<string, string?> _env;
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -73,21 +77,25 @@ public class FaydaVerifyFunction
         _userRepository = new UserRepository(dynamoDb, tableName);
         _authState = new AuthStateRepository(dynamoDb, rateLimitTable);
         _rateLimitService = new RateLimitService(new RateLimitRepository(dynamoDb, rateLimitTable));
+        _env = Environment.GetEnvironmentVariable;
     }
 
     /// <summary>
-    /// Constructor for testing.
+    /// Constructor for testing. <paramref name="env"/> stands in for the process environment
+    /// (the FAYDA_MOCK and FAYDA_SANDBOX gates); it defaults to the real one.
     /// </summary>
     public FaydaVerifyFunction(
         IFaydaOidcService faydaService,
         IUserRepository userRepository,
         IAuthStateRepository authState,
-        IRateLimitService? rateLimitService = null)
+        IRateLimitService? rateLimitService = null,
+        Func<string, string?>? env = null)
     {
         _faydaService = faydaService ?? throw new ArgumentNullException(nameof(faydaService));
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _authState = authState ?? throw new ArgumentNullException(nameof(authState));
         _rateLimitService = rateLimitService;
+        _env = env ?? Environment.GetEnvironmentVariable;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -120,15 +128,15 @@ public class FaydaVerifyFunction
     }
 
     /// <summary>
-    /// ACC-02: <c>410 ACCOUNT_004</c> for a caller whose account is being or has been deleted, null
-    /// for a live one. When the account cannot be read the answer is a typed, retryable
+    /// ACC-02: <c>410 ACCOUNT_004</c> for a caller whose account is being or has been deleted,
+    /// ESC-29 (reputation-api.md 8.4): <c>403 AUTH_025</c> for a suspended one, null for a live one. When the account cannot be read the answer is a typed, retryable
     /// <c>503 AUTH_008</c> and nothing is read or consumed.
     /// </summary>
     private async Task<APIGatewayProxyResponse?> RefuseDeletingCallerAsync(string userId, ILambdaContext context)
     {
         try
         {
-            return await AccountDeletionGuard.RefuseIfDeletingAsync(_userRepository, userId);
+            return await AccountDeletionGuard.RefuseIfDeletingOrSuspendedAsync(_userRepository, userId);
         }
         catch (Exception ex)
         {
@@ -145,6 +153,7 @@ public class FaydaVerifyFunction
         APIGatewayProxyRequest request, ILambdaContext context, string purpose)
     {
         string? userId = null;
+        string? loginHint = null;
         if (purpose == PurposeLink)
         {
             userId = AuthHelper.GetUserId(request);
@@ -159,6 +168,8 @@ public class FaydaVerifyFunction
             {
                 return gone;
             }
+
+            loginHint = await MockLoginHintAsync(userId, context);
         }
 
         FaydaStartRequest? body = null;
@@ -175,7 +186,7 @@ public class FaydaVerifyFunction
         }
 
         var redirectUri = string.IsNullOrWhiteSpace(body?.RedirectUri) ? FaydaStartRequest.DefaultRedirectUri : body!.RedirectUri!;
-        if (!FaydaStartRequest.IsAllowedRedirect(redirectUri))
+        if (!FaydaStartRequest.IsAllowedRedirect(redirectUri, _env))
         {
             return LambdaResponse.Error(400, "AUTH_007", "redirectUri is not allowed.", "redirectUri");
         }
@@ -185,7 +196,18 @@ public class FaydaVerifyFunction
         var codeVerifier = RandomToken(48);
         var codeChallenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier)));
 
-        var urlResult = await _faydaService.BuildAuthorizationUrlAsync(redirectUri, state, nonce, codeChallenge);
+        // Sandbox mode: the provider is told the sandbox client's registered redirect, where
+        // the local relay forwards the callback to the app's redirect. The state row keeps
+        // both: the app's redirect, which verify / link must repeat, and the provider's,
+        // which the token request must repeat even if the mode changes before then.
+        var sandboxRedirect = FaydaStartRequest.SandboxProviderRedirect(_env);
+        if (sandboxRedirect == null && DevBypass.IsEnabled(FaydaStartRequest.SandboxEnv, _env))
+        {
+            context.Logger.LogWarning(
+                $"{FaydaStartRequest.SandboxEnv} is set but {FaydaStartRequest.SandboxRedirectUriEnv} is missing or not a loopback-http/https URL; the app redirect goes to the provider");
+        }
+        var providerRedirect = sandboxRedirect ?? redirectUri;
+        var urlResult = await _faydaService.BuildAuthorizationUrlAsync(providerRedirect, state, nonce, codeChallenge, loginHint);
         if (!urlResult.IsSuccess)
         {
             var error = urlResult.Error!;
@@ -198,6 +220,7 @@ public class FaydaVerifyFunction
             { "codeVerifier", codeVerifier },
             { "purpose", purpose },
             { "redirectUri", redirectUri },
+            { "providerRedirectUri", providerRedirect },
             { "createdAt", DateTime.UtcNow.ToString("o") }
         };
         if (userId != null)
@@ -217,6 +240,31 @@ public class FaydaVerifyFunction
             AuthorizeUrl = urlResult.Value!,
             ExpiresAt = DateTime.UtcNow.AddSeconds(StateTtlSeconds).ToString("o")
         }, AppJsonContext.Default.FaydaStartResponse);
+    }
+
+    /// <summary>
+    /// Against the mock provider only (FAYDA_MOCK): the identity on the caller's account as a
+    /// <c>login_hint</c>, so the mock offers it first. A generated mock identity's FIN is never
+    /// shown, so nothing else lets the tester sign in as it again at payment or from the
+    /// profile. Live mode reads nothing and sends nothing. A failed read is logged and the
+    /// login starts without the hint; the link still checks the identity that comes back.
+    /// </summary>
+    private async Task<string?> MockLoginHintAsync(string userId, ILambdaContext context)
+    {
+        if (!DevBypass.IsEnabled("FAYDA_MOCK", _env))
+        {
+            return null;
+        }
+
+        try
+        {
+            return FaydaStartRequest.MockLoginHint(await _userRepository.GetUserByIdAsync(userId));
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning($"Mock login hint skipped, account read failed: [{ex.GetType().Name}]");
+            return null;
+        }
     }
 
     // ──────────────────────────────────────────────
@@ -490,8 +538,16 @@ public class FaydaVerifyFunction
                 "This verification attempt is incomplete. Please start again.", "state");
         }
 
+        // The token request repeats the redirect the authorize request carried, as recorded
+        // at start: the sandbox client's redirect in sandbox mode, else the app's own. A row
+        // from before this field existed authorized with the app redirect.
+        var providerRedirect = stateRow.Get("providerRedirectUri");
+        if (string.IsNullOrEmpty(providerRedirect))
+        {
+            providerRedirect = faydaRequest.RedirectUri;
+        }
         return await _faydaService.ExchangeCodeAsync(
-            faydaRequest.AuthorizationCode, faydaRequest.RedirectUri, codeVerifier, nonce);
+            faydaRequest.AuthorizationCode, providerRedirect, codeVerifier, nonce);
     }
 
     private async Task<APIGatewayProxyResponse?> CheckIpAsync(APIGatewayProxyRequest request)

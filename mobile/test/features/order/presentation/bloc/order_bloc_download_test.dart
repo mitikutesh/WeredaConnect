@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
@@ -97,6 +99,12 @@ class _SpyMarketplaceSync implements MarketplaceSync {
   Future<void> pullTrips() async {}
 
   @override
+  Future<bool> pullOwnTrips({required String truckerId}) async => false;
+
+  @override
+  Future<bool> pullOwnCrops({required String farmerId}) async => false;
+
+  @override
   Future<void> pullDeliveries() async {}
 
   @override
@@ -153,7 +161,25 @@ class _FakeOrderRepository extends BaseOrderRepository {
     String? truckerName,
     double? transportCost,
     double? commissionRate,
+    String? dropoffNote,
+    DeliveryPoint? deliveryPoint,
   }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> updateDeliveryLocation(
+    String orderId,
+    String buyerId,
+    DeliveryPoint point,
+  ) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> updateDropoffNote(
+    String orderId,
+    String buyerId,
+    String? dropoffNote,
+  ) =>
       throw UnimplementedError();
 
   @override
@@ -173,6 +199,39 @@ class _FakeOrderRepository extends BaseOrderRepository {
       throw UnimplementedError();
 
   @override
-  Future<void> rejectOrder(String orderId, String farmerId, {String? reason}) =>
+  Future<void> rejectOrder(
+    String orderId,
+    String farmerId, {
+    String? reason,
+    String? declineReason,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> respondAsTrucker(
+    String orderId,
+    String truckerId, {
+    required bool accept,
+    String? declineReason,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<bool> checkIn(
+    String orderId,
+    String userId, {
+    required String kind,
+    HandoffCheckInFix? fix,
+  }) =>
+      throw UnimplementedError();
+
+  @override
+  Future<bool> checkInAtDropoff(
+    String orderId,
+    String userId, {
+    required String deliveryId,
+    required HandoffCheckInFix? fix,
+    String? arrivalPhotoRef,
+  }) =>
       throw UnimplementedError();
 }

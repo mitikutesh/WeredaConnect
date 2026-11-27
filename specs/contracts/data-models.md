@@ -1,7 +1,7 @@
 # Data Models Contract
 
-**Version**: 1.0.0
-**Last Updated**: 2026-02-14
+**Version**: 1.24.0
+**Last Updated**: 2026-11-26
 **Status**: IMPLEMENTED
 **Owner**: @Mobile
 
@@ -49,6 +49,13 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `location` | LatLng | Yes | Farm GPS coordinates | Latitude/longitude for truckers |
 | `description` | String | Yes | Crop condition/quality | Supports Amharic/Oromo/English |
 | `audioNoteRef` | String? | No | Voice note file reference | Format: `audio/{userId}/{listingId}.m4a` |
+| `photos` | List<CropPhoto> | Yes on new listings | 2 to 4 photos, the first the cover (`crop-listing-api.md` 1.6.0) | Embedded `CropPhoto`: `photoId` (UUID), `thumbUrl` / `fullUrl` (presigned, short-lived; cache by `photoId`), and on the farmer's own device `localPath`, `contentType`, `sizeBytes`, `uploaded`. On the wire: `photoIds` in the sync create, `photos` on reads |
+| `ownerReliabilityPct` | int? | No | The farmer's reliability in whole percent, the server's copy on the row (`reputation-api.md` section 7) | Server-written; null when the server sends none (flag off, under 3 orders, no copy); the matcher's reliability input (`match-api.md` 1.4.0) |
+| `ownerTier` | String? | No | The farmer's public tier, `good` or `low` (`reputation-api.md` section 7) | Server-written, only with the public reputation flag on; `low` shows the Low reputation label to buyers (1.12.0) |
+| `ownerEffectiveRating` | double? | No | The buyers' star average minus the penalty deduction, one decimal | Server-written; null with no ratings (1.12.0) |
+| `ownerRatingCount` | int? | No | Ratings behind `ownerEffectiveRating` | Server-written (1.12.0) |
+| `ownerReputationAt` | DateTime? | No | When the server wrote the copy | "As of {date}" on the crop detail (1.12.0) |
+| `farmerReliability` | double? | No | Deprecated: the old listing-conversion value | No longer written by the server or read by the matcher (1.11.0) |
 | `status` | ListingStatus | Yes | Enum: draft/active/sold/expired | Lifecycle state |
 | `createdAt` | DateTime | Yes | UTC timestamp | Listing creation time |
 | `updatedAt` | DateTime | Yes | UTC timestamp | Last edit time |
@@ -93,11 +100,21 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `truckerId` | String | Yes | User ID of trucker | Links to User.userId |
 | `fromWoreda` | String | Yes | Origin district | Ethiopian woreda name |
 | `toWoreda` | String | Yes | Destination district | Typically rural → urban route |
+| `destinationLatitude`, `destinationLongitude` | Double? | No | The picked destination's point (trip-listing-api 2.1.0) | The live track's drop-off point |
 | `departureDate` | DateTime | Yes | Scheduled departure (UTC) | Truckers plan 1-3 days ahead |
 | `capacity` | double | Yes | Available capacity (quintals) | Typical truck: 100-200 quintals |
 | `pricePerQuintal` | double | Yes | Transport price (ETB/quintal) | Market rate varies by distance |
-| `status` | TripStatus | Yes | Enum: open/matched/in_transit/delivered/cancelled | Lifecycle state |
+| `status` | TripStatus | Yes | Wire values: `open`, `matched`, `inTransit`, `delivered`, `cancelled` (camelCase on the wire, unlike order statuses) | Lifecycle state; `matched` means fully booked since trip-listing-api 2.0.0 |
 | `matchedListings` | List<String> | Yes | Crop listing IDs | Empty when open, populated when matched |
+| `bookedQuintals` | double? | No | Quintals held by funded and accepted orders (trip-listing-api 2.0.0) | Server-written; null on older rows |
+| `remainingQuintals` | double? | No | `capacity - bookedQuintals`; null on older rows, read as `capacity` | The free room buyers can order |
+| `ownerReliabilityPct` | int? | No | The trucker's reliability in whole percent, the server's copy on the row (`reputation-api.md` section 7) | Server-written; null when the server sends none; orders equally priced trip suggestions (`match-api.md` 1.4.0) |
+| `ownerTier` | String? | No | The trucker's public tier, `good` or `low` (`reputation-api.md` section 7) | Server-written, only with the public reputation flag on (1.12.0) |
+| `ownerEffectiveRating` | double? | No | The buyers' star average minus the penalty deduction, one decimal | Server-written; null with no ratings (1.12.0) |
+| `ownerRatingCount` | int? | No | Ratings behind `ownerEffectiveRating` | Server-written (1.12.0) |
+| `ownerReputationAt` | DateTime? | No | When the server wrote the copy | Server-written (1.12.0) |
+| `bookedOrderIds` | List<String> | No | Orders holding capacity (server row only, not in `TripDto`) | Released when the order leaves the trip |
+| `acceptedOrderIds` | List<String> | No | Orders the trucker accepted (server row only) | Confirmed at the trucker's accept |
 | `createdAt` | DateTime | Yes | UTC timestamp | Trip posted time |
 | `updatedAt` | DateTime | Yes | UTC timestamp | Last update time |
 | `version` | int | Yes | Optimistic concurrency control | Incremented on each update |
@@ -137,12 +154,21 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `tripId` | String | Yes | Associated trip ID | Links to Trip.tripId |
 | `orderId` | String? | No | The order this delivery fulfils | Links to Order.orderId; required on create since delivery-verification-api 1.2.0, exposed on list/detail and stored locally since 1.4.2 (SIM-14); null only for pre-1.2.0 deliveries |
 | `listingId` | String | Yes | Associated crop listing ID | Links to CropListing.listingId |
+| `cropType` | String? | No | The order's crop key, server-stamped on create | Titles the deliveries list card ("Teff · 1,500 kg") without an order read; null on deliveries created before delivery-verification-api 1.21.0 |
+| `quantity` | double? | No | The order's quantity in kg, server-stamped with `cropType` | Same fallback as `cropType` |
+| `pickupPlace` | String? | No | The listing's place name at create time | "Kebede Alemu, Bichena" on the waiting card; null when the listing has none |
+| `pickupPlannedAt` | DateTime? | No | The trip's departure date at create time (UTC) | "pickup Thu 30 Oct" on the waiting card; null on a self-pickup |
 | `qrToken` | String | Yes | QR code verification token | Scanned at pickup/dropoff |
 | `gpsPickup` | LatLng? | No | GPS at pickup location | Null until trucker confirms pickup |
 | `gpsDropoff` | LatLng? | No | GPS at dropoff location | Null until trucker confirms delivery |
 | `photoEvidenceRef` | String? | No | Photo proof file reference | Format: `photos/{deliveryId}/{timestamp}.jpg` |
 | `status` | DeliveryStatus | Yes | Enum: pending/pickedUp/inTransit/delivered/disputed | Lifecycle state |
 | `confirmedAt` | DateTime? | No | Delivery confirmation time (UTC) | Null until buyer confirms receipt |
+| `arrivalPhotoRef` | String? | No | The trucker's arrival photo at the drop-off, `uploads/photos/{deliveryId}/arrival-{ms}.{webp\|jpg}` (1.17.0, ESC-36, behind `dropoffClassification`; `arrivalPhotoUrl` on the detail read) | The evidence of the trucker's drop-off check-in |
+| `autoConfirmedAt` | DateTime? | No | When the order cron confirmed the delivery for a silent buyer (1.17.0, ESC-36 T9) | Absent when the buyer confirmed |
+| `arrivalPhotoLateAt` | DateTime? | No | Server-only: when the arrival photo was attached as late evidence on the order cron's T8 dispute (1.19.0, FUP-373, behind `dropoffClassification`) | Absent on one taken on the road; read by the admin evidence, not stored by the apps |
+| `dropoffPhotoLateAt` | DateTime? | No | Server-only: when the buyer's drop-off photo was attached as late evidence on a dispute the order cron opened, without the buyer's confirm (1.21.0, FUP-140) | Absent on the photo of a confirmed delivery; read by the admin evidence, not stored by the apps |
+| `pickupGpsStatus`, `pickupGpsCapturedAt`, `pickupGpsAccuracyM`, `pickupMethod`, `pickupPlatform`; the same with `dropoff`; `dropoffCapturedAt` | server row only | No | Server-only handoff evidence (1.24.0, FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0): why a leg had no GPS fix or what kind, the fix's own time and accuracy, `qr` or `code`, `android` or `web`, and the drop-off's phone time. Stamped in the transition's write; the self-pickup confirm is the `dropoff` leg | Never returned to the apps, so no Isar or web model field; read by the admin dispute evidence |
 | `version` | int | Yes | Optimistic concurrency control | Incremented on each update |
 
 **Indexes**:
@@ -203,6 +229,54 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 
 5. **No trucker payment in MVP**: Trucker payment is handled separately (future feature). This payment focuses on farmer ↔ buyer transaction.
 
+**Server escrow fields (1.8.0, ESC-20, `escrow-protocol.md` 2.2.0).** The server's escrow row (not this
+Isar schema) gains, on an order escrow born on the escrow ledger: `settlementModel` (`ledger`),
+`legStatus` (a map of `crop`, `transport`, `commission`, each `held`, `released`, `refunded` or `kept`),
+`refundedTotal` and `releasedTotal` (ETB, 2 decimals), `verdictAmounts` (a split verdict's `farmerAmount`,
+`truckerAmount`, `buyerRefund`), and `releaseTrigger`/`refundTrigger`. `EscrowDto` returns `legStatus`,
+`refundedTotal` and `releasedTotal` (null on a 1.x escrow); apps ignore them until ESC-23 shows a partial
+refund.
+
+**Server escrow field `releaseOrigin` (1.9.0, FUP-137).** Server-only, never in `EscrowDto` or any client
+payload. `auto_release` when the hourly auto-release started the release the row records or waits for (system
+actor, trigger `delivery_confirmed`, from `escrowed`), written with the `released` write or the manual payout
+queue write; absent on any other 1.x release and on refunds; `other` on a ledger release decision that is not
+the auto-release. Read only by the clean-delivery credit (`fraud-detection-architecture.md` section 20).
+
+**Server escrow fields of a manual payout claim (1.13.0, FUP-05, `escrow-protocol.md` 2.12.0).** Server-only,
+never in `EscrowDto`. Per 1.x manual payout leg: `manual{Leg}ClaimedBy` (the admin id), `manual{Leg}ClaimedAt`
+and `manual{Leg}ClaimExpiresAt` (ISO 8601 UTC, 30 minutes after the claim), with `{Leg}` = `Farmer`,
+`Trucker` or `Buyer`; removed by the holder or by the record of the leg. Bookkeeping: no `version` change.
+
+### 5a. EscrowLedger (server only, 1.8.0, ESC-20)
+
+One row per money movement of an order escrow, in `{prefix}-escrow-ledger`. Never synced and never on a
+device; the admin reads the rows in the manual payout queue.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `escrowId` | String (PK) | The order escrow, `escrow-order-{orderId}` |
+| `ref` | String (SK) | The movement: `release#farmer`, `release#trucker#{truckerId}`, `refund#all`, `verdict#farmer`, `verdict#trucker`, `verdict#buyer`, `refund#duplicate#{paymentOrderId}`; ESC-19 adds the transport rebind refs |
+| `kind` | String | `release`, `refund`, `verdict` (`shift`, `topup` reserved) |
+| `legs` | String set | The legs it moves |
+| `payeeRole`, `payeeId` | String | `farmer`, `trucker` or `buyer` and the user id |
+| `amount` | Number | ETB, 2 decimals, above 0 |
+| `status` | String | `pending`, `sent`, `done`, `failed`, `manual` (forward only) |
+| `gatewayRef` | String | The 30-character reference sent to the gateway, fixed at write |
+| `holdRef` | String | The payment the call refers to |
+| `telebirrRef`, `paidBy` | String | The gateway's or the admin's reference, and `gateway` or the admin id |
+| `attempts`, `lastCode`, `callingSince`, `manualReason` | Number, String | Calls made, the last error, the in-flight stamp, why it is in the manual queue |
+| `reason`, `actor`, `orderId` | String | Why the money moves, who decided, the order |
+| `createdAt`, `updatedAt`, `sentAt`, `doneAt` | String (ISO 8601) | Times |
+| `openStatus`, `dueAt` | String | `LedgerOpenIndex` keys while the row is not `done` |
+| `version` | Number | Compare-and-set counter of the row |
+| `claimedBy`, `claimedAt`, `claimExpiresAt` | String | 1.13.0 (FUP-05): the admin who claimed a `manual` row, when, and until when (30 minutes); removed by the holder or by the record. Bookkeeping: `version` does not move |
+
+**Manual payout reference item (1.13.0, FUP-05).** In `{prefix}-escrow-idempotency`, server only: key
+`payout-ref#{REFERENCE}` (the admin-entered portal reference, trimmed, upper case), `kind` (`payout_ref`),
+`escrowId`, `ref` (the 1.x leg or ledger ref it records), `externalRef`, `recordedBy`, `recordedAt`, and
+`expiresAt` (400 days). Written with the leg's record in one transaction; one reference records one leg.
+
 ---
 
 ### 6. SyncOperation
@@ -226,6 +300,9 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 | `retryCount` | int | Yes | Number of retry attempts | Max 3 retries before marking as failed |
 | `createdAt` | DateTime | Yes | UTC timestamp | When operation was queued |
 
+Not stored: the operation's wire `platform` (1.24.0, GCR-02, `sync-protocol.md` 1.71.0), `android` from
+the mobile queue and `web` from the web queue, is named by the queue when it sends the operation.
+
 **Indexes**:
 - `operationId` (unique) - Fast lookup
 - `idempotencyKey` (unique) - Prevent duplicate operations on retry
@@ -246,12 +323,96 @@ See `specs/contracts/user-entity.md` for the full User entity specification, inc
 
 ---
 
+### 7. Order
+
+**Server DTO**: `/server/src/Models/OrderDtos.cs` (`OrderDto`)
+**Mobile Schema**: `/mobile/lib/core/database/schemas/order.dart` (web mirror in `core/models/web/`)
+**Contract**: `specs/contracts/order-lifecycle.md` (statuses, transitions, who sets what)
+
+**Purpose**: A buyer's purchase of a crop listing, optionally carried by a trip. Owns the escrow leg (`escrow-order-{orderId}`) and the commitments of the farmer and the trucker.
+
+**Fields** (wire names; every timestamp is ISO 8601 UTC; `quantity` is kilograms, unlike listing stock and trip capacity):
+
+| Field | Type | Required | Description | Set by |
+|-------|------|----------|-------------|--------|
+| `orderId` | String | Yes | UUID v4 | client at create |
+| `listingId` | String | Yes | The crop listing | client; immutable |
+| `buyerId`, `buyerName` | String | Yes | The buyer | client; immutable |
+| `farmerId`, `farmerName` | String | Yes | The listing's farmer | client; `farmerName` always overwritten from the listing, empty when the listing has no real name, never an id (1.9.0); immutable |
+| `cropType` | String | Yes | Must match the listing | client; immutable |
+| `quantity` | double | Yes | Kilograms, 0.01 to 1,000,000 | client; immutable |
+| `pricePerUnit` | double | Yes | ETB per kg, equal to the listing's `pricePerKg` | client; immutable |
+| `cropCost` | double | Yes | `quantity × pricePerUnit`, to the santim (2 decimals, SIM-30) | server |
+| `tripId`, `truckerId`, `truckerName` | String? | No | The trip and its trucker; all present or all absent | client; `truckerName` from the trip; immutable |
+| `transportCost` | double? | No | `quantity / 100 × pricePerQuintal`, to the santim; 0 without a trip | server |
+| `commissionRate`, `commissionAmount` | double | Yes | Rate from SSM (default 0.05) at create; since 1.23.0 an admin may set another rate (0 to 0.20) on an unpaid order (order-lifecycle 2.26.0); `cropCost × rate` to the santim, never on transport | server |
+| `orderTotal` | double | Yes | `cropCost + transportCost + commissionAmount`, an exact 2 decimal sum; what the buyer pays | server |
+| `paymentMethod` | String? | No | `telebirr` or `cbe_transfer` | buyer on `payment_submitted` |
+| `cbeTransactionId` | String? | No | Bank reference (demo builds) | buyer |
+| `paymentVerifiedAt` | String? | No | When the money was confirmed held (`→ funded`) | server |
+| `status` | String | Yes | snake_case wire status (`order-lifecycle.md`) | per the actor rules |
+| `createdAt`, `updatedAt` | String | Yes | | server |
+| `version` | int | Yes | Optimistic concurrency; clients send the pre-increment value | server |
+| `respondedAt` | String? | No | The farmer's answer | server |
+| `rejectionReason` | String? | No | The farmer's text on a reject | farmer |
+| `cancelledAt` | String? | No | | server |
+| `cancelReason` | String? | No | The buyer's text, or a server code (`buyer_withdrew`, `transport_failed_buyer_cancelled`, `farmer_cancelled`, `farmer_response_expired`, `transport_not_arranged`, `escrow_refunded`, `account_deleted`, `listing_out_of_stock`, and since 1.14.0 `farmer_no_show`, `buyer_no_show`) | buyer or server |
+| `pickupDeadlineAt` | String? | No | When an accepted order nobody picked up counts as a transport failure (order-lifecycle 1.15.0; on a trip order stamped at the trucker's accept since 2.0.0) | server |
+| `adminQueueReason`, `adminQueuedAt` | String? | No | The admin stuck-order queue (`hold_cap`) | server |
+| `contactOpen` | bool | Yes | Whether the parties may reach each other on this order (computed on every read) | server |
+| `buyerPhone`, `farmerPhone`, `truckerPhone` | String? | No | E.164, only to a party of an order whose contact is open (the trucker's only once the trucker accepted, order-lifecycle 2.0.0) | server, at read time |
+| `fulfillment` | String? | No | `trucker` or `self_pickup` (order-lifecycle 2.0.0) | server, at funding |
+| `pickupDate` | String? | No | The trip's departure (trip orders, 2.0.0) | server, at funding |
+| `pickupPlace` | String? | No | The listing's place name (order-lifecycle 2.2.0) | server, at create |
+| `dropoffPlace` | String? | No | The buyer's registered woreda (order-lifecycle 2.2.0) | server, at create |
+| `dropoffNote` | String? | No | The buyer's drop-off landmark ("Merkato, near Anwar Mosque"): one line of at most 80 user-visible characters (extended grapheme clusters), no phone number; returned to the buyer, the farmer and the committed trucker of a held order only (order-lifecycle 2.5.0, LT-12) | buyer, at create and until pickup |
+| `deliveryLatitude`, `deliveryLongitude` | Double? | No | The order's own drop-off point, the centroid of the place the buyer picked: both or neither, latitude 3 to 15, longitude 32.5 to 48.5, trucked orders only (ignored on a self-pickup order); returned to the buyer, the farmer and the order's trucker while the money is held and the trucker is still on the order (not asked yet, asked or committed). Without it the trip's destination point is the drop-off (order-lifecycle 2.9.0, LT-14) | buyer, at create and until pickup |
+| `farmerResponse` | String? | No | `pending`, `accepted`, `declined`, `expired` (2.0.0); `no_show` (2.15.0) | server |
+| `farmerRespondedAt`, `farmerDeadlineAt` | String? | No | The farmer's answer and its deadline (2.0.0) | server |
+| `truckerResponse` | String? | No | `none`, `not_asked`, `pending`, `accepted`, `declined`, `expired`, `cancelled`, `failed_capacity` (2.0.0); `no_show` (2.15.0) | server |
+| `truckerAskedAt`, `truckerRespondedAt`, `truckerDeadlineAt` | String? | No | When the trucker was asked, answered, and had to answer by (2.0.0) | server |
+| `buyerChoiceDeadlineAt` | String? | No | The buyer's 48 hour window in `awaiting_transport` (2.0.0) | server |
+| `transportFailure` | String? | No | `trucker_declined`, `trucker_expired`, `trucker_cancelled`, `trip_cancelled`, `trip_full` (2.0.0); `trucker_no_show` (2.15.0) | server |
+| `declineReason` | String? | No | `date`, `capacity`, `price`, `route`, `crop_not_ready`, `other` (2.0.0) | farmer or trucker, with a `decline` command |
+| `cancelledBy` | String? | No | `buyer`, `farmer`, `trucker`, `system` (2.0.0) | server |
+| `faultParty` | String? | No | `farmer`, `trucker`, `buyer`, `none` (2.0.0) | server |
+| `farmerReminderAt`, `truckerReminderAt`, `buyerChoiceReminderAt` | String? | No | Reminder markers 6 hours before a deadline (2.0.0) | order cron |
+| `pickupOverdueNotifiedAt` | String? | No | Stamped when `pickupDeadlineAt` passed on an accepted order (2.0.0) | order cron |
+| `pickupJudgement` | String? | No | ESC-34 (order-lifecycle 2.15.0, behind `pickupClassification`): `pending` from the accept until the pickup is judged, then `scanned`, `trucker_no_show`, `farmer_no_show`, `buyer_no_show`, `both_present_no_scan` or `unchecked_check_in`; absent on orders accepted without the flag | server at the accept, then the order cron |
+| `pickupJudgedAt` | String? | No | When the order cron judged the pickup (2.15.0) | order cron |
+| `checkIns` | Map? | No | The arrival check-ins per kind (`arrived_pickup`, `crops_ready`; since 1.17.0 `arrived_dropoff`, read from the stored `dropoffCheckIn`), each `{receivedAt, capturedAt?, distanceChecked, late}` as returned; stored with the fix and the sender, which are never returned (2.15.0, `delivery-verification-api.md` 2.6.0) | `handoff_check_in` |
+| `dropoffJudgement` | String? | No | ESC-36 (order-lifecycle 2.18.0, behind `dropoffClassification`): `pending` from the order's first move out of `accepted` after a trucker's pickup until T8 or T9 judges it, then `closed`, `auto_confirmed`, `silent_buyer`, `delivery_overdue`, `dropoff_out_of_range` or `queued`; absent on orders picked up without the flag and on self-pickups | server at the pickup, then the order cron |
+| `dropoffJudgedAt` | String? | No | When the order cron judged the drop-off (2.18.0) | order cron |
+| `dropoffDeadlineAt` | String? | No | T8: the delivery's `pickedUpAt` plus 72 hours (2.18.0) | server at the pickup |
+| `dropoffConfirmAt` | String? | No | T9 (order-lifecycle 2.22.0, FUP-370): the counted drop-off check-in's `receivedAt` plus SSM `silent-buyer-hours`; only to the order's parties while it is on the road with `dropoffJudgement: pending`, with the judgement on. Computed on every read, never stored | server (read only) |
+| `disputeReason` | String? | No | Why the system disputed the order: `delivery_overdue` (T8, reputation rule R12), `dropoff_out_of_range` (T8 with the trucker's out-of-range attempt, no R12) or `silent_buyer` (T9) (2.18.0) | order cron |
+
+Stored on the row but never returned: `paymentSubmittedAt`, `pendingPaymentAt`, `paymentHoldUntil`, the Telebirr references (`telebirrMerchOrderId`, `telebirrPaymentOrderId`, `telebirrTransId`), `cancelNote`, `adminQueue`, `adminQueueEscrowId`, `moneySweepSkip`, `moneySweepSkipAt`, the farm's point stamped for the check-ins (`pickupLatitude`, `pickupLongitude`, 1.14.0), an admin's re-open stamp of the pickup judgement (`pickupReopen`: `at`, `exit`, `fromJudgement`, `fromVersion`, `deadlineAt`; 1.16.0, order-lifecycle 2.16.0, never echoed in a sync result either), the drop-off check-in as stored (`dropoffCheckIn`), the trucker's out-of-range attempt (`dropoffAttempt`) and the drop-off points stamped at pickup (`dropoffOrderLatitude`, `dropoffOrderLongitude`, `dropoffTripLatitude`, `dropoffTripLongitude`, `dropoffTripRead`, 1.17.0), the order cron's check-in reminder markers (`pickupReminderAt`, `dropoffReminderAt`; 1.21.0, order-lifecycle 2.23.0), an admin's commission change stamp (`commissionChange`: `at`, `fromRate`, `toRate`, `fromTotal`, `fromVersion`; 1.23.0, order-lifecycle 2.26.0, never echoed in a sync result either), the admin override flags (`refundOverride*`, `disputeOverride*`). Since 1.6.0 the order's next deadline (`nextDeadlineAt`, `nextDeadlineKind`, `deadlineShard`: the sparse `DeadlineIndex` the order cron reads; order-lifecycle 2.8.0) is server-only too: not in the `OrderDto` answers, but the `serverData` of a sync create or update result echoes the stored row and may carry it; clients ignore it. Clients may send only `status` and its companions (`rejectionReason`, `cancelReason`, `paymentMethod`, `cbeTransactionId`) and, since order-lifecycle 2.0.0, the commands `farmerResponse` / `truckerResponse` (`accept` or `decline`) with `declineReason`, and since 2.5.0 the buyer's `dropoffNote` and since 2.9.0 `deliveryLatitude` with `deliveryLongitude` (on create, and on update until pickup); everything else above is dropped or refused (`order-lifecycle.md`, Order Update Rules).
+
+**Indexes (DynamoDB)**: `orderId` (PK); `StatusCreatedAtIndex` (the crons page it by status); the party indexes behind `GET /orders` (`buyerId`, `farmerId`, `truckerId`); the sparse `AdminQueueIndex`.
+
+**Design Decisions**:
+
+1. **Money is computed by the server** from the listing and the trip at create; client previews use the same formula (`order_pricing.dart`).
+
+2. **Kilograms on the wire**: `quantity` is kg while stock and capacity are quintals; every conversion divides or multiplies by 100.
+
+3. **Sequential commitments** (order-lifecycle 2.0.0): the farmer is asked first and the trucker only after the farmer accepts, so a trucker never commits to an order the farmer may still decline. The responses, deadlines and failure codes live on the order; the status alone no longer says who committed.
+
+4. **Server-only fields**: everything a client could use to skip a step (deadlines, responses, money, Telebirr references) is dropped from payloads and stamped by the server.
+
+---
+
 ## Relationships
 
 ```
 User (farmer) ──1:N── CropListing
 User (trucker) ──1:N── Trip
 Trip ──1:N── Delivery
+User (buyer) ──1:N── Order
+CropListing ──1:N── Order
+Trip ──1:N── Order
+Order ──1:1── Delivery
 CropListing ──1:1── Delivery
 Delivery ──1:1── Payment
 User (farmer) ──1:N── Payment (as recipient)
@@ -337,6 +498,32 @@ See `specs/contracts/sync-protocol.md` for detailed API specification.
 | 1.0.0 | 2026-02-14 | Initial schema definitions for all 6 core entities | @Mobile |
 | 1.0.1 | 2026-09-25 | Documented the order quantity unit: kilograms on the wire vs quintal stock and capacity (SIM-07) | @Server |
 | 1.0.2 | 2026-09-25 | Delivery gains `orderId` (server DTO, Isar schema, web mirror) so clients can tie a delivery to its order (SIM-14) | @Server |
+| 1.1.0 | 2026-10-26 | Order entity table added (every `OrderDto` field plus the ESC-15 commitment fields: `fulfillment`, `pickupDate`, `farmerResponse`, `truckerResponse`, their deadlines and reminders, `transportFailure`, `declineReason`, `cancelledBy`, `faultParty`); Trip status casing fixed to the wire values (`open`, `matched`, `inTransit`, `delivered`, `cancelled`) and the booking fields `bookedQuintals`, `remainingQuintals`, `bookedOrderIds`, `acceptedOrderIds` added; relationships gain Order (`order-lifecycle.md` 2.0.0, `trip-listing-api.md` 2.0.0) | @Server |
+| 1.2.0 | 2026-10-31 | Order gains the server-only `pickupPlace` and `dropoffPlace`, stamped at create (order-lifecycle 2.2.0); Isar schema and web mirror | @Server |
+| 1.3.0 | 2026-10-31 | Trip gains `destinationLatitude` and `destinationLongitude` (trip-listing-api 2.1.0), sent on create from the picked place | @Server |
+| 1.4.0 | 2026-10-31 | CropListing gains `photos` (embedded `CropPhoto`, crop-listing-api 1.6.0); Isar schema and web mirror | @Mobile |
+| 1.4.1 | 2026-11-06 | Order `cancelReason` lists the server code `listing_out_of_stock` (a funding that lost the listing's stock, order-lifecycle 2.4.0, ESC-18). No schema change | @Server |
+| 1.5.0 | 2026-11-06 | Order gains `dropoffNote`, the buyer's drop-off landmark (order-lifecycle 2.5.0, LT-12): server DTO, Isar schema and web mirror; returned per caller | @Server @Mobile |
+| 1.5.1 | 2026-11-06 | Order money fields are stored to the santim, `orderTotal` their exact sum (order-lifecycle 2.7.0, SIM-30); no field change | @Server |
+| 1.6.0 | 2026-11-07 | Order gains the server-only `nextDeadlineAt`, `nextDeadlineKind` and `deadlineShard` (dropped from client payloads, not in the `OrderDto` answers, echoed only in a sync result's raw `serverData`), kept by every order write and read by the order cron through the sparse `DeadlineIndex` (order-lifecycle 2.8.0, ESC-16); no client change | @Server |
+| 1.7.0 | 2026-11-07 | Order gains `deliveryLatitude` and `deliveryLongitude`, the order's own drop-off point (order-lifecycle 2.9.0, LT-14): server DTO, Isar schema and web mirror; returned per caller | @Server @Mobile |
+| 1.8.0 | 2026-11-07 | Server escrow ledger (escrow-protocol 2.2.0, ESC-20): the escrow row's ledger fields (`settlementModel`, `legStatus`, `refundedTotal`, `releasedTotal`, `verdictAmounts`, `releaseTrigger`, `refundTrigger`) and the new server-only EscrowLedger row (5a). No Isar or web model change | @Server |
+| 1.9.0 | 2026-11-11 | Server escrow row gains the server-only `releaseOrigin` (FUP-137: `auto_release` for a release the hourly auto-release started, written with the release or its manual payout queue entry; read by the clean-delivery credit). No client field changes | @Server |
+| 1.10.0 | 2026-11-11 | Order `farmerName` is never an id (order-lifecycle 2.11.0, FUP-130): the server writes the listing's name or the empty string, whatever the client sent; `truckerName` is the trip's name or absent. No schema change. |
+| 1.11.0 | 2026-11-12 | CropListing and Trip gain `ownerReliabilityPct` on the client (Isar schema and web mirror), parsed from `GET /crops` and `GET /trips` for the offline matcher (ESC-30, `match-api.md` 1.4.0); CropListing `farmerReliability` is deprecated. The other owner fields come with ESC-31 | @Mobile |
+| 1.12.0 | 2026-11-12 | CropListing and Trip gain the rest of the owner's public reputation copy on the client (Isar schema and web mirror): `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReputationAt` (ESC-31, `reputation-api.md` 1.6.0 section 7). All nullable, server-written, never sent back; one parser reads them in the marketplace pull, the web repositories, the web matcher and the conflict echo, and a row without them clears the stored copy. The user's own reputation is not an Isar entity: it is kept in the key-value store (`reputation-api.md` section 13) | @Mobile |
+| 1.13.0 | 2026-11-12 | Server-only manual payout claim fields on the escrow row (`manual{Leg}ClaimedBy`, `ClaimedAt`, `ClaimExpiresAt`) and the ledger row (`claimedBy`, `claimedAt`, `claimExpiresAt`), and the `payout-ref#` reference item in escrow-idempotency (escrow-protocol 2.12.0, FUP-05). No client field changes. 1.12.0 is another branch's number | @Server |
+| 1.14.0 | 2026-11-12 | Order gains `pickupJudgement`, `pickupJudgedAt` and `checkIns` (ESC-34, order-lifecycle 2.15.0, behind `pickupClassification`), the stored-only `pickupLatitude` and `pickupLongitude`, the values `no_show` (`farmerResponse`, `truckerResponse`), `trucker_no_show` (`transportFailure`) and the server codes `farmer_no_show` and `buyer_no_show` (`cancelReason`). Server DTO only: the Isar schema and the web mirror get them with the client follow-up (FUP-285) | @Server |
+| 1.15.0 | 2026-11-13 | Order on the client (FUP-285): the Isar schema and the web mirror gain `pickupJudgement`, `pickupJudgedAt` and `checkIns` (a list of the embedded `OrderCheckIn`: `kind`, `receivedAt`, `capturedAt`, `distanceChecked`, `isLate` for the wire's `late`), read by the order pulls, the web repository and the conflict echo; and the not stored `queuedCheckIns` (the check-ins waiting in the phone's sync queue, read with the order). Isar builds the new fields on the next open | @Mobile |
+| 1.16.0 | 2026-11-13 | Order gains the stored-only `pickupReopen` map (FUP-287, order-lifecycle 2.16.0): an admin's re-open of a judged pickup (`at`, `exit`, `fromJudgement`, `fromVersion`, `deadlineAt`), never returned to a client (the sync result's `serverData` leaves it out). No client change. 1.15.0 is another change's number | @Server |
+| 1.17.0 | 2026-11-13 | ESC-36 (order-lifecycle 2.18.0, behind `dropoffClassification`): Order gains `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt`, `disputeReason` and the `checkIns` kind `arrived_dropoff`, and the stored-only `dropoffCheckIn`, `dropoffAttempt`, drop-off points and `dropoffTripRead`; Delivery gains `arrivalPhotoRef` (`arrivalPhotoUrl` on the detail) and `autoConfirmedAt`. Server DTO only: the Isar schemas and the web mirrors get them with the client follow-up (FUP-336). 1.15.0 and 1.16.0 are FUP-285 and FUP-287 | @Server |
+| 1.18.0 | 2026-11-13 | ESC-36 on the client (FUP-336): the Order Isar schema and web mirror gain `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt` and `disputeReason` (read by the shared order parse, so the pulls, the web repository and the conflict echo fill them; a row without them clears the copy), and `checkIns` keeps the `arrived_dropoff` kind; `queuedCheckIns` holds the trucker's drop-off check-in waiting on the phone. The Delivery Isar schema and web mirror gain `arrivalPhotoRef` (the server's key, or this phone's file while its upload waits, kept by the pulls and the conflict echo like the handoff photos) and `autoConfirmedAt`. `arrivalPhotoUrl` is not stored: like the other photo URLs it is read from `GET /deliveries/{id}` when the tile shows (15 minute URL). Isar builds the new fields on the next open | @Mobile |
+| 1.19.0 | 2026-11-13 | Delivery gains the server-only `arrivalPhotoLateAt` (FUP-373, `delivery-verification-api.md` 2.13.0): written with an arrival photo attached as late evidence on the order cron's T8 dispute, returned on the delivery reads for the admin's evidence. The apps neither store nor send it (the sync field whitelist keeps it out). |
+| 1.20.0 | 2026-11-13 | Order gains `dropoffConfirmAt` (FUP-370, order-lifecycle 2.22.0): T9 as the server computes it with SSM `silent-buyer-hours`, in `GET /orders`, `GET /orders/{id}` and the `/sync` order rows for the order's parties while the drop-off waits for T9; computed on every read, never stored on the server. The Order Isar schema and web mirror store it (read by the shared order parse, so the pulls, the web repository and the conflict echo fill it; a row without it clears the copy), and the drop-off card's T9 prefers it over the receipt plus 48 hours estimate. Isar builds the new field on the next open | @Server @Mobile |
+| 1.21.0 | 2026-11-13 | The order row gains the server-only reminder markers `pickupReminderAt` and `dropoffReminderAt` (order-lifecycle 2.23.0, notifications-api 1.6.0; FUP-286 and FUP-338): written once by the order cron before a pending pickup judgement and before T9, dropped from client payloads, never returned in the `OrderDto`; no client schema change. 1.19.0 is FUP-373 and 1.20.0 FUP-370 | @Server |
+| 1.22.0 | 2026-11-13 | Delivery gains the server-only `dropoffPhotoLateAt` (FUP-140, `delivery-verification-api.md` 2.14.0): written with the buyer's drop-off photo attached as late evidence on a dispute the order cron opened (T8 or T9) that no admin decided, returned on the delivery reads for the admin's evidence. The apps neither store nor send it. The server-only kept-copy fields of 2.14.0 (`{type}PhotoKeptRef`, `{type}PhotoKeptVersionId`) never leave the server. |
+| 1.23.0 | 2026-11-26 | Order: `commissionRate` can be set per order by an admin before payment, and the row gains the server-only `commissionChange` stamp, never returned (order-lifecycle 2.26.0) | @Server |
+| 1.24.0 | 2026-11-26 | Delivery gains the server-only handoff evidence (FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0, `sync-protocol.md` 1.71.0): per leg `{leg}GpsStatus`, `{leg}GpsCapturedAt`, `{leg}GpsAccuracyM`, `{leg}Method` and `{leg}Platform`, and `dropoffCapturedAt`, stamped in the transition's write and never returned to the apps (no Isar or web model change). The sync operation's wire `platform` is named by the queue at send time, not stored. 1.23.0 belongs to a change in flight | @Server @Admin |
 
 ---
 

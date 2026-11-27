@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Live trip</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&amp;family=Noto+Sans+Ethiopic:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#18775F}a:hover{color:#105443}
+</style>
+</helmet>
+<div style="width: 390px; height: 944px; box-sizing: border-box; background: #DCD5C9; color: #1A1516; font-family: 'Bricolage Grotesque', 'Noto Sans Ethiopic', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden; position: relative">
+  <svg width="390" height="480" sc-camel-view-box="0 0 390 480" role="img" aria-label="Map from Meki to Merkato. Solid trail to the last check-in, dashed road ahead." style="position: absolute; left: 0; top: 0">
+    <rect width="390" height="480" fill="#DCD5C9"></rect>
+    <ellipse cx="34" cy="400" rx="64" ry="36" fill="#1A1516" fill-opacity="0.04"></ellipse>
+    <ellipse cx="214" cy="338" rx="40" ry="19" fill="#1A1516" fill-opacity="0.04" transform="rotate(-18 214 338)"></ellipse>
+    <circle cx="300" cy="96" r="58" fill="#1A1516" fill-opacity="0.05"></circle>
+    <path d="M178 262 C 220 272, 300 292, 400 300" stroke="#EFEBE4" stroke-width="9" fill="none"></path>
+    <path d="M300 96 C 250 92, 160 76, -10 64" stroke="#EFEBE4" stroke-width="9" fill="none"></path>
+    <path d="M-10 330 C 50 322, 110 318, 148 318" stroke="#EFEBE4" stroke-width="7" fill="none"></path>
+    <path d="M206 206 C 160 196, 80 206, -10 196" stroke="#EFEBE4" stroke-width="7" fill="none"></path>
+    <path d="M300 96 C 316 130, 350 160, 400 172" stroke="#EFEBE4" stroke-width="7" fill="none"></path>
+    <path d="M40 480 C52 462,60 446,70 430 C84 410,100 392,112 372 C124 352,136 336,148 318 C160 300,170 282,178 262 C186 242,196 224,206 206 C216 190,226 174,238 160 C256 140,278 118,300 96 C318 78,338 56,372 24" stroke="#EFEBE4" stroke-width="14" fill="none" stroke-linecap="round"></path>
+    <path d="M70 430 C84 410,100 392,112 372 C124 352,136 336,148 318 C160 300,170 282,178 262" stroke="#18775F" stroke-width="4" fill="none" stroke-linecap="round"></path>
+    <path d="M178 262 C186 242,196 224,206 206" stroke="#18775F" stroke-width="4" fill="none" stroke-linecap="round" stroke-opacity="{{trail2}}"></path>
+    <path d="M206 206 C216 190,226 174,238 160 C256 140,278 118,300 96" stroke="#1A1516" stroke-opacity="{{aheadB}}" stroke-width="2.5" fill="none" stroke-dasharray="6 6"></path>
+    <path d="M178 262 C186 242,196 224,206 206 C216 190,226 174,238 160 C256 140,278 118,300 96" stroke="#1A1516" stroke-opacity="{{aheadM}}" stroke-width="2.5" fill="none" stroke-dasharray="6 6"></path>
+    <circle cx="{{haloX}}" cy="{{haloY}}" r="{{haloR}}" fill="#F0873A" fill-opacity="0.16" stroke="#A85518" stroke-width="2" stroke-dasharray="3 4"></circle>
+    <circle cx="112" cy="372" r="5" fill="#FFFFFF" stroke="#18775F" stroke-width="3"></circle>
+    <circle cx="148" cy="318" r="5" fill="#FFFFFF" stroke="#5C5450" stroke-width="3"></circle>
+    <circle cx="178" cy="262" r="5" fill="#FFFFFF" stroke="#18775F" stroke-width="3"></circle>
+    <circle cx="238" cy="160" r="6" fill="#FFFFFF" stroke="#5C5450" stroke-width="3"></circle>
+    <circle cx="70" cy="430" r="9" fill="#FFFFFF" stroke="#18775F" stroke-width="4"></circle>
+    <circle cx="300" cy="96" r="11" fill="#1A1516"></circle>
+    <circle cx="300" cy="96" r="4" fill="#FFFFFF"></circle>
+    <g font-family="'Bricolage Grotesque', sans-serif" font-size="13" font-weight="700" fill="#4A4340" stroke="#DCD5C9" stroke-width="3" paint-order="stroke">
+      <text x="86" y="446">Meki · pickup 08:05</text>
+      <text x="124" y="378">Alem Tena</text>
+      <text x="160" y="324">Koka</text>
+      <text x="154" y="272" text-anchor="end">Mojo</text>
+      <text x="250" y="164">Dukem · other stop</text>
+      <text x="316" y="88">Merkato</text>
+    </g>
+  </svg>
+  <div style="position: absolute; left: {{truckLeft}}px; top: {{truckTop}}px; width: 40px; height: 40px; border-radius: 12px; background: #1A1516; color: {{truckBg}}; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(26,21,22,0.25)"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v9H3z"></path><path d="M14 10h4l3 3v3h-7"></path><circle cx="7" cy="17.5" r="1.8"></circle><circle cx="17" cy="17.5" r="1.8"></circle></svg></div>
+  <div style="position: absolute; left: {{chipLeft}}px; top: {{chipTop}}px; padding: 7px 10px; border-radius: 14px; background: {{chipBg}}; color: {{chipFg}}; box-shadow: 0 6px 16px rgba(26,21,22,0.14); display: flex; flex-direction: column; gap: 1px; white-space: nowrap">
+    <span style="font-size: 13px; font-weight: 800">{{chipTitle}}</span>
+    <span style="font-size: 13px; font-weight: 500">{{chipSub}}</span>
+  </div>
+
+  <div style="position: relative; padding: 20px; display: flex; justify-content: space-between; align-items: center">
+    <a href="BuyerDeliveriesM.dc.html" aria-label="Back" style="width: 44px; height: 44px; border-radius: 999px; background: #F5F3F1; color: #1A1516; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 16px rgba(26,21,22,0.14)"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></a>
+    <span style="height: 34px; padding: 0 14px; border-radius: 999px; background: #FFFFFF; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 6px"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M12 21V3"></path><path d="M12 9c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 9c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path><path d="M12 15c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 15c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path></svg>Wheat · 2,000 kg</span>
+    <button type="button" aria-label="Show my whole route" style="height: 44px; padding: 0 14px 0 12px; border-radius: 999px; border: none; background: #F5F3F1; color: #1A1516; font: 700 13px 'Bricolage Grotesque', sans-serif; display: flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 6px 16px rgba(26,21,22,0.14)"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path><circle cx="12" cy="12" r="7"></circle></svg>Whole route</button>
+  </div>
+
+  <div style="margin-top: auto; position: relative; background: #F5F3F1; border-radius: 28px 28px 0 0; padding: 12px 20px 22px; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 -14px 30px rgba(26,21,22,0.14)">
+    <div aria-hidden="true" style="width: 40px; height: 4px; border-radius: 999px; background: #C9BDB5; align-self: center"></div>
+    <div role="note" aria-label="Map legend" style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: -6px; font-size: 13px; color: #4A4340">
+      <span style="display: inline-flex; align-items: center; gap: 6px"><svg width="22" height="10" sc-camel-view-box="0 0 22 10" fill="none" aria-hidden="true"><path d="M2 5H20" stroke="#18775F" stroke-width="4" stroke-linecap="round"></path></svg>Driven</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px"><svg width="22" height="10" sc-camel-view-box="0 0 22 10" fill="none" aria-hidden="true"><path d="M1 5H21" stroke="#1A1516" stroke-opacity="0.55" stroke-width="2.5" stroke-dasharray="5 4"></path></svg>Road ahead</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px"><svg width="16" height="16" sc-camel-view-box="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="#F0873A" fill-opacity="0.16" stroke="#A85518" stroke-width="1.5" stroke-dasharray="3 3"></circle></svg>Truck is about here</span>
+    </div>
+    <sc-if value="{{isOffline}}" hint-placeholder-val="{{false}}">
+      <div role="status" style="padding: 12px 16px; border-radius: 24px; background: #1A1516; color: #FFFFFF; display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 500; line-height: 1.4"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="flex-shrink: 0"><path d="M3 3l18 18"></path><path d="M8.5 16.5a5 5 0 0 1 7 0"></path><path d="M5 12.5a10 10 0 0 1 4-2.3"></path><path d="M15 10.2a10 10 0 0 1 4 2.3"></path></svg><span>You are offline. This is the map from 11:58, it updates when you reconnect.</span></div>
+    </sc-if>
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px">
+      <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><div style="font-size: 13px; font-weight: 500; color: #5C5450">Arriving at Merkato</div><div style="font-size: 36px; line-height: 1.05; font-weight: 800; letter-spacing: -0.035em; color: #18775F">{{eta}}</div><div style="font-size: 14px; line-height: 1.35; color: #5C5450">{{etaSub}}</div></div>
+      <span style="height: 26px; padding: 0 10px; border-radius: 999px; background: {{statusBg}}; color: {{statusFg}}; font-size: 12px; font-weight: 800; display: flex; align-items: center; flex-shrink: 0; white-space: nowrap">{{statusText}}</span>
+    </div>
+
+    <ol aria-label="Delivery progress" style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px">
+      <li style="display: flex; flex-direction: column; gap: 8px"><span style="height: 4px; border-radius: 999px; background: #1A1516"></span><span style="font-size: 13px; line-height: 1.25; font-weight: 700">Agreed</span></li>
+      <li style="display: flex; flex-direction: column; gap: 8px"><span style="height: 4px; border-radius: 999px; background: #1A1516"></span><span style="font-size: 13px; line-height: 1.25; font-weight: 700">Picked up 08:05</span></li>
+      <li aria-current="step" style="display: flex; flex-direction: column; gap: 8px"><span style="height: 4px; border-radius: 999px; background: #F0873A; border: 1.5px solid #1A1516; box-sizing: border-box"></span><span style="font-size: 13px; line-height: 1.25; font-weight: 800">On the road</span></li>
+      <li style="display: flex; flex-direction: column; gap: 8px"><span style="height: 4px; border-radius: 999px; background: #D6CBC3"></span><span style="font-size: 13px; line-height: 1.25; font-weight: 500; color: #5C5450">Delivered</span></li>
+    </ol>
+
+    <sc-if value="{{isEscrow}}" hint-placeholder-val="{{true}}">
+      <div style="display: flex; align-items: center; gap: 10px; font-size: 14px; line-height: 1.4; color: #4A4340"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="#18775F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M6 11h12v9H6z"></path><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg><span>Your 91,200 ETB stays in escrow until you scan the driver's QR.</span></div>
+    </sc-if>
+    <sc-if value="{{isLate}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; border-radius: 24px; background: #FBE6D6; font-size: 14px; line-height: 1.4; color: #8A4510"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 1px"><path d="M3 3l18 18"></path><path d="M8.5 16.5a5 5 0 0 1 7 0"></path><path d="M5 12.5a10 10 0 0 1 4-2.3"></path><path d="M15 10.2a10 10 0 0 1 4 2.3"></path></svg><span>Likely no network on this road. Check-ins saved on Dawit's phone will show when it reconnects. Your 91,200 ETB stays in escrow.</span></div>
+    </sc-if>
+    <sc-if value="{{isPaused}}" hint-placeholder-val="{{false}}">
+      <div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px; border-radius: 24px; border: 1.5px dashed #8E857E; font-size: 14px; line-height: 1.4; color: #4A4340"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 1px"><path d="M9 5v14M15 5v14"></path></svg><span>Dawit paused sharing for a rest stop. It turns back on by itself at 12:40.</span></div>
+    </sc-if>
+
+    <div style="display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; border-radius: 24px; background: #E4D5C7">
+      <div style="width: 46px; height: 46px; border-radius: 999px; background: #FBE6D6; color: #8A4510; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; flex-shrink: 0">DT</div>
+      <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><div style="font-size: 15px; font-weight: 800; letter-spacing: -0.01em">Dawit Tesfaye</div><div style="font-size: 14px; line-height: 1.35; color: #4A4340">Isuzu FSR 5 t · [PLATE]</div></div>
+      <button type="button" aria-label="Message Dawit" style="min-width: 58px; padding: 0; border: none; background: transparent; color: #1A1516; font: 700 13px 'Bricolage Grotesque', sans-serif; display: flex; flex-direction: column; align-items: center; gap: 3px; flex-shrink: 0"><span aria-hidden="true" style="width: 44px; height: 44px; box-sizing: border-box; border-radius: 999px; border: 1px solid #8F8780; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"></path></svg></span>Message</button>
+      <button type="button" aria-label="Call Dawit" style="min-width: 48px; padding: 0; border: none; background: transparent; color: #1A1516; font: 700 13px 'Bricolage Grotesque', sans-serif; display: flex; flex-direction: column; align-items: center; gap: 3px; flex-shrink: 0"><span aria-hidden="true" style="width: 44px; height: 44px; border-radius: 999px; background: #1A1516; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"></path></svg></span>Call</button>
+    </div>
+
+    <a href="BuyerTripLogM.dc.html" style="display: flex; align-items: center; justify-content: space-between; height: 50px; padding: 0 14px 0 18px; box-sizing: border-box; border: 1px solid #8E857E; border-radius: 999px; color: #1A1516; text-decoration: none">
+      <span style="display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 800"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"></path><circle cx="4" cy="6" r="1"></circle><circle cx="4" cy="12" r="1"></circle><circle cx="4" cy="18" r="1"></circle></svg>Trip log and order</span>
+      <span style="display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 500; color: #5C5450">{{checkins}}<svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg></span>
+    </a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;freshness&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;fresh&quot;,&quot;hourly&quot;,&quot;late&quot;,&quot;paused&quot;,&quot;offline&quot;],&quot;default&quot;:&quot;hourly&quot;},&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:944}}">
+class Component extends DCLogic {
+  renderVals() {
+    const atBishoftu = { truckLeft: 186, truckTop: 186, haloX: 206, haloY: 206, chipLeft: 234, chipTop: 190, trail2: 1, aheadB: 0.45, aheadM: 0 };
+    const atMojo = { truckLeft: 158, truckTop: 242, haloX: 178, haloY: 262, chipLeft: 206, chipTop: 248, trail2: 0, aheadB: 0, aheadM: 0.45 };
+    const onRoad = { statusText: 'On the road', statusBg: '#FBE6D6', statusFg: '#8A4510', truckBg: '#F0873A', chipBg: '#FFFFFF', chipFg: '#1A1516', info: 'escrow' };
+    const states = {
+      fresh: Object.assign({}, atBishoftu, onRoad, { haloR: 14, chipTitle: '12:04 · near Bishoftu', chipSub: '6 min ago', eta: '13:15-13:45', etaSub: 'About 44 km to go · from the last check-in', checkins: '6 check-ins' }),
+      hourly: Object.assign({}, atBishoftu, onRoad, { haloR: 30, chipTitle: '11:42 · Bishoftu', chipSub: '28 min ago', eta: '13:20-14:00', etaSub: 'About 47 km to go · from the last check-in', checkins: '5 check-ins' }),
+      late: Object.assign({}, atMojo, onRoad, { haloR: 70, chipBg: '#FBE6D6', chipFg: '#6B340B', chipTitle: '10:41 · Mojo', chipSub: 'No check-in for 1 h 29 min', eta: '13:20-15:00', etaSub: 'Wider window: no check-in for a while', checkins: '4 check-ins', info: 'late' }),
+      paused: Object.assign({}, atBishoftu, onRoad, { haloR: 0, truckBg: '#B6B4B4', statusText: 'Paused', statusBg: '#E5DDD8', statusFg: '#484445', chipTitle: 'Paused · Bishoftu', chipSub: 'until 12:40', eta: '13:30-14:10', etaSub: 'About 47 km to go · from the last check-in', checkins: '5 check-ins', info: 'paused' })
+      ,offline: Object.assign({}, atBishoftu, onRoad, { haloR: 30, chipTitle: '11:42 · Bishoftu', chipSub: '28 min ago', eta: '13:20-14:00', etaSub: 'Saved on your phone at 11:58', checkins: '5 check-ins', offline: true })
+    };
+    const v = states[this.props.freshness] || states.hourly;
+    return Object.assign({}, v, { isEscrow: v.info === 'escrow', isLate: v.info === 'late', isPaused: v.info === 'paused', isOffline: v.offline === true });
+  }
+}
+</script>
+
+
+</body></html>

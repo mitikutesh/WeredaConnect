@@ -5,7 +5,7 @@ import 'package:wereda_connect/core/database/isar_service.dart'
     if (dart.library.html) 'package:wereda_connect/core/database/isar_service_web.dart';
 import 'package:intl/intl.dart';
 // The device build gets isar via isar_service.dart's re-export, but the web
-// build swaps in isar_service_web.dart which does NOT re-export it — keep the
+// build swaps in isar_service_web.dart which does NOT re-export it: keep the
 // direct import so QAfterFilterCondition resolves on both platforms.
 // ignore: unnecessary_import
 import 'package:isar/isar.dart' show QAfterFilterCondition;
@@ -21,20 +21,39 @@ import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/core/models/trip.dart';
 import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
+import 'package:wereda_connect/core/sync/sync_executor.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_executor_web.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/features/account/presentation/screens/delete_account_screen.dart';
+import 'package:wereda_connect/features/account/presentation/screens/edit_profile_screen.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/auth/fayda/screens/fayda_verification_screen.dart';
 import 'package:wereda_connect/core/security/app_lock_service.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
+import 'package:wereda_connect/features/rating/domain/repositories/base_rating_repository.dart';
+import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
+import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
+import 'package:wereda_connect/features/reputation/domain/own_rating.dart';
+import 'package:wereda_connect/features/reputation/presentation/screens/my_reputation_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
-import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 import 'package:wereda_connect/screens/settings_screen.dart';
 
-/// Profile screen with green header, stats bar, and menu items.
+/// Profile screen in the boards' language (no board of its own): the page
+/// header with the role as eyebrow and a gear to Settings, the raised
+/// identity card (initials on the role's tint, name, role pill, Verified
+/// chip), three sand tiles of stats with the escrow amount in the role's
+/// colour, then the menu as paper card groups under uppercase section
+/// labels and the logout button. One composition at every width, centred
+/// by [FwContentWidth] on wide windows.
 ///
 /// Absorbs settings/about/logout that were previously in the drawer.
 class ProfileScreen extends StatefulWidget {
@@ -45,7 +64,42 @@ class ProfileScreen extends StatefulWidget {
   /// App lock settings behind the switch; tests inject one.
   final AppLockService? appLockService;
 
-  const ProfileScreen({this.loadUser, this.appLockService, super.key});
+  /// What a logout would delete before it reached the server (E-1).
+  /// Defaults to [AuthBloc.unsentWorkFor]; tests inject one.
+  final Future<LogoutUnsentWork> Function(String userId)? loadUnsentWork;
+
+  /// Sends the queued changes now (the logout dialog's Sync now). Defaults
+  /// to the app's sync queue and executor (mobile); tests inject one.
+  final Future<void> Function()? syncUnsentWork;
+
+  /// Whether the phone has a network, for the logout dialog's wording.
+  /// Defaults to the app's connectivity monitor; tests inject one.
+  final Future<bool> Function()? isOnline;
+
+  /// ESC-31: reads the signed-in user's own rating for the Rating tile
+  /// (null: it could not be read). Defaults to [loadOwnRating] over the
+  /// app's repositories; tests inject one.
+  final Future<OwnRating?> Function(String userId, UserRole role)?
+      loadOwnRating;
+
+  /// ESC-31: the user's own reputation, for the default rating read and
+  /// the My reputation screen. Defaults to the app's; tests inject one.
+  final ReputationRepository? reputationRepository;
+
+  /// How long the logout dialog's Sync now may run before the counts are
+  /// read again (the sync itself goes on).
+  static const logoutSyncTimeout = Duration(seconds: 20);
+
+  const ProfileScreen({
+    this.loadUser,
+    this.loadOwnRating,
+    this.reputationRepository,
+    this.appLockService,
+    this.loadUnsentWork,
+    this.syncUnsentWork,
+    this.isOnline,
+    super.key,
+  });
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -56,6 +110,81 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<Map<String, String>>? _statsFuture;
   String? _statsUserId;
   UserRole? _statsRole;
+
+  /// ESC-31: the user's own rating; null while it is being read or when it
+  /// cannot be read (the tile then keeps the dash).
+  OwnRating? _ownRating;
+
+  static const _fallbackStats = {'trades': '0', 'rating': '-', 'escrow': '0'};
+
+  /// The app's reputation repository, looked up once outside a build; null
+  /// where none is provided (a test that does not need it).
+  ReputationRepository? _reputationRepository;
+
+  ReputationRepository? _findReputationRepository() {
+    final injected = widget.reputationRepository;
+    if (injected != null) return injected;
+    try {
+      return context.read<ReputationRepository>();
+    } on Object {
+      return null;
+    }
+  }
+
+  BaseRatingRepository? get _ratingRepository {
+    try {
+      return context.read<RatingBloc>().repository;
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Reads the user's own rating once per user and role, beside the local
+  /// stats: a slow network never holds the rest of the profile back.
+  Future<void> _readOwnRating(String userId, UserRole role) async {
+    // Started from a build: look the providers up after it.
+    await Future<void>.value();
+    if (!mounted) return;
+    _reputationRepository ??= _findReputationRepository();
+    final load = widget.loadOwnRating ??
+        (String userId, UserRole role) => loadOwnRating(
+              userId: userId,
+              role: role,
+              reputation: _reputationRepository,
+              ratings: _ratingRepository,
+            );
+    OwnRating? rating;
+    try {
+      rating = await load(userId, role);
+    } on Object {
+      rating = null;
+    }
+    if (!mounted || _statsUserId != userId || _statsRole != role) return;
+    setState(() => _ownRating = rating);
+  }
+
+  /// The Rating tile: a farmer's or trucker's own average, a neutral word
+  /// when nobody has rated them yet, and the dash while it is unknown and
+  /// for a buyer (buyers are never rated, so no rating is coming).
+  String _ratingText(AppLocalizations l10n) {
+    final rating = _ownRating;
+    if (rating == null || !rating.known) return '-';
+    return rating.hasRating
+        ? rating.average!.toStringAsFixed(1)
+        : l10n.profileRatingNone;
+  }
+
+  void _openMyReputation(BuildContext context, String userId) {
+    final repository = _reputationRepository;
+    if (repository == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            MyReputationScreen(userId: userId, repository: repository),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -92,637 +221,225 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final user = snapshot.data;
         final name = user?.name ?? authState.userName;
         final role = user?.role ?? authState.role;
-        final initials = name.isNotEmpty ? name[0].toUpperCase() : '?';
+        final initials = accountInitials(name);
         final isVerified = user?.isVerified ?? false;
 
-        if (Breakpoints.isMobile(context)) {
-          return _buildMobileProfile(
-            context,
-            authState,
-            l10n,
-            name,
-            role,
-            initials,
-            isVerified: isVerified,
-          );
-        }
-        return _buildDesktopProfile(
-          context,
-          authState,
-          l10n,
-          name,
-          role,
-          initials,
-          isVerified: isVerified,
-        );
-      },
-    );
-  }
-
-  Widget _buildMobileProfile(
-    BuildContext context,
-    AuthAuthenticated authState,
-    AppLocalizations l10n,
-    String name,
-    UserRole role,
-    String initials, {
-    bool isVerified = false,
-  }) {
-    return Scaffold(
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // ── Green header with avatar + back button ─────────────
-            GreenHeader(
-              height: 210,
-              child: Column(
-                children: [
-                  // Back button row
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: GestureDetector(
-                      onTap: () => Navigator.of(context).pop(),
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.arrow_back_ios_new,
-                              size: 18,
-                              color: Colors.white,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              l10n.back,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  // Avatar
-                  CircleAvatar(
-                    radius: 36,
-                    backgroundColor: AppTheme.accentGold,
-                    child: Text(
-                      initials,
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  // Name
-                  Text(
-                    name,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  // Role + verified badge (conditional)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+        return Scaffold(
+          body: SafeArea(
+            child: FwContentWidth(
+              child: FutureBuilder<Map<String, String>>(
+                future: _getStatsFuture(authState.userId, authState.role),
+                builder: (context, snap) {
+                  final stats = snap.data ?? _fallbackStats;
+                  return ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
                     children: [
-                      Text(
-                        _getRoleLabel(role, l10n),
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.white.withAlpha(200),
+                      // Pushed from Home on the phone; a tab on the web.
+                      if (Navigator.of(context).canPop()) ...[
+                        const Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: JoinBackButton(),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      FwPageHeader(
+                        padding: EdgeInsets.zero,
+                        eyebrow: _getRoleLabel(role, l10n),
+                        title: l10n.profile,
+                        sketchRole: role,
+                        trailing: FwSquareButton(
+                          semanticLabel: l10n.settings,
+                          onTap: () => _openSettings(context),
+                          child: const Icon(
+                            Icons.settings_outlined,
+                            size: 20,
+                            color: AppTheme.ink,
+                          ),
                         ),
                       ),
-                      if (isVerified) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppTheme.accentGold,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.verified,
-                                size: 12,
-                                color: Colors.white,
-                              ),
-                              const SizedBox(width: 2),
-                              Text(
-                                l10n.verified,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // ── Stats bar (overlapping card) ─────────────────────────
-            Transform.translate(
-              offset: const Offset(0, -16),
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 20),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                decoration: BoxDecoration(
-                  color: AppTheme.surfaceWhite,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.borderLight),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x0D000000),
-                      blurRadius: 8,
-                      offset: Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: FutureBuilder<Map<String, String>>(
-                  future: _getStatsFuture(authState.userId, authState.role),
-                  builder: (context, snap) {
-                    final stats = snap.data ??
-                        {'trades': '0', 'rating': '-', 'escrow': '0'};
-                    return Row(
-                      children: [
-                        _StatColumn(
-                          value: stats['trades']!,
-                          label: l10n.trades,
-                        ),
-                        _verticalDivider(),
-                        _StatColumn(
-                          value: stats['rating']!,
-                          label: l10n.rating,
-                        ),
-                        _verticalDivider(),
-                        _StatColumn(
-                          value: stats['escrow']!,
-                          label: l10n.inEscrowEtb,
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
-
-            // ── Menu items ───────────────────────────────────────────
-            _buildMenuItems(
-              context,
-              authState,
-              l10n,
-              _getStatsFuture(authState.userId, authState.role),
-              isVerified: isVerified,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDesktopProfile(
-    BuildContext context,
-    AuthAuthenticated authState,
-    AppLocalizations l10n,
-    String name,
-    UserRole role,
-    String initials, {
-    bool isVerified = false,
-  }) {
-    final isDesktop = Breakpoints.isDesktop(context);
-
-    final hPad = isDesktop ? 32.0 : 24.0;
-
-    return Scaffold(
-      body: SingleChildScrollView(
-        padding: EdgeInsets.only(top: hPad, bottom: 24),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 700),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: EdgeInsets.fromLTRB(hPad, 4, hPad, 20),
-                  child: Text(
-                    l10n.profile,
-                    style: const TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textDark,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                // ── Profile card with avatar, name, role, stats ────────
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surfaceWhite,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.borderLight),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x0D000000),
-                        blurRadius: 8,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      // Avatar
-                      CircleAvatar(
-                        radius: 40,
-                        backgroundColor: AppTheme.accentGold,
-                        child: Text(
-                          initials,
-                          style: const TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
+                      const SizedBox(height: 16),
+                      _IdentityCard(
+                        initials: initials,
+                        name: name,
+                        role: role,
+                        roleLabel: _getRoleLabel(role, l10n),
+                        isVerified: isVerified,
                       ),
                       const SizedBox(height: 12),
-                      // Name
-                      Text(
-                        name,
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.textDark,
-                        ),
+                      _StatsRow(stats: stats, rating: _ratingText(l10n)),
+                      const SizedBox(height: 22),
+                      ..._menuSections(
+                        context,
+                        l10n,
+                        stats,
+                        isVerified: isVerified,
+                        // ESC-31: a farmer's or trucker's own reputation,
+                        // once the server says penalties are switched on.
+                        // Buyers have none.
+                        myReputationUserId: authState.role != UserRole.buyer &&
+                                (_ownRating?.penaltiesEnabled ?? false) &&
+                                _reputationRepository != null
+                            ? authState.userId
+                            : null,
                       ),
-                      const SizedBox(height: 6),
-                      // Role badge + verified badge (conditional)
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppTheme.primaryGreen.withAlpha(25),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              _getRoleLabel(role, l10n),
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.primaryGreen,
-                              ),
-                            ),
-                          ),
-                          if (isVerified) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppTheme.accentGold,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.verified,
-                                    size: 12,
-                                    color: Colors.white,
-                                  ),
-                                  const SizedBox(width: 2),
-                                  Text(
-                                    l10n.verified,
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      const Divider(color: AppTheme.borderLight, height: 1),
-                      const SizedBox(height: 16),
-                      // Stats row
-                      FutureBuilder<Map<String, String>>(
-                        future:
-                            _getStatsFuture(authState.userId, authState.role),
-                        builder: (context, snap) {
-                          final stats = snap.data ??
-                              {
-                                'trades': '0',
-                                'rating': '-',
-                                'escrow': '0',
-                              };
-                          return Row(
-                            children: [
-                              _StatColumn(
-                                value: stats['trades']!,
-                                label: l10n.trades,
-                              ),
-                              _verticalDivider(),
-                              _StatColumn(
-                                value: stats['rating']!,
-                                label: l10n.rating,
-                              ),
-                              _verticalDivider(),
-                              _StatColumn(
-                                value: stats['escrow']!,
-                                label: l10n.inEscrowEtb,
-                              ),
-                            ],
-                          );
-                        },
-                      ),
+                      const SizedBox(height: 24),
+                      _buildLogoutButton(context, l10n),
                     ],
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // ── Menu items (grid on desktop, single column on tablet)
-                _buildDesktopMenuItems(
-                  context,
-                  authState,
-                  l10n,
-                  isDesktop,
-                  _getStatsFuture(authState.userId, authState.role),
-                  isVerified: isVerified,
-                ),
-              ],
+                  );
+                },
+              ),
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  /// Builds the menu items list used by the mobile layout.
-  Widget _buildMenuItems(
-    BuildContext context,
-    AuthAuthenticated authState,
-    AppLocalizations l10n,
-    Future<Map<String, String>> statsFuture, {
-    bool isVerified = false,
-  }) {
-    return FutureBuilder<Map<String, String>>(
-      future: statsFuture,
-      builder: (context, snap) {
-        final stats =
-            snap.data ?? {'trades': '0', 'rating': '-', 'escrow': '0'};
-        final items =
-            _menuItemWidgets(context, l10n, stats, isVerified: isVerified);
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Column(
-            children: [
-              for (var i = 0; i < items.length; i++) ...[
-                items[i],
-                if (i < items.length - 1) const SizedBox(height: 8),
-              ],
-              const SizedBox(height: 24),
-              _buildLogoutButton(context, l10n),
-              const SizedBox(height: 32),
-            ],
-          ),
         );
       },
     );
   }
 
-  /// Builds menu items for desktop/tablet with optional two-column grid.
-  Widget _buildDesktopMenuItems(
-    BuildContext context,
-    AuthAuthenticated authState,
-    AppLocalizations l10n,
-    bool isDesktop,
-    Future<Map<String, String>> statsFuture, {
-    bool isVerified = false,
-  }) {
-    return FutureBuilder<Map<String, String>>(
-      future: statsFuture,
-      builder: (context, snap) {
-        final stats =
-            snap.data ?? {'trades': '0', 'rating': '-', 'escrow': '0'};
-        final items =
-            _menuItemWidgets(context, l10n, stats, isVerified: isVerified);
-
-        if (isDesktop) {
-          // Two-column grid layout
-          final rows = <Widget>[];
-          for (var i = 0; i < items.length; i += 2) {
-            if (i + 1 < items.length) {
-              rows.add(
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: items[i]),
-                    const SizedBox(width: 12),
-                    Expanded(child: items[i + 1]),
-                  ],
-                ),
-              );
-            } else {
-              rows.add(
-                Row(
-                  children: [
-                    Expanded(child: items[i]),
-                    const SizedBox(width: 12),
-                    const Expanded(child: SizedBox.shrink()),
-                  ],
-                ),
-              );
-            }
-            if (i + 2 < items.length) {
-              rows.add(const SizedBox(height: 12));
-            }
-          }
-
-          return Column(
-            children: [
-              ...rows,
-              const SizedBox(height: 24),
-              _buildLogoutButton(context, l10n),
-              const SizedBox(height: 32),
-            ],
-          );
-        }
-
-        // Tablet: single column
-        return Column(
-          children: [
-            ...items
-                .expand((item) => [item, const SizedBox(height: 8)])
-                .toList()
-              ..removeLast(),
-            const SizedBox(height: 24),
-            _buildLogoutButton(context, l10n),
-            const SizedBox(height: 32),
-          ],
-        );
-      },
+  void _openSettings(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
     );
   }
 
-  /// Returns the list of _ProfileMenuItem widgets (shared by both layouts).
-  List<Widget> _menuItemWidgets(
+  /// The menu as card groups: Account, Money, App, then Delete account.
+  List<Widget> _menuSections(
     BuildContext context,
     AppLocalizations l10n,
     Map<String, String> stats, {
     bool isVerified = false,
+    String? myReputationUserId,
   }) {
     final trades = stats['trades'] ?? '0';
     return [
-      // Link-later Fayda: needed for payments above 10,000 ETB.
-      if (!isVerified)
-        _ProfileMenuItem(
-          key: const Key('profile_verify_fayda'),
-          icon: Icons.verified_user_outlined,
-          title: l10n.verifyWithFayda,
-          subtitle: l10n.faydaNotVerifiedSubtitle,
-          iconColor: AppTheme.accentGold,
-          onTap: () => _openFaydaVerification(context),
-        ),
-      // Device lock on app open (hidden on web / devices without a lock).
-      _AppLockMenuItem(service: widget.appLockService),
-      _ProfileMenuItem(
-        icon: Icons.account_balance_wallet_outlined,
-        title: l10n.wallet,
-        subtitle: '$trades ${l10n.trades}',
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => const PaymentHistoryScreen(),
+      FwSectionLabel(l10n.profileSectionAccount),
+      const SizedBox(height: 8),
+      _RowGroup(
+        // Device lock on app open (hidden on web / devices without a lock).
+        trailing: _AppLockRow(service: widget.appLockService),
+        children: [
+          // SIM-56: the name, woreda and a company buyer's company name.
+          _ProfileRow(
+            key: const Key('profile_edit'),
+            icon: Icons.edit_outlined,
+            title: l10n.profileEditTitle,
+            subtitle: l10n.profileEditSubtitle,
+            onTap: () => _openEditProfile(context),
+          ),
+          // Link-later Fayda: needed for payments above 10,000 ETB.
+          if (!isVerified)
+            _ProfileRow(
+              key: const Key('profile_verify_fayda'),
+              icon: Icons.verified_user_outlined,
+              title: l10n.verifyWithFayda,
+              subtitle: l10n.faydaNotVerifiedSubtitle,
+              // Something to do: the orange tint.
+              iconColor: AppTheme.orangeInk,
+              iconBackground: AppTheme.orangeTint,
+              onTap: () => _openFaydaVerification(context),
             ),
-          );
-        },
-      ),
-      _ProfileMenuItem(
-        icon: Icons.history,
-        title: l10n.escrowHistory,
-        subtitle: '${stats['escrow'] ?? '0'} ETB',
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => const PaymentHistoryScreen(),
+          if (myReputationUserId != null)
+            _ProfileRow(
+              key: const Key('profile_my_reputation'),
+              icon: Icons.workspace_premium_outlined,
+              title: l10n.reputationMyTitle,
+              subtitle: l10n.reputationMySubtitle,
+              onTap: () => _openMyReputation(context, myReputationUserId),
             ),
-          );
-        },
+          _ProfileRow(
+            icon: Icons.description_outlined,
+            title: l10n.documents,
+            subtitle: l10n.idAndCerts,
+            onTap: () => _showComingSoon(context, l10n),
+          ),
+        ],
       ),
-      _ProfileMenuItem(
-        icon: Icons.description_outlined,
-        title: l10n.documents,
-        subtitle: l10n.idAndCerts,
-        onTap: () => _showComingSoon(context, l10n),
+      const SizedBox(height: 20),
+      FwSectionLabel(l10n.profileSectionMoney),
+      const SizedBox(height: 8),
+      _RowGroup(
+        children: [
+          _ProfileRow(
+            icon: Icons.account_balance_wallet_outlined,
+            title: l10n.wallet,
+            subtitle: '$trades ${l10n.trades}',
+            onTap: () => _openPaymentHistory(context),
+          ),
+          _ProfileRow(
+            icon: Icons.history,
+            title: l10n.escrowHistory,
+            subtitle: l10n.etbCurrency(stats['escrow'] ?? '0'),
+            onTap: () => _openPaymentHistory(context),
+          ),
+        ],
       ),
-      _ProfileMenuItem(
-        icon: Icons.settings_outlined,
-        title: l10n.settings,
-        subtitle: l10n.languageAndAlerts,
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => const SettingsScreen(),
+      const SizedBox(height: 20),
+      FwSectionLabel(l10n.profileSectionApp),
+      const SizedBox(height: 8),
+      _RowGroup(
+        children: [
+          _ProfileRow(
+            icon: Icons.settings_outlined,
+            title: l10n.settings,
+            subtitle: l10n.languageAndAlerts,
+            onTap: () => _openSettings(context),
+          ),
+          _ProfileRow(
+            icon: Icons.help_outline,
+            title: l10n.help,
+            subtitle: l10n.faqAndSupport,
+            onTap: () => _showComingSoon(context, l10n),
+          ),
+          if (kDebugMode)
+            _ProfileRow(
+              icon: Icons.delete_sweep,
+              title: 'Reset Test Data',
+              subtitle: 'Clear all business data',
+              iconColor: AppTheme.statusWarning,
+              iconBackground: AppTheme.statusWarningContainer,
+              onTap: () => _showResetTestData(context),
             ),
-          );
-        },
+        ],
       ),
-      _ProfileMenuItem(
-        icon: Icons.help_outline,
-        title: l10n.help,
-        subtitle: l10n.faqAndSupport,
-        onTap: () => _showComingSoon(context, l10n),
-      ),
+      const SizedBox(height: 20),
       // Same entry for every role (account-deletion.md).
-      _ProfileMenuItem(
-        key: const Key('profile_delete_account'),
-        icon: Icons.person_remove_outlined,
-        title: l10n.deleteAccount,
-        subtitle: l10n.deleteAccountSubtitle,
-        iconColor: AppTheme.statusError,
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => const DeleteAccountScreen(),
-            ),
-          );
-        },
+      _RowGroup(
+        children: [
+          _ProfileRow(
+            key: const Key('profile_delete_account'),
+            icon: Icons.person_remove_outlined,
+            title: l10n.deleteAccount,
+            subtitle: l10n.deleteAccountSubtitle,
+            iconColor: AppTheme.statusError,
+            iconBackground: AppTheme.statusErrorContainer,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => const DeleteAccountScreen(),
+                ),
+              );
+            },
+          ),
+        ],
       ),
-      if (kDebugMode)
-        _ProfileMenuItem(
-          icon: Icons.delete_sweep,
-          title: 'Reset Test Data',
-          subtitle: 'Clear all business data',
-          iconColor: AppTheme.statusWarning,
-          onTap: () => _showResetTestData(context),
-        ),
     ];
   }
 
-  /// Builds the logout button (shared by both layouts).
+  void _openPaymentHistory(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(builder: (_) => const PaymentHistoryScreen()),
+    );
+  }
+
+  /// The logout button: the boards' outlined pill with red ink.
   Widget _buildLogoutButton(BuildContext context, AppLocalizations l10n) {
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: () => _showLogoutConfirmation(context, l10n),
-        icon: const Icon(
-          Icons.logout,
-          color: AppTheme.statusError,
-          size: 18,
-        ),
-        label: Text(
-          l10n.logout,
-          style: const TextStyle(
-            color: AppTheme.statusError,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        style: OutlinedButton.styleFrom(
-          side: const BorderSide(color: AppTheme.statusError),
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      ),
+    return OutlinedButton.icon(
+      onPressed: () => _showLogoutConfirmation(context, l10n),
+      style: OutlinedButton.styleFrom(foregroundColor: AppTheme.statusError),
+      icon: const Icon(Icons.logout, size: 18),
+      label: Text(l10n.logout),
     );
   }
 
@@ -735,15 +452,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _verticalDivider() {
-    return Container(
-      width: 1,
-      height: 32,
-      margin: const EdgeInsets.symmetric(horizontal: 12),
-      color: AppTheme.borderLight,
-    );
-  }
-
   Widget _buildUnauthenticated(BuildContext context, AppLocalizations l10n) {
     return Scaffold(
       body: Center(
@@ -752,24 +460,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             const Icon(
               Icons.person_off_outlined,
-              size: 80,
-              color: AppTheme.textMuted,
+              size: 64,
+              color: AppTheme.sketch,
             ),
             const SizedBox(height: 24),
             Text(
               l10n.notLoggedIn,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textDark,
-              ),
+              textAlign: TextAlign.center,
+              style: FwText.detailTitle.copyWith(fontSize: 24),
             ),
             const SizedBox(height: 8),
             Text(
               l10n.profileRestartApp,
               style: const TextStyle(
                 fontSize: 14,
-                color: AppTheme.textMuted,
+                color: AppTheme.slate,
               ),
             ),
           ],
@@ -783,6 +488,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _statsUserId = userId;
       _statsRole = role;
       _statsFuture = _loadProfileStats(userId, role);
+      _ownRating = null;
+      _readOwnRating(userId, role);
     }
     return _statsFuture!;
   }
@@ -807,6 +514,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } on Object {
       return null;
     }
+  }
+
+  /// Open the profile edit; read the saved name again on return.
+  Future<void> _openEditProfile(BuildContext context) async {
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(builder: (_) => const EditProfileScreen()),
+    );
+    if (mounted) setState(() => _rebuildKey++);
   }
 
   /// Open Fayda link-later verification; refresh the badge on return.
@@ -862,14 +577,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
           .count();
       final total = deliveries + payments;
       // ETB currently locked in escrow on this user's orders, scoped to the
-      // role's own id field (mirrors the web path's idParam scoping).
-      final base = isar.orders.filter();
+      // role's own id field (mirrors the web path's idParam scoping). Each id
+      // field is indexed (truckerId since ESC-22), so this reads only the
+      // user's own orders.
+      final base = isar.orders.where();
       final scoped = switch (role) {
         UserRole.farmer => base.farmerIdEqualTo(userId),
         UserRole.buyer => base.buyerIdEqualTo(userId),
         UserRole.trucker => base.truckerIdEqualTo(userId),
       };
       final escrowOrders = await scoped
+          .filter()
           .anyOf<OrderStatus, QAfterFilterCondition>(
             escrowHeldOrderStatuses,
             (q, s) => q.statusEqualTo(s),
@@ -885,17 +603,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'escrow': _formatEtb(escrowEtb),
       };
     } on Object {
-      return {'trades': '0', 'rating': '-', 'escrow': '0'};
+      return _fallbackStats;
     }
   }
 
-  /// Web has no Isar — sum escrow-held order values from the API instead.
+  /// Web has no Isar: sum escrow-held order values from the API instead.
   /// Trades/rating stay placeholders (no local history on web).
   Future<Map<String, String>> _loadWebProfileStats(
     String userId,
     UserRole role,
   ) async {
-    const fallback = {'trades': '0', 'rating': '-', 'escrow': '0'};
+    const fallback = _fallbackStats;
     try {
       final api = ApiClient();
       if (!api.isInitialized) return fallback;
@@ -959,41 +677,93 @@ class _ProfileScreenState extends State<ProfileScreen> {
     };
   }
 
+  /// E-1: logout deletes this user's unsent changes from the phone (the
+  /// shared-device protection), so the dialog first says how many there
+  /// are, with Sync now and Log out anyway. With nothing unsent (always on
+  /// web, where writes go straight to the API) it only asks.
   Future<void> _showLogoutConfirmation(
     BuildContext context,
     AppLocalizations l10n,
   ) async {
+    final auth = context.read<AuthBloc>();
+    final authState = auth.state;
+    final userId = authState is AuthAuthenticated ? authState.userId : '';
+    final load = widget.loadUnsentWork ?? auth.unsentWorkFor;
+    Future<LogoutUnsentWork> unsent() async {
+      try {
+        return await load(userId);
+      } on Object {
+        // Unreadable: never block the logout on it.
+        return (changes: 0, payments: 0);
+      }
+    }
+
+    final syncNow = widget.syncUnsentWork ?? _appSync(context);
+    final isOnline = widget.isOnline ?? _appConnectivity(context);
+    final work = await unsent();
+    // Only the warning says offline.
+    final online = !_hasUnsent(work) || await isOnline();
+    if (!context.mounted) return;
+
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(l10n.logout),
-          content: Text(l10n.logoutConfirmation),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(l10n.cancel),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              style: TextButton.styleFrom(
-                foregroundColor: AppTheme.statusError,
-              ),
-              child: Text(l10n.logout),
-            ),
-          ],
-        );
-      },
+      builder: (dialogContext) => _LogoutDialog(
+        work: work,
+        online: online,
+        reload: unsent,
+        syncNow: syncNow,
+        isOnline: isOnline,
+      ),
     );
     // Only logout when the user explicitly confirms.
     // Escape key or barrier tap returns null, which is not true.
     if (confirmed == true && context.mounted) {
       // Explicit logout MUST clear the offline credential cache (tokens + PBKDF2
-      // password hash) — auth-api.md invariant 7, stolen-device mitigation. The
+      // password hash): auth-api.md invariant 7, stolen-device mitigation. The
       // AuthLogoutRequested default (clearCache: true) does exactly this; passing
       // clearCache:false here previously defeated it.
       context.read<AuthBloc>().add(const AuthLogoutRequested());
     }
+  }
+
+  static bool _hasUnsent(LogoutUnsentWork work) =>
+      work.changes > 0 || work.payments > 0;
+
+  /// The app's Sync now: failed changes are retried, then the queue is sent
+  /// (the sync status sheet's Retry). Nothing on web, which has no queue.
+  static Future<void> Function() _appSync(BuildContext context) {
+    SyncQueue? queue;
+    SyncExecutor? executor;
+    if (!kIsWeb) {
+      try {
+        queue = context.read<SyncQueue>();
+        executor = context.read<SyncExecutor>();
+      } on Object {
+        // No sync above this screen.
+      }
+    }
+    return () async {
+      await queue?.retryFailed();
+      await executor?.syncNow();
+    };
+  }
+
+  /// The app's connectivity (the device's network, no request); online
+  /// when unknown, so the dialog never claims an offline it cannot see.
+  static Future<bool> Function() _appConnectivity(BuildContext context) {
+    ConnectivityMonitor? monitor;
+    try {
+      monitor = context.read<ConnectivityMonitor>();
+    } on Object {
+      monitor = null;
+    }
+    return () async {
+      try {
+        return await monitor?.isConnected() ?? true;
+      } on Object {
+        return true;
+      }
+    };
   }
 
   void _showResetTestData(BuildContext context) {
@@ -1059,37 +829,86 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-class _StatColumn extends StatelessWidget {
-  final String value;
-  final String label;
+/// The identity card, the one this screen leads with (raised paper): the
+/// initials on the role's tint, the name, the role pill in the role's
+/// colours and the Verified chip.
+class _IdentityCard extends StatelessWidget {
+  final String initials;
+  final String name;
+  final UserRole role;
+  final String roleLabel;
+  final bool isVerified;
 
-  const _StatColumn({required this.value, required this.label});
+  const _IdentityCard({
+    required this.initials,
+    required this.name,
+    required this.role,
+    required this.roleLabel,
+    required this.isVerified,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
+    final l10n = AppLocalizations.of(context)!;
+    final colors = RoleColors.forRole(role);
+    return FwCard(
+      raised: true,
+      child: Row(
         children: [
-          // Scale down instead of wrapping — escrow ETB sums can be long.
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              maxLines: 1,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.textDark,
+          ExcludeSemantics(
+            child: Container(
+              width: 56,
+              height: 56,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: colors.tint,
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                initials,
+                style: TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                  color: colors.primary,
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppTheme.textMuted,
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.4,
+                    color: AppTheme.ink,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    FwPill(
+                      label: roleLabel,
+                      background: colors.tint,
+                      foreground: colors.primary,
+                    ),
+                    if (isVerified)
+                      StatusChip(
+                        label: l10n.verified,
+                        kind: StatusKind.success,
+                        icon: Icons.verified,
+                      ),
+                  ],
+                ),
+              ],
             ),
           ),
         ],
@@ -1098,82 +917,193 @@ class _StatColumn extends StatelessWidget {
   }
 }
 
-class _ProfileMenuItem extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-  final Color? iconColor;
+/// Trades, rating and ETB in escrow as three sand tiles, as the Home
+/// boards' "At a glance". [rating] is the user's own (ESC-31). The escrow
+/// amount is in the role's colour, as every amount on the boards.
+class _StatsRow extends StatelessWidget {
+  final Map<String, String> stats;
+  final String rating;
 
-  const _ProfileMenuItem({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-    this.iconColor,
+  const _StatsRow({required this.stats, required this.rating});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _StatTile(value: stats['trades'] ?? '0', label: l10n.trades),
+          const SizedBox(width: 10),
+          _StatTile(
+            key: const Key('profile_rating'),
+            value: rating,
+            label: l10n.rating,
+          ),
+          const SizedBox(width: 10),
+          _StatTile(
+            value: stats['escrow'] ?? '0',
+            label: l10n.inEscrowEtb,
+            valueColor: context.roleColors.primary,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatTile extends StatelessWidget {
+  final String value;
+  final String label;
+  final Color valueColor;
+
+  const _StatTile({
+    required this.value,
+    required this.label,
+    this.valueColor = AppTheme.ink,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: AppTheme.surfaceWhite,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.borderLight),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: (iconColor ?? AppTheme.primaryGreen).withAlpha(25),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  icon,
-                  size: 20,
-                  color: iconColor ?? AppTheme.primaryGreen,
+    return Expanded(
+      child: FwCard.sand(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                height: 1.25,
+                color: AppTheme.inkSoft,
+              ),
+            ),
+            const SizedBox(height: 2),
+            // Scale down instead of wrapping: escrow ETB sums can be long.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                value,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
+                  color: valueColor,
                 ),
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textDark,
-                      ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A paper card holding rows separated by quiet dividers. [trailing] is
+/// appended without one: a row that may render nothing (the app lock on
+/// web) draws its own divider, so no stray line is left behind.
+class _RowGroup extends StatelessWidget {
+  final List<Widget> children;
+  final Widget? trailing;
+
+  const _RowGroup({required this.children, this.trailing});
+
+  @override
+  Widget build(BuildContext context) {
+    return FwCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) const Divider(indent: 16, endIndent: 16),
+            children[i],
+          ],
+          if (trailing != null) trailing!,
+        ],
+      ),
+    );
+  }
+}
+
+/// A menu row: the icon in a circle on the role's tint, title and
+/// subtitle, chevron. At least 62 tall, as the boards' contact rows.
+class _ProfileRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final Color? iconColor;
+  final Color? iconBackground;
+
+  const _ProfileRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.iconColor,
+    this.iconBackground,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 62),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: iconBackground ?? context.roleColors.tint,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                size: 18,
+                color: iconColor ?? context.roleColors.primary,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.15,
+                      color: AppTheme.ink,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.textMuted,
-                      ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      height: 1.3,
+                      color: AppTheme.slate,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              const Icon(
-                Icons.chevron_right,
-                size: 20,
-                color: AppTheme.textMuted,
-              ),
-            ],
-          ),
+            ),
+            const Icon(
+              Icons.chevron_right,
+              size: 20,
+              color: AppTheme.slate,
+            ),
+          ],
         ),
       ),
     );
@@ -1182,16 +1112,16 @@ class _ProfileMenuItem extends StatelessWidget {
 
 /// "App lock" switch. Hidden on web and on devices that cannot authenticate
 /// the user (no lock screen). Turning it off needs a device check first.
-class _AppLockMenuItem extends StatefulWidget {
+class _AppLockRow extends StatefulWidget {
   final AppLockService? service;
 
-  const _AppLockMenuItem({this.service});
+  const _AppLockRow({this.service});
 
   @override
-  State<_AppLockMenuItem> createState() => _AppLockMenuItemState();
+  State<_AppLockRow> createState() => _AppLockRowState();
 }
 
-class _AppLockMenuItemState extends State<_AppLockMenuItem> {
+class _AppLockRowState extends State<_AppLockRow> {
   late final AppLockService _service = widget.service ?? AppLockService();
   bool? _supported;
   bool _enabled = false;
@@ -1232,32 +1162,161 @@ class _AppLockMenuItemState extends State<_AppLockMenuItem> {
   Widget build(BuildContext context) {
     if (_supported != true) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceWhite,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.borderLight),
-      ),
-      child: SwitchListTile(
-        key: const Key('profile_app_lock_switch'),
-        contentPadding: EdgeInsets.zero,
-        secondary: const Icon(Icons.lock_outline, color: AppTheme.primaryGreen),
-        title: Text(
-          l10n.appLockTitle,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: AppTheme.textDark,
+    return Column(
+      children: [
+        const Divider(indent: 16, endIndent: 16),
+        SwitchListTile(
+          key: const Key('profile_app_lock_switch'),
+          contentPadding: const EdgeInsets.fromLTRB(16, 2, 12, 2),
+          secondary: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: context.roleColors.tint,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.lock_outline,
+              size: 18,
+              color: context.roleColors.primary,
+            ),
           ),
+          title: Text(
+            l10n.appLockTitle,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.15,
+              color: AppTheme.ink,
+            ),
+          ),
+          subtitle: Text(
+            l10n.appLockSubtitle,
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.3,
+              color: AppTheme.slate,
+            ),
+          ),
+          value: _enabled,
+          onChanged: _busy ? null : _toggle,
         ),
-        subtitle: Text(
-          l10n.appLockSubtitle,
-          style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
-        ),
-        value: _enabled,
-        onChanged: _busy ? null : _toggle,
+      ],
+    );
+  }
+}
+
+/// The logout confirmation (E-1). With unsent work: how many changes are
+/// not sent yet and how many payments waiting to be sent will be
+/// cancelled, that logging in again needs internet when offline, then
+/// Cancel, Sync now (with queued changes) and Log out anyway. Logout waits while Sync now runs
+/// (at most [ProfileScreen.logoutSyncTimeout]); the counts are then read
+/// again, and once nothing is left the dialog only asks. Pops true to log
+/// out.
+class _LogoutDialog extends StatefulWidget {
+  final LogoutUnsentWork work;
+  final bool online;
+  final Future<LogoutUnsentWork> Function() reload;
+  final Future<void> Function() syncNow;
+  final Future<bool> Function() isOnline;
+
+  const _LogoutDialog({
+    required this.work,
+    required this.online,
+    required this.reload,
+    required this.syncNow,
+    required this.isOnline,
+  });
+
+  @override
+  State<_LogoutDialog> createState() => _LogoutDialogState();
+}
+
+class _LogoutDialogState extends State<_LogoutDialog> {
+  late LogoutUnsentWork _work = widget.work;
+  late bool _online = widget.online;
+  bool _syncing = false;
+
+  bool get _unsent => _work.changes > 0 || _work.payments > 0;
+
+  Future<void> _sync() async {
+    setState(() => _syncing = true);
+    try {
+      await widget.syncNow().timeout(ProfileScreen.logoutSyncTimeout);
+    } on Object {
+      // Timed out or failed: the counts read below say what is left.
+    }
+    final work = await widget.reload();
+    final online = await widget.isOnline();
+    if (!mounted) return;
+    setState(() {
+      _work = work;
+      _online = online;
+      _syncing = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final lines = [
+      if (!_unsent) l10n.logoutConfirmation,
+      if (_work.changes > 0) l10n.logoutUnsentChanges(_work.changes),
+      if (_work.payments > 0) l10n.logoutUnpaidPayments(_work.payments),
+      if (_unsent && !_online) l10n.logoutOfflineNeedsInternet,
+    ];
+    return AlertDialog(
+      title: Text(l10n.logout),
+      content: Column(
+        key: const Key('logout_dialog_text'),
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < lines.length; i++)
+            Padding(
+              padding: EdgeInsets.only(top: i == 0 ? 0 : 8),
+              child: Text(lines[i]),
+            ),
+        ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(l10n.cancel),
+        ),
+        // Only queued changes: a payment waiting to be sent goes with the
+        // escrow sync on reconnect, which this button does not drive.
+        if (_work.changes > 0)
+          TextButton(
+            key: const Key('logout_sync_now'),
+            onPressed: _syncing ? null : _sync,
+            child: _syncing
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(l10n.syncInProgress),
+                    ],
+                  )
+                : Text(l10n.syncNow),
+          ),
+        // The destructive confirm: the error red with white ink.
+        FilledButton(
+          key: const Key('logout_confirm'),
+          onPressed: _syncing ? null : () => Navigator.of(context).pop(true),
+          style: FilledButton.styleFrom(
+            backgroundColor: AppTheme.statusError,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(0, 48),
+          ),
+          child: Text(_unsent ? l10n.logoutAnyway : l10n.logout),
+        ),
+      ],
     );
   }
 }

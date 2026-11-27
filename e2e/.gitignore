@@ -1,3 +1,10 @@
 node_modules/
 test-results/
 playwright-report/
+
+# Local run artifacts: screenshots and raw persona-sim evidence (API logs, throwaway scripts).
+# The written reports (*.md) stay tracked.
+screenshots/
+persona-sim/**/screenshots/
+persona-sim/**/evidence/
+persona-sim/**/video/

@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/models/conflict_event.dart';
 import 'package:wereda_connect/features/conflict_resolution/presentation/widgets/conflict_field_diff.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
 /// Card showing entity header + field diffs + result badge for one conflict.
 ///
@@ -21,9 +22,8 @@ class ConflictDetailCard extends StatelessWidget {
     final theme = Theme.of(context);
     final fields = _extractDisplayFields(l10n);
 
+    // The theme's card: paper grey, radius 24, the quiet edge, no shadow.
     return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -32,20 +32,20 @@ class ConflictDetailCard extends StatelessWidget {
             // Header row: icon + entity name + timestamp
             Row(
               children: [
-                Icon(_entityTypeIcon(), size: 24),
+                Icon(_entityTypeIcon(), size: 20, color: AppTheme.ink),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     _entityTypeLabel(l10n),
                     style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
                 Text(
                   _formatTimestamp(conflict.resolvedAt),
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    color: AppTheme.slate,
                   ),
                 ),
               ],
@@ -65,32 +65,9 @@ class ConflictDetailCard extends StatelessWidget {
             const SizedBox(height: 8),
 
             // Result badge
-            Container(
-              width: double.infinity,
-              height: 32,
-              decoration: BoxDecoration(
-                color: AppTheme.statusSuccess.withAlpha(25),
-                border: Border.all(color: AppTheme.statusSuccess),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(
-                    Icons.check_circle,
-                    size: 16,
-                    color: AppTheme.statusSuccess,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    l10n.conflictServerApplied,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.statusSuccess,
-                    ),
-                  ),
-                ],
-              ),
+            StatusChip(
+              label: l10n.conflictServerApplied,
+              kind: StatusKind.success,
             ),
           ],
         ),
@@ -156,6 +133,6 @@ class ConflictDetailCard extends StatelessWidget {
   }
 
   String _formatTimestamp(DateTime dt) {
-    return DateFormat.yMMMd().format(dt);
+    return formatDate(dt);
   }
 }

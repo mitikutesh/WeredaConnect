@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:wereda_connect/core/network/api_config.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 
 /// Something background work cannot settle alone: a prompt the user must
@@ -10,15 +14,57 @@ sealed class SecurityEvent {
   const SecurityEvent();
 }
 
+/// What an operation waiting for a step-up is, so the prompt can name it
+/// (FUP-181).
+enum StepUpKind {
+  /// An order's payment or a queued delivery payment.
+  payment,
+
+  /// A delivery dispute.
+  dispute,
+
+  /// Anything else (a farmer or trucker dropping out of an order they
+  /// accepted), or operations of different kinds waiting together.
+  other,
+}
+
 /// The server wants the user to confirm it is them before a money action:
 /// a fresh password (AUTH_040), or for a payment above 10,000 ETB a fresh
 /// Fayda login (AUTH_041, [withFayda]).
 class StepUpRequired extends SecurityEvent {
-  const StepUpRequired({this.withFayda = false});
+  const StepUpRequired({this.withFayda = false, this.kind = StepUpKind.other});
+
+  /// One prompt for the operations [waiting] together. It asks for Fayda
+  /// when one of them does, and is then for those only: the Fayda login
+  /// comes first and the others ask again when they are retried. Its
+  /// [kind] is the one its operations share, else [StepUpKind.other].
+  factory StepUpRequired.forAll(Iterable<StepUpRequired> waiting) {
+    final withFayda = waiting.any((w) => w.withFayda);
+    final kinds = {
+      for (final w in waiting)
+        if (w.withFayda || !withFayda) w.kind,
+    };
+    return StepUpRequired(
+      withFayda: withFayda,
+      kind: kinds.length == 1 ? kinds.single : StepUpKind.other,
+    );
+  }
 
   /// True when only a Fayda login satisfies the server; the password
   /// prompt would not help.
   final bool withFayda;
+
+  /// What the prompt is for, so it names it (a payment, a dispute).
+  final StepUpKind kind;
+}
+
+/// How the user confirmed it is them at a step-up prompt.
+enum StepUpMethod {
+  /// A fresh password (the answer to AUTH_040).
+  password,
+
+  /// A fresh Fayda login (the answer to AUTH_041).
+  fayda,
 }
 
 /// Whose verification a KYC rejection says is missing.
@@ -32,19 +78,30 @@ enum KycReason {
   buyerFayda,
   farmerPhone,
   farmerFayda,
-  unavailable;
+  unavailable,
+
+  /// A reason token this build does not know (for example a future
+  /// `trucker_fayda`). It may be anyone's check, so it is explained only and
+  /// never opens the buyer's Fayda flow (FUP-83).
+  unknown;
 
   /// True when verifying the signed-in buyer can unblock the payment.
   bool get buyerCanFix => this == buyerPhone || this == buyerFayda;
 
   static const _prefix = 'ORDER_KYC_REQUIRED:';
 
+  /// A reason token: lower-case words joined by underscores, as in
+  /// `buyer_phone`. Prose (the wording of older servers) never matches.
+  static final _tokenShape = RegExp(r'^[a-z][a-z0-9]*(_[a-z0-9]+)*$');
+
   /// Reads the reason token; falls back to the wording of servers that
-  /// predate it.
+  /// predate it. A token of the right shape that is not one of ours reads
+  /// as [unknown], never as the buyer.
   static KycReason fromMessage(String message) {
     final at = message.indexOf(_prefix);
     final rest = at < 0 ? message : message.substring(at + _prefix.length);
-    final token = rest.trimLeft().split(':').first.trim();
+    final parts = rest.trimLeft().split(':');
+    final token = parts.first.trim();
     switch (token) {
       case 'buyer_phone':
         return KycReason.buyerPhone;
@@ -57,6 +114,9 @@ enum KycReason {
       case 'unavailable':
         return KycReason.unavailable;
     }
+    if (parts.length > 1 && _tokenShape.hasMatch(token)) {
+      return KycReason.unknown;
+    }
     final text = rest.toLowerCase();
     if (text.contains('unavailable')) return KycReason.unavailable;
     final phone = text.contains('phone');
@@ -66,6 +126,11 @@ enum KycReason {
     return phone ? KycReason.buyerPhone : KycReason.buyerFayda;
   }
 }
+
+/// The `entityType` of the [SyncOperationRejected] the escrow intent queue
+/// raises for a queued delivery payment that failed. Kept here, not in the
+/// queue (which imports Isar), so shared widgets can read it on web too.
+const String paymentIntentEntityType = 'payment_intent';
 
 /// A payment was blocked by the KYC gate (ORDER_KYC_REQUIRED).
 class KycRequired extends SecurityEvent {
@@ -125,6 +190,26 @@ class SyncOperationRejected extends SecurityEvent {
   });
 }
 
+/// Keeps, across restarts, the app build the server refused as too old
+/// (`APP_UPDATE_REQUIRED`, FUP-75), so [SecurityEvents.appUpdateRequired]
+/// comes back after a restart on that build and is forgotten once the build
+/// changes. SharedPreferences: app storage on Android, localStorage on web.
+class AppUpdateFlagStore {
+  const AppUpdateFlagStore();
+
+  static const String key = 'app_update_required_build';
+
+  /// The build kept, or null when none is.
+  Future<int?> read() async =>
+      (await SharedPreferences.getInstance()).getInt(key);
+
+  Future<void> write(int build) async =>
+      (await SharedPreferences.getInstance()).setInt(key, build);
+
+  Future<void> clear() async =>
+      (await SharedPreferences.getInstance()).remove(key);
+}
+
 /// App-wide bus between background workers (sync executor, escrow intent
 /// sync) and the UI.
 ///
@@ -144,15 +229,38 @@ class SyncOperationRejected extends SecurityEvent {
 /// (enqueue, connectivity, periodic) does not reopen the dialog. A step-up
 /// the user starts themselves (the pay button) still prompts, and a
 /// successful one ends the quiet period.
+///
+/// A worker that keeps an operation waiting for a step-up names it with
+/// [holdStepUp] and lets go with [releaseStepUpHolds] once the operation
+/// left its queue any other way (refused, dropped, removed), so
+/// [pendingStepUp] does not outlive the operation it was raised for
+/// (FUP-24).
 class SecurityEvents {
-  SecurityEvents._({DateTime Function()? now}) : _now = now ?? DateTime.now;
+  SecurityEvents._({
+    DateTime Function()? now,
+    AppUpdateFlagStore? appUpdateStore,
+    int appBuild = ApiConfig.appBuild,
+  })  : _now = now ?? DateTime.now,
+        _appUpdateStore = appUpdateStore,
+        _appBuild = appBuild;
 
   /// Shared instance used by the app.
-  static final SecurityEvents instance = SecurityEvents._();
+  static final SecurityEvents instance =
+      SecurityEvents._(appUpdateStore: const AppUpdateFlagStore());
 
-  /// A separate instance for tests, with an optional clock.
-  factory SecurityEvents.forTesting({DateTime Function()? now}) =>
-      SecurityEvents._(now: now);
+  /// A separate instance for tests, with an optional clock. It keeps
+  /// [appUpdateRequired] in memory only unless given an [appUpdateStore];
+  /// [appBuild] stands for the running build.
+  factory SecurityEvents.forTesting({
+    DateTime Function()? now,
+    AppUpdateFlagStore? appUpdateStore,
+    int appBuild = ApiConfig.appBuild,
+  }) =>
+      SecurityEvents._(
+        now: now,
+        appUpdateStore: appUpdateStore,
+        appBuild: appBuild,
+      );
 
   /// How long a cancelled step-up prompt stays quiet.
   static const stepUpCooldown = Duration(minutes: 10);
@@ -160,6 +268,11 @@ class SecurityEvents {
   final DateTime Function() _now;
   DateTime? _stepUpDeclinedAt;
   StepUpRequired? _pendingStepUp;
+  StepUpMethod? _lastStepUpMethod;
+
+  /// The held operations behind [_pendingStepUp], by holder key, with
+  /// whether each needs a Fayda login and what it is.
+  final Map<String, StepUpRequired> _stepUpHolds = <String, StepUpRequired>{};
 
   /// How many undelivered [SyncOperationRejected] events are kept; the
   /// oldest is dropped beyond that.
@@ -176,24 +289,126 @@ class SecurityEvents {
       StreamController<void>.broadcast();
   final StreamController<String> _paymentResubmitted =
       StreamController<String>.broadcast();
-  final StreamController<void> _appUpdateRequired =
-      StreamController<void>.broadcast();
+  final StreamController<bool> _appUpdateRequired =
+      StreamController<bool>.broadcast();
   bool _appUpdateRequiredSeen = false;
+  final AppUpdateFlagStore? _appUpdateStore;
+  final int _appBuild;
+  Future<void>? _appUpdateRestore;
+
+  /// Whether a server answer in this run raised or cleared the flag. Such an
+  /// answer is newer than anything an earlier run kept, so the restore leaves
+  /// it alone (the store may still show the earlier value while the answer's
+  /// own write is on its way).
+  bool _appUpdateDecided = false;
+
+  /// False once this run removed the kept value and nothing raised it since,
+  /// so accepted orders do not write to storage every time.
+  bool _appUpdateMaybeKept = true;
 
   /// Events the UI should prompt for.
   Stream<SecurityEvent> get events => _events.stream;
 
-  /// True once the server answered a queued change with `APP_UPDATE_REQUIRED`
-  /// (sync-protocol.md 1.17.0): this build is below the server's minimum and
-  /// every further order command would be refused the same way. Set even
-  /// when nobody listens yet and never cleared by logout (the build is still
-  /// old). Kept in memory only: a relaunch starts false until the next such
-  /// refusal. The persistent banner that reads it is ESC-25's.
+  /// True once the server answered a change with `APP_UPDATE_REQUIRED`
+  /// (sync-protocol.md 1.17.0, 1.53.0): this build is below the server's
+  /// minimum and every further order command would be refused the same way.
+  /// Raised by the mobile sync queue and by a web `/sync` refusal
+  /// ([reportAppUpdateRequired]). Set even when nobody listens yet and never
+  /// cleared by logout (the build is still old). Kept with the running
+  /// build's number (FUP-75): [restoreAppUpdateRequired] brings it back after
+  /// a restart on the same build and forgets it once the build changed; an
+  /// order the server accepts from this build clears it
+  /// ([clearAppUpdateRequired]). The shell's "update the app" banner reads it.
   bool get appUpdateRequired => _appUpdateRequiredSeen;
 
-  /// Fires once per refusal that carried `APP_UPDATE_REQUIRED`, for a shell
-  /// that is already mounted when it arrives.
-  Stream<void> get onAppUpdateRequired => _appUpdateRequired.stream;
+  /// The new [appUpdateRequired]: true on every refusal that carried
+  /// `APP_UPDATE_REQUIRED` and when [restoreAppUpdateRequired] brings it
+  /// back, false when [clearAppUpdateRequired] drops it. For a shell that is
+  /// already mounted.
+  Stream<bool> get onAppUpdateRequired => _appUpdateRequired.stream;
+
+  /// A web `/sync` refusal said this build is too old (web has no queue, so
+  /// no [SyncOperationRejected] is raised for it).
+  void reportAppUpdateRequired() => _raiseAppUpdateRequired();
+
+  /// The server accepted an order operation from this build. Its
+  /// minimum-version gate runs first on every order operation, so this build
+  /// passes it now (for example a minimum raised by mistake and rolled back):
+  /// the flag and the kept value go. A later refusal raises it again.
+  void clearAppUpdateRequired() {
+    _appUpdateDecided = true;
+    final wasRequired = _appUpdateRequiredSeen;
+    _appUpdateRequiredSeen = false;
+    if (_appUpdateMaybeKept) {
+      _appUpdateMaybeKept = false;
+      unawaited(_onStore((store) => store.clear()));
+    }
+    if (wasRequired && !_appUpdateRequired.isClosed) {
+      _appUpdateRequired.add(false);
+    }
+  }
+
+  void _raiseAppUpdateRequired({bool fromServer = true}) {
+    // Written once per run: later refusals find it kept.
+    if (fromServer && !_appUpdateRequiredSeen) {
+      unawaited(_onStore((store) => store.write(_appBuild)));
+    }
+    if (fromServer) _appUpdateDecided = true;
+    _appUpdateRequiredSeen = true;
+    _appUpdateMaybeKept = true;
+    if (!_appUpdateRequired.isClosed) _appUpdateRequired.add(true);
+  }
+
+  /// The store operations, one after the other in the order they were asked
+  /// for, so a removal never lands after a later write.
+  Future<void> _storeQueue = Future<void>.value();
+
+  Future<void> _onStore(Future<void> Function(AppUpdateFlagStore) op) {
+    final store = _appUpdateStore;
+    if (store == null) return Future<void>.value();
+    return _storeQueue = _storeQueue.then((_) async {
+      try {
+        await op(store);
+      } on Object {
+        // No storage (a blocked browser store): memory only for this run.
+      }
+    });
+  }
+
+  /// Read back the flag kept by an earlier run (FUP-75), once per app run:
+  /// the same build raises [appUpdateRequired] again; another build (the app
+  /// was updated) forgets it, and the next refusal raises it again if that
+  /// build is still too old. The shell's banner calls it when it mounts.
+  Future<void> restoreAppUpdateRequired() =>
+      _appUpdateRestore ??= _restoreAppUpdateRequired();
+
+  Future<void> _restoreAppUpdateRequired() async {
+    int? kept;
+    var read = false;
+    await _onStore((store) async {
+      kept = await store.read();
+      read = true;
+    });
+    // No storage, or a server answer in this run: that answer is newer than
+    // anything an earlier run kept, and it saved itself.
+    if (!read || _appUpdateDecided) return;
+    if (kept == _appBuild) {
+      _raiseAppUpdateRequired(fromServer: false);
+    } else {
+      _appUpdateMaybeKept = false;
+      if (kept != null) await _onStore((store) => store.clear());
+    }
+  }
+
+  /// Forget the flag in memory and let [restoreAppUpdateRequired] read again,
+  /// for tests that share [instance]. The kept value is left alone.
+  @visibleForTesting
+  void resetAppUpdateRequiredForTesting() {
+    _appUpdateDecided = false;
+    _appUpdateRequiredSeen = false;
+    _appUpdateRestore = null;
+    _appUpdateMaybeKept = true;
+  }
 
   /// Fires after the user re-authenticated; pending money ops should retry.
   Stream<void> get onStepUpCompleted => _stepUpCompleted.stream;
@@ -212,12 +427,15 @@ class SecurityEvents {
   /// after a cancelled prompt is dropped. A [SyncOperationRejected] with no
   /// listener is kept for the first one.
   void emit(SecurityEvent event) {
-    if (event is StepUpRequired) _pendingStepUp = event;
+    if (event is StepUpRequired) {
+      _pendingStepUp = event;
+      // The server asks again: the earlier confirmation no longer counts.
+      _lastStepUpMethod = null;
+    }
     if (event is StepUpRequired && stepUpSuppressed) return;
     if (event is SyncOperationRejected &&
         isAppUpdateRequiredMessage(event.message)) {
-      _appUpdateRequiredSeen = true;
-      if (!_appUpdateRequired.isClosed) _appUpdateRequired.add(null);
+      _raiseAppUpdateRequired();
     }
     if (_events.isClosed) return;
     if (event is SyncOperationRejected && !_events.hasListener) {
@@ -242,13 +460,51 @@ class SecurityEvents {
   void clearKeptRejections() {
     _undeliveredRejections.clear();
     _pendingStepUp = null;
+    _lastStepUpMethod = null;
+    _stepUpHolds.clear();
   }
 
   /// The last step-up a queued payment asked for and nobody confirmed yet,
   /// also while the prompt is quiet after a cancel. The checkout screen
   /// offers "Confirm it's you" from it (ESC-44). Cleared by
-  /// [stepUpCompleted].
+  /// [stepUpCompleted], by a logout, and once every operation held for it
+  /// left its queue ([releaseStepUpHolds]).
   StepUpRequired? get pendingStepUp => _pendingStepUp;
+
+  /// Name an operation that waits for the step-up about to be raised with
+  /// [emit]. [holder] is unique per operation across workers (a prefix per
+  /// worker, then the operation's id). [kind] says what the operation is.
+  void holdStepUp(
+    String holder, {
+    required bool withFayda,
+    StepUpKind kind = StepUpKind.other,
+  }) =>
+      _stepUpHolds[holder] = StepUpRequired(withFayda: withFayda, kind: kind);
+
+  /// The holder keys starting with [prefix], for a worker to check which of
+  /// its held operations still wait.
+  List<String> stepUpHolders(String prefix) => [
+        for (final key in _stepUpHolds.keys)
+          if (key.startsWith(prefix)) key,
+      ];
+
+  /// The operations named by [holders] no longer wait for a step-up: they
+  /// were sent, refused, dropped or removed. When the last held operation
+  /// is gone [pendingStepUp] clears; while others still wait it stays, asks
+  /// for Fayda only if one of them does, and names what they are
+  /// ([StepUpRequired.forAll]). A cancelled prompt releases
+  /// nothing, so the flag survives it (ESC-44). A step-up raised without a
+  /// named operation is left alone.
+  void releaseStepUpHolds(Iterable<String> holders) {
+    var released = false;
+    for (final holder in holders) {
+      released |= _stepUpHolds.remove(holder) != null;
+    }
+    if (!released || _pendingStepUp == null) return;
+    _pendingStepUp = _stepUpHolds.isEmpty
+        ? null
+        : StepUpRequired.forAll(_stepUpHolds.values);
+  }
 
   /// True while a cancelled step-up prompt keeps background re-prompts quiet.
   bool get stepUpSuppressed {
@@ -259,10 +515,21 @@ class SecurityEvents {
   /// The user cancelled the background step-up prompt.
   void stepUpDeclined() => _stepUpDeclinedAt = _now();
 
-  /// Report a successful step-up re-authentication.
-  void stepUpCompleted() {
+  /// How the last step-up of this sign-in was confirmed: set by
+  /// [stepUpCompleted], gone once the server asks again (a
+  /// [StepUpRequired]) and on logout. A fact about what the user did, never
+  /// a guess of what the next payment will need: the checkout names it
+  /// ("Confirmed with Fayda") only for a confirmation made while it is open.
+  StepUpMethod? get lastStepUpMethod => _lastStepUpMethod;
+
+  /// Report a successful step-up re-authentication, with the [method] the
+  /// user confirmed by when the caller knows it.
+  void stepUpCompleted({StepUpMethod? method}) {
     _stepUpDeclinedAt = null;
     _pendingStepUp = null;
+    _lastStepUpMethod = method;
+    // The held operations go again now; one still refused is held again.
+    _stepUpHolds.clear();
     if (!_stepUpCompleted.isClosed) _stepUpCompleted.add(null);
   }
 }

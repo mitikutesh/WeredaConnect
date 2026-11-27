@@ -40,12 +40,12 @@ Clearing rate limits:
     print(f'Cleared {len(items)} SYNC rate limit entries')
     "
 
-Test phases (10 phases, ~43 checks):
+Test phases (10 phases, ~46 checks):
     Phase  1: Register/login 7 users (3 farmers, 2 truckers, 2 buyers)
     Phase  2: Create 6 crop listings (or reuse existing if fraud-dup)
     Phase  3: Create 3 trip listings
     Phase  4: Browse & filter crops and trips
-    Phase  5: Create 3 deliveries (crop + trip + buyer)
+    Phase  5: Create 3 deliveries (crop + trip + buyer), farmer registers each QR nonce
     Phase  6: Delivery state machine (pending -> pickedUp -> inTransit -> delivered)
     Phase  7: Escrow payments (initiate, check status, payment history)
     Phase  8: Dispute flow (raise dispute, verify status)
@@ -54,7 +54,9 @@ Test phases (10 phases, ~43 checks):
 """
 
 import argparse
+import base64
 import json
+import secrets
 import ssl
 import sys
 import time
@@ -65,8 +67,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from crop_photo_upload import CropPhotoUploadError, upload_crop_photos
+
 _BASE_URL = "https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com"
 PASSWORD = "testpass1a"  # 8+ chars, lowercase + digit
+# Sent on every call like the apps (FUP-61): /sync refuses order operations from an app
+# below MIN_ORDER_APP_BUILD, 3 in dev (ESC-25).
+APP_BUILD = "3"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -126,6 +133,7 @@ def api(method: str, path: str, token: Optional[str] = None,
     for attempt in range(retries + 1):
         req = Request(url, data=data, method=method)
         req.add_header("Content-Type", "application/json")
+        req.add_header("X-App-Build", APP_BUILD)
         if token:
             req.add_header("Authorization", f"Bearer {token}")
 
@@ -185,7 +193,7 @@ class DeliveryRecord:
     buyer_idx: int
     crop_id: str
     trip_id: str
-    qr_nonce: str = ""  # Server-generated, needed for pickup/delivery transitions
+    qr_nonce: str = ""  # The farmer's QR nonce, registered after create; the scans send it back
     order_id: str = ""  # Backing order; the escrow amount must equal its orderTotal
 
 
@@ -347,6 +355,13 @@ def phase_create_crops(state: TestState):
         now = ts()
         print_step(f"Creating {listing['cropType']} listing for {farmer.display_name}")
 
+        # crop-listing-api 1.6.0: the photos go up before the create (rule 9).
+        try:
+            photo_ids = upload_crop_photos(_BASE_URL, farmer.access_token, crop_id)
+        except CropPhotoUploadError as e:
+            state.record(f"Create {listing['cropType']}", False, f"photo upload: {e}")
+            continue
+
         sync_body = {
             "syncBatchId": uid(),
             "clientId": uid(),
@@ -364,6 +379,7 @@ def phase_create_crops(state: TestState):
                     "description": listing["description"],
                     "woreda": farmer.woreda,
                     "status": "available",
+                    "photoIds": photo_ids,
                 },
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             }]
@@ -431,6 +447,21 @@ def phase_create_crops(state: TestState):
 # Phase 3: Create Trip Listings
 # ---------------------------------------------------------------------------
 
+def _existing_trip(trucker, trip_def: dict, dep_date: str) -> Optional[dict]:
+    """The trucker's own open or matched trip on this route and departure day, if any."""
+    resp = api("GET", "/trips", token=trucker.access_token)
+    if resp.status_code != 200:
+        return None
+    data = resp.json()
+    for trip in data.get("trips", data.get("items", [])):
+        if (trip.get("status") in ("open", "matched")
+                and trip.get("fromWoreda") == trip_def["fromWoreda"]
+                and trip.get("toWoreda") == trip_def["toWoreda"]
+                and str(trip.get("departureDate", ""))[:10] == dep_date[:10]):
+            return trip
+    return None
+
+
 def phase_create_trips(state: TestState):
     print_header("PHASE 3: Create Trip Listings (Truckers)")
 
@@ -483,7 +514,17 @@ def phase_create_trips(state: TestState):
                 state.record(f"Create trip {route}", True, f"tripId={trip_id[:12]}...")
             else:
                 msg = results[0].get("message", "unknown") if results else "no results"
-                state.record(f"Create trip {route}", False, msg)
+                # A second run on one day posts the same route and departure day again: refused as a
+                # duplicate trip (trip-listing-api.md rule 14). Use the trip the earlier run left.
+                existing = _existing_trip(trucker, trip_def, dep_date) if "FRAUD_DUPLICATE" in msg else None
+                if existing:
+                    state.trip_ids.append(existing["tripId"])
+                    state.trips.append(TripRecord(
+                        trip_id=existing["tripId"], trucker_idx=trip_def["trucker_idx"],
+                        from_woreda=trip_def["fromWoreda"], to_woreda=trip_def["toWoreda"],
+                        price_per_quintal=float(existing.get("pricePerQuintal") or trip_def["pricePerQuintal"])))
+                state.record(f"Create trip {route}", existing is not None,
+                             f"(duplicate ok) {msg}" if existing else msg)
         else:
             state.record(f"Create trip {route}", False, f"{resp.status_code}: {resp.body[:200]}")
 
@@ -696,9 +737,10 @@ def phase_create_deliveries(state: TestState):
         if resp.status_code == 200:
             results = resp.json().get("results", [])
             if results and results[0].get("status") == "success":
-                # Extract server-generated qrNonce from response
-                server_data = results[0].get("serverData", {}) or {}
-                qr_nonce = server_data.get("qrNonce", "")
+                # The server never returns a QR nonce (it is kept in the secret store and
+                # stripped from serverData), so the farmer's phone makes one and registers
+                # it, as the apps do when the farmer opens the QR (FUP-138).
+                qr_nonce = register_qr_nonce(state, farmer, delivery_id, i + 1)
                 state.delivery_ids.append(delivery_id)
                 state.deliveries.append(DeliveryRecord(
                     delivery_id=delivery_id,
@@ -719,6 +761,36 @@ def phase_create_deliveries(state: TestState):
             state.record(f"Create delivery {i+1}", False, f"{resp.status_code}: {resp.body[:200]}")
 
         time.sleep(1)
+
+
+def register_qr_nonce(state: TestState, farmer: User, delivery_id: str, idx: int) -> str:
+    """The farmer's QR nonce, registered like the apps do (delivery-verification-api.md,
+    QR Secret Storage): 32 random bytes, base64url, sent by the farmer as a delivery update
+    carrying only `qrNonce` and the current version (1 after create). The server stores it
+    in the secret store, answers `success` and does not move the version. The trucker's
+    pickup and the buyer's drop-off scan send it back as `scannedQrNonce` (one nonce for
+    both legs). Returns "" when the server refused it, so the pickup is then recorded as a
+    failure instead of waiting 14 days as `deferred`."""
+    nonce = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii")
+    resp = api("POST", "/sync", token=farmer.access_token, json_body={
+        "syncBatchId": uid(),
+        "clientId": uid(),
+        "operations": [{
+            "operationId": uid(),
+            "idempotencyKey": f"{farmer.user_id}:delivery:{delivery_id}:update:{ts()}",
+            "entityType": "delivery",
+            "entityId": delivery_id,
+            "action": "update",
+            "data": {"qrNonce": nonce, "version": 1},
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }],
+    })
+    results = resp.json().get("results", []) if resp.status_code == 200 else []
+    ok = bool(results) and results[0].get("status") == "success"
+    detail = "registered" if ok else (
+        results[0].get("message", "unknown") if results else f"{resp.status_code}: {resp.body[:160]}")
+    state.record(f"Register QR nonce {idx}", ok, detail)
+    return nonce if ok else ""
 
 
 # ---------------------------------------------------------------------------

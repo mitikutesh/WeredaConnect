@@ -105,6 +105,15 @@ public interface IDeliveryRepository
     Task<bool> TryCancelPendingAsync(string deliveryId);
 
     /// <summary>
+    /// FUP-363: the pickup judgement's own cancel of the pending delivery (ESC-34): the write of
+    /// <see cref="TryCancelPendingAsync"/>, which also stamps the server-only
+    /// <c>cancelledByJudgementAt</c> (the write's time, the same as <c>updatedAt</c>) in the same write, so a
+    /// no-show re-open can tell the judgement's cancel from a party's, whenever the judgement's order write lands.
+    /// Conditional on <c>status = pending</c>. Returns false when the delivery is missing or no longer pending.
+    /// </summary>
+    Task<bool> TryCancelPendingForJudgementAsync(string deliveryId);
+
+    /// <summary>
     /// FUP-16: close a delivery that never reached <c>delivered</c> by an admin's dispute disposition,
     /// as a system actor: from <paramref name="fromStatus"/> (<c>pending</c>, <c>pickedUp</c> or
     /// <c>inTransit</c>) to <c>cancelled</c> (with <c>cancelReason</c> and <c>cancelledAt</c>) or to
@@ -114,4 +123,39 @@ public interface IDeliveryRepository
     /// </summary>
     Task<bool> TryCloseForVerdictAsync(
         string deliveryId, string fromStatus, string toStatus, string resolution, string resolvedAt, string? cancelReason);
+
+    /// <summary>
+    /// LT-07: move a delivery <c>pickedUp</c> to <c>inTransit</c> as a system actor, because a check-in
+    /// was 2 km or more past its pickup. The same write as the trucker's own transition (status,
+    /// <c>updatedAt</c>, version + 1), conditional on the status <c>pickedUp</c> and the version read.
+    /// Returns false when the delivery is missing or moved on (another status or version).
+    /// </summary>
+    Task<bool> TryMarkInTransitAsync(string deliveryId, string tripId, int expectedVersion);
+
+    /// <summary>
+    /// ESC-36: the order cron's dispute of a delivery still on the road (T8 <c>delivery_overdue</c>, or T9
+    /// <c>silent_buyer</c>), written only after the escrow froze: from <paramref name="fromStatus"/>
+    /// (<c>pickedUp</c> or <c>inTransit</c>) to <c>disputed</c> with <c>disputedBy: system</c>,
+    /// <c>disputeReason</c> and <c>disputedAt</c>, the version added to. Conditional on the status read, so
+    /// a buyer's confirm that landed first wins. Returns false when the delivery is missing or moved on.
+    /// </summary>
+    Task<bool> TryMarkDropoffDisputedAsync(string deliveryId, string tripId, string fromStatus, string reason, string disputedAt);
+
+    /// <summary>
+    /// ESC-36, T9: the order cron's confirm for a silent buyer: from <paramref name="fromStatus"/>
+    /// (<c>pickedUp</c> or <c>inTransit</c>) to <c>delivered</c> with <c>confirmedAt</c> (the start of the
+    /// normal dispute window) and <c>autoConfirmedAt</c>, the next version, conditional on the status and
+    /// version read. Returns false when the delivery is missing or moved on.
+    /// </summary>
+    Task<bool> TryAutoConfirmAsync(string deliveryId, string tripId, string fromStatus, int expectedVersion, string confirmedAt);
+
+    /// <summary>
+    /// LT-07: stamp <c>nearbyNotifiedAt</c> (with <c>nearbyDistanceKm</c> and, when known,
+    /// <c>nearbyMinutes</c>) once, conditional on the status <c>pickedUp</c> or <c>inTransit</c> and on
+    /// no stamp yet. The stamp's stream record sends the buyer <c>truck_nearby</c>, so a repeat never
+    /// sends twice. Neither the version nor <c>updatedAt</c> moves: a party's queued update, sent at the
+    /// version it last pulled, must not conflict over a server-only stamp. Returns false when the
+    /// delivery is missing, not on the road or already stamped.
+    /// </summary>
+    Task<bool> TryStampNearbyAsync(string deliveryId, string tripId, string notifiedAt, double distanceKm, int? minutes);
 }

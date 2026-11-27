@@ -1,19 +1,23 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/features/order/data/repositories/web_order_repository.dart';
 
 class MockApiClient extends Mock implements ApiClient {}
 
 void main() {
   late MockApiClient api;
+  late SecurityEvents events;
   late WebOrderRepository repo;
 
   setUp(() {
     api = MockApiClient();
-    repo = WebOrderRepository(api: api);
+    events = SecurityEvents.forTesting();
+    repo = WebOrderRepository(api: api, securityEvents: events);
   });
 
   Map<String, dynamic> orderDto({
@@ -324,6 +328,253 @@ void main() {
         ),
       );
     });
+
+    test(
+        'ESC-25: the minimum-build refusal throws and reads as '
+        '"update the app"', () async {
+      // The exact text the server sends (sync-protocol.md 1.41.0).
+      const message = 'APP_UPDATE_REQUIRED: This version of the app is too '
+          'old for orders. Update WeredaConnect to continue.';
+      answerSync({'status': 'error', 'message': message});
+
+      final error = await repo
+          .acceptOrder('ord-1', 'farmer-1')
+          .then<Object?>((_) => null, onError: (Object e) => e);
+
+      expect(
+        error,
+        isA<SyncRejectedException>()
+            .having((e) => e.message, 'message', message),
+      );
+      expect(mapErrorToCode(error!), AppErrorCode.appUpdateRequired);
+      // FUP-75: the shell's banner reads it.
+      expect(events.appUpdateRequired, isTrue);
+    });
+
+    // FUP-75: the gate runs first on every order operation, so an accepted
+    // one proves this build passes it.
+    for (final status in ['success', 'duplicate']) {
+      test('an accepted order ($status) clears the app update flag', () async {
+        events.reportAppUpdateRequired();
+        answerSync({'status': status, 'serverVersion': 2});
+
+        await repo.acceptOrder('ord-1', 'farmer-1');
+
+        expect(events.appUpdateRequired, isFalse);
+      });
+    }
+
+    test('a refused order leaves the app update flag set', () async {
+      events.reportAppUpdateRequired();
+      answerSync({'status': 'error', 'message': 'ORDER_VALIDATION: no'});
+
+      await expectLater(
+        repo.acceptOrder('ord-1', 'farmer-1'),
+        throwsA(isA<SyncRejectedException>()),
+      );
+
+      expect(events.appUpdateRequired, isTrue);
+    });
+  });
+
+  // FUP-75: every web order path raises the update flag on the minimum-build
+  // refusal and clears it once the server accepts the order operation.
+  group('WebOrderRepository app update flag on every order path', () {
+    final paths = <String, Future<void> Function(WebOrderRepository)>{
+      'createOrder': (r) => r.createOrder(
+            listingId: 'listing-1',
+            buyerId: 'buyer-1',
+            farmerId: 'farmer-1',
+            buyerName: 'Buyer',
+            farmerName: 'Farmer',
+            cropType: 'teff',
+            quantity: 100,
+            pricePerUnit: 1050,
+          ),
+      'submitPayment': (r) =>
+          r.submitPayment('ord-1', null, paymentMethod: 'telebirr'),
+      'cancelOrder': (r) => r.cancelOrder('ord-1', 'buyer-1'),
+      'acceptOrder (update)': (r) => r.acceptOrder('ord-1', 'farmer-1'),
+    };
+
+    void answerSync(Map<String, dynamic> result) {
+      // A created order: the buyer may cancel it and still has to pay.
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenAnswer((_) async => {'order': orderDto()});
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'results': [result],
+        },
+      );
+    }
+
+    paths.forEach((name, send) {
+      test('$name accepted: cleared', () async {
+        events.reportAppUpdateRequired();
+        answerSync({'status': 'success', 'serverVersion': 2});
+
+        await send(repo);
+
+        expect(events.appUpdateRequired, isFalse);
+      });
+
+      test('$name refused for the build: raised', () async {
+        answerSync({
+          'status': 'error',
+          'message': 'APP_UPDATE_REQUIRED: This version of the app is too '
+              'old for orders. Update WeredaConnect to continue.',
+        });
+
+        await expectLater(send(repo), throwsA(isA<SyncRejectedException>()));
+
+        expect(events.appUpdateRequired, isTrue);
+      });
+    });
+  });
+
+  group('WebOrderRepository commitments (ESC-15)', () {
+    Map<String, dynamic>? sentBody;
+
+    void stub(Map<String, dynamic> order) {
+      sentBody = null;
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenAnswer((_) async => {'order': order});
+      when(
+        () => api.post<Map<String, dynamic>>(
+          '/sync',
+          data: any<dynamic>(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        sentBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+        return {
+          'results': [
+            {'status': 'success'},
+          ],
+        };
+      });
+    }
+
+    Map<String, dynamic> sentData() => ((sentBody!['operations'] as List).single
+        as Map<String, dynamic>)['data'] as Map<String, dynamic>;
+
+    Map<String, dynamic> tripOrder(
+      String status, {
+      String farmer = 'accepted',
+      String trucker = 'pending',
+    }) =>
+        orderDto(status: status)
+          ..['tripId'] = 'trip-1'
+          ..['truckerId'] = 'trucker-1'
+          ..['fulfillment'] = 'trucker'
+          ..['farmerResponse'] = farmer
+          ..['truckerResponse'] = trucker;
+
+    test('the farmer accepts and declines with the command', () async {
+      stub(tripOrder('funded', farmer: 'pending', trucker: 'not_asked'));
+
+      await repo.acceptOrder('ord-1', 'farmer-1');
+      expect(sentData(), {'farmerResponse': 'accept', 'version': 1});
+
+      await repo.rejectOrder('ord-1', 'farmer-1', reason: 'No stock');
+      expect(sentData(), {
+        'farmerResponse': 'decline',
+        'rejectionReason': 'No stock',
+        'version': 1,
+      });
+
+      // Farmer · Answer a new order board: the reject says why.
+      await repo.rejectOrder('ord-1', 'farmer-1', declineReason: 'price');
+      expect(sentData(), {
+        'farmerResponse': 'decline',
+        'declineReason': 'price',
+        'version': 1,
+      });
+    });
+
+    test('the trucker accepts or declines with a reason', () async {
+      stub(tripOrder('funded'));
+
+      await repo.respondAsTrucker('ord-1', 'trucker-1', accept: true);
+      expect(sentData(), {'truckerResponse': 'accept', 'version': 1});
+
+      await repo.respondAsTrucker(
+        'ord-1',
+        'trucker-1',
+        accept: false,
+        declineReason: 'route',
+      );
+      expect(sentData(), {
+        'truckerResponse': 'decline',
+        'declineReason': 'route',
+        'version': 1,
+      });
+    });
+
+    test('the trucker cannot answer before the farmer accepted', () async {
+      stub(tripOrder('funded', farmer: 'pending', trucker: 'not_asked'));
+
+      await expectLater(
+        repo.respondAsTrucker('ord-1', 'trucker-1', accept: true),
+        throwsA(isA<OrderActionNotAllowedException>()),
+      );
+      expect(sentBody, isNull);
+    });
+
+    test('the buyer cannot cancel a funded order while they decide', () async {
+      stub(tripOrder('funded', farmer: 'pending', trucker: 'not_asked'));
+
+      await expectLater(
+        repo.cancelOrder('ord-1', 'buyer-1'),
+        throwsA(isA<OrderCancelNotAllowedException>()),
+      );
+      expect(sentBody, isNull);
+    });
+
+    test('the buyer cancels after the transport fell through', () async {
+      stub(tripOrder('awaiting_transport', trucker: 'declined'));
+
+      await repo.cancelOrder('ord-1', 'buyer-1');
+
+      expect(sentData()['status'], 'cancelled');
+    });
+
+    test('the commitment fields and the new status are read', () async {
+      stub(
+        tripOrder('awaiting_transport', trucker: 'declined')
+          ..['buyerChoiceDeadlineAt'] = '2026-10-29T08:00:00Z'
+          ..['transportFailure'] = 'trucker_declined',
+      );
+
+      final order = (await repo.getOrderById('ord-1'))!;
+
+      expect(order.status, OrderStatus.awaitingTransport);
+      expect(order.truckerResponse, 'declined');
+      expect(order.transportFailure, 'trucker_declined');
+      expect(order.buyerChoiceDeadlineAt, DateTime.utc(2026, 10, 29, 8));
+    });
+
+    test('the order id is encoded in the path', () async {
+      when(
+        () => api.get<Map<String, dynamic>>('/orders/..%2Fescrow%2Fhistory'),
+      ).thenAnswer((_) async => {'order': orderDto()});
+
+      await repo.fetchOrder('../escrow/history');
+
+      verify(
+        () => api.get<Map<String, dynamic>>('/orders/..%2Fescrow%2Fhistory'),
+      ).called(1);
+    });
+
+    test('a status this build does not know reads as unknown', () async {
+      stub(orderDto(status: 'some_new_status'));
+
+      expect((await repo.getOrderById('ord-1'))!.status, OrderStatus.unknown);
+    });
   });
 
   group('WebOrderRepository payments (ESC-44)', () {
@@ -392,16 +643,65 @@ void main() {
       expect(sentBody, isNull);
     });
 
-    test('fetchOrder lets errors through; getOrderById swallows them',
+    test('fetchOrder lets errors through; getOrderById only hides a 404',
         () async {
       when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
-          .thenThrow(const NetworkException('offline'));
+          .thenThrow(const NotFoundException());
 
       await expectLater(
         repo.fetchOrder('ord-1'),
-        throwsA(isA<NetworkException>()),
+        throwsA(isA<NotFoundException>()),
       );
       expect(await repo.getOrderById('ord-1'), isNull);
+    });
+
+    // BUG-19: "no connection" used to read as "no such order", which the
+    // screens showed as "An error occurred".
+    test('offline, getOrderById and submitPayment say so and send nothing',
+        () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenThrow(const NetworkException('offline'));
+      stubSync();
+
+      await expectLater(
+        repo.getOrderById('ord-1'),
+        throwsA(isA<NetworkException>()),
+      );
+      await expectLater(
+        repo.submitPayment(
+          'ord-1',
+          'MOCK-TBR-ord-1',
+          paymentMethod: 'telebirr',
+        ),
+        throwsA(isA<NetworkException>()),
+      );
+      expect(sentBody, isNull);
+    });
+
+    // BUG-30: someone else's order.
+    test('a 403 on the order read is not hidden', () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1'))
+          .thenThrow(const AuthException('Forbidden', 403));
+
+      await expectLater(
+        repo.getOrderById('ord-1'),
+        throwsA(
+          isA<AuthException>().having((e) => e.statusCode, 'status', 403),
+        ),
+      );
+    });
+
+    // BUG-19: the first submit reached the server, its answer was lost, and
+    // the buyer retries: no second payment.
+    test('already funded on the server: a retry sends nothing', () async {
+      when(() => api.get<Map<String, dynamic>>('/orders/ord-1')).thenAnswer(
+        (_) async => {'order': orderDto(status: 'funded')},
+      );
+      stubSync();
+
+      await repo.submitPayment('ord-1', null, paymentMethod: 'telebirr');
+
+      expect(sentBody, isNull);
     });
   });
 }

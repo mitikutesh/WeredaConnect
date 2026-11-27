@@ -61,6 +61,26 @@ public sealed class OrderMoneyDynamoDbCollection : ICollectionFixture<LocalDynam
 }
 
 /// <summary>
+/// FRD-15: its own set of tables for the relationship scan, which reads whole order status partitions and writes
+/// signals on whoever it finds there: rows the other classes seed never reach it, and its signals never reach theirs.
+/// </summary>
+[CollectionDefinition(Name)]
+public sealed class RelationshipScanDynamoDbCollection : ICollectionFixture<LocalDynamoDbFixture>
+{
+    public const string Name = "RelationshipScanDynamoDb";
+}
+
+/// <summary>
+/// FUP-160: its own set of tables for the owner stamp, which reads whole listing status partitions and writes the
+/// owner fields on every row it finds there: rows the other classes seed never reach it.
+/// </summary>
+[CollectionDefinition(Name)]
+public sealed class OwnerStampDynamoDbCollection : ICollectionFixture<LocalDynamoDbFixture>
+{
+    public const string Name = "OwnerStampDynamoDb";
+}
+
+/// <summary>
 /// One set of tables for the collection, with the deployed key schemas and indexes
 /// (<c>infra/lib/stacks/database-stack.ts</c>), uniquely named per run and deleted afterwards.
 /// </summary>
@@ -72,6 +92,7 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
     public IAmazonDynamoDB Client { get; private set; } = null!;
     public string Escrows => $"escrows-{_suffix}";
     public string EscrowAudit => $"escrow-audit-{_suffix}";
+    public string EscrowLedger => $"escrow-ledger-{_suffix}";
     public string Idempotency => $"escrow-idempotency-{_suffix}";
     public string Orders => $"orders-{_suffix}";
     public string Deliveries => $"deliveries-{_suffix}";
@@ -80,6 +101,11 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
     public string Crops => $"crops-{_suffix}";
     public string Trips => $"trips-{_suffix}";
     public string FraudSignals => $"fraud-signals-{_suffix}";
+    public string ReputationEvents => $"reputation-events-{_suffix}";
+    public string Ratings => $"ratings-{_suffix}";
+    public string TripLocations => $"trip-locations-{_suffix}";
+    public string Intents => $"intents-{_suffix}";
+    public string QrSecrets => $"delivery-qr-secrets-{_suffix}";
 
     public async Task InitializeAsync()
     {
@@ -106,10 +132,20 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
             ("OrderIndex", "orderId", "createdAt"),
             ("ManualPayoutIndex", "manualPayout", "manualPayoutQueuedAt"));
         await CreateAsync(EscrowAudit, ("escrowId", "timestamp"));
+        // ESC-20: the escrow ledger and its sparse open-row index.
+        await CreateAsync(EscrowLedger, ("escrowId", "ref"), ("LedgerOpenIndex", "openStatus", "dueAt"));
         // ESC-45: the webhook inbox's sparse replay queue.
         await CreateAsync(Idempotency, ("idempotencyKey", null), ("InboxReplayIndex", "inboxReplay", "inboxReplayAt"));
         await CreateAsync(Orders, ("orderId", "createdAt"), ("AdminQueueIndex", "adminQueue", "adminQueuedAt"),
-            ("StatusCreatedAtIndex", "status", "createdAt"));
+            ("StatusCreatedAtIndex", "status", "createdAt"),
+            // ESC-18: the listing guards read a listing's orders.
+            ("ListingIdIndex", "listingId", "createdAt"),
+            // FRD-15: the relationship scan reads a buyer's orders.
+            ("BuyerIdCreatedAtIndex", "buyerId", "createdAt"),
+            // ESC-16: the order cron's sparse deadline index.
+            ("DeadlineIndex", "deadlineShard", "nextDeadlineAt"),
+            // FUP-363: the order cron's departed trip walk reads a trip's orders (ESC-17).
+            ("TripIdIndex", "tripId", "createdAt"));
         await CreateAsync(Deliveries, ("deliveryId", "tripId"),
             ("ListingIndex", "listingId", "createdAt"),
             ("ParticipantIndex", "participantId", "createdAt"),
@@ -117,9 +153,24 @@ public sealed class LocalDynamoDbFixture : IAsyncLifetime
             ("TruckerIdCreatedAtIndex", "truckerId", "createdAt"));
         await CreateAsync(TransactionAudit, ("transactionId", "timestamp"), ("EntityIndex", "entityId", "timestamp"));
         await CreateAsync(Users, ("userId", null));
-        await CreateAsync(Crops, ("cropId", "createdAt"));
-        await CreateAsync(Trips, ("tripId", "createdAt"));
-        await CreateAsync(FraudSignals, ("userId", "signalKey"));
+        // ESC-29: the owner indexes the reputation copy reads. FUP-160: the status indexes the owner stamp walks.
+        await CreateAsync(Crops, ("cropId", "createdAt"), ("FarmerIdCreatedAtIndex", "farmerId", "createdAt"),
+            ("StatusCreatedAtIndex", "status", "createdAt"));
+        await CreateAsync(Trips, ("tripId", "createdAt"), ("TruckerIdCreatedAtIndex", "truckerId", "createdAt"),
+            ("StatusDepartureDateIndex", "status", "departureDate"));
+        // ESC-28: the reputation events and their two sparse indexes.
+        await CreateAsync(ReputationEvents, ("userId", "eventId"),
+            ("AppealStatusIndex", "appealStatus", "appealedAt"), ("DueIndex", "dueDay", "dueAt"));
+        // ESC-29: the ratee index the rating reads filter by role.
+        await CreateAsync(Ratings, ("ratingId", null), ("RateeIdCreatedAtIndex", "rateeId", "createdAt"));
+        // FRD-07: Fraud Review's sparse status index.
+        await CreateAsync(FraudSignals, ("userId", "signalKey"), ("StatusCreatedAtIndex", "status", "createdAt"));
+        // FUP-203: the trucker's check-ins (LT-05), read for the trucker's GPS_ANOMALY row.
+        await CreateAsync(TripLocations, ("tripId", "sortKey"));
+        // SIM-56: the buyers' requests, read back per buyer by GET /intents.
+        await CreateAsync(Intents, ("buyerId", "intentId"), ("CropTypeStatusIndex", "cropType", "intentId"));
+        // ESC-35: the QR handoff secrets (the farmer's and the trucker's nonces, the typed-code misses).
+        await CreateAsync(QrSecrets, ("deliveryId", null));
     }
 
     public async Task DisposeAsync()

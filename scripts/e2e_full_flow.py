@@ -41,9 +41,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse, parse_qs
 from urllib.request import Request, urlopen
 
+from crop_photo_upload import CropPhotoUploadError, upload_crop_photos
+
 BASE_URL = "https://vhhm8gh9c1.execute-api.eu-north-1.amazonaws.com"
 SIM_URL: Optional[str] = None
 PASSWORD = "testpass1a"
+# Sent on every call like the apps (FUP-61): /sync refuses order operations from an app
+# below MIN_ORDER_APP_BUILD, 3 in dev (ESC-25).
+APP_BUILD = "3"
 
 
 def ts() -> int:
@@ -76,6 +81,7 @@ def api(method, path, token=None, body=None, params=None, base=None, retries=3) 
     for attempt in range(retries + 1):
         req = Request(url, data=data, method=method)
         req.add_header("Content-Type", "application/json")
+        req.add_header("X-App-Build", APP_BUILD)
         if token:
             req.add_header("Authorization", f"Bearer {token}")
         try:
@@ -237,8 +243,14 @@ def seed_listings(s: State):
     ]
     for farmer, c in crops:
         cid = uid()
+        # crop-listing-api 1.6.0: the photos go up before the create (rule 9).
+        try:
+            photo_ids = upload_crop_photos(BASE_URL, farmer.token, cid)
+        except CropPhotoUploadError as e:
+            s.check(f"crop {c['cropType']} ({farmer.name})", False, f"photo upload: {e}")
+            continue
         data = {"farmerId": farmer.user_id, "farmerName": farmer.name,
-                "woreda": farmer.woreda, "status": "available", **c}
+                "woreda": farmer.woreda, "status": "available", "photoIds": photo_ids, **c}
         r = sync_create(farmer, "crop_listing", cid, data)
         ok = r.status == 200 and (r.json().get("results", [{}])[0].get("status") in ("success",))
         dup = "FRAUD_DUPLICATE" in r.body
@@ -256,9 +268,13 @@ def seed_listings(s: State):
                 "departureDate": dep, "status": "open", **trip}
         r = sync_create(t, "trip", tid, data)
         ok = r.status == 200 and r.json().get("results", [{}])[0].get("status") == "success"
+        # A second run on one day posts the same route and departure day again: refused as a duplicate
+        # trip (trip-listing-api.md rule 14). The earlier trip is picked up by the refresh below.
+        dup = "FRAUD_DUPLICATE" in r.body
         if ok:
             s.trips.append((tid, t))
-        s.check(f"trip {trip['fromWoreda']}->{trip['toWoreda']}", ok, "" if ok else r.body[:120])
+        s.check(f"trip {trip['fromWoreda']}->{trip['toWoreda']}", ok or dup,
+                "(dup ok)" if dup and not ok else "" if ok else r.body[:120])
         time.sleep(0.5)
 
     # Refresh refs from the API so later phases work even when creates were fraud-dups.
@@ -420,7 +436,6 @@ def delivery_and_escrow(s: State):
     })
     res0 = r.json().get("results", [{}])[0] if r.status == 200 else {}
     ok = res0.get("status") == "success"
-    qr_nonce = (res0.get("serverData") or {}).get("qrNonce", "")
     s.check("trucker creates delivery", ok, "" if ok else r.body[:140])
     if not ok:
         return

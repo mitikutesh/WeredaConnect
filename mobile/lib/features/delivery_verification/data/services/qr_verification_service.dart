@@ -28,10 +28,17 @@ class QrVerificationService {
   /// and a device-local key in the HMAC derivation.
   /// Returns (qrTokenString, nonce) — nonce must be persisted for
   /// server-side cross-validation during sync.
+  ///
+  /// [dropoff]: the trucker's drop-off QR (ESC-35). The same payload, so
+  /// every buyer app reads it; its nonce starts with
+  /// [DeliveryConstants.dropoffNoncePrefix].
   Future<(String token, String nonce)> generateQrToken(
-    Delivery delivery,
-  ) async {
-    final nonce = _generateNonce();
+    Delivery delivery, {
+    bool dropoff = false,
+  }) async {
+    final nonce = dropoff
+        ? '${DeliveryConstants.dropoffNoncePrefix}${_generateNonce()}'
+        : _generateNonce();
     final timestamp = DateTime.now().toUtc().millisecondsSinceEpoch;
 
     final deviceKey = await _deviceKeyService.getKey();

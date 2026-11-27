@@ -567,6 +567,7 @@ Features failing 3+ gates are marked DEFERRED.
 - **PO Gates**: Fraud risk (YES), Offline (YES -- cache ratings), Ops complexity (NO), Revenue (YES), Policy (NO) = 3/5 PASS but DEFERRED to Layer 4
 - **Layer**: 4 - Growth
 - **Dependencies**: F-10, F-11, F-12, F-13 (completed transactions to rate)
+- **Status (2026-11-07, ESC-14 survey 9.6)**: built ahead of Layer 4. Buyers rate the farmer and the trucker of a delivered order (`specs/contracts/rating-api.md` 1.0.0, 2026-07-09; also on `disbursing` since 1.1.0). Stored aggregates, two-way ratings and reputation are EPIC ESC phase P2 (ESC-27 to ESC-31)
 
 ### F-25: Cooperative Dashboards
 | Dimension | Score | Rationale |

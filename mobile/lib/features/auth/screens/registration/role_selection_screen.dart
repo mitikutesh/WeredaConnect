@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
 
-/// Step 1: Role Selection — pick Farmer, Trucker, or Buyer.
+/// Step 1: Role Selection — pick Farmer, Trucker, or Buyer (the RegisterRole
+/// board). The flow above draws the header and the Continue button.
 class RoleSelectionScreen extends StatelessWidget {
   final UserRole? selectedRole;
   final ValueChanged<UserRole> onRoleSelected;
@@ -19,151 +22,60 @@ class RoleSelectionScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                l10n.selectRole,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textDark,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                l10n.selectRoleDescription,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textMuted,
-                ),
-              ),
-              const SizedBox(height: 32),
-              _RoleCard(
-                icon: Icons.agriculture,
-                title: l10n.farmer,
-                description: l10n.farmerDescription,
-                isSelected: selectedRole == UserRole.farmer,
-                onTap: () => onRoleSelected(UserRole.farmer),
-              ),
-              const SizedBox(height: 16),
-              _RoleCard(
-                icon: Icons.local_shipping,
-                title: l10n.trucker,
-                description: l10n.truckerDescription,
-                isSelected: selectedRole == UserRole.trucker,
-                onTap: () => onRoleSelected(UserRole.trucker),
-              ),
-              const SizedBox(height: 16),
-              _RoleCard(
-                icon: Icons.shopping_bag,
-                title: l10n.buyer,
-                description: l10n.buyerDescription,
-                isSelected: selectedRole == UserRole.buyer,
-                onTap: () => onRoleSelected(UserRole.buyer),
-              ),
-            ],
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          JoinTitle(
+            title: l10n.selectRole,
+            subtitle: l10n.selectRoleDescription,
           ),
-        ),
+          const SizedBox(height: 20),
+          for (final role in UserRole.values) ...[
+            if (role != UserRole.values.first) const SizedBox(height: 12),
+            _roleCard(context, l10n, role),
+          ],
+          const SizedBox(height: 20),
+          JoinNote.plain(text: l10n.registrationRoleNextNote),
+        ],
       ),
     );
   }
-}
 
-class _RoleCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String description;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _RoleCard({
-    required this.icon,
-    required this.title,
-    required this.description,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? AppTheme.primaryGreen.withAlpha(15)
-                : AppTheme.surfaceWhite,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isSelected ? AppTheme.primaryGreen : AppTheme.borderLight,
-              width: isSelected ? 2 : 1,
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? AppTheme.primaryGreen.withAlpha(30)
-                      : AppTheme.backgroundCream,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(
-                  icon,
-                  size: 28,
-                  color:
-                      isSelected ? AppTheme.primaryGreen : AppTheme.textMuted,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: isSelected
-                            ? AppTheme.primaryGreen
-                            : AppTheme.textDark,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      description,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.textMuted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (isSelected)
-                const Icon(
-                  Icons.check_circle,
-                  color: AppTheme.primaryGreen,
-                  size: 24,
-                ),
-            ],
-          ),
+  /// One role's card: its icon tile wears THAT role's tint and colour,
+  /// whichever role is picked.
+  Widget _roleCard(
+    BuildContext context,
+    AppLocalizations l10n,
+    UserRole role,
+  ) {
+    final colors = RoleColors.forRole(role);
+    final (title, description, icon) = switch (role) {
+      UserRole.farmer => (
+          l10n.farmer,
+          l10n.farmerDescription,
+          FwSprout(size: 26, color: colors.primary) as Widget,
         ),
-      ),
+      UserRole.trucker => (
+          l10n.trucker,
+          l10n.truckerDescription,
+          Icon(Icons.local_shipping_outlined, size: 26, color: colors.primary),
+        ),
+      UserRole.buyer => (
+          l10n.buyer,
+          l10n.buyerDescription,
+          Icon(Icons.shopping_bag_outlined, size: 26, color: colors.primary),
+        ),
+    };
+    return JoinChoiceCard(
+      key: ValueKey('register_role_${role.name}'),
+      icon: icon,
+      iconBackground: colors.tint,
+      title: title,
+      description: description,
+      selected: selectedRole == role,
+      onTap: () => onRoleSelected(role),
     );
   }
 }

@@ -92,6 +92,7 @@ jobs:
             --cache-control "public, max-age=31536000, immutable" \
             --exclude "index.html" \
             --exclude "flutter_service_worker.js" \
+            --exclude "flutter_bootstrap.js" \
             --exclude "version.json" \
             --exclude "fayda-callback.html" \
             --exclude "fayda-callback.js"
@@ -102,6 +103,10 @@ jobs:
 
           aws s3 cp mobile/build/web/flutter_service_worker.js \
             s3://${{ secrets.WEBAPP_S3_BUCKET }}/flutter_service_worker.js \
+            --cache-control "public, max-age=0, must-revalidate"
+
+          aws s3 cp mobile/build/web/flutter_bootstrap.js \
+            s3://${{ secrets.WEBAPP_S3_BUCKET }}/flutter_bootstrap.js \
             --cache-control "public, max-age=0, must-revalidate"
 
           aws s3 cp mobile/build/web/version.json \

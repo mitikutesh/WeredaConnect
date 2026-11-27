@@ -26,13 +26,13 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
-  String get worksOffline => 'Oflaayiniin Hojjeta';
+  String get worksOffline => 'Neetworkii malee ni hojjeta';
 
   @override
-  String get offlineMode => 'Haalata Offline';
+  String get offlineMode => 'Neetworkii malee';
 
   @override
-  String get syncPending => 'Walsimsiisuun Eegaa Jira';
+  String get syncPending => 'Ergamuuf eegaa jira';
 
   @override
   String get taglineShort =>
@@ -42,19 +42,19 @@ class AppLocalizationsOm extends AppLocalizations {
   String get telebirrPayment => 'Kaffaltii Telebirr';
 
   @override
-  String get syncInProgress => 'Walsimsiisuun Itti Fufeera...';
+  String get syncInProgress => 'Ergamaa jira...';
 
   @override
-  String get syncComplete => 'Walsimsiisuun Xumurameera';
+  String get syncComplete => 'Hundi ergameera';
 
   @override
-  String get syncFailed => 'Walsimsiisuun Hin Milkoofne';
+  String get syncFailed => 'Hin ergamne';
 
   @override
   String get retry => 'Irra Deebi\'ii Yaali';
 
   @override
-  String get syncNow => 'Amma Walsimsisi';
+  String get syncNow => 'Amma ergi';
 
   @override
   String get selectLanguagePrompt => 'Afaan Kee Filadhu';
@@ -103,7 +103,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get errorSecureConnectionFailed =>
-      'Server waliin walqunnamtii nageenya qabu uumuun hin danda\'amne. Appii haaromsaa yookiin neetworkii biraa yaalaa.';
+      'Walqunnamtii nageenya qabu uumuun hin danda\'amne. Appii haaromsaa yookiin neetworkii biraa yaalaa.';
 
   @override
   String get noInternetConnection => 'Walitti Dhufeenya Interneetii Hin Jiru';
@@ -125,8 +125,15 @@ class AppLocalizationsOm extends AppLocalizations {
       'Ajajni kun galmaa\'uu hin dandeenye, kanaaf haqameera. Maaloo irra deebi\'aa ajajaa.';
 
   @override
-  String get errorChangeNotSaved =>
-      'Jijjiiramni kun sarvarii irratti olkaa\'amuu hin dandeenye.';
+  String get errorChangeNotSaved => 'Jijjiiramni kun hin fudhatamne.';
+
+  @override
+  String get errorListingDetailsNotAccepted =>
+      'Odeeffannoon tarree midhaanii keessanii hin fudhatamne. Sirreessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get errorTripDetailsNotAccepted =>
+      'Odeeffannoon imala keessanii hin fudhatamne. Sirreessaatii irra deebi\'aa yaalaa.';
 
   @override
   String get showingCachedResults =>
@@ -134,10 +141,10 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get dataWillSyncWhenOnline =>
-      'Yeroo online taatan deetaan keessan walsimsifama';
+      'Yeroo neetworkiin jiru daataan keessan ni ergama';
 
   @override
-  String get offlineReady => 'Offline Qophaa\'eera';
+  String get offlineReady => 'Neetworkii malee ni hojjeta';
 
   @override
   String get home => 'Mana';
@@ -197,11 +204,17 @@ class AppLocalizationsOm extends AppLocalizations {
   String get dataSaverDescription => 'Itti fayyadama daataa hir\'isi';
 
   @override
-  String get aboutDescription => 'Waltajjii loojistikii qonnaa offline-first';
+  String get aboutDescription =>
+      'Waltajjii loojistikii qonnaa neetworkii malee hojjetu';
 
   @override
   String get aboutTagline =>
       'Qonnaan buultota Itoophiyaa, konkolaatota fe\'aa fi bitootaa walitti dhufeenya';
+
+  @override
+  String aboutMapDataCredit(String credit) {
+    return 'Odeeffannoo kaartaa: $credit';
+  }
 
   @override
   String get activeListings => 'tarreewwan socho\'oo';
@@ -214,6 +227,12 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get password => 'Jecha Icciitii';
+
+  @override
+  String get showPassword => 'Jecha icciitii agarsiisi';
+
+  @override
+  String get hidePassword => 'Jecha icciitii dhoksi';
 
   @override
   String get confirmPassword => 'Jecha Icciitii Mirkaneessi';
@@ -277,16 +296,64 @@ class AppLocalizationsOm extends AppLocalizations {
   String get forgotPassword => 'Jecha Icciitii Irraanfatteettaa?';
 
   @override
+  String get loginYourRole => 'Gahee kee';
+
+  @override
+  String get loginAsFarmer => 'Akka Qotee Bulaatti Seeni';
+
+  @override
+  String get loginAsTrucker => 'Akka Konkolaachisaatti Seeni';
+
+  @override
+  String get loginAsBuyer => 'Akka Bitaatti Seeni';
+
+  @override
+  String get loginTaglineFarmer => 'Oomisha kee gurguri, ajaja hunda hordofi';
+
+  @override
+  String get loginTaglineTrucker =>
+      'Konkolaataa kee guuti, yeroo geessitu kaffaltii kee argadhu';
+
+  @override
+  String get loginTaglineBuyer =>
+      'Midhaanii fi geejjiba bakka tokkotti argadhu';
+
+  @override
+  String get orderCheckoutApproveNote =>
+      'Kaffaltii Telebirr keessatti mirkaneessuu qabdu. Sana booda hanga geessuu mirkaneessitanitti maallaqni Eeskiroo keessatti qabama.';
+
+  @override
+  String get paymentNotPaidPill => 'Hin kaffalamne';
+
+  @override
+  String get paymentFailedTitle => 'Kaffaltiin hin milkoofne';
+
+  @override
+  String get paymentFailedBody =>
+      'Herrega Telebirr keessan irraa maallaqni hin fudhatamne, ajajni keessanis akkuma olkaa\'ametti jira.';
+
+  @override
+  String get paymentTryAgain => 'Kaffaltii irra deebi\'aa yaalaa';
+
+  @override
+  String get paymentOfflineBody =>
+      'Kaffaltiin neetworkii barbaada. Ajajni keessan bilbila kana irratti olkaa\'ameera.';
+
+  @override
+  String get paymentBackToOrder => 'Gara ajajaatti deebi\'i';
+
+  @override
   String get getStarted => 'Jalqabi';
 
   @override
-  String get loginOnline => 'Online ta\'ii Seeni';
+  String get loginOnline => 'Interneetiin seeni';
 
   @override
-  String get loginOffline => 'Offline ta\'ii Seeni';
+  String get loginOffline => 'Neetworkii malee seeni';
 
   @override
-  String get offlineModeIndicator => 'Haalata offline keessa jirtu';
+  String get offlineModeIndicator =>
+      'Neetworkiin hin jiru. Hojiin keessan bilbila keessan irratti olkaa\'ameera.';
 
   @override
   String get passwordRequirements =>
@@ -327,7 +394,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get authServerError =>
-      'Dogoggora sarvaraa. Maaloo booda irra deebi\'ii yaali.';
+      'Rakkoon gama keenyaan uumameera. Maaloo booda irra deebi\'ii yaali.';
 
   @override
   String get authServiceUnavailable =>
@@ -367,7 +434,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get authOfflineNotAvailable =>
-      'Haalata offline dandeessisuuf dursa online seenaa.';
+      'Neetworkii malee seenuuf, dursa interneetiin seenaa.';
 
   @override
   String get authAccountDisabled =>
@@ -416,11 +483,11 @@ class AppLocalizationsOm extends AppLocalizations {
   String get myOrders => 'Ajaja Koo';
 
   @override
-  String get clearOfflineData => 'Daataa offline haqamuu?';
+  String get clearOfflineData => 'Daataa bilbila irratti olkaa\'ame haquu?';
 
   @override
   String get clearOfflineDataDescription =>
-      'Yoo daataa kana hin haqiin offline ta\'anii seenuu dandeessu';
+      'Yoo daataa kana hin haqiin neetworkii malee seenuu dandeessu';
 
   @override
   String get ethiopianPhoneExample => 'Fakkeenya: 0911234567 ykn +251911234567';
@@ -457,9 +524,6 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get selectCropType => 'Gosa Midhaan Filadhu';
-
-  @override
-  String get quantityInQuintals => 'Hamma (kuuntaalii)';
 
   @override
   String get priceInBirr => 'Gatii (Birrii/kg)';
@@ -499,10 +563,36 @@ class AppLocalizationsOm extends AppLocalizations {
   String get listingDeleted => 'Tarreen haqameera';
 
   @override
+  String get editListing => 'Tarree Gulaali';
+
+  @override
+  String get editListingNote =>
+      'Hamma hafe, gatii ykn ibsa jijjiiri. Midhaan, suuraawwan ykn bakka jijjiiruuf tarree kana haqiitii irra deebi\'ii galchi.';
+
+  @override
+  String get deleteListingTitle => 'Tarree kana haquu?';
+
+  @override
+  String get deleteListingBody =>
+      'Bittoonni kana booda hin argan. Deebisuun hin danda\'amu.';
+
+  @override
+  String get editListingChanged =>
+      'Tarreen kun erga banattee jijjiirameera, tarii ajajni tokko gariisaa fudhatee jira. Ilaaliitii irra deebi\'ii gulaali.';
+
+  @override
+  String get editListingWaiting =>
+      'Jijjiirama dhumaa tarree kana irratti gootan ammallee hin ergamne. Yeroo interneetii qabdanii erga ergamee booda irra deebi\'aa gulaalaa.';
+
+  @override
+  String get deleteListingOrdersUnreadable =>
+      'Ajajoota tarree kanaa mirkaneessuun hin danda\'amne. Yeroo interneetii qabdan irra deebi\'aa yaalaa.';
+
+  @override
   String get allCrops => 'Hunda';
 
   @override
-  String get quintals => 'kuuntaalii';
+  String get quintals => 'kuntaala';
 
   @override
   String get etbPerKg => 'Birrii/kg';
@@ -561,6 +651,22 @@ class AppLocalizationsOm extends AppLocalizations {
   String get myTrips => 'Imala Koo';
 
   @override
+  String get listsRouteFrom => 'Irraa';
+
+  @override
+  String get listsRouteTo => 'Gara';
+
+  @override
+  String get listsMyTripsPrivacyNote =>
+      'Imala kee asitti si qofatu arga. Bitattoonni Gabaa keessatti argatu.';
+
+  @override
+  String get listsAllTripsNote => 'Imala banaa konkolaachisaa hunda irraa.';
+
+  @override
+  String get listsKeepTrip => 'Imala tursi';
+
+  @override
   String get tripDetails => 'Bal\'ina Imaltuu';
 
   @override
@@ -571,12 +677,6 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get departureDate => 'Guyyaa Ka\'umsaa';
-
-  @override
-  String get capacity => 'Dandeettii (Kuintaalii)';
-
-  @override
-  String get pricePerQuintal => 'Gatii Kuintaalii (ETB)';
 
   @override
   String get tripStatusOpen => 'Banaa';
@@ -627,11 +727,8 @@ class AppLocalizationsOm extends AppLocalizations {
   String get capacityRequired => 'Dandeettiin barbaachisaadha';
 
   @override
-  String get invalidCapacity =>
-      'Dandeettiin 0.1 hanga 1000 kuintaalii ta\'uu qaba';
-
-  @override
-  String get invalidPrice => 'Gatiin 0.01 hanga 10000 ETB ta\'uu qaba';
+  String get invalidPrice =>
+      'Gatiin Birrii 0.01 hanga Birrii 10000 ta\'uu qaba';
 
   @override
   String get sameOriginDestination =>
@@ -684,6 +781,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String get deliveryDetails => 'Bal\'insa Geejjibaa';
 
   @override
+  String get restDeliveryTimeline => 'Sarara Yeroo Geejjibaa';
+
+  @override
   String get deliveryScanQrCode => 'Koodii QR Iskaan';
 
   @override
@@ -722,7 +822,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliverySelfPickupPayFirst =>
-      'Duraan escrow keessa kaffali, ergasii qonnaan bulaa biratti fudhachuuf iskaanii godhi.';
+      'Duraan eeskiroo keessa kaffali, ergasii qonnaan bulaa biratti fudhachuuf iskaanii godhi.';
 
   @override
   String get orderOpenDelivery => 'Geejjiba bani';
@@ -787,7 +887,8 @@ class AppLocalizationsOm extends AppLocalizations {
   String get deliveryGpsNotCaptured => 'Hin qabamne';
 
   @override
-  String get deliveryGpsPermissionDenied => 'Hayyama Iddoo Didame';
+  String get deliveryGpsPermissionDenied =>
+      'Hayyamni bakkaa hin kennamne. \"Bakka irra deebi\'ii yaali\" tuqiitii hayyami.';
 
   @override
   String get deliveryQrShowInstructionBuyer =>
@@ -877,6 +978,17 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryAddPhoto => 'Suuraa Ida\'i';
+
+  @override
+  String get restNoPhoto => 'Suuraan hin jiru';
+
+  @override
+  String get deliveryPhotoOnlineOnly =>
+      'Yeroo interneetiin walqabattan mul\'ata';
+
+  @override
+  String get deliveryPhotoFailed =>
+      'Suuraan hin kuufamne. Irra deebi\'aa yaalaa.';
 
   @override
   String get deliveryMarkInTransit => 'Daandii Irra Mallatteessi';
@@ -975,6 +1087,9 @@ class AppLocalizationsOm extends AppLocalizations {
   String escrowCommission(String rate) {
     return 'Komishiinii ($rate%)';
   }
+
+  @override
+  String get escrowPlatformCommission => 'Komishiinii Waltajjii';
 
   @override
   String get escrowFarmerReceives => 'Qonnaan Bulaan Kan Fudhatu';
@@ -1150,7 +1265,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get escrowErrorOrderAlreadyFunded =>
-      'Kaffaltiin ajaja kanaa duraan eskiroo keessatti qabamee jira.';
+      'Kaffaltiin ajaja kanaa duraan eeskiroo keessatti qabamee jira.';
 
   @override
   String get escrowErrorGateway =>
@@ -1215,6 +1330,19 @@ class AppLocalizationsOm extends AppLocalizations {
       'Komiin kan ka\'uu danda\'u erga meeshaan fe\'amee booda qofa. Sana dura ajaja haqaa, ykn deeggarsa qunnamaa.';
 
   @override
+  String get escrowErrorDisputeRefundScheduled =>
+      'Kaffaltii kanaaf maallaqni bitataaf akka deebi\'u duraan qabameera, kanaaf amma komiin itti ka\'uu hin danda\'u. Yoo itti hin walii galle deeggarsa qunnamaa.';
+
+  @override
+  String get escrowErrorDisputeGoodsOnTheWay =>
+      'Meeshaan ammayyuu karaa irra jira. Hin geenye jettanii gabaasuu kan dandeessan erga yeroon geejjibsiisaaf murtaa\'e darbee booda. Rakkoo biraatiif sababa biraa filadhaa.';
+
+  @override
+  String escrowErrorDisputeGoodsOnTheWayAfter(String time) {
+    return 'Meeshaan ammayyuu karaa irra jira. Hin geenye jettanii gabaasuu kan dandeessan $time booda. Rakkoo biraatiif sababa biraa filadhaa.';
+  }
+
+  @override
   String get escrowErrorInvalidTransition =>
       'Gochi kun haala kaffaltii ammaa keessatti hin hayyamamu.';
 
@@ -1222,6 +1350,21 @@ class AppLocalizationsOm extends AppLocalizations {
   String escrowEtbAmount(String amount) {
     return 'Birrii $amount';
   }
+
+  @override
+  String get profileSectionAccount => 'Akkaawuntii';
+
+  @override
+  String get profileSectionMoney => 'Maallaqa';
+
+  @override
+  String get profileSectionApp => 'Appii';
+
+  @override
+  String get profileSettingsLanguageTime => 'Afaan fi yeroo';
+
+  @override
+  String get profileSettingsData => 'Daataa';
 
   @override
   String get profileRestartApp => 'Maaloo app irra deebi\'i bani';
@@ -1298,14 +1441,14 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get dataUsageScopeNote =>
-      'Kun gaaffii herregni kun meeshaa kana irraa gara sarvaroota WeredaConnect ergu qofa lakkaa\'a. Itti fayyadamni daataa bilbila keessanii waliigalaa (haaromsa appii, suuraalee, appiiwwan biroo) kana caaluu danda\'a. Daataan seensaa (sign-in) hin dabalamne.';
+      'Kun gaaffii herregni kun meeshaa kana irraa gara WeredaConnect ergu qofa lakkaa\'a. Itti fayyadamni daataa bilbila keessanii waliigalaa (haaromsa appii, suuraalee, appiiwwan biroo) kana caaluu danda\'a. Daataan seensaa (sign-in) hin dabalamne.';
 
   @override
   String get conflictTitle => 'Deetaan Haaromfame';
 
   @override
   String get conflictExplanation =>
-      'Meeshaan biraa ykn serveriin galmee kana haaromse. Kophi naannoo kee haaromfameera.';
+      'Odeeffannoon kun bilbila biraa ykn WeredaConnect irratti jijjiirameera. Kan bilbila kana irra jirus sirreeffameera.';
 
   @override
   String get conflictAccept => 'Tole, Hubadhe';
@@ -1488,27 +1631,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get filterMax => 'Guddaa';
 
   @override
-  String get selectTrip => 'Imala Filadhu';
-
-  @override
-  String get buyerInformation => 'Odeeffannoo Bitaa';
-
-  @override
-  String get buyerNameLabel => 'Maqaa Bitaa';
-
-  @override
-  String get buyerPhoneIdLabel => 'Bilbila / Eenyummaa Bitaa';
-
-  @override
-  String get buyerNameRequired => 'Maqaan bitaa barbaachisaadha';
-
-  @override
-  String get buyerIdRequired => 'Bilbilli ykn eenyummaan bitaa barbaachisaadha';
-
-  @override
-  String get tripSelectionRequired => 'Maaloo imala filadhaa';
-
-  @override
   String get chooseTripHint => 'Imala filadhaa';
 
   @override
@@ -1522,6 +1644,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get copiedToClipboard => 'Garagalchamee';
+
+  @override
+  String ratingStarsOf(int count, int max) {
+    return 'Urjii $max keessaa $count';
+  }
 
   @override
   String get forgotPasswordContactSupport =>
@@ -1574,7 +1701,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String escrowPayoutExpectedOn(String date) {
-    return 'Kaffaltiin $date irratti eegama';
+    return 'Maallaqni keessan $date isin ga\'a jedhamee eegama';
   }
 
   @override
@@ -1630,7 +1757,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String escrowPaymentAmount(String amount) {
-    return 'Kaffaltii: ETB $amount';
+    return 'Kaffaltii: Birrii $amount';
   }
 
   @override
@@ -1662,7 +1789,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get authErrorOfflineLoginFailed =>
-      'Oflaayiniin seenuu hin milkoofne. Maaloo dursa onlaayiniin seeni.';
+      'Neetworkii malee seenuun hin milkoofne. Maaloo dursa interneetiin seeni.';
 
   @override
   String get authErrorSecureStorage =>
@@ -1707,7 +1834,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deliveryErrorQrPending =>
-      'Koodiin QR qonnaan bulaa hanga ammaatti sarvarii hin geenye. Qonnaan bulaan interneetii irratti koodii QR akka banu gaafadhaa, achiis irra deebi\'aa yaalaa.';
+      'Koodiin QR qonnaan bulaa hanga ammaatti nu hin geenye. Qonnaan bulaan interneetii irratti koodii QR akka banu gaafadhaa, achiis irra deebi\'aa yaalaa.';
 
   @override
   String get deliveryErrorCancelNotAllowed =>
@@ -1848,7 +1975,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get rating => 'Sadarkaa';
 
   @override
-  String get inEscrowEtb => 'Eeskiroo Keessaa (ETB)';
+  String get inEscrowEtb => 'Eeskiroo Keessaa (Birrii)';
 
   @override
   String get wallet => 'Waaleetii';
@@ -2023,10 +2150,14 @@ class AppLocalizationsOm extends AppLocalizations {
   String get trackDeliveries => 'Geejjiba midhaanii kee hordofi';
 
   @override
-  String get trackPayments => 'Galii fi eesciroo kee hordofi';
+  String get trackPayments => 'Galii fi eeskiroo kee hordofi';
 
   @override
-  String get trackBuyerPayments => 'Kaffaltii fi eesciroo kee hordofi';
+  String get trackBuyerPayments => 'Kaffaltii fi eeskiroo kee hordofi';
+
+  @override
+  String get listsPaymentsNote =>
+      'Sararri tokkoon tokkoon eeskiroo tokko. Seenaa isaa ilaaluuf tuqi.';
 
   @override
   String get noDeliveries => 'Hanga ammaatti geejjibni hin jiru';
@@ -2079,7 +2210,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get splashSubtitle =>
-      'Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf — eesciroo nageenya qabuun.';
+      'Waltajjii tokko qonnaan bultootaa, konkolaachiftootaa fi bitootaaf, eeskiroo nageenya qabuun.';
 
   @override
   String get orderFunded => 'Kaffaltii';
@@ -2133,9 +2264,6 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get transportCost => 'Baasii Geejjibaa';
-
-  @override
-  String get platformCommission => 'Komishiinii Waltajjii (5%)';
 
   @override
   String get orderTotal => 'Waliigala';
@@ -2196,11 +2324,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get statusPaymentSubmittedInfo =>
-      'Bitataan kaffaltii ergeera; mirkanaa\'aa jira. Maallaqni ammallee eskiroo keessatti hin mirkanoofne.';
+      'Bitataan kaffaltii ergeera; mirkanaa\'aa jira. Maallaqni ammallee eeskiroo keessatti hin mirkanoofne.';
 
   @override
   String get statusFundedInfo =>
-      'Kaffaltiin mirkanaa\'ee eskiroo keessatti nagaan qabameera. Hangi ajajame tarree qonnaan bulaa irraa qabameera.';
+      'Kaffaltiin mirkanaa\'ee eeskiroo keessatti nagaan qabameera. Hangi ajajame tarree qonnaan bulaa irraa qabameera.';
 
   @override
   String get orderAcceptedInfo =>
@@ -2215,11 +2343,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get statusDeliveredInfo =>
-      'Ga\'umsi bitataadhaan mirkanaa\'eera. Eskiroon kaffaltii qonnaan bulaaf gadhiisa.';
+      'Ga\'umsi bitataadhaan mirkanaa\'eera. Eeskiroon kaffaltii qonnaan bulaaf gadhiisa.';
 
   @override
   String get statusDisbursingInfo =>
-      'Maallaqni eskiroo irraa ba\'aa jira: qonnaan bulaa fi, yoo jiraate, konkolaataa fe\'aatiif kaffalamaa jira.';
+      'Maallaqni eeskiroo irraa ba\'aa jira: qonnaan bulaa fi, yoo jiraate, konkolaataa fe\'aatiif kaffalamaa jira.';
 
   @override
   String get statusSettledInfo =>
@@ -2227,11 +2355,11 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get orderCancelledInfo =>
-      'Ajajni haqameera. Maallaqni eskiroo keessatti qabame yoo jiraate bitataaf deebi\'a.';
+      'Ajajni haqameera. Maallaqni eeskiroo keessatti qabame yoo jiraate bitataaf deebi\'a.';
 
   @override
   String get orderRejectedInfo =>
-      'Qonnaan bulaan ajaja kana hin fudhanne. Maallaqni eskiroo keessatti qabame bitataaf deebi\'a.';
+      'Qonnaan bulaan ajaja kana hin fudhanne. Maallaqni eeskiroo keessatti qabame bitataaf deebi\'a.';
 
   @override
   String get statusPaymentFailedInfo =>
@@ -2239,7 +2367,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get statusDisputedInfo =>
-      'Falmiin dhiyaateera. Hanga falmiin furamutti maallaqni eskiroo keessatti qabamee tura.';
+      'Falmiin dhiyaateera. Hanga falmiin furamutti maallaqni eeskiroo keessatti qabamee tura.';
 
   @override
   String get statusDisputeResolvedInfo =>
@@ -2297,6 +2425,15 @@ class AppLocalizationsOm extends AppLocalizations {
   String get orderTimeline => 'Sarara Yeroo Ajajaa';
 
   @override
+  String get orderTimelineStepDone => 'Xumurameera';
+
+  @override
+  String get orderTimelineStepNow => 'Amma';
+
+  @override
+  String get orderTimelineStepLater => 'Ammallee miti';
+
+  @override
   String etbCurrency(String amount) {
     return 'Birrii $amount';
   }
@@ -2329,7 +2466,7 @@ class AppLocalizationsOm extends AppLocalizations {
   String get findMatches => 'Walsimatu Barbaadi';
 
   @override
-  String get quantityNeeded => 'Hamma barbaadamu (kuuntaalii)';
+  String get quantityNeeded => 'Hamma barbaadamu (kuntaala)';
 
   @override
   String get maxPrice => 'Gatii ol\'aanaa (Birrii/kg)';
@@ -2347,6 +2484,11 @@ class AppLocalizationsOm extends AppLocalizations {
       zero: 'Walsimatu hin argamne',
     );
     return '$_temp0';
+  }
+
+  @override
+  String restMatchesFor(String crop) {
+    return 'Walsimatoota $crop';
   }
 
   @override
@@ -2399,11 +2541,8 @@ class AppLocalizationsOm extends AppLocalizations {
   String get transportCostLabel => 'Gatii Geejjibaa';
 
   @override
-  String get commissionLabel => 'Komishinii (5%)';
-
-  @override
   String syncedAgo(String time) {
-    return '$time dura walsimame';
+    return '$time dura haaromfame';
   }
 
   @override
@@ -2480,9 +2619,33 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String quintalsInParens(String count) {
+    return '(kuntaala $count)';
+  }
+
+  @override
+  String get oneQuintalInParens => '(kuntaala 1)';
+
+  @override
   String orderQuantityExceedsStock(String available) {
     return 'Kan jiru kg $available qofa. Baay\'ina xiqqaa galchi.';
   }
+
+  @override
+  String orderQuantityAvailable(String available) {
+    return 'kg $available ni jira';
+  }
+
+  @override
+  String get cropFormPriceHighWarning =>
+      'Gatiin kun kan kg 1 ti, baay\'ee ol\'aanaa fakkaata. Gatii kuntaala tokkoo yoo galchite, 100n hiri.';
+
+  @override
+  String get myCropsSegmentEmpty => 'Tarreen as hin jiru';
+
+  @override
+  String get myCropsSegmentEmptyHint =>
+      'Tarreewwan haala kanaan jiran as irratti mul\'atu.';
 
   @override
   String get neededByDate => 'Guyyaa barbaachisu (filannoo)';
@@ -2573,20 +2736,106 @@ class AppLocalizationsOm extends AppLocalizations {
       'Midhaan keessan galmeessaa bittoota kallattiin argadhaa';
 
   @override
-  String get synced => 'Walsimame';
+  String get synced => 'Hundi ergameera';
 
   @override
-  String get offline => 'Oflaayinii';
+  String get offline => 'Neetworkiin hin jiru';
 
   @override
   String syncFailureCount(int count) {
-    return '$count hojiiwwan xiyyeeffannoo barbaadu';
+    return '$count ergamuu hin dandeenye';
   }
 
   @override
   String syncPendingCount(int count) {
-    return '$count walsimsisuuf eeggataa jiru';
+    return '$count ergamuuf eegaa jiru';
   }
+
+  @override
+  String cropFormTotalLine(String total, String perQuintal) {
+    return 'Waliigala: Birrii $total (kuntaala tokkoof Birrii $perQuintal)';
+  }
+
+  @override
+  String logoutUnsentChanges(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Jijjiiramni $count bilbila kana irra jiran ammallee hin ergamne. Yoo baatan ni haqamu.',
+      one:
+          'Jijjiiramni 1 bilbila kana irra jiru ammallee hin ergamne. Yoo baatan ni haqama.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String logoutUnpaidPayments(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Kaffaltiiwwan $count erguuf eeggatan ni haqamu.',
+      one: 'Kaffaltiin 1 erguuf eeggatu ni haqama.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get logoutOfflineNeedsInternet =>
+      'Neetworkiin hin jiru. Irra deebitanii seenuuf interneetiin barbaachisa.';
+
+  @override
+  String get logoutAnyway => 'Haa ta\'u malee ba\'i';
+
+  @override
+  String get savedOnPhoneWillSend =>
+      'Bilbila keessan irratti olkaa\'ameera. Yeroo neetworkiin jiru ni ergama.';
+
+  @override
+  String syncStillWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Jijjiiramni $count ammallee eegaa jiru. Ofumaan irra deebi\'anii ni ergamu.',
+      one:
+          'Jijjiiramni 1 ammallee eegaa jira. Ofumaan irra deebi\'ee ni ergama.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get listingNotSentYet => 'Ammallee hin ergamne';
+
+  @override
+  String get listingNotSentYetNote =>
+      'Bilbila kana irratti qofa olkaa\'ameera. Erga ergamee booda bitoonni ni argu.';
+
+  @override
+  String get myCropsNotSentNote =>
+      'Tarreewwan \"Ammallee hin ergamne\" jedhan bilbila kana irratti qofa olkaa\'amaniiru. Erga ergamanii booda bitoonni ni argu.';
+
+  @override
+  String get authNetworkTooSlow =>
+      'Neetworkiin amma baay\'ee suuta jira. Bakka neetworkiin gaarii jirutti deemaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get orderAcceptedSent => 'Ajajicha fudhattaniittu.';
+
+  @override
+  String get orderRejectedSent =>
+      'Ajajicha diddaniittu. Maallaqni bitataaf ni deebi\'a.';
+
+  @override
+  String get homeTilesLoadFailed => 'Lakkoofsonni kun fe\'amuu hin dandeenye.';
+
+  @override
+  String get homeActionNeededLoadFailed =>
+      'Ajajoota isin eeggatan mirkaneessuun hin danda\'amne.';
+
+  @override
+  String get deliveriesLoadFailed =>
+      'Geejjibaleen keessan fe\'amuu hin dandeenye.';
 
   @override
   String paymentStatusTitle(String status) {
@@ -2733,7 +2982,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get kycRequiredFaydaMessage =>
-      'Kaffaltiin qarshii 10,000 ol ta\'e ID Faayidaa mirkanaa\'e barbaada. Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti ni ergama.';
+      'Kaffaltiin Birrii 10,000 ol ta\'e ID Faayidaa mirkanaa\'e barbaada. Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti ni ergama.';
 
   @override
   String get kycRequiredPhoneMessage =>
@@ -2768,8 +3017,16 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String get stepUpDisputeMessage =>
+      'Nageenya keessaniif, komiin kun ergamuu isaa dura isin ta\'uu keessan mirkaneessaa.';
+
+  @override
+  String get faydaStepUpDisputeMessage =>
+      'Komii kana erguuf isin ta\'uu keessan Faayidaadhaan mirkaneessaa. Jecha iccitii keessanis gaafatamuu dandeessu.';
+
+  @override
   String get faydaStepUpMessage =>
-      'Kaffaltiin kun jecha iccitii osoo hin taane Faayidaan mirkaneessuu barbaada. Isin ta\'uu keessan Faayidaan mirkaneessaa, kaffaltiin keessan battaluma sanatti itti fufa.';
+      'Kaffaltii kana itti fufuuf isin ta\'uu keessan Faayidaadhaan mirkaneessaa. Jecha iccitii keessanis gaafatamuu dandeessu.';
 
   @override
   String get stepUpTitle => 'Isin ta\'uu keessan mirkaneessaa';
@@ -2791,6 +3048,17 @@ class AppLocalizationsOm extends AppLocalizations {
       'Mirkanaa\'eera. Kaffaltii keessan irra deebi\'amaa jira.';
 
   @override
+  String get stepUpOtherMessage =>
+      'Nageenya keessaniif, itti fufuu keessan dura isin ta\'uu keessan mirkaneessaa.';
+
+  @override
+  String get faydaStepUpOtherMessage =>
+      'Itti fufuuf isin ta\'uu keessan Faayidaadhaan mirkaneessaa. Jecha iccitii keessanis gaafatamuu dandeessu.';
+
+  @override
+  String get stepUpDoneRetrying => 'Mirkanaa\'eera. Irra deebi\'amaa jira.';
+
+  @override
   String get faydaStateMismatch =>
       'Yeroon Faayidaa darbeera. Maaloo mirkaneessa irra deebi\'aa jalqabaa.';
 
@@ -2804,7 +3072,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get faydaNotVerifiedSubtitle =>
-      'Kaffaltii qarshii 10,000 ol ta\'eef barbaachisa';
+      'Kaffaltii Birrii 10,000 ol ta\'eef barbaachisa';
 
   @override
   String get appLockTitle => 'Cufaa appii';
@@ -2857,11 +3125,15 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get kycFarmerFaydaMessage =>
-      'Kaffaltiin qarshii 10,000 ol ta\'e qonnaan bulaanis ID Faayidaa mirkanaa\'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
+      'Kaffaltiin Birrii 10,000 ol ta\'e qonnaan bulaanis ID Faayidaa mirkanaa\'e akka qabaatu barbaada, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
 
   @override
   String get kycFarmerNotVerifiedMessage =>
       'Eenyummaan qonnaan bulaa ammallee hin mirkanoofne, kanaaf kaffaltiin kun hin ergamne. Erga qonnaan bulaan mirkaneessee booda kaffaluu dandeessu.';
+
+  @override
+  String get kycUnknownReasonMessage =>
+      'Mirkaneessi eenyummaa ammallee waan hafeef kaffaltiin kun hin ergamne. Maal akka barbaachisu ilaaluuf appii haaromsaa ykn deeggarsa qunnamaa.';
 
   @override
   String get kycUnavailableMessage =>
@@ -2920,7 +3192,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get orderCheckoutWaitingToSend =>
-      'Kaffaltiin keessan ergamuuf eegaa jira. Yeroo sarvarii bira gahu Telebirr ni banama.';
+      'Kaffaltiin keessan ergamuuf eegaa jira. Yeroo ergamu Telebirr ni banama.';
 
   @override
   String orderCheckoutOpenUntil(String time) {
@@ -2967,7 +3239,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get orderCheckoutOrderMissing =>
-      'Ajajni kun ammallee sarvarii irra hin jiru. Erga walsimee booda irra deebi\'aa yaalaa.';
+      'Ajajni kun ammallee hin ergamne. Erga ergamee booda irra deebi\'aa yaalaa.';
 
   @override
   String get orderCheckoutPaymentFailed =>
@@ -2983,7 +3255,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get paymentTotalOutOfRange =>
-      'Telebirr kaffaltii tokkoon qarshii 100 hanga 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta\'eef, Telebirr\'n kaffalamuu hin danda\'u.';
+      'Telebirr kaffaltii tokkoon Birrii 100 hanga Birrii 500,000 fudhata. Waliigalli ajaja kanaa kanaan ala waan ta\'eef, Telebirr\'n kaffalamuu hin danda\'u.';
 
   @override
   String get paymentMethodUnavailable =>
@@ -3009,6 +3281,10 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get cancelOrderTransportFailedBody =>
       'Kan kaffaltan hundi, baasii geejjibaa fi komishinii waltajjii dabalatee, isinii deebi\'a.';
+
+  @override
+  String get errorOrderCancelPaymentBusy =>
+      'Kaffaltiin isaa komii irra waan jiruuf ykn xumuramaa waan jiruuf ajajni kun amma haqamuu hin danda\'u. Bu\'aa isaa eegaa ykn deeggarsa qunnamaa.';
 
   @override
   String get errorOrderCancelNotAllowed =>
@@ -3043,6 +3319,10 @@ class AppLocalizationsOm extends AppLocalizations {
       'Imalli kun ajajoota qabame waan qabuuf, jijjiiramni kun hin danda\'amu.';
 
   @override
+  String get errorDuplicateTrip =>
+      'Karaa kana irratti guyyaa sana imala duraan qabdu, kanaaf imalli kun hin maxxanfamne. Imala sana sirreessaa. Kun konkolaataa lammaffaa yoo ta\'e, lakkoofsa gabatee isaa itti dabalaa.';
+
+  @override
   String get errorCropHasActiveOrders =>
       'Tarreen kun ajajoota banaa qaba. Dura isaan xumuraa.';
 
@@ -3053,6 +3333,24 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get errorAppUpdateRequiredKept =>
       'Maaloo appii haaromsaa. Jijjiiramni kun bilbila keessan irratti kuufameera, haaromsa booda ni ergama.';
+
+  @override
+  String get appUpdateBannerMessage =>
+      'Ajaja galmeessuuf ykn jijjiiruuf maaloo appii haaromsaa. Wantoonni biroo hundi akkuma duraatti hojjetu.';
+
+  @override
+  String get appUpdateBannerUpdate => 'Haaromsaa';
+
+  @override
+  String get appUpdateBannerReload => 'Fuula irra deebi\'aa fe\'aa';
+
+  @override
+  String get appUpdateBannerStoreHint =>
+      'Kuusaan yoo hin banamne ykn appii kana hin agarsiisne, WeredaConnect isa haaraa iddoo itti argattan irraa argadhaa.';
+
+  @override
+  String get appUpdateReloadFailed =>
+      'Gosa haaraa argachuu hin dandeenye. Walitti dhufeenya keessan mirkaneessaatii irra deebi\'aa yaalaa.';
 
   @override
   String get errorContactInText =>
@@ -3135,7 +3433,7 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deleteAccountNetworkError =>
-      'Sarvarii argachuu hin dandeenye, kanaaf herregni keessan haqamuu isaa beekuu hin dandeenyu. Walqunnamtii keessan mirkaneessaatii irra deebi\'aa yaalaa.';
+      'Wal qunnamuu hin dandeenye, kanaaf herregni keessan haqamuu isaa beekuu hin dandeenyu. Walqunnamtii keessan mirkaneessaatii irra deebi\'aa yaalaa.';
 
   @override
   String get deleteAccountIncomplete =>
@@ -3197,4 +3495,3214 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get deletedUser => 'Fayyadamaa haqame';
+
+  @override
+  String get unnamedUser => 'Fayyadamaa';
+
+  @override
+  String get statusAwaitingTransport => 'Geejjibni hin argamne';
+
+  @override
+  String get statusAwaitingTransportInfo =>
+      'Konkolaataan fe\'aa ajaja kana fe\'uu hin danda\'u. Maallaqni nageenyaan qabamee tura. Bitataan haquun maallaqa guutuu deebifachuu danda\'a; yeroodhaan yoo hin murteessine ajajni ni haqama, maallaqni ni deebi\'a.';
+
+  @override
+  String get orderStatusUpdating => 'Haaromfamaa jira';
+
+  @override
+  String get orderStatusUpdatingInfo =>
+      'Ajajni kun haala appiin kun ammaaf agarsiisuu hin dandeenyeen jijjiirameera. Maaloo appii haaromsaa.';
+
+  @override
+  String get commitmentTitle => 'Eenyutu waliigale';
+
+  @override
+  String get commitmentAccepted => 'Fudhateera';
+
+  @override
+  String commitmentWaitingUntil(String time) {
+    return 'Eegamaa jira, deebiin hanga $time';
+  }
+
+  @override
+  String get commitmentWaiting => 'Deebii eegaa jira';
+
+  @override
+  String get commitmentDeclined => 'Dideera';
+
+  @override
+  String get commitmentExpired => 'Yeroodhaan hin deebisne';
+
+  @override
+  String get commitmentNotAskedYet =>
+      'Erga qonnaan bulaan fudhatee booda gaafatama';
+
+  @override
+  String get commitmentTripCancelled => 'Imalli haqameera';
+
+  @override
+  String get commitmentTripFull => 'Imalli guutameera';
+
+  @override
+  String get commitmentDroppedOut => 'Addaan kute';
+
+  @override
+  String commitmentAnswerBy(String time) {
+    return 'Maaloo hanga $time tti deebisaa.';
+  }
+
+  @override
+  String get commitmentBuyerWaitingNote =>
+      'Maallaqni keessan nageenyaan qabameera. Jalqaba qonnaan bulaan, achi booda konkolaataan fe\'aa gaafatama. Yeroo isaan murteessan ajaja kaffalame haquun hin danda\'amu.';
+
+  @override
+  String get commitmentTruckerNotAskedNote =>
+      'Qonnaan bulaan ammallee hin fudhanne. Yeroo inni fudhatu isin gaafatamtu.';
+
+  @override
+  String get truckerAcceptRequest => 'Geejjiba fudhadhu';
+
+  @override
+  String get truckerDeclineRequest => 'Didi';
+
+  @override
+  String get declineReasonTitle => 'Maaliif diddu?';
+
+  @override
+  String get declineReasonDate => 'Guyyaan naaf hin mijatu';
+
+  @override
+  String get declineReasonCapacity => 'Bakki gahaan hin jiru';
+
+  @override
+  String get declineReasonPrice => 'Gatiin naaf hin mijatu';
+
+  @override
+  String get declineReasonRoute => 'Karaan naaf hin mijatu';
+
+  @override
+  String get declineReasonCropNotReady => 'Midhaan qophaa\'aa miti';
+
+  @override
+  String get declineReasonOther => 'Sababa biraa';
+
+  @override
+  String get truckerDropOut => 'Geejjiba kana hin danda\'u';
+
+  @override
+  String get truckerDropOutWarning =>
+      'Bitataaf ni himama, haquun maallaqa guutuu deebifachuu danda\'a. Erga fudhattanii booda addaan kutuun isin irratti lakkaa\'ama. Irra deebi\'uun akka seentan ni gaafatamtu.';
+
+  @override
+  String get farmerCancelWithoutPenalty => 'Adabbii malee haqi';
+
+  @override
+  String get farmerCancelCommittedWarning =>
+      'Erga fudhattanii booda haquun isin irratti lakkaa\'ama, bitataanis maallaqa guutuu deebifata. Irra deebi\'uun akka seentan ni gaafatamtu.';
+
+  @override
+  String get farmerCancelAwaitingTransportBody =>
+      'Geejjibni waan hin argamneef haquun isin irratti hin lakkaa\'amu. Bitataan maallaqa guutuu deebifata.';
+
+  @override
+  String transportFailedBuyerBody(String deadline) {
+    return 'Konkolaataan fe\'aa ajaja kana fe\'uu hin danda\'u. Hanga $deadline tti haqaatii maallaqa guutuu deebifadhaa. Hanga sanatti yoo hin murteessine ajajni ni haqama, maallaqni keessan ni deebi\'a.';
+  }
+
+  @override
+  String get transportFailedBuyerBodyNoDeadline =>
+      'Konkolaataan fe\'aa ajaja kana fe\'uu hin danda\'u. Haquun maallaqa guutuu deebifachuu dandeessu.';
+
+  @override
+  String get transportFailedFarmerBody =>
+      'Geejjibni ajaja kanaa hin argamne. Hanga bitataan murteessutti maaloo midhaan qabadhaa.';
+
+  @override
+  String get cancelOrderAwaitingTransportBody =>
+      'Maallaqni ajaja kanaaf qabame guutummaatti isiniif deebi\'a.';
+
+  @override
+  String get errorResponseNotPending =>
+      'Gaaffiin kun isiniif banaa miti: qonnaan bulaan ammallee hin fudhanne, ykn duraan deebii argateera.';
+
+  @override
+  String get transportFailureTruckerDeclined => 'Konkolaataan fe\'aa dideera';
+
+  @override
+  String get transportFailureTruckerExpired =>
+      'Konkolaataan fe\'aa yeroodhaan hin deebisne';
+
+  @override
+  String get transportFailureTruckerCancelled =>
+      'Konkolaataan fe\'aa addaan kuteera';
+
+  @override
+  String get transportFailureTripCancelled => 'Imalli haqameera';
+
+  @override
+  String get transportFailureTripFull => 'Imalli guutameera';
+
+  @override
+  String get actionNeededTitle => 'Tarkaanfiin barbaachisa';
+
+  @override
+  String get actionAnswerOrder => 'Ajaja haaraaf deebii kennaa';
+
+  @override
+  String get actionAnswerTransport => 'Gaaffii geejjibaaf deebii kennaa';
+
+  @override
+  String get actionKeepCrops => 'Midhaan qabadhaa: bitataan murteessaa jira';
+
+  @override
+  String get actionSetUpDelivery => 'Geejjiba qopheessaa';
+
+  @override
+  String get actionPay => 'Ajajaaf kaffalaa';
+
+  @override
+  String get actionPayAgain =>
+      'Kaffaltiin hin milkoofne: irra deebi\'aa kaffalaa';
+
+  @override
+  String get actionDecideTransport => 'Geejjibni hin argamne: murteessaa';
+
+  @override
+  String get actionCheckDelivery => 'Wanta ga\'e mirkaneessaa';
+
+  @override
+  String get actionCheckInAtFarm => 'Yeroo maasii geessu mirkaneessaa';
+
+  @override
+  String get actionCropsReady => 'Yeroo midhaan qophaa\'u mirkaneessaa';
+
+  @override
+  String get actionCheckInAtDropoff => 'Yeroo bakka buusuu geessu mirkaneessaa';
+
+  @override
+  String get actionConfirmDelivery => 'Geejjiba mirkaneessaa';
+
+  @override
+  String actionDueBy(String time) {
+    return 'Hanga $time';
+  }
+
+  @override
+  String get tripBookings => 'Ajajoota qabaman';
+
+  @override
+  String get tripNoBookings => 'Ammallee ajajni qabame hin jiru';
+
+  @override
+  String get chooseTrip => 'Konkolaataa filadhaa';
+
+  @override
+  String get notifGenericTitle => 'Haalli ajajaa jijjiirameera';
+
+  @override
+  String get notifGenericBody => 'Maal akka jijjiirame ilaaluuf ajaja banaa.';
+
+  @override
+  String get notifPaymentConfirmedTitle => 'Kaffaltiin gaheera';
+
+  @override
+  String get notifPaymentConfirmedBody =>
+      'Kaffaltiin keessan nageenyaan qabameera. Yeroo qonnaan bulaan deebii kennu isinitti himna.';
+
+  @override
+  String get notifOrderRequestTitle => 'Ajaja haaraa';
+
+  @override
+  String notifOrderRequestBody(String buyer) {
+    return '$buyer kaffaleera; maallaqni hanga geejjibni xumuramutti nageenyaan qabama. Maaloo fudhadhaa ykn didaa.';
+  }
+
+  @override
+  String get notifFarmerAcceptedTitle => 'Qonnaan bulaan fudhateera';
+
+  @override
+  String notifFarmerAcceptedBody(String farmer) {
+    return '$farmer ajaja keessan fudhateera. Amma konkolaataa fe\'aa gaafachaa jirra.';
+  }
+
+  @override
+  String get notifTransportRequestTitle => 'Gaaffii geejjibaa';
+
+  @override
+  String notifTransportRequestBody(String farmer) {
+    return '$farmer ajaja imala keessanii fudhateera. Maaloo geejjiba fudhadhaa ykn didaa.';
+  }
+
+  @override
+  String get notifOrderConfirmedTitle => 'Ajajni mirkanaa\'eera';
+
+  @override
+  String get notifOrderConfirmedBody =>
+      'Qaamoleen hundi ajaja irratti waliigalaniiru.';
+
+  @override
+  String get notifOrderRejectedTitle => 'Ajajni didameera';
+
+  @override
+  String notifOrderRejectedBody(String farmer) {
+    return '$farmer ajaja keessan hin fudhanne. Maallaqni keessan isiniif deebi\'a.';
+  }
+
+  @override
+  String get notifTransportFailedTitle => 'Geejjibni hin argamne';
+
+  @override
+  String get notifTransportFailedBody =>
+      'Konkolaataan fe\'aa ajaja keessan fe\'uu hin danda\'u. Maaloo murteessaa: haquun maallaqa guutuu deebifachuu dandeessu.';
+
+  @override
+  String get notifTransportFailedKeepCropsTitle => 'Geejjibni addaan citeera';
+
+  @override
+  String get notifTransportFailedKeepCropsBody =>
+      'Konkolaataan fe\'aa ajaja kanaa dhiiseera. Hanga bitataan murteessutti maaloo midhaan qabadhaa.';
+
+  @override
+  String get notifRequestExpiredTitle => 'Gaaffiin cufameera';
+
+  @override
+  String get notifRequestExpiredBody =>
+      'Yeroon deebii waan darbeef gaaffiin cufameera.';
+
+  @override
+  String get notifRequestOnHoldTitle => 'Gaaffiin yeroof dhaabateera';
+
+  @override
+  String get notifRequestOnHoldBody =>
+      'Ajaja kanaaf geejjibni hin argamne. Bitataan murteessaa waan jiruuf amma deebii kennuun isin hin barbaachisu.';
+
+  @override
+  String get notifOrderCancelledTitle => 'Ajajni haqameera';
+
+  @override
+  String get notifOrderCancelledBody =>
+      'Ajajni haqameera. Maallaqni qabame yoo jiraate bitataaf deebi\'a.';
+
+  @override
+  String get notifOrderExpiredUnpaidTitle => 'Ajajni cufameera';
+
+  @override
+  String get notifOrderExpiredUnpaidBody =>
+      'Ajajni keessan yeroodhaan waan hin kaffalamneef cufameera. Ajaja haaraa galchuu dandeessu.';
+
+  @override
+  String get notifCommissionChangedTitle =>
+      'Waliigalli gatii ajajaa jijjiirameera';
+
+  @override
+  String notifCommissionChangedBody(String rate, String total) {
+    return 'Komishiiniin waltajjii ajaja kanaa amma $rate dha. Waliigala haaraa: $total. Hanga ammaatti homtuu hin kaffalamne.';
+  }
+
+  @override
+  String get notifCommissionChangedBodyNoTotal =>
+      'Komishiiniin waltajjii ajaja kanaa jijjiirameera. Osoo hin kaffalin dura waliigala haaraa ilaaluuf ajaja bani.';
+
+  @override
+  String get notifPaymentFailedTitle => 'Kaffaltiin hin milkoofne';
+
+  @override
+  String get notifPaymentFailedBody =>
+      'Kaffaltiin keessan hin milkoofne. Maaloo irra deebi\'aa yaalaa.';
+
+  @override
+  String get notifRequestReminderTitle => 'Deebiin keessan barbaachisa';
+
+  @override
+  String get notifRequestReminderBody =>
+      'Ajajni kun deebii keessan eegaa jira.';
+
+  @override
+  String get notifPickupOverdueTitle => 'Midhaan yeroodhaan hin fudhatamne';
+
+  @override
+  String get notifPickupOverdueBody =>
+      'Ajajni keessan yeroodhaan hin fudhatamne. Filannoowwan keessan, maallaqa guutuu deebifachuu dabalatee, ilaaluuf banaa.';
+
+  @override
+  String get notifPickupMissedTitle => 'Fudhannaan darbeera';
+
+  @override
+  String get notifPickupMissedBody =>
+      'Ajajni yeroodhaan hin fudhatamne. Bitataan amma haquun maallaqa deebifachuu danda\'a.';
+
+  @override
+  String get notifDeliveryScheduledTitle => 'Geejjibni qophaa\'eera';
+
+  @override
+  String notifDeliveryScheduledBody(String trucker) {
+    return '$trucker ajaja ni geessa.';
+  }
+
+  @override
+  String get notifBuyerCollectingTitle => 'Bitataan dhufaa jira';
+
+  @override
+  String notifBuyerCollectingBody(String buyer) {
+    return '$buyer ajaja isin biraa ni fudhata. Maaloo midhaan qopheessaa.';
+  }
+
+  @override
+  String get notifPickedUpTitle => 'Midhaan fudhatameera';
+
+  @override
+  String get notifPickedUpBody =>
+      'Ajajni keessan qonnaan bulaa biraa fudhatameera.';
+
+  @override
+  String get notifHandoffRecordedTitle => 'Kenniinsi galmeeffameera';
+
+  @override
+  String get notifHandoffRecordedBody =>
+      'Kenniinsi galmeeffameera. Erga bitataan midhaan fudhatee booda isiniif ni kaffalama.';
+
+  @override
+  String get notifInTransitTitle => 'Daandii irra jira';
+
+  @override
+  String get notifInTransitBody =>
+      'Ajajni keessan gara keessan daandii irra jira.';
+
+  @override
+  String get notifTruckNearbyTitle => 'Konkolaataan dhihaateera';
+
+  @override
+  String notifTruckNearbyBody(String trucker) {
+    return '$trucker isin irraa km 5 gadi fagaata. Midhaan fudhachuuf qophaa\'aa.';
+  }
+
+  @override
+  String get notifDeliveredTitle => 'Ajajni ga\'eera';
+
+  @override
+  String get notifDeliveredBody =>
+      'Ajajni keessan ga\'eera. Rakkoon yoo jiraate yeroon osoo hin darbin gabaasaa; yoo hin jiraanne qonnaan bulaaf ni kaffalama.';
+
+  @override
+  String get notifDeliveredPayoutPendingTitle =>
+      'Ga\'eera, kaffaltiin ni dhufa';
+
+  @override
+  String get notifDeliveredPayoutPendingBody =>
+      'Ajajni ga\'eera. Mirkaneessa bitataa sa\'aatii 48 booda kaffaltiin keessan ni ergama.';
+
+  @override
+  String get notifOrderSettledTitle => 'Ajajni xumurameera';
+
+  @override
+  String get notifOrderSettledBody =>
+      'Ajajni xumurameera; hundi kaffalameera. Galatoomaa.';
+
+  @override
+  String get notifRefundSentTitle => 'Maallaqni deebi\'eera';
+
+  @override
+  String get notifRefundSentBody => 'Maallaqni keessan isiniif deebi\'eera.';
+
+  @override
+  String get notifPayoutSentTitle => 'Kaffaltiin ergameera';
+
+  @override
+  String get notifPayoutSentBody =>
+      'Kaffaltiin keessan isiniif ergameera. Galatoomaa.';
+
+  @override
+  String get notifPayoutBlockedTitle => 'Kaffaltiin dhaabateera';
+
+  @override
+  String notifPayoutBlockedBody(String hint) {
+    return 'Kaffaltiin keessan eegaa jira. $hint';
+  }
+
+  @override
+  String get notifPayoutProcessingTitle => 'Kaffaltiin hojjetamaa jira';
+
+  @override
+  String get notifPayoutProcessingBody =>
+      'Gareen keenya kaffaltii keessan harkaan ergaa jira. Guyyoota muraasa fudhachuu danda\'a.';
+
+  @override
+  String get notifDisputeOpenedTitle => 'Rakkoon gabaafameera';
+
+  @override
+  String get notifDisputeOpenedBody =>
+      'Ajaja keessan irratti rakkoon gabaafameera. Hanga gareen keenya murteessutti maallaqni qabamee tura.';
+
+  @override
+  String get notifDisputeReceivedTitle => 'Gabaasni keessan nu gaheera';
+
+  @override
+  String get notifDisputeReceivedBody =>
+      'Gabaasni keessan nu gaheera. Hanga gareen keenya murteessutti maallaqni qabamee tura.';
+
+  @override
+  String get notifDisputeResolvedTitle => 'Murteen kennameera';
+
+  @override
+  String get notifUnderReviewTitle => 'Kaffaltiin sakatta\'amaa jira';
+
+  @override
+  String get notifUnderReviewBody =>
+      'Kaffaltiin ajaja keessanii gareen keenyaan sakatta\'amaa jira. Yeroo xumuramu isinitti himna.';
+
+  @override
+  String get notifDisputeResolvedFarmerWins =>
+      'Gareen keenya murteesseera: maallaqni qonnaan bulaaf kaffalama.';
+
+  @override
+  String get notifDisputeResolvedBuyerWins =>
+      'Gareen keenya murteesseera: maallaqni bitataaf deebi\'a.';
+
+  @override
+  String get notifDisputeResolvedBody =>
+      'Gareen keenya rakkoo gabaafame irratti murteesseera. Bal\'ina isaa ilaaluuf ajaja banaa.';
+
+  @override
+  String get notifPayoutHintFayda =>
+      'Maaloo appii keessatti Fayda ID keessan mirkaneessaa.';
+
+  @override
+  String get notifPayoutHintPhone =>
+      'Maaloo appii keessatti lakkoofsa bilbilaa keessan mirkaneessaa.';
+
+  @override
+  String get notifPayoutHintProfile =>
+      'Maaloo appii keessatti odeeffannoo keessan guutaa.';
+
+  @override
+  String get notifPayoutHintOther =>
+      'Maal akka barbaachisu ilaaluuf appii banaa.';
+
+  @override
+  String get clockSetting => 'Sa\'aatii';
+
+  @override
+  String get clockAuto => 'Ofumaan';
+
+  @override
+  String get clockAutoHint => 'Afaan appii hordofa';
+
+  @override
+  String get clockEthiopian => 'Kan Itoophiyaa';
+
+  @override
+  String get clockInternational => 'Idil-addunyaa (sa\'aatii 24)';
+
+  @override
+  String clockNight(String time) {
+    return '$time halkan';
+  }
+
+  @override
+  String clockMorning(String time) {
+    return '$time ganama';
+  }
+
+  @override
+  String clockDay(String time) {
+    return '$time waaree booda';
+  }
+
+  @override
+  String clockEvening(String time) {
+    return '$time galgala';
+  }
+
+  @override
+  String get liveTripNotificationTitle => 'Bakki konkolaataa qoodamaa jira';
+
+  @override
+  String get liveTripNotificationText =>
+      'Bitoonni fi qonnaan bultoonni imala kanaa bakka konkolaataan jiru ni argu. Qooduun erga geejjibni dhumaa xumuramee booda ni dhaabata.';
+
+  @override
+  String get liveTripNotificationChannel => 'Bakka imalaa';
+
+  @override
+  String get liveTripConsentTitle => 'Bakki konkolaataan jiru haa qoodamu?';
+
+  @override
+  String get liveTripConsentLede =>
+      'Bitoonni fi qonnaan bultoonni konkolaataa arguu danda\'an yaaddoon isaanii ni hir\'ata, yeroo konkolaachiftanis xiqqoo isin bilbilu.';
+
+  @override
+  String get liveTripConsentWhoTitle => 'Eenyutu arga';
+
+  @override
+  String get liveTripConsentWhoText =>
+      'Bitaa fi qonnaan bulaa ajaja imala kanaa tokkoon tokkoo, tokkoon isaanii ajaja ofii qofaaf. Konkolaachiftoonni biroo fi bitoonni imaltoota ilaalan gonkumaa hin argan.';
+
+  @override
+  String get liveTripConsentOftenTitle => 'Irra deddeebii';
+
+  @override
+  String get liveTripConsentOftenText =>
+      'Sa\'aatii tokkotti al tokko gara, akkasumas iskaanii QR hundatti. Yeroo bakka buusaatti dhihaattan daqiiqaa 15 hundaa.';
+
+  @override
+  String get liveTripConsentStopsTitle => 'Yoom dhaabata';
+
+  @override
+  String get liveTripConsentStopsText =>
+      'Yeroo geejjibni dhumaa imala kanaa xumuramu ofumaan dhaabata. Yeroo barbaaddanitti yeroof dhaabuu dandeessu.';
+
+  @override
+  String get liveTripConsentDataTitle => 'Deetaa';
+
+  @override
+  String get liveTripConsentDataText =>
+      'Guyyaatti gara KB 170. Neetworkiin yoo hin jiraanne, gabaasni bakkaa bilbila irra eegee booda ergama.';
+
+  @override
+  String get liveTripConsentAndroidNote =>
+      'Yeroo qooduun banaa ta\'etti Android beeksisa ni agarsiisa.';
+
+  @override
+  String get liveTripConsentWebNote =>
+      'Weebii irratti, gabaasni bakkaa kan ergamu yeroo fuulli kun banaa ta\'e qofa.';
+
+  @override
+  String get liveTripConsentShare => 'Bakka imalaa qoodi';
+
+  @override
+  String get liveTripConsentDecline => 'Amma miti, iskaanii qofa';
+
+  @override
+  String get liveTripSharingStarted =>
+      'Bakki konkolaataa imala kanaaf qoodamaa jira.';
+
+  @override
+  String get liveTripScansOnlyChosen =>
+      'Imala kanaaf iskaanii qofa. Ammas fuula haala imalaa irraa qooduu dandeessu.';
+
+  @override
+  String get tripModeTitle => 'Haala imalaa';
+
+  @override
+  String get tripModeOpen => 'Imala bani';
+
+  @override
+  String tripModeOrders(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'ajajoota $count',
+      one: 'ajaja 1',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tripModeSharingLive => 'Bakki keessan qoodamaa jira';
+
+  @override
+  String tripModeLastCheckIn(String time) {
+    return 'Gabaasa dhumaa $time';
+  }
+
+  @override
+  String get tripModeNoCheckInYet => 'Hanga ammaatti gabaasni hin jiru';
+
+  @override
+  String tripModeNextBy(String time) {
+    return 'kan itti aanu $time';
+  }
+
+  @override
+  String get tripModePrivacy =>
+      'Bitaan fi qonnaan bulaan tokkoon tokkoon isaanii kutaa ajaja ofii qofa argu.';
+
+  @override
+  String get tripModePause => 'Yeroof dhaabi';
+
+  @override
+  String get tripModeCheckInNow => 'Amma gabaasi';
+
+  @override
+  String get tripModePausedTitle => 'Qooduun yeroof dhaabateera';
+
+  @override
+  String tripModePausedUntil(String time) {
+    return '$time ofumaan deebi\'a';
+  }
+
+  @override
+  String get tripModeResume => 'Amma itti fufi';
+
+  @override
+  String get tripModeScansOnlyTitle => 'Iskaanii qofa';
+
+  @override
+  String get tripModeScansOnlyText =>
+      'Bakki keessan hin qoodamu. Iskaaniin QR ammas fudhachuu fi geessuu ni galmeessa.';
+
+  @override
+  String get tripModeEndedTitle => 'Qooduun xumurameera';
+
+  @override
+  String get tripModeEndedText =>
+      'Geejjibni imala kanaa hundi waan xumurameef qooduun dhaabateera.';
+
+  @override
+  String get tripModeNoTrip =>
+      'Imalli karaa irra jiru hin jiru. Haalli imalaa iskaanii fudhachuu jalqabaatiin jalqaba.';
+
+  @override
+  String get tripModeNextPickup => 'Dhaabbii itti aanu: fudhachuu';
+
+  @override
+  String get tripModeNextDropoff => 'Dhaabbii itti aanu: buusuu';
+
+  @override
+  String get tripModeArrived => 'Ga\'eera';
+
+  @override
+  String get tripModeStops => 'Dhaabbiiwwan';
+
+  @override
+  String tripModeStopPickup(String name) {
+    return 'Fudhachuu: $name';
+  }
+
+  @override
+  String tripModeStopDropoff(String name) {
+    return 'Buusuu: $name';
+  }
+
+  @override
+  String tripModeScannedAt(String time) {
+    return '$time iskaan godhame';
+  }
+
+  @override
+  String tripModeDeliveredAt(String time) {
+    return '$time ga\'e';
+  }
+
+  @override
+  String get tripModeNextLabel => 'Itti aanu';
+
+  @override
+  String get tripModePayTitle => 'Kaffaltii keessan imala kanaaf';
+
+  @override
+  String get tripModePayNote => 'Buusii hundaa booda sa\'aatii 48tti kaffalama';
+
+  @override
+  String get tripModeCheckInSaved => 'Gabaasni olkaa\'ameera.';
+
+  @override
+  String get tripModeNoFix =>
+      'Amma bakka argachuun hin danda\'amne. Tajaajilli bakkaa banaa ta\'uu mirkaneessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get tripModeNotSharing => 'Imalli kun bakka isaa hin qoodu.';
+
+  @override
+  String get tripBookingsLoadFailed =>
+      'Qabannaa imala kanaa fe\'uun hin danda\'amne.';
+
+  @override
+  String get tripModeLoadFailed =>
+      'Dhaabbiiwwan imala kanaa fe\'uun hin danda\'amne.';
+
+  @override
+  String get tripModeOfflineTitle => 'Asitti neetworkiin hin jiru';
+
+  @override
+  String tripModeOfflineWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          'Gabaasni $count bilbila kana irra eegaa jira. Yeroo neetworkiin deebi\'u ofumaan ergamu.',
+      one:
+          'Gabaasni 1 bilbila kana irra eegaa jira. Yeroo neetworkiin deebi\'u ofumaan ergama.',
+      zero:
+          'Gabaasni bilbila kana irra eegee yeroo neetworkiin deebi\'u ofumaan ergama.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get tripModeCardTitle => 'Imala karaa irra jiru';
+
+  @override
+  String get pauseSheetTitle => 'Qooduu yeroof dhaabuu?';
+
+  @override
+  String get pauseSheetText =>
+      'Boqonnaaf ykn halkaniif. Bitoonni fi qonnaan bultoonni akka qooduun dhaabate fi yoom akka deebi\'u ni argu.';
+
+  @override
+  String get pauseSheetFor => 'Yeroo hammamiif';
+
+  @override
+  String get pauseSheet15 => 'Daqiiqaa 15';
+
+  @override
+  String get pauseSheet30 => 'Daqiiqaa 30';
+
+  @override
+  String get pauseSheet60 => 'Sa\'aatii 1';
+
+  @override
+  String pauseSheetOvernight(String time) {
+    return 'Halkan guutuu, hanga $time';
+  }
+
+  @override
+  String pauseSheetBackAt(String time) {
+    return '$time deebi\'a';
+  }
+
+  @override
+  String get pauseSheetNote =>
+      'Qooduun ofumaan deebi\'a. Iskaaniin QR ammas bakka isaa ni galmeessa.';
+
+  @override
+  String get pauseSheetConfirm => 'Qooduu yeroof dhaabi';
+
+  @override
+  String get pauseSheetKeep => 'Qooduu itti fufi';
+
+  @override
+  String get sharingDefaultSetting => 'Bakka imalaa';
+
+  @override
+  String get sharingDefaultHint =>
+      'Iskaanii fudhachuu jalqabaa imalaa irratti kan ta\'u. Bitaan fi qonnaan bulaan ajaja tokkoon tokkoo hanga geejjiba isaaniitti konkolaataa ni argu.';
+
+  @override
+  String get sharingDefaultAsk => 'Imala hundatti na gaafadhu';
+
+  @override
+  String get sharingDefaultShare => 'Yeroo hunda qoodi';
+
+  @override
+  String get sharingDefaultScansOnly => 'Gonkumaa hin qoodin (iskaanii qofa)';
+
+  @override
+  String get liveTripTitle => 'Imala kallattii';
+
+  @override
+  String get liveTripOnTheRoadNow => 'Amma karaa irra';
+
+  @override
+  String get liveTripWaitingForPickup => 'Fe\'umsa eeggachaa';
+
+  @override
+  String get liveTripMapStartsAtPickup =>
+      'Yeroo konkolaachisaan QR qonnaan bulaa iskaan godhu kaartaan ni mul\'ata.';
+
+  @override
+  String liveTripDurationMinutes(int minutes) {
+    return 'daqiiqaa $minutes';
+  }
+
+  @override
+  String liveTripDurationHours(int hours, int minutes) {
+    return 'sa\'aatii $hours daqiiqaa $minutes';
+  }
+
+  @override
+  String liveTripAgo(String duration) {
+    return '$duration dura';
+  }
+
+  @override
+  String get liveTripJustNow => 'Amma';
+
+  @override
+  String liveTripCheckedInAgo(String duration) {
+    return '$duration dura gabaase';
+  }
+
+  @override
+  String get liveTripCheckedInJustNow => 'Amma gabaase';
+
+  @override
+  String liveTripNoCheckInFor(String duration) {
+    return 'Yeroo $duration gabaasni hin jiru';
+  }
+
+  @override
+  String get liveTripPaused => 'Dhaabbateera';
+
+  @override
+  String liveTripUntil(String time) {
+    return 'hanga $time';
+  }
+
+  @override
+  String get liveTripScansOnly => 'Iskaanii qofa';
+
+  @override
+  String get liveTripScansOnlyChip => 'Bakki hin qoodamne';
+
+  @override
+  String get liveTripSharingEnded => 'Qooduun yeroo geejjibaatti dhaabbate';
+
+  @override
+  String get liveTripStatusOnTheRoad => 'Geejjibarra Jira';
+
+  @override
+  String get liveTripStatusArriving => 'Ga\'aa jira';
+
+  @override
+  String liveTripArrivingAt(String place) {
+    return 'Yeroo $place ga\'u';
+  }
+
+  @override
+  String get liveTripArrivalWindow => 'Yeroo ga\'u';
+
+  @override
+  String liveTripKmToGo(String km) {
+    return 'Gara km $km hafe, gabaasa dhumaa irraa';
+  }
+
+  @override
+  String get liveTripWholeRoute => 'Karaa guutuu agarsiisi';
+
+  @override
+  String get liveTripNearTruck => 'Naannoo konkolaataa';
+
+  @override
+  String get liveTripZoomIn => 'Guddisi';
+
+  @override
+  String get liveTripZoomOut => 'Xiqqeessi';
+
+  @override
+  String get liveTripViewPhoto => 'Suuraa ilaali';
+
+  @override
+  String get liveTripLegendLabel => 'Hiika kaartaa';
+
+  @override
+  String get liveTripLegendDriven => 'Kan deemame';
+
+  @override
+  String get liveTripLegendAhead => 'Karaa hafe';
+
+  @override
+  String get liveTripLegendTruck => 'Konkolaataan naannoo kana jira';
+
+  @override
+  String get liveTripCall => 'Bilbili';
+
+  @override
+  String liveTripNothingToDoWindow(String time) {
+    return 'Wanti isin irraa eegamu hin jiru. Yoo rakkoo hin gabaasin, kaffaltiin yeroo mirkaneessaa xumuramu, $time, ni gadhiifama.';
+  }
+
+  @override
+  String liveTripFarmerNothingToDo(String buyer) {
+    return 'Amma wanti isin irraa eegamu hin jiru. $buyer geessuu mirkaneessuu qaba. Sana booda yeroon mirkaneessaa sa\'aatii 48 ni darba, maallaqichis isiniif kaffalama.';
+  }
+
+  @override
+  String liveTripFarmerNothingToDoWindow(String time) {
+    return 'Wanti isin irraa eegamu hin jiru. Yoo bitaan rakkoo hin gabaasin, yeroo mirkaneessaa xumuramu, $time, isiniif kaffalama.';
+  }
+
+  @override
+  String liveTripNextScanAt(String place) {
+    return 'Itti aansee: ${place}tti QR konkolaachisaa iskaan gootu.';
+  }
+
+  @override
+  String get liveTripNextScan =>
+      'Itti aansee: yeroo konkolaataan ga\'u QR konkolaachisaa iskaan gootu.';
+
+  @override
+  String liveTripQuintalsCount(String count) {
+    return 'kuntaala $count';
+  }
+
+  @override
+  String get delivOpenMap => 'Kaartaa bani';
+
+  @override
+  String get delivOpen => 'Bani';
+
+  @override
+  String delivNothingToDoReleased(String time) {
+    return 'Wanti isin irraa eegamu hin jiru. Yoo rakkoo hin gabaasin, kaffaltiin $time booda ni gadhiifama.';
+  }
+
+  @override
+  String delivNothingToDoPaid(String time) {
+    return 'Wanti isin irraa eegamu hin jiru. Yoo bitaan rakkoo hin gabaasin, $time booda isiniif kaffalama.';
+  }
+
+  @override
+  String get delivEmptyTitle => 'Hanga ammaatti wanti karaa irra jiru hin jiru';
+
+  @override
+  String get delivEmptyBodyBuyer =>
+      'Yeroo konkolaachisaan ajaja keessan keessaa tokko fe\'u, konkolaataa sana asitti hordofuu dandeessu.';
+
+  @override
+  String get delivEmptyBodyFarmer =>
+      'Yeroo konkolaachisaan midhaan keessan keessaa tokko fe\'u, konkolaataa sana asitti hordofuu dandeessu.';
+
+  @override
+  String get delivEmptyBodyTrucker =>
+      'Yeroo fe\'umsa fuutan, geessiin isaa asitti mul\'ata.';
+
+  @override
+  String get delivEmptyFindCrops => 'Midhaan barbaadi';
+
+  @override
+  String get delivEmptySeeOrders => 'Ajaja koo ilaali';
+
+  @override
+  String get delivEmptySeeTrips => 'Imala koo ilaali';
+
+  @override
+  String get liveTripWiderWindow =>
+      'Yeroon bal\'ateera: yeroo muraasaaf gabaasni hin dhufne';
+
+  @override
+  String get liveTripNoEta => 'Tilmaamni yeroo ga\'umsaa ammallee hin jiru';
+
+  @override
+  String get liveTripStepAgreed => 'Waliigalan';
+
+  @override
+  String get liveTripStepPickedUp => 'Fe\'ame';
+
+  @override
+  String liveTripEscrowNote(String amount) {
+    return '$amount keessan hanga QR konkolaachisaa iskaan gootanitti Eeskiroo keessa tursiifama.';
+  }
+
+  @override
+  String get liveTripEscrowNoteNoAmount =>
+      'Maallaqni keessan hanga QR konkolaachisaa iskaan gootanitti Eeskiroo keessa tursiifama.';
+
+  @override
+  String liveTripLateNote(String trucker) {
+    return 'Daandii kana irratti neetworkiin hin jiru ta\'a. Gabaasni bilbila $trucker irratti kuufame yeroo walqunnamu ni mul\'ata.';
+  }
+
+  @override
+  String liveTripPausedNote(String trucker, String time) {
+    return '$trucker boqonnaaf qooduu dhaabaniiru. $time irratti ofumaan deebi\'ee ni jalqaba.';
+  }
+
+  @override
+  String liveTripScansOnlyNote(String trucker) {
+    return '$trucker bakka konkolaataa qooduu dhiisuu filataniiru. Iskaaniin QR ammallee fe\'umsaa fi geejjiba ni galmeessa.';
+  }
+
+  @override
+  String liveTripOfflineNote(String time) {
+    return 'Toora ala jirtu. Kun kaartaa $time ti, yeroo walqunnamtan ni haaromfama.';
+  }
+
+  @override
+  String get liveTripOfflineNoMap =>
+      'Toora ala jirtu. Kaartaan yeroo walqunnamtan ni mul\'ata.';
+
+  @override
+  String get liveTripUnavailable => 'Kaartaan amma haaromfamuu hin dandeenye.';
+
+  @override
+  String get liveTripNotFound => 'Imalli kun hin argamne.';
+
+  @override
+  String get liveTripTripLogLink => 'Galmee imalaa fi ajaja';
+
+  @override
+  String liveTripCheckIns(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'gabaasa $count',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get liveTripTripLogTitle => 'Galmee imalaa';
+
+  @override
+  String liveTripKm(String km) {
+    return 'km $km';
+  }
+
+  @override
+  String get liveTripStatDone => 'deemame';
+
+  @override
+  String get liveTripStatToGo => 'hafe';
+
+  @override
+  String get liveTripStatOnTheRoad => 'imala irra';
+
+  @override
+  String get liveTripStatDriven => 'oofame';
+
+  @override
+  String get liveTripStatCheckIns => 'gabaasa';
+
+  @override
+  String get liveTripCheckInCadence => 'Gabaasni gara sa\'aatii hundaa';
+
+  @override
+  String get liveTripLogPickup => 'Fe\'ame, QR qonnaan bulaa iskaan godhame';
+
+  @override
+  String get liveTripLogHourly => 'Gabaasa sa\'aatii';
+
+  @override
+  String get liveTripLogNearStop => 'Gabaasa bakka dhaabbii bira';
+
+  @override
+  String get liveTripLogManual => 'Konkolaachisaan gabaase';
+
+  @override
+  String get liveTripLogArrived => 'Konkolaachisaan bakka dhaabbii ga\'e';
+
+  @override
+  String get liveTripLogStart => 'Qooduun jalqabe';
+
+  @override
+  String get liveTripLogOtherStop => 'Dhaabbii biraa konkolaataa kanaa';
+
+  @override
+  String get liveTripLogCheckIn => 'Gabaasa';
+
+  @override
+  String get liveTripLogPaused => 'Qooduun dhaabbateera';
+
+  @override
+  String get liveTripLogLatest => 'isa dhumaa';
+
+  @override
+  String get liveTripCheckInsTitle => 'Gabaasota';
+
+  @override
+  String get liveTripAboutEveryHour => 'gara sa\'aatii hundaa';
+
+  @override
+  String get liveTripLogNext => 'itti aanu';
+
+  @override
+  String get liveTripLogThen => 'ergasii';
+
+  @override
+  String liveTripLogSentLateUntil(String time) {
+    return 'Booda ergame, hanga $time neetworkiin hin turre';
+  }
+
+  @override
+  String get liveTripExpectedToday => 'har\'a eegama';
+
+  @override
+  String get liveTripLogSentLate => 'Booda ergame, neetworkiin hin turre';
+
+  @override
+  String get liveTripLogPassed => 'darbe';
+
+  @override
+  String get liveTripLogAhead => 'Fuuldura';
+
+  @override
+  String get liveTripLogYourDropoff =>
+      'Bakka itti fudhattan: asitti QR konkolaachisaa iskaan gootu';
+
+  @override
+  String get liveTripPickupProof => 'Ragaa fe\'umsaa';
+
+  @override
+  String get liveTripDropoffProof => 'Ragaa geejjibaa';
+
+  @override
+  String liveTripQrScannedAt(String time) {
+    return 'QR kan iskaan godhame $time';
+  }
+
+  @override
+  String get liveTripGpsRecorded => 'GPS galmaa\'eera';
+
+  @override
+  String get liveTripInEscrow => 'Eeskiroo keessa';
+
+  @override
+  String liveTripPayoutNote(String farmer, String farmerAmount, String trucker,
+      String truckerAmount) {
+    return 'Erga geejjiba mirkaneessitanii sa\'aatii 48 booda ni kaffalama: $farmer $farmerAmount, $trucker $truckerAmount.';
+  }
+
+  @override
+  String liveTripPayoutNoteFarmerOnly(String farmer, String amount) {
+    return 'Erga geejjiba mirkaneessitanii sa\'aatii 48 booda $farmer $amount ni kaffalamu.';
+  }
+
+  @override
+  String get liveTripHelpTitle => 'Karaa irratti rakkoon jiraa?';
+
+  @override
+  String liveTripHelpBody(String trucker, String farmer) {
+    return 'Ajajni fe\'ame kana booda haqamuu hin danda\'u. Amma $trucker ykn $farmer haasofsiisaa. Erga geejjibamee booda rakkoo gabaasuuf sa\'aatii 48 qabdu, maallaqnis hanga dhimmichi furamutti eeggata.';
+  }
+
+  @override
+  String liveTripMessageParty(String name) {
+    return '${name}f ergaa ergi';
+  }
+
+  @override
+  String liveTripPrivacyNote(String farmer) {
+    return 'Konkolaataan kun eessa akka jiru kan argitan isinii fi $farmer qofa, fe\'umsa irraa hanga geejjiba keessaniitti. Dhaabbiiwwan biroo gonkumaa hin moggaafaman.';
+  }
+
+  @override
+  String get liveTripGreyRingsNote =>
+      'Geengoon daalachaa dhaabbiiwwan biroo konkolaataa kanaati. Gonkumaa hin moggaafaman.';
+
+  @override
+  String get liveTripArrivingTitle => 'Konkolaataan ga\'aa jira';
+
+  @override
+  String liveTripArrivingMinutes(String trucker, int minutes) {
+    return '$trucker gara daqiiqaa $minutes fagaatu';
+  }
+
+  @override
+  String liveTripArrivingNear(String trucker) {
+    return '$trucker km 5 gadi fagaatu';
+  }
+
+  @override
+  String liveTripKmFromDropoff(String km) {
+    return 'bakka geejjibaa irraa km $km';
+  }
+
+  @override
+  String get liveTripBeforeYouScan => 'Osoo iskaan hin godhiin dura';
+
+  @override
+  String get liveTripCheckCount =>
+      'Kuusaawwan lakkaa\'aa, ulfaatina waliigalaa mirkaneeffadhaa';
+
+  @override
+  String get liveTripCheckQuality =>
+      'Midhaan gogaa fi qulqulluu ta\'uu mirkaneeffadhaa';
+
+  @override
+  String get liveTripCheckWeigh => 'Yoo dandeessan kuusaa muraasa madaalaa';
+
+  @override
+  String liveTripScanConfirmsNote(String farmer, String trucker) {
+    return 'Iskaan gochuun geejjiba mirkaneessa. Yoo rakkoo hin gabaasne, $farmer fi $trucker yeroo mirkaneessaa sa\'aatii 48 booda ni kaffalamu.';
+  }
+
+  @override
+  String get liveTripScanDriversQr => 'QR konkolaachisaa iskaan godhaa';
+
+  @override
+  String liveTripDeliveredAt(String time) {
+    return '$time geejjibame';
+  }
+
+  @override
+  String get liveTripEnded => 'Imalli kun xumurameera';
+
+  @override
+  String liveTripReportProblemUntil(String time) {
+    return 'Hanga $time rakkoo gabaasaa';
+  }
+
+  @override
+  String get liveTripHowDidItGo => 'Akkam ture?';
+
+  @override
+  String liveTripFarmerTitle(String crop) {
+    return '${crop}n keessan karaa irra jira';
+  }
+
+  @override
+  String get liveTripFarmerTitleNoCrop => 'Ajajni keessan karaa irra jira';
+
+  @override
+  String liveTripFarmerTo(String quantity, String buyer) {
+    return '$quantity gara $buyer';
+  }
+
+  @override
+  String liveTripArrives(String time) {
+    return 'Yeroo ga\'u $time';
+  }
+
+  @override
+  String get liveTripYourPayment => 'Kaffaltii keessan';
+
+  @override
+  String get liveTripPayStepPaid => 'Bitaan kaffaleera, Eeskiroo keessa qabame';
+
+  @override
+  String get liveTripPayStepHandedOver => 'Dabarsitaniittu, QR iskaan godhame';
+
+  @override
+  String get liveTripPayStepBuyerConfirms => 'Bitaan geejjiba mirkaneessa';
+
+  @override
+  String get liveTripPayStepPaidOut =>
+      'Yeroo mirkaneessaa sa\'aatii 48, sana booda ni kaffalama';
+
+  @override
+  String get liveTripOrderDetailsLink => 'Ibsa ajajaa, gatii fi sarara yeroo';
+
+  @override
+  String get liveTripAfterPickupHint =>
+      'Erga fe\'amee booda konkolaataa kaartaa irratti Geejjibaalee keessatti ni argitu.';
+
+  @override
+  String orderTripOn(String day) {
+    return 'Imala $day';
+  }
+
+  @override
+  String liveTripFrom(String name) {
+    return '$name irraa';
+  }
+
+  @override
+  String liveTripMapSemantics(String place) {
+    return 'Kaartaa imalaa. Konkolaataan dhuma irratti $place bira ture.';
+  }
+
+  @override
+  String get liveTripMapSemanticsNoPlace => 'Kaartaa imalaa';
+
+  @override
+  String get liveTripYou => 'Isin';
+
+  @override
+  String get liveTripDropoff => 'Bakka geejjibaa';
+
+  @override
+  String get liveTripPickup => 'Bakka fe\'umsaa';
+
+  @override
+  String liveTripOnTheRoadSince(String time) {
+    return '$time irraa kaasee karaa irra';
+  }
+
+  @override
+  String get loginEscrowFooter =>
+      'Kaffaltiin Eeskiroo keessatti nageenyaan qabama';
+
+  @override
+  String get loginNoAccountRegister => 'Akkaawuntii hin qabduu? Galmaa\'i';
+
+  @override
+  String get otpFaydaNumberNote =>
+      'Kana kan gaafannu yoo lakkoofsi galmee Fayda keessanii irraa adda ta\'e qofa.';
+
+  @override
+  String get faydaDigitalIdLabel => 'Eenyummeessaa Dijitaalaa';
+
+  @override
+  String get faydaVerifiedWith => 'Fayda\'n mirkanaa\'e';
+
+  @override
+  String get faydaLegalNameNote =>
+      'Maqaan seeraa keessan Fayda irraa dhufa. Namni kamiyyuu maqaa keessaniin galmaa\'uu hin danda\'u.';
+
+  @override
+  String registrationStepOf(int current, int total) {
+    return 'Tarkaanfii $current kan $total';
+  }
+
+  @override
+  String get registrationRoleNextNote =>
+      'Itti aansuun Fayda\'n mirkaneessitu, achiis odeeffannoo keessan galchitu. Qonnaan bultoonni tarkaanfii odeeffannoo gahee ni darbu.';
+
+  @override
+  String get joinFaydaNeedsInternet =>
+      'Tarkaanfii kanaaf interneetiin barbaachisa.';
+
+  @override
+  String get joinWeredaHelper =>
+      'Bakkeewwanii fi magaalota barbaadi, interneetii malee hojjeta';
+
+  @override
+  String get fromFayda => 'Fayda irraa';
+
+  @override
+  String get placeLicenseHere => 'Hayyama konkolaachisaa asitti kaa\'aa';
+
+  @override
+  String get retakeLicensePhoto => 'Suuraa hayyamaa irra deebi\'ii kaasi';
+
+  @override
+  String get removeLicensePhoto => 'Suuraa hayyamaa haqi';
+
+  @override
+  String get totalListingValue => 'Gatii Waliigalaa Tarree';
+
+  @override
+  String get checkoutHeldInEscrowNote =>
+      'Hanga geessuu mirkaneessitanitti Eeskiroo keessatti qabama';
+
+  @override
+  String get placeOrderEscrowNote =>
+      'Maallaqni keessan nageenyaan qabama. Duraan qonnaan bulaan, itti aansee konkolaachisaan ni gaafatama.';
+
+  @override
+  String get deliveriesSearchHint =>
+      'Midhaan, qonnaan bulaa ykn konkolaachisaa';
+
+  @override
+  String get delivSegmentActive => 'Ka\'aa Jiru';
+
+  @override
+  String delivPickupOn(String date) {
+    return 'fe\'umsa $date';
+  }
+
+  @override
+  String delivDeliveredOn(String date) {
+    return '$date geejjibame';
+  }
+
+  @override
+  String delivSummaryOnTheRoad(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count karaa irra',
+      one: '1 karaa irra',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count fe\'umsa eeggachaa',
+      one: '1 fe\'umsa eeggachaa',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String delivSummaryCheckWindow(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count yeroo mirkaneessaa keessa',
+      one: '1 yeroo mirkaneessaa keessa',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get delivArrivingCaption => 'ga\'aa jira';
+
+  @override
+  String delivWaitingForPickupOn(String date) {
+    return 'Fe\'umsa eeggachaa $date';
+  }
+
+  @override
+  String get delivMapStartsAtPickup => 'kaartaan fe\'umsa irraa jalqaba';
+
+  @override
+  String delivReportProblemUntil(String time) {
+    return 'hanga $time rakkoo gabaasaa';
+  }
+
+  @override
+  String get savedOnPhoneFirstNote =>
+      'Duraan bilbila keessan irratti olkaa\'ama, yeroo neetworkiin jiru ni ergama.';
+
+  @override
+  String get myCropsPrivacyNote =>
+      'Tarree keessan asitti kan argitu isin qofa. Bitoonni Midhaan Barbaadi keessatti argu.';
+
+  @override
+  String get homeToday => 'Har\'a';
+
+  @override
+  String homeDueToday(String time) {
+    return 'Hanga har\'a $time';
+  }
+
+  @override
+  String homeActionMore(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count dabalataa',
+      one: '1 dabalataa',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String homeNextDropoffAbout(String place, String time) {
+    return 'Itti aanee: buusuu $place keessatti, gara $time';
+  }
+
+  @override
+  String homeNextDropoffIn(String place) {
+    return 'Itti aanee: buusuu $place keessatti';
+  }
+
+  @override
+  String homeNextPickupIn(String place) {
+    return 'Itti aanee: fe\'umsa $place keessatti';
+  }
+
+  @override
+  String homeNextPickup(String name) {
+    return 'Itti aanee: fe\'umsa $name biratti';
+  }
+
+  @override
+  String homeNextDropoff(String name) {
+    return 'Itti aanee: buusuu $name biratti';
+  }
+
+  @override
+  String get homeTripNoneHint =>
+      'Imala maxxansaa, bitoonni bakka irratti qabachuu danda\'u.';
+
+  @override
+  String get homeTripMatchedLine =>
+      'Bakka fe\'umsaatti QR qonnaan bulaa hundaa iskaanii godhaa';
+
+  @override
+  String homeTileActiveReserved(int active, int reserved) {
+    return '$active hojiirra, $reserved qabame';
+  }
+
+  @override
+  String get homeTileWaitingForYou => 'isin eegaa jira';
+
+  @override
+  String get ordersFilterWaitingForYou => 'Isin kan eegan';
+
+  @override
+  String get homeTileHeldInEscrow => 'eeskiroo keessa qabamee jira';
+
+  @override
+  String get homeTileInTransit => 'geejjibamaa jira';
+
+  @override
+  String get homeTileInProgress => 'adeemsa irra';
+
+  @override
+  String get homeTileAvailableNow => 'amma ni argama';
+
+  @override
+  String get homeTileBrowseAllTrips => 'konkolaattota ka\'an hunda';
+
+  @override
+  String homeRecentLine(String event) {
+    return 'Dhiyoo: $event';
+  }
+
+  @override
+  String tripPricePerQuintalValue(String price) {
+    return 'Kuntaala tokkoof Birrii $price';
+  }
+
+  @override
+  String createTripRouteDistance(int km) {
+    return 'Sarara qajeelaan gara km $km, bilbila keessan irratti kan kaafame';
+  }
+
+  @override
+  String createTripRoutePreviewLabel(String from, String to) {
+    return 'Agarsiisa karaa $from irraa gara $to';
+  }
+
+  @override
+  String get createTripSwapRoute => 'Ka\'umsaa fi bakka gahumsaa wal jijjiiri';
+
+  @override
+  String get createTripDriverHint =>
+      'Maqaa fi bilbila keessan piroofaayilii irraa guutuu hin dandeenye. Maaloo galchaa.';
+
+  @override
+  String get tripSpaceTitle => 'Bakka imala kanarra jiru';
+
+  @override
+  String get invalidCapacityKg =>
+      'Dandeettiin kg 10 hanga 100,000 gidduu ta\'uu qaba';
+
+  @override
+  String get capacityKg => 'Dandeettii (kg)';
+
+  @override
+  String get pricePer100Kg => 'Gatii kg 100 (Birrii)';
+
+  @override
+  String get perQuintalInParens => '(kuntaala tokkoof)';
+
+  @override
+  String get quintalInParens => '(kuntaala)';
+
+  @override
+  String tripPricePer100KgValue(String price) {
+    return 'kg 100f Birrii $price';
+  }
+
+  @override
+  String get etbPer100KgShort => 'Birrii/kg 100';
+
+  @override
+  String tripKgOfKg(String amount, String capacity) {
+    return 'kg $capacity keessaa $amount';
+  }
+
+  @override
+  String tripKgLeft(String left) {
+    return 'kg $left hafe';
+  }
+
+  @override
+  String tripKgBooked(String booked, String capacity) {
+    return 'kg $capacity keessaa $booked qabameera';
+  }
+
+  @override
+  String tripKgFree(String kg) {
+    return 'kg $kg duwwaa';
+  }
+
+  @override
+  String get tripYourTurnNote =>
+      'Deebii kennuuf dabareen kan keeti. Erga fudhattee booda quunnamtiin ni banama.';
+
+  @override
+  String get tripOpenLink => 'Bani';
+
+  @override
+  String get tripModeCheckInSends => 'Bakka amma jirtu erga.';
+
+  @override
+  String tripModeNextDueBy(String time) {
+    return 'Gabaasni itti aanu hanga $time tti ergamuu qaba.';
+  }
+
+  @override
+  String tripModeAboutTime(String time) {
+    return 'naannoo $time';
+  }
+
+  @override
+  String tripModeAboutKm(String km) {
+    return 'gara km $km';
+  }
+
+  @override
+  String get qrFailedTitle => 'Iskaaniin hin hojjenne';
+
+  @override
+  String get qrFailedNothingLost => 'Wanti bade hin jiru.';
+
+  @override
+  String get qrFailedBackToTrip => 'Gara imalaatti deebi\'i';
+
+  @override
+  String get qrFailedOfflineNote =>
+      'Iskaan gochuun neetworkii malees ni hojjata.';
+
+  @override
+  String get qrFailedPickupScan => 'Iskaanii fudhachuu';
+
+  @override
+  String get qrFailedDeliveryScan => 'Iskaanii geejjibaa';
+
+  @override
+  String get tripBookedTermsNote =>
+      'Imalli qabaman guyyaa, gatii fi karaa isaanii hin jijjiiran.';
+
+  @override
+  String get tripScanAtPickupNote =>
+      'Guyyaa imalaa, bakka fe\'umsaatti QR qonnaan bulaa hundaa iskaanii godhaa. Imalli kallattii iskaanii jalqabaatiin jalqaba.';
+
+  @override
+  String get tripCancelBookedNote =>
+      'Haquun ajajawwan qabaman gara bitoota isaaniitti deebisa; isaanis maallaqa guutuu deebifachuuf haquu danda\'u.';
+
+  @override
+  String get tripFindCrops => 'Midhaan karaa kana irratti barbaadi';
+
+  @override
+  String tripFindCropsNote(String from) {
+    return 'Midhaan $from keessatti galmaa\'e. Tokko konkolaataa fe\'aa kanaan ajajaa.';
+  }
+
+  @override
+  String tripCropsTitle(String from) {
+    return 'Midhaan $from keessa jiru';
+  }
+
+  @override
+  String tripCropsEmpty(String from) {
+    return 'Amma $from keessatti midhaan galmaa\'e hin jiru';
+  }
+
+  @override
+  String get tripCropsEmptyHint =>
+      'Qonnaan bultoonni midhaan haaraa yeroo galmeessan asitti mul\'ata.';
+
+  @override
+  String tripCropsFootnote(String from) {
+    return 'Midhaan $from keessatti galmaa\'e, bakka konkolaataan fe\'aa kun itti ka\'u. Konkolaataa kana qabachuuf tokko geejjibaan ajajaa.';
+  }
+
+  @override
+  String get tripLeftChooseAnother =>
+      'Konkolaataan fe\'aa kun duraan ka\'eera. Konkolaataa fe\'aa biraa filadhaa.';
+
+  @override
+  String get tripStatusDatePassed => 'Guyyaan darbeera';
+
+  @override
+  String get orderYouReceive => 'Kan isinii gahu';
+
+  @override
+  String get orderYourTransportPay => 'Kaffaltii geejjibaa keessan';
+
+  @override
+  String get deliveriesNoSearchMatch =>
+      'Geessituun maqaa sanaan walsimu hin jiru.';
+
+  @override
+  String get farmerRejectRefundNote => 'Bitaan maallaqa guutuu deebifata.';
+
+  @override
+  String get farmerAnswerNote =>
+      'Quunnamtiin bitaa wajjin yeroo fudhattan bana. Diduun sababa gaafata, bitaanis maallaqa deebifata.';
+
+  @override
+  String get checkoutConfirmItsYouNote =>
+      'Kaffaltiin Birrii 10,000 ol Fayda barbaada. Kanneen xixiqqoon jecha icciitii keessan gaafatu.';
+
+  @override
+  String get checkoutConfirmedWithFayda => 'Faydaan mirkanaa\'eera';
+
+  @override
+  String get checkoutConfirmedWithPassword =>
+      'Jecha icciitii keessaniin mirkanaa\'eera';
+
+  @override
+  String myCropsOrderedOf(String ordered, String total) {
+    return 'Kuntaala $total keessaa $ordered ajajameera';
+  }
+
+  @override
+  String myCropsNoOrdersYet(String quantity) {
+    return 'Kuntaala $quantity, hanga ammaatti ajajni hin jiru';
+  }
+
+  @override
+  String get homeWelcomeBack => 'Baga nagaan dhuftan,';
+
+  @override
+  String get homeOpen => 'Bani';
+
+  @override
+  String get homeTileHeldUntilConfirmed =>
+      'hanga bitaan ga\'uu isaa mirkaneessutti isiniif qabamee jira';
+
+  @override
+  String homeTripLoadedKg(String loaded, String capacity) {
+    return 'kg $capacity keessaa $loaded fe\'ameera';
+  }
+
+  @override
+  String quintalsOfInParens(String part, String total) {
+    return '(kuntaala $total keessaa $part)';
+  }
+
+  @override
+  String homePaymentsInEscrow(String amount) {
+    return 'Birrii $amount eeskiroo keessa';
+  }
+
+  @override
+  String myCropsOrderedOfKg(String ordered, String total) {
+    return 'kg $total keessaa $ordered ajajameera';
+  }
+
+  @override
+  String get myCropsNoOrdersShort => 'hanga ammaatti ajajni hin jiru';
+
+  @override
+  String get myCropsEmptyTitle => 'Midhaan tarreeffame hin jiru';
+
+  @override
+  String get myCropsEmptyBody =>
+      'Bitoonni akka argataniifi ajaja akka isiniif erganiif midhaan keessan isa jalqabaa tarreessaa.';
+
+  @override
+  String get myCropsEmptyAction => 'Midhaan tarreessi';
+
+  @override
+  String get quantityInKg => 'Hamma (kg)';
+
+  @override
+  String get kgUnit => 'kg';
+
+  @override
+  String quintalsShortInParens(String count) {
+    return '(kunt. $count)';
+  }
+
+  @override
+  String get quantityKgTooSmall => 'Yoo xiqqaate kg 1 galchi.';
+
+  @override
+  String get quantityKgTooLarge => 'kg 1,000,000 ol hin galchin.';
+
+  @override
+  String get createTripBookingCutoffNote =>
+      'Bitoonni hanga sa\'aatii 24 osoo hin ka\'iin dura qabachuu danda\'u.';
+
+  @override
+  String myCropsListedOn(String date) {
+    return '$date tarreeffame';
+  }
+
+  @override
+  String get cropsListedToday => 'har\'a galmaa\'e';
+
+  @override
+  String get cropsDrafts => 'Qophiiwwan';
+
+  @override
+  String get detailYourPay => 'kaffaltii keessan';
+
+  @override
+  String get detailBookingWaitingFarmer => 'Qonnaan bulaa eegaa jira';
+
+  @override
+  String get detailBookingAskedNext => 'itti aansee isin gaafatamtu';
+
+  @override
+  String get detailBookingAcceptedContactOpen => 'quunnamtiin banaa dha';
+
+  @override
+  String detailBookedOf(String booked, String capacity) {
+    return 'kuntaala $capacity keessaa $booked';
+  }
+
+  @override
+  String detailLeft(String left) {
+    return '$left hafe';
+  }
+
+  @override
+  String get detailCropHere => 'midhaan asitti';
+
+  @override
+  String detailFarmerAcceptedAnswerBy(String time) {
+    return 'Qonnaan bulaan fudhateera. Maaloo hanga $time deebisaa.';
+  }
+
+  @override
+  String get detailBooked => 'Qabame';
+
+  @override
+  String detailQuintalsLeft(String quintals) {
+    return 'kuntaala $quintals hafe';
+  }
+
+  @override
+  String detailKmToYou(int km) {
+    return 'Gara km $km hanga isinitti';
+  }
+
+  @override
+  String detailForQuantity(String quantity) {
+    return '$quantity tiif';
+  }
+
+  @override
+  String get detailEtbPerQuintalShort => 'Birrii/kuntaala';
+
+  @override
+  String detailFitsTrip(String quintals) {
+    return 'imala kana keessa gala (kuntaala $quintals hafe)';
+  }
+
+  @override
+  String detailExceedsTrip(String quintals) {
+    return 'iddoo imalli kun qabuu ol (kuntaala $quintals hafe)';
+  }
+
+  @override
+  String get detailChange => 'Jijjiiri';
+
+  @override
+  String get detailLess => 'Hir\'isi';
+
+  @override
+  String get detailMore => 'Dabali';
+
+  @override
+  String get detailGpsPickFromList =>
+      'GPS hin jiru? Bakka isaa aanaa keessan tarree irraa filadhaa.';
+
+  @override
+  String get detailNoPhoneNumbersNote =>
+      'Lakkoofsa bilbilaa hin jiru: kaffaltiin erga qabamee booda quunnamtiin banama.';
+
+  @override
+  String get detailYourFarm => 'Qonna keessan';
+
+  @override
+  String get detailNewOrderTitle => 'Ajaja haaraa';
+
+  @override
+  String detailFromYourListing(String what) {
+    return '$what tarree keessan irraa';
+  }
+
+  @override
+  String get detailPaidIntoEscrow => 'Qabannoo keessatti kaffalame';
+
+  @override
+  String get detailPickupLabel => 'Fe\'umsa';
+
+  @override
+  String detailTruckOf(String name) {
+    return 'konkolaataa $name';
+  }
+
+  @override
+  String get detailBuyerCollects => 'Bitaan ofii fudhata';
+
+  @override
+  String get detailHeldInEscrow => 'Qabannoo keessa jira';
+
+  @override
+  String detailPartyPaid(String party) {
+    return '$party kaffale';
+  }
+
+  @override
+  String detailPartyRole(String name, String role) {
+    return '$name, $role';
+  }
+
+  @override
+  String get detailYou => 'Isin';
+
+  @override
+  String detailTimelineThen(String steps) {
+    return 'Ergasii $steps. Hiika isaa dubbisuuf tarkaanfii tuqi.';
+  }
+
+  @override
+  String get detailTimelineTapStep => 'Hiika isaa dubbisuuf tarkaanfii tuqi.';
+
+  @override
+  String detailListAnd(String head, String last) {
+    return '$head fi $last';
+  }
+
+  @override
+  String get detailContactOpensWhenTruckerAccepts =>
+      'Konkolaachisaan yeroo fudhatu quunnamtiin banama';
+
+  @override
+  String detailMessageParty(String name) {
+    return '${name}f ergaa ergi';
+  }
+
+  @override
+  String detailCallParty(String name) {
+    return '${name}f bilbili';
+  }
+
+  @override
+  String liveTripLogStopAhead(int minutes) {
+    return 'Gara daqiiqaa $minutes, achiis gara keessanitti';
+  }
+
+  @override
+  String marketQuintalsRoom(String quintals) {
+    return 'bakka kuntaala $quintals';
+  }
+
+  @override
+  String detailQuintalsRoom(String quintals) {
+    return 'bakka kuntaala $quintals';
+  }
+
+  @override
+  String marketTransportOn(String day) {
+    return 'Geejjiba $day';
+  }
+
+  @override
+  String marketTripsThisWeek(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Torban kana imala $count',
+      one: 'Torban kana imala 1',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get marketNoTripYet => 'Hanga ammaatti imalli hin jiru';
+
+  @override
+  String marketFootnote(String place) {
+    return 'Tarree qonnaan bultoota hundaa, walsimannaa ${place}f hunda caaluun tartiibeffame.';
+  }
+
+  @override
+  String get marketFootnoteNoPlace =>
+      'Tarree qonnaan bultoota hundaa, walsimannaa geejjibaa hunda caaluun tartiibeffame.';
+
+  @override
+  String marketQuintalsLeft(String quantity) {
+    return 'kuntaala $quantity hafe';
+  }
+
+  @override
+  String get actionOpen => 'Bani';
+
+  @override
+  String commitmentAnswerDue(String time) {
+    return 'Deebiin hanga $time';
+  }
+
+  @override
+  String get commitmentTheFarmer => 'qonnaan bulaa';
+
+  @override
+  String get commitmentTheTrucker => 'konkolaachisaa';
+
+  @override
+  String commitmentWhoFarmer(String name) {
+    return '$name, qonnaan bulaa,';
+  }
+
+  @override
+  String commitmentWhoTrucker(String name) {
+    return '$name, konkolaachisaa,';
+  }
+
+  @override
+  String commitmentBuyerWaitingOnBy(String who, String time) {
+    return 'Amma $who hanga $time akka deebisu eegamaa jira. Ati homaa gochuu hin qabdu.';
+  }
+
+  @override
+  String commitmentBuyerWaitingOn(String who) {
+    return 'Amma $who akka deebisu eegamaa jira. Ati homaa gochuu hin qabdu.';
+  }
+
+  @override
+  String get commitmentThenTruckerAsked =>
+      'Yeroo qonnaan bulaan fudhatu, itti aansee konkolaachisaan gaafatama.';
+
+  @override
+  String get commitmentContactOpensOnTruckerAccept =>
+      'Yeroo konkolaachisaan fudhatu, quunnamtiin asitti banama.';
+
+  @override
+  String commitmentYourTurnBy(String time) {
+    return 'Dabareen kan kee ti: hanga $time fudhadhu yookaan didi.';
+  }
+
+  @override
+  String get commitmentYourTurn =>
+      'Dabareen kan kee ti: fudhadhu yookaan didi.';
+
+  @override
+  String get commitmentFarmerAcceptThenTrucker =>
+      'Yeroo fudhattu, itti aansee konkolaachisaan gaafatama, kaffaltiin bitaas eeskiroo keessa tura.';
+
+  @override
+  String get commitmentFarmerAcceptEscrowStays =>
+      'Yeroo fudhattu, kaffaltiin bitaa eeskiroo keessa tura.';
+
+  @override
+  String get rejectConfirmTitle => 'Ajaja kana ni diddaa?';
+
+  @override
+  String get rejectConfirmBody =>
+      'Bitaan ajaja kana guutuu akka hin dandeenye itti himama, kaffaltiin isaas eeskiroo irraa deebi\'aaf.';
+
+  @override
+  String rejectConfirmReason(String reason) {
+    return 'Sababa: $reason';
+  }
+
+  @override
+  String get rejectConfirmYes => 'Eeyyee, ajaja didi';
+
+  @override
+  String get rejectConfirmKeep => 'Ajaja tursi';
+
+  @override
+  String get contactMessageLabel => 'Ergaa';
+
+  @override
+  String placeOrderFitsTripKg(String quantity) {
+    return 'imala kana keessa gala, $quantity hafe';
+  }
+
+  @override
+  String placeOrderExceedsTripKg(String quantity) {
+    return 'iddoo imalli kun qabuu ol, $quantity hafe';
+  }
+
+  @override
+  String pricePerQuintalInParens(String price) {
+    return '($price/kuntaala)';
+  }
+
+  @override
+  String transportPricePerKgAndQuintal(String perKg, String perQuintal) {
+    return 'kg tokkoof Birrii $perKg (kuntaala tokkoof $perQuintal)';
+  }
+
+  @override
+  String get quantityNeededKg => 'Baay\'ina barbaadamu (kg)';
+
+  @override
+  String marketKgLeft(String quantity) {
+    return '$quantity hafe';
+  }
+
+  @override
+  String marketKgRoom(String quantity) {
+    return 'bakka $quantity';
+  }
+
+  @override
+  String get marketSearchToggle => 'Barbaacha fi gingilchaa gatii';
+
+  @override
+  String liveTripEscrowAmount(String amount) {
+    return '$amount Eeskiroo keessa';
+  }
+
+  @override
+  String get liveTripReleasePending => 'Kaffaltiin ammallee hin gadhiifamne';
+
+  @override
+  String get liveTripYouConfirmedDelivery => 'Geejjiba mirkaneessitaniittu';
+
+  @override
+  String get liveTripCheckWindowEnds => 'Yeroon mirkaneessaa xumurama';
+
+  @override
+  String liveTripPartyGets(String name, String amount) {
+    return '$name $amount argata';
+  }
+
+  @override
+  String get cropPhotosTitle => 'Suuraa midhaan keessanii';
+
+  @override
+  String get cropPhotosHint =>
+      'Suuraa ifa ta\'an 2 hanga 4 ifa guyyaatiin dabalaa: tuullaa guutuu fi suuraa midhaanii dhihoo.';
+
+  @override
+  String cropPhotosCount(int count, int max) {
+    return '$max keessaa $count';
+  }
+
+  @override
+  String get cropPhotosTake => 'Suuraa kaasi';
+
+  @override
+  String get cropPhotosGallery => 'Gaalarii irraa';
+
+  @override
+  String get cropPhotosRemove => 'Suuraa haqi';
+
+  @override
+  String cropPhotosRequired(int min) {
+    return 'Yoo xiqqaate suuraa midhaan keessanii $min dabalaa.';
+  }
+
+  @override
+  String cropPhotosLimitReached(int max) {
+    return 'Hanga suuraa $max dabaluu dandeessu.';
+  }
+
+  @override
+  String get cropPhotosUnsupported =>
+      'Faayilli kun suuraa itti fayyadamuu dandeenyu miti. Suuraa JPEG, PNG ykn WebP filadhaa.';
+
+  @override
+  String get cropPhotosTooLarge =>
+      'Suuraan sun baay\'ee guddaa dha. Kan xiqqaa filadhaa.';
+
+  @override
+  String get cropPhotosPickFailed =>
+      'Kaameraa ykn gaalarii banuun hin danda\'amne. Hayyama appichaa mirkaneessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get cropPhotosUploadFailed =>
+      'Suuraaleen hin olkaa\'amne. Walqunnamtii keessan mirkaneessaatii irra deebi\'aa olkaa\'aa.';
+
+  @override
+  String get cropPhotoCover => 'Fuula duraa';
+
+  @override
+  String cropPhotoPosition(int index, int count) {
+    return 'Suuraa $count keessaa ${index}ffaa';
+  }
+
+  @override
+  String cropPhotosCountLabel(int count) {
+    return 'Suuraa $count';
+  }
+
+  @override
+  String get cropPhotoUnavailable => 'Suuraan ammaaf hin argamu';
+
+  @override
+  String get cropPhotoPrevious => 'Suuraa duraa';
+
+  @override
+  String get cropPhotoNext => 'Suuraa itti aanu';
+
+  @override
+  String get qrTypeCodeInstead => 'Bakka isaa koodii barreessi';
+
+  @override
+  String get qrTypeCodeTitle => 'Koodii barreessi';
+
+  @override
+  String get qrTypeCodePickupHint =>
+      'Qonnaan bulaan fuula QR isaa irratti \"Kaameeraan hin hojjetuu?\" akka tuqu gaafadhu, achiis lakkoofsota 9 achitti mul\'atan barreessi.';
+
+  @override
+  String get qrTypeCodeDropoffHint =>
+      'Konkolaachisaan QR buusuu banee \"Kaameeraan hin hojjetuu?\" akka tuqu gaafadhu, achiis lakkoofsota 9 achitti mul\'atan barreessi. Yoo midhaan fuula kee dura jiraate qofa barreessi.';
+
+  @override
+  String get qrTypeCodeSelfPickupHint =>
+      'Qonnaan bulaan fuula QR isaa irratti \"Kaameeraan hin hojjetuu?\" akka tuqu gaafadhu, achiis lakkoofsota 9 achitti mul\'atan barreessi. Yoo midhaan fuula kee dura jiraate qofa barreessi.';
+
+  @override
+  String get qrTypeCodeLabel => 'Koodii lakkoofsa 9';
+
+  @override
+  String get qrTypeCodeCheck => 'Koodii mirkaneessi';
+
+  @override
+  String get qrTypeCodeTypo =>
+      'Koodiin kun dogoggora barreeffamaa qaba. Lakkoofsa tokkoon tokkoon mirkaneessiitii irra deebi\'ii barreessi.';
+
+  @override
+  String get qrTypeCodeIncomplete => 'Lakkoofsota 9 hunda barreessi.';
+
+  @override
+  String get deliveryQrReadCheckedOnline =>
+      'Koodiin QR dubbifameera. Yeroo bilbilli kee interneetii irra jiru ni mirkanaa\'a.';
+
+  @override
+  String get deliveryCodeTypedCheckedOnline =>
+      'Koodiin barreeffameera. Yeroo bilbilli kee interneetii irra jiru ni mirkanaa\'a.';
+
+  @override
+  String get qrTypedCodeNeedsGps =>
+      'Koodiin barreeffame bakka kee barbaada. Tajaajila bakkaa bani, achiis \"Bakka irra deebi\'ii yaali\" tuqi.';
+
+  @override
+  String get qrRetryLocation => 'Bakka irra deebi\'ii yaali';
+
+  @override
+  String get qrSelfPickupNeedsGps =>
+      'Fudhachuu maasii irratti mirkaneessuuf bakki kee barbaachisa.';
+
+  @override
+  String get qrLocationNoSignal =>
+      'Ammaaf mallattoon bakkaa hin argamne. Tajaajilli bakkaa banaa ta\'uu mirkaneessi, bakka banaa alaatti bahi, achiis \"Bakka irra deebi\'ii yaali\" tuqi.';
+
+  @override
+  String get qrPickupSavedCheckOnline =>
+      'Fudhachuun olkaa\'ameera. Yeroo bilbilli kee interneetii irra jiru koodiin ni mirkanaa\'a.';
+
+  @override
+  String get qrDeliverySavedCheckOnline =>
+      'Geejjibni olkaa\'ameera. Yeroo bilbilli kee interneetii irra jiru koodiin ni mirkanaa\'a.';
+
+  @override
+  String get qrCameraDeniedTitle => 'Kaameeraan hin hayyamamne';
+
+  @override
+  String get qrCameraDeniedText =>
+      'Qindaa\'ina bilbila keetii keessatti WeredaConnect dhaaf kaameeraa hayyami, achiis \"Irra Deebi\'i Yaali\" tuqi.';
+
+  @override
+  String get qrCameraDeniedTextWeb =>
+      'Qindaa\'ina browser keetii keessatti marsariitii kanaaf kaameeraa hayyami, achiis \"Irra Deebi\'i Yaali\" tuqi.';
+
+  @override
+  String get qrCameraUnavailableTitle => 'Kaameeraan hin hojjetu';
+
+  @override
+  String get qrCameraUnavailableText =>
+      'Appiiwwan biroo kaameeraa fayyadaman cufi, achiis \"Irra Deebi\'i Yaali\" tuqi. Bakka isaa koodii barreessuus ni dandeessa.';
+
+  @override
+  String get qrCameraOpenSettings => 'Qindaa\'ina bani';
+
+  @override
+  String get qrCameraNotWorking => 'Kaameeraan hin hojjetuu?';
+
+  @override
+  String get qrShowCodeTitle => 'Koodii iskaanii godhuu bakka barreeffamu';
+
+  @override
+  String get qrShowCodeWarning =>
+      'Koodii kana nama fuula kee dura jiru qofaaf agarsiisi. Gonkumaa bilbilaan hin dubbisin, ergaadhaanis hin ergin.';
+
+  @override
+  String get deliveryShowDropoffQr => 'QR buusuu agarsiisi';
+
+  @override
+  String get deliveryDropoffQrTitle => 'QR buusuu';
+
+  @override
+  String get deliveryDropoffQrInstruction =>
+      'Yeroo midhaan dabarsitu koodii QR kana bitaaf agarsiisi';
+
+  @override
+  String get deliveryDropoffQrNote =>
+      'Iskaanii fudhachuu keetii irraa bilbila kana irratti kuufame. Interneetii malee hojjata, iskaaniin bitaa immoo geejjiba ni mirkaneessa.';
+
+  @override
+  String get deliveryDropoffCodeOnly =>
+      'Fudhachuu koodii barreeffameen waan mirkaneessiteef QR agarsiifamu hin jiru. Bitaan bakka isaa koodii kana barreessa.';
+
+  @override
+  String get deliveryErrorCodeMismatch =>
+      'Koodiin barreeffame geejjiba kana waliin wal hin simu, kanaaf hin mirkanoofne. Koodii mirkaneessiitii irra deebi\'ii yaali.';
+
+  @override
+  String get deliveryErrorCodeLocked =>
+      'Geejjiba kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa koodii QR iskaanii godhi, yookaan namni koodii agarsiisu koodii haaraa akka hojjetu gaafadhu.';
+
+  @override
+  String get deliveryDisputeNotConfirmed =>
+      'Komiin hin ergamne. Erguuf isin ta\'uu keessan mirkaneessaa.';
+
+  @override
+  String get deliveryErrorCodeGpsRequired =>
+      'Koodiin barreeffame bakka kee barbaada. Tajaajila bakkaa banitii irra deebi\'ii yaali.';
+
+  @override
+  String get tripModeStopSharing => 'Qooduu dhaabi';
+
+  @override
+  String get tripModeStopSharingTitle => 'Imala kanaaf qooduun haa dhaabatu?';
+
+  @override
+  String get tripModeStopSharingBody =>
+      'Bitaan bakka konkolaataa yeroo ammaa ni dhaba, galmeen ofumaan karaa irratti taasifamus ni dhaabata. Iskaaniin QR ammallee fudhachuu fi geejjiba ni mirkaneessa. Imala kanaaf qooduu irra deebi\'anii banuun hin danda\'amu.';
+
+  @override
+  String get tripModeStoppedTitle => 'Qooduun dhaabateera';
+
+  @override
+  String get tripModeStoppedText =>
+      'Imala kanaaf qooduu dhaabdeetta. Iskaaniin QR ammallee fudhachuu fi geejjiba ni mirkaneessa.';
+
+  @override
+  String get tripModeNotSharingYet =>
+      'Bakki kee imala kanaaf ammaaf hin qoodamne. Iskaanii fudhachuu jalqabaa keetiin murteessama.';
+
+  @override
+  String get homeTripLoadFailed =>
+      'Imala kee fe\'uun hin danda\'amne. Walqunnamtii kee mirkaneessiitii irra deebi\'ii yaali.';
+
+  @override
+  String tripScanPickupQrFor(String name) {
+    return 'QR fudhachuu iskaan: $name';
+  }
+
+  @override
+  String get deliveryErrorCodeLockedDropoff =>
+      'Buusuu kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Konkolaachisaan QR buusuu yoo qabaate iskaanii godhi. Yoo hin qabne, deeggarsa qunnami: isaan si fi konkolaachisaa waliin dabarsuu ni mirkaneessu.';
+
+  @override
+  String get deliveryDropoffQrOwnNote =>
+      'Geejjiba kanaaf bilbila kana irratti hojjetame. Interneetii malee hojjata, iskaaniin ykn koodiin barreeffame bitaa geejjiba ni mirkaneessa. Yoo bade ykn cufame, koodii haaraa hojjedhu.';
+
+  @override
+  String get deliveryDropoffNewCode => 'Koodii buusuu haaraa';
+
+  @override
+  String get deliveryDropoffQrNotSent =>
+      'Ammaaf hin ergamne. Yeroo QR kana interneetii irratti banattu hundaa irra deebi\'ee ergama, mirkaneessi bitaas hanga inni ga\'utti eeggata.';
+
+  @override
+  String get deliveryErrorDropoffQrPending =>
+      'Koodiin buusuu konkolaachisaa hanga ammaatti nu hin geenye. Konkolaachisaan interneetii irratti QR buusuu akka banu gaafadhaa, achiis irra deebi\'aa yaalaa.';
+
+  @override
+  String get deliveryErrorDropoffCodeLocked =>
+      'Buusuu kanaaf koodiiwwan dogoggoraa baay\'een waan galaniif koodiiwwan barreeffaman cufamaniiru. Bakka isaa QR buusuu konkolaachisaa iskaanii godhi, yookaan konkolaachisaan koodii haaraa akka hojjetu gaafadhu.';
+
+  @override
+  String get deliveryDropoffNoCodeHere =>
+      'Bilbilli kun geejjiba kanaaf koodii buusuu hin qabu. Yoo bilbila ykn browser biraa irratti hojjette, sana agarsiisi. Yookaan asitti koodii haaraa hojjedhu.';
+
+  @override
+  String get deliveryDropoffQrSuperseded =>
+      'Koodiin buusuu haaraan bilbila ykn browser biraa irratti waan hojjetameef, kun hin hojjetu. Sana agarsiisi, yookaan asitti koodii haaraa hojjedhu.';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmTitle =>
+      'Koodii buusuu haaraa haa hojjetamu?';
+
+  @override
+  String get deliveryDropoffNewCodeConfirmBody =>
+      'Koodiin buusuu kamiyyuu kan duraan bilbila kana ykn kan biraa irratti agarsiifame hojii ni dhaaba. Bitaaf kan haaraa qofa agarsiisi.';
+
+  @override
+  String get deliveryQrAlreadyPickedUp =>
+      'Geejjibni kun duraan fudhatameera, kanaaf koodiin QR haaraan hin uumamu. Konkolaachisaan amma koodii buusuu kan mataa isaa bitaaf agarsiisa.';
+
+  @override
+  String get dropoffNoteLabel => 'Mallattoo bakka buusii (dirqama miti)';
+
+  @override
+  String get dropoffNoteHint => 'Fkn. Merkato, Masgiida Anwar bira';
+
+  @override
+  String get dropoffNoteHelper =>
+      'Akka konkolaachisaan isin argatu gargaara. Qonnaan bulaa fi konkolaachisaan ni argu. Hanga fe\'amutti jijjiiruu dandeessu.';
+
+  @override
+  String get dropoffNoteTitle => 'Mallattoo bakka buusii';
+
+  @override
+  String get dropoffNoteEmpty =>
+      'Akka konkolaachisaan isin argatuuf mallattoo dabalaa.';
+
+  @override
+  String get dropoffNoteAdd => 'Dabali';
+
+  @override
+  String get dropoffNoteSaved => 'Mallattoon bakka buusii olkaa\'ameera.';
+
+  @override
+  String get errorDropoffNoteLocked =>
+      'Meeshaan waan fe\'ameef mallattoo bakka buusii jijjiiruun hin danda\'amu.';
+
+  @override
+  String get reportListing => 'Tarree kana gabaasi';
+
+  @override
+  String get reportListingTitle => 'Tarree kana irratti rakkoon maali?';
+
+  @override
+  String get reportListingPrivacyNote =>
+      'Abbaan tarree kanaa eenyu akka gabaase hin argu. Gareen keenya gabaasa hunda ni ilaala.';
+
+  @override
+  String get reportReasonContactInfo =>
+      'Lakkoofsa bilbilaa ykn quunnamtii biraa qooda';
+
+  @override
+  String get reportReasonMisleading =>
+      'Odeeffannoo dogoggoraa ykn kan nama dogoggorsu';
+
+  @override
+  String get reportReasonScam => 'Shira fakkaata';
+
+  @override
+  String get reportReasonOffensive => 'Kan nama arrabsu ykn kan hin malle';
+
+  @override
+  String get reportReasonOther => 'Waan biraa';
+
+  @override
+  String get reportListingSend => 'Gabaasa ergi';
+
+  @override
+  String get reportListingSent =>
+      'Galatoomaa. Gareen keenya tarree kana ni ilaala.';
+
+  @override
+  String get reportListingAlreadySent => 'Tarree kana duraan gabaaftee jirta.';
+
+  @override
+  String get errorReportNotSent => 'Gabaasni kee ergamuu hin dandeenye.';
+
+  @override
+  String errorReportLimitReached(int count) {
+    return 'Guyyaatti hanga gabaasa $count erguu dandeessa. Boru irra deebi\'ii yaali.';
+  }
+
+  @override
+  String get deliveryPlaceLabel => 'Bakka buusii';
+
+  @override
+  String get deliveryPlaceHelper =>
+      'Bakka konkolaataan meeshaa itti fidu. Qonnaan bulaa fi konkolaachisaan ni argu. Hanga fe\'amutti jijjiiruu dandeessu.';
+
+  @override
+  String get deliveryPlaceNone => 'Bakka konkolaataan gahu';
+
+  @override
+  String get deliveryPlaceChange => 'Jijjiiri';
+
+  @override
+  String get deliveryPlacePickFromList => 'Tarree keessaa bakka filadhu.';
+
+  @override
+  String get deliveryPlaceSaved => 'Bakki buusii olkaa\'ameera.';
+
+  @override
+  String get errorDeliveryLocationLocked =>
+      'Meeshaan waan fe\'ameef bakka buusii jijjiiruun hin danda\'amu.';
+
+  @override
+  String get reputationLowTag => 'Amanamummaa gadi aanaa';
+
+  @override
+  String get reputationLowInfo =>
+      'Dhiheenya kana ajajoota kaffalaman hedduu haqeera yookiin hin raawwanne.';
+
+  @override
+  String reputationReliability(String pct) {
+    return 'Ajajoota keessaa $pct% xumurameera';
+  }
+
+  @override
+  String reputationAsOf(String date) {
+    return 'Odeeffannoo hanga ${date}tti';
+  }
+
+  @override
+  String get reputationLowOrderTitle => 'Ta\'us ajajuu barbaadduu?';
+
+  @override
+  String get reputationLowOrderFarmer =>
+      'Qonnaan bulaan kun mallattoo amanamummaa gadi aanaa qaba. Dhiheenya kana ajajoota kaffalaman hedduu haqeera yookiin hin raawwanne. Ammas ajajuu ni dandeessu.';
+
+  @override
+  String get reputationLowOrderTrucker =>
+      'Konkolaachisaan kun mallattoo amanamummaa gadi aanaa qaba. Dhiheenya kana ajajoota kaffalaman hedduu haqeera yookiin hin raawwanne. Ammas ajajuu ni dandeessu.';
+
+  @override
+  String get reputationLowOrderBoth =>
+      'Qonnaan bulaan kunii fi konkolaachisaan kun lamaanuu mallattoo amanamummaa gadi aanaa qabu. Dhiheenya kana ajajoota kaffalaman hedduu haqaniiru yookiin hin raawwanne. Ammas ajajuu ni dandeessu.';
+
+  @override
+  String get reputationLowOrderContinue => 'Ta\'us ajaji';
+
+  @override
+  String errorReputationRestrictedUntil(String date) {
+    return 'Herregni keessan hanga ${date}tti ajaja, tarree yookiin imala haaraa fudhachuu hin danda\'u, kanaaf jijjiiramni kun hin olkaa\'amne. Ajajni keessan kan amma jiran itti fufu.';
+  }
+
+  @override
+  String get reputationMyTitle => 'Amanamummaa koo';
+
+  @override
+  String get reputationMySubtitle => 'Sadarkaa, qabxii adabbii fi ol\'iyyannoo';
+
+  @override
+  String get reputationTierGood => 'Haala gaarii';
+
+  @override
+  String get reputationTierGoodBody =>
+      'Wanti godhamu hin jiru. Ajajoota keessan xumuruu itti fufaa.';
+
+  @override
+  String get reputationTierWarning => 'Maaloo of eeggadhaa';
+
+  @override
+  String reputationWarning(int threshold) {
+    return 'Qabxii $threshold irratti bitattoonni mallattoo amanamummaa gadi aanaa ni argu.';
+  }
+
+  @override
+  String get reputationTierLowBody =>
+      'Bitattoonni tarree fi imala keessan irratti mallattoo amanamummaa gadi aanaa ni argu, ajajuu isaanii dura akka mirkaneessan ni gaafatamu.';
+
+  @override
+  String get reputationTierRestricted => 'Ajajni haaraan yeroof dhaabateera';
+
+  @override
+  String reputationRestrictedUntil(String date) {
+    return 'Hanga ${date}tti ajaja haaraa fudhachuu hin dandeessan. Ajajni keessan kan amma jiran itti fufu.';
+  }
+
+  @override
+  String get reputationRestrictedReview =>
+      'Hanga gareen keenya geejjiba ture sakatta\'utti ajaja haaraa fudhachuu hin dandeessan. Ajajni keessan kan amma jiran itti fufu.';
+
+  @override
+  String reputationMyPoints(int points) {
+    String _temp0 = intl.Intl.pluralLogic(
+      points,
+      locale: localeName,
+      other: 'Qabxii adabbii $points',
+      one: 'Qabxii adabbii 1',
+      zero: 'Qabxiin adabbii hin jiru',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String reputationRestrictAt(int threshold) {
+    return 'Qabxii $threshold irratti ajajni haaraan yeroof ni dhaabata.';
+  }
+
+  @override
+  String reputationNextExpiry(String date) {
+    return 'Qabxiin keessan inni durii $date irratti ni haqama.';
+  }
+
+  @override
+  String get reputationRecoverHint =>
+      'Qabxiin yeroo booda ni haqama, ajajni xumurames qabxii tokko haquu danda\'a.';
+
+  @override
+  String reputationRatingBreakdown(String stars, String deduction) {
+    return '$stars bitattoota irraa, $deduction sababa haqiinsaatiin hir\'ifameera';
+  }
+
+  @override
+  String reputationRatingFromBuyers(String stars) {
+    return '$stars bitattoota irraa';
+  }
+
+  @override
+  String reputationShownToBuyers(String stars) {
+    return 'Bitattoonni $stars argu';
+  }
+
+  @override
+  String reputationCompletedOrders(int completed, int total) {
+    return 'Guyyoota 90 darban keessatti ajajoota $total keessaa $completed xumurameera';
+  }
+
+  @override
+  String reputationOverrideLow(String date) {
+    return 'Gareen keenya mallattoo amanamummaa gadi aanaa hanga ${date}tti dabaleera.';
+  }
+
+  @override
+  String reputationOverrideClear(String date) {
+    return 'Gareen keenya mallattoo amanamummaa gadi aanaa hanga ${date}tti kaaseera.';
+  }
+
+  @override
+  String get reputationEventsTitle => 'Seenaa';
+
+  @override
+  String get reputationEventsEmpty => 'Wanti galmaa\'e hin jiru.';
+
+  @override
+  String get reputationEventDeclined => 'Ajaja kaffalame hin fudhanne';
+
+  @override
+  String get reputationEventExpired => 'Yeroon deebii hin kennine';
+
+  @override
+  String get reputationEventCancelled => 'Erga fudhattanii booda haqxan';
+
+  @override
+  String get reputationEventLateCancel =>
+      'Fuudhuu dura guyyaa tokkoo gaditti haqxan';
+
+  @override
+  String get reputationEventTripCancelled =>
+      'Imala ajajoota qabame qabu haqxan';
+
+  @override
+  String get reputationEventNoShow => 'Bakka fuudhaa hin argamne';
+
+  @override
+  String get reputationEventOverdue => 'Geejjibni tureera';
+
+  @override
+  String get reputationEventTransportFailedCancel =>
+      'Erga geejjibni hin milkaa\'in booda haqxan';
+
+  @override
+  String get reputationEventCompleted =>
+      'Ajaja xumurtan, qabxiin tokko haqameera';
+
+  @override
+  String get reputationEventOther => 'Taatee ajajaa';
+
+  @override
+  String reputationEventPoints(int points) {
+    String _temp0 = intl.Intl.pluralLogic(
+      points,
+      locale: localeName,
+      other: 'Qabxii $points',
+      one: 'Qabxii 1',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get reputationEventNoPoints => 'Qabxiin hin lakkaa\'amne';
+
+  @override
+  String reputationEventRemaining(int points) {
+    return '$points ammas ni lakkaa\'ama';
+  }
+
+  @override
+  String reputationPointExpires(String date) {
+    return '$date irratti ni haqama';
+  }
+
+  @override
+  String get reputationEventStatusExpired => 'Yeroon isaa darbeera';
+
+  @override
+  String get reputationEventStatusExcused => 'Dhiifama argateera';
+
+  @override
+  String get reputationAppeal => 'Ol\'iyyannoo';
+
+  @override
+  String reputationAppealBy(String date) {
+    return 'Hanga ${date}tti ol\'iyyachuu dandeessu.';
+  }
+
+  @override
+  String get reputationAppealPending =>
+      'Ol\'iyyannoon ergameera. Gareen keenya ni sakatta\'a.';
+
+  @override
+  String get reputationAppealReview => 'Gareen keenya kana sakatta\'aa jira.';
+
+  @override
+  String get reputationAppealAccepted =>
+      'Ol\'iyyannoon fudhatameera. Qabxiin haqameera.';
+
+  @override
+  String get reputationAppealUpheld =>
+      'Ol\'iyyannoon sakatta\'ameera. Qabxiin ni tura.';
+
+  @override
+  String reputationAppealNote(String note) {
+    return 'Yaadannoo garee keenyaa: $note';
+  }
+
+  @override
+  String get reputationAppealHint =>
+      'Maaltu akka ta\'e ibsaa. Gareen keenya ni sakatta\'a. Galmee tokkoof al tokko qofa ol\'iyyachuu dandeessu.';
+
+  @override
+  String get reputationAppealTextLabel => 'Maaltu ta\'e';
+
+  @override
+  String get reputationAppealAddPhoto => 'Suuraa dabali (filannoo)';
+
+  @override
+  String get reputationAppealPhotoAdded => 'Suuraan dabalameera';
+
+  @override
+  String get reputationAppealRemovePhoto => 'Suuraa haqi';
+
+  @override
+  String get reputationAppealNeedsConnection =>
+      'Ol\'iyyannoo erguuf walitti dhufeenyi interneetii ni barbaachisa. Barreeffamni keessan hanga ergitanitti meeshaa kana irratti ni olkaa\'ama.';
+
+  @override
+  String get reputationAppealSend => 'Ol\'iyyannoo ergi';
+
+  @override
+  String get reputationAppealSent => 'Ol\'iyyannoon ergameera.';
+
+  @override
+  String get reputationAppealFailed =>
+      'Ol\'iyyannoon hin ergamne. Walitti dhufeenya keessan mirkaneessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get reputationAppealClosed =>
+      'Kanaaf kana booda ol\'iyyachuun hin danda\'amu.';
+
+  @override
+  String get reputationAppealExists => 'Kanaaf ol\'iyyannoon duraan ergameera.';
+
+  @override
+  String get reputationAppealPhotoProblem =>
+      'Suuraan kun baay\'ee guddaa dha yookiin fayyadamuun hin danda\'amu. Kan biraa yaalaa, yookiin suuraa malee ergaa.';
+
+  @override
+  String get reputationAppealUnavailable => 'Ol\'iyyannoon amma hin argamu.';
+
+  @override
+  String get reputationOfflineNoCopy =>
+      'Amanamummaa keessan ilaaluuf interneetiitti walqunnamaa.';
+
+  @override
+  String reputationShowingSaved(String date) {
+    return 'Neetworkiin hin jiru. Kan $date olkaa\'ame agarsiifamaa jira.';
+  }
+
+  @override
+  String get reputationLoadMore => 'Dabalata agarsiisi';
+
+  @override
+  String get reputationHistoryNeedsConnection =>
+      'Seenaa keessan ilaaluuf interneetiitti walqunnamaa.';
+
+  @override
+  String get profileRatingNone => 'Hin jiru';
+
+  @override
+  String get notifPenaltyRecordedTitle => 'Qabxiin adabbii dabalameera';
+
+  @override
+  String notifPenaltyRecordedBody(String reason, String points) {
+    return '$reason. Qabxii dabalame: $points. Bal\'ina ilaaluuf yookiin ol\'iyyachuuf \"Amanamummaa koo\" banaa.';
+  }
+
+  @override
+  String get notifTierChangedTitle => 'Amanamummaan keessan jijjiirameera';
+
+  @override
+  String get notifTierGoodBody => 'Gara haala gaariitti deebitaniittu.';
+
+  @override
+  String get notifTierWarningBody =>
+      'Qabxii adabbii qabdu. Bitattoonni hanga ammaatti homaa hin argan. Bal\'inaaf \"Amanamummaa koo\" banaa.';
+
+  @override
+  String get notifPickupReminderTitle => 'Fudhannaaf mirkaneessaa';
+
+  @override
+  String get notifPickupReminderBody =>
+      'Mirkaneessi fudhannaa dhiyootti cufama. Maaloo ajaja banaatii mirkaneessaa.';
+
+  @override
+  String get notifTruckerArrivedTitle => 'Konkolaataan fe\'aa ga\'eera';
+
+  @override
+  String notifTruckerArrivedBody(String trucker) {
+    return '$trucker ajaja fudhachuuf ga\'eera. Maaloo midhaan fi koodii QR keessan qopheessaa.';
+  }
+
+  @override
+  String get notifBuyerArrivedTitle => 'Bitataan ga\'eera';
+
+  @override
+  String notifBuyerArrivedBody(String buyer) {
+    return '$buyer ajaja fudhachuuf ga\'eera. Maaloo midhaan fi koodii QR keessan qopheessaa.';
+  }
+
+  @override
+  String get notifCropsReadyTitle => 'Midhaan qophaa\'eera';
+
+  @override
+  String notifCropsReadyBody(String farmer) {
+    return '$farmer midhaan fe\'uuf qophaa\'uu isaa beeksiseera.';
+  }
+
+  @override
+  String get notifDeliveryArrivedTitle => 'Konkolaataan ga\'eera';
+
+  @override
+  String notifDeliveryArrivedBody(String trucker) {
+    return '$trucker bakka buusuu ga\'uu isaa mirkaneesseera. Maaloo geejjiba mirkaneessaa ykn rakkoo gabaasaa. Hanga yeroo armaan gadii lamaan yoo hin goone, isiniif mirkanaa\'uu danda\'a.';
+  }
+
+  @override
+  String get notifDeliveryConfirmReminderTitle => 'Geejjiba mirkaneessaa';
+
+  @override
+  String get notifDeliveryConfirmReminderBody =>
+      'Maaloo geejjiba mirkaneessaa ykn rakkoo gabaasaa. Hanga yeroo armaan gadii lamaan yoo hin goone, isiniif mirkanaa\'uu danda\'a.';
+
+  @override
+  String get notifTruckerNoShowTitle => 'Konkolaataan hin mirkaneessine';
+
+  @override
+  String get notifTruckerNoShowBuyerBody =>
+      'Konkolaataan hanga yeroo dhumaatti maasiitti ga\'uu hin mirkaneessine. Maaloo murteessaa: haquun maallaqa guutuu deebifachuu dandeessu.';
+
+  @override
+  String get notifTruckerNoShowFarmerBody =>
+      'Konkolaataan hanga yeroo dhumaatti maasii keessanitti ga\'uu hin mirkaneessine. Hanga bitataan murteessutti maaloo midhaan qabadhaa.';
+
+  @override
+  String get notifPickupCheckInMissedTitle =>
+      'Mirkaneessi ga\'umsaa hin dhufne';
+
+  @override
+  String get notifPickupCheckInMissedBody =>
+      'Hanga yeroo dhumaatti mirkaneessi ga\'umsaa nu hin geenye. Amma bitataan murteessa. Achi turtan yoo ta\'e deeggarsa quunnamaa.';
+
+  @override
+  String get notifFarmerNoShowBody =>
+      'Ajajni haqameera: hanga yeroo dhumaatti qophaa\'uun midhaanii hin mirkanoofne. Maallaqni bitataaf deebi\'a.';
+
+  @override
+  String get notifBuyerNoShowBody =>
+      'Ajajni hanga yeroo dhumaatti waan hin fudhatamneef haqameera. Maallaqni bitataaf deebi\'a.';
+
+  @override
+  String get notifPickupReviewTitle => 'Fudhannaan sakatta\'amaa jira';
+
+  @override
+  String get notifPickupReviewBody =>
+      'Fudhannaan koodii QR\'n hin mirkanoofne. Gareen keenya ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get notifAutoConfirmedTitle => 'Geejjibni isiniif mirkanaa\'eera';
+
+  @override
+  String get notifAutoConfirmedBuyerBody =>
+      'Deebiin waan hin jirreef ajajni keessan ga\'uun isaa mirkanaa\'eera. Rakkoon yoo jiraate yeroon osoo hin darbin gabaasaa.';
+
+  @override
+  String get notifAutoConfirmedPayeeBody =>
+      'Bitataan deebii waan hin kenninef geejjibni sirnaan mirkanaa\'eera. Mirkaneessa sa\'aatii 48 booda kaffaltiin keessan ni ergama.';
+
+  @override
+  String get notifDeliveryReviewTitle => 'Geejjibni ni sakatta\'ama';
+
+  @override
+  String get notifDeliveryOverdueBody =>
+      'Geejjibni hanga yeroo isaatti hin galmoofne. Gareen keenya ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get notifSilentBuyerBody =>
+      'Erga konkolaataan ga\'ee booda geejjibni hin mirkanoofne. Gareen keenya ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get notifDropoffOutOfRangeBody =>
+      'Ga\'umsi konkolaataa bakka buusuu waliin wal hin simne. Gareen keenya ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get profileEditTitle => 'Piroofaayilii gulaali';
+
+  @override
+  String get profileEditSubtitle => 'Maqaa fi aanaa';
+
+  @override
+  String get profileEditNote =>
+      'Tarreeffamni, imalli fi ajajni amma booda uumtan maqaa fi aanaa keessan haaraa agarsiisu. Kanneen duraan uumtan odeeffannoo duraanii qabatu.';
+
+  @override
+  String get profileEditSaved => 'Piroofaayiliin olkaa\'ameera.';
+
+  @override
+  String get profileEditSavedQueued =>
+      'Piroofaayiliin bilbila kana irratti olkaa\'ameera. Yeroo interneetiin jiru ni ergama.';
+
+  @override
+  String get profileEditFailed =>
+      'Piroofaayilii keessan olkaa\'uun hin danda\'amne. Walqunnamtii keessan mirkaneessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get profileEditTooLong => 'Arfiilee 100 ykn isaa gadi fayyadamaa.';
+
+  @override
+  String get profileEditNameUnavailable =>
+      'Maqaan kun hin argamu. Kan biraa filadhaa.';
+
+  @override
+  String get profileEditRefused =>
+      'Odeeffannoon kun hin fudhatamne. Dirree tokkoon tokkoon isaa mirkaneessaatii irra deebi\'aa yaalaa.';
+
+  @override
+  String get checkInTitle => 'Mirkaneessa ga\'umsaa';
+
+  @override
+  String get checkInPartyTrucker => 'Konkolaachisaan maasii irra';
+
+  @override
+  String get checkInPartyBuyer => 'Bitaan maasii irra';
+
+  @override
+  String get checkInPartyFarmer => 'Midhaan qophaa\'eera';
+
+  @override
+  String checkInReceived(String time) {
+    return 'Kan ga\'e $time';
+  }
+
+  @override
+  String checkInReceivedLate(String time) {
+    return 'Barfatee kan ga\'e $time';
+  }
+
+  @override
+  String checkInSavedOnPhone(String time) {
+    return 'Bilbila kana irratti $time olkaa\'ame, ammallee hin ergamne';
+  }
+
+  @override
+  String checkInSentFromPhone(String time) {
+    return 'Kan ergame $time';
+  }
+
+  @override
+  String get checkInNotYet => 'Ammallee miti';
+
+  @override
+  String checkInOpensAt(String time) {
+    return '$time irraa eegaltee mirkaneessuu dandeessa.';
+  }
+
+  @override
+  String get checkInPendingNote =>
+      'Koodiin QR hanga yeroo dhumaa fudhannaatti yoo hin iskaanamne, mirkaneessonni kunneen waan ta\'u murteessu. Kan lakkaa\'amu yeroo tokkoon tokkoon isaanii nu bira ga\'u dha.';
+
+  @override
+  String get checkInDeadlinePassedNote =>
+      'Yeroon dhumaa fudhannaa darbeera. Bu\'aan isaa dhiyootti ni beekama.';
+
+  @override
+  String get checkInArrivedButton => 'Ga\'eera';
+
+  @override
+  String get checkInCropsReadyButton => 'Midhaan qophaa\'eera';
+
+  @override
+  String get checkInLocating => 'Bakka kee barbaadaa jira';
+
+  @override
+  String get checkInNeedsLocation =>
+      'Bakka kee argachuu hin dandeenye. Tajaajila bakkaa banii maasii irratti irra deebi\'ii yaali.';
+
+  @override
+  String get checkInSent => 'Mirkaneessi ergameera.';
+
+  @override
+  String get pickupJudgementScanned => 'Midhaan fudhatameera.';
+
+  @override
+  String get pickupJudgementTruckerNoShow =>
+      'Hanga yeroo dhumaatti namni maasii irratti ga\'uu isaa mirkaneesse hin jiru. Amma bitaan waan ajaja kana irratti ta\'u ni filata.';
+
+  @override
+  String get pickupJudgementFarmerNoShow =>
+      'Qonnaan bulaan hanga yeroo dhumaatti midhaan qophaa\'uu isaa hin beeksisne. Ajajni haqameera; bitaan maallaqa guutuu deebifata.';
+
+  @override
+  String get pickupJudgementBuyerNoShow =>
+      'Bitaan hanga yeroo dhumaatti midhaan fudhachuuf hin dhufne. Ajajni haqameera; maallaqni bitaaf deebi\'a.';
+
+  @override
+  String get pickupJudgementBothPresent =>
+      'Lamaanuu ga\'uu isaanii mirkaneessaniiru, garuu koodiin QR hin iskaanamne. Deeggarsi ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get pickupJudgementUnchecked =>
+      'Ga\'umsi bakka maasii waliin mirkanaa\'uu hin dandeenye. Deeggarsi ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get pickupJudgementOther => 'Murtiin fudhannaa kennameera.';
+
+  @override
+  String get commitmentTruckerNoShow => 'Hin dhufne';
+
+  @override
+  String get commitmentFarmerNoShow => 'Midhaan hin qophoofne';
+
+  @override
+  String get transportFailureTruckerNoShow =>
+      'Konkolaachisaan gara maasii hin dhufne';
+
+  @override
+  String get errorCheckInNotOpen =>
+      'Ajaja kanaaf mirkaneessi hin banamne; kanaaf mirkaneessi kee hin olkaa\'amne.';
+
+  @override
+  String get errorCheckInNotParty =>
+      'Midhaan qophaa\'uu kan dubbatu qonnaan bulaa ajajaa qofa; ga\'uu kan dubbatu immoo konkolaachisaa (ykn bitaa ofii fudhatu) qofa. Mirkaneessi kee hin olkaa\'amne.';
+
+  @override
+  String get errorCheckInTooEarly =>
+      'Ammallee dafee jira: mirkaneessi guyyaa fudhannaa sa\'aatii 24 dura banama. Mirkaneessi kee hin olkaa\'amne; yeroo sana irra deebi\'ii mirkaneessi.';
+
+  @override
+  String get errorCheckInTooFar =>
+      'Maasii irraa km 5 ol fagaattee jirta. Mirkaneessi kee hin olkaa\'amne; yeroo achi geessu irra deebi\'ii mirkaneessi.';
+
+  @override
+  String get errorCheckInTooLate =>
+      'Mirkaneessi kee yeroo dhumaa fudhannaa booda nu bira waan ga\'eef hin lakkaa\'amu. Gamaaggamaaf olkaa\'ameera.';
+
+  @override
+  String get errorCheckInValidation =>
+      'Mirkaneessi kee hin olkaa\'amne. Irra deebi\'ii yaali; yoo itti fufe appii haaromsi.';
+
+  @override
+  String get errorCheckInClosed =>
+      'Yeroon dhumaa fudhannaa waan darbeef mirkaneessi cufameera. Mirkaneessi kee hin olkaa\'amne.';
+
+  @override
+  String get checkInLocationBlocked =>
+      'Appii kanaaf hayyamni bakkaa dhorkameera. Qindaa\'ina appii keessatti hayyami, sana booda maasii irratti irra deebi\'ii yaali.';
+
+  @override
+  String get checkInLocationBlockedWeb =>
+      'Marsariitii kanaaf hayyamni bakkaa dhorkameera. Qindaa\'ina marsariitii brawuzarii keessatti hayyami, sana booda maasii irratti irra deebi\'ii yaali.';
+
+  @override
+  String get checkInOpenSettings => 'Qindaa\'ina bani';
+
+  @override
+  String get checkInAlreadyGiven => 'Duraan mirkaneessiteetta.';
+
+  @override
+  String get deliveryPhotoArrival => 'Suuraa ga\'umsaa';
+
+  @override
+  String deliveryAutoConfirmedAt(String time) {
+    return 'Konkolaachisaan bakka buusuu ga\'uu isaa erga mirkaneessee booda bitaan deebii waan hin kennineef, sirnichi $time mirkaneesseera.';
+  }
+
+  @override
+  String get dropoffCheckInTitle => 'Bakka buusuu ga\'uu';
+
+  @override
+  String get dropoffCheckInPartyTrucker => 'Konkolaachisaan bakka buusuu irra';
+
+  @override
+  String get dropoffCheckInButton => 'Bakka buusuu ga\'eera';
+
+  @override
+  String get dropoffCheckInPhotoHint =>
+      'Jalqaba bakka buusuu irratti suuraa meeshaa kaasi; sana booda bakki kee ni dubbifama.';
+
+  @override
+  String dropoffCheckInTruckerNote(String time) {
+    return 'Yeroo bakka buusuu geessu, hanga $time mirkaneessi. Hanga sanatti yoo hin mirkaneessin, geejjibni akka barfatetti gara deeggarsaatti dabarfama.';
+  }
+
+  @override
+  String dropoffCheckInWaitingNote(String time) {
+    return 'Konkolaachisaan hanga $time bakka buusuu ga\'uu isaa ni mirkaneessa. Hanga sanatti yoo hin mirkaneessin, geejjibni akka barfatetti gara deeggarsaatti dabarfama.';
+  }
+
+  @override
+  String dropoffCheckInBuyerConfirmBy(String time) {
+    return 'Konkolaachisaan bakka buusuu ga\'uu isaa mirkaneesseera. Yeroo midhaan fudhattu geejjiba mirkaneessi. Hanga $time yoo hin mirkaneessin, geejjibni bakka kee bu\'ee mirkanaa\'uu danda\'a.';
+  }
+
+  @override
+  String dropoffCheckInPartyConfirmBy(String time) {
+    return 'Konkolaachisaan bakka buusuu ga\'uu isaa mirkaneesseera. Bitaan hanga $time yoo hin mirkaneessin, geejjibni bakka bitaa bu\'ee mirkanaa\'uu danda\'a.';
+  }
+
+  @override
+  String get dropoffCheckInOutcomeSoon =>
+      'Yeroon dhumaa darbeera. Bu\'aan isaa dhiyootti ni beekama.';
+
+  @override
+  String get dropoffCheckInNeedsLocation =>
+      'Bakka kee argachuu hin dandeenye. Tajaajila bakkaa banii bakka buusuu irratti irra deebi\'ii yaali.';
+
+  @override
+  String get dropoffCheckInLocationBlocked =>
+      'Appii kanaaf hayyamni bakkaa dhorkameera. Qindaa\'ina appii keessatti hayyami, sana booda bakka buusuu irratti irra deebi\'ii yaali.';
+
+  @override
+  String get dropoffCheckInLocationBlockedWeb =>
+      'Marsariitii kanaaf hayyamni bakkaa dhorkameera. Qindaa\'ina marsariitii brawuzarii keessatti hayyami, sana booda bakka buusuu irratti irra deebi\'ii yaali.';
+
+  @override
+  String get dropoffJudgementClosed =>
+      'Geejjibni yeroo dhumaa dura mirkanaa\'eera ykn komiin irratti dhiyaateera.';
+
+  @override
+  String get dropoffJudgementAutoConfirmed =>
+      'Sirnaan mirkanaa\'eera: konkolaachisaan bakka buusuu ga\'uu isaa erga mirkaneessee booda bitaan deebii hin kennine. Bitaan sa\'aatii 48 idilee keessatti ammallee rakkoo gabaasuu danda\'a.';
+
+  @override
+  String get dropoffJudgementSilentBuyer =>
+      'Konkolaachisaan ga\'uu isaa erga mirkaneessee booda bitaan deebii hin kennine, geejjibnis ofumaan mirkanaa\'uu hin dandeenye. Deeggarsi ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get dropoffJudgementDeliveryOverdue =>
+      'Hanga yeroo dhumaa geejjibaatti mirkaneessi bakka buusuu hin dhufne. Deeggarsi ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get dropoffJudgementOutOfRange =>
+      'Mirkaneessi konkolaachisaa bakka buusuu ajajichaa irraa km 5 ol fagaatee ture. Deeggarsi ni qorata; maallaqni qabamee tura.';
+
+  @override
+  String get dropoffJudgementQueued =>
+      'Deeggarsi geejjiba kana gamaaggamaa jira. Maallaqni qabamee tura.';
+
+  @override
+  String get dropoffJudgementOther => 'Murtiin geejjibaa kennameera.';
+
+  @override
+  String get errorCheckInPhotoRequired =>
+      'Suuraan ga\'umsaa nu bira hin geenye. Jalqaba suuraa ga\'umsaa kaasi, sana booda bakka buusuu irratti irra deebi\'ii mirkaneessi.';
+
+  @override
+  String get errorDropoffCheckInNotOpen =>
+      'Geejjiba kanaaf mirkaneessi bakka buusuu hin banamne; kanaaf mirkaneessi kee hin olkaa\'amne.';
+
+  @override
+  String get errorDropoffCheckInNotParty =>
+      'Bakka buusuu ga\'uu kan mirkaneessu konkolaachisaa ajajaa qofa. Mirkaneessi kee hin olkaa\'amne.';
+
+  @override
+  String get errorDropoffCheckInTooFar =>
+      'Mirkaneessi kee bakka buusuu ajajichaa irraa km 5 ol fagaatee waan tureef hin olkaa\'amne. Bakka sanatti yeroo dhiyaattu irra deebi\'ii mirkaneessi.';
+
+  @override
+  String get errorDropoffCheckInTooFarKept =>
+      'Mirkaneessi kee bakka buusuu ajajichaa irraa km 5 ol fagaatee waan tureef hin olkaa\'amne, garuu yaaliin kun gamaaggamaaf olkaa\'ameera. Bakka sanatti yeroo dhiyaattu irra deebi\'ii mirkaneessi.';
+
+  @override
+  String get errorDropoffCheckInTooLate =>
+      'Mirkaneessi kee yeroo dhumaa geejjibaa booda nu bira waan ga\'eef hin lakkaa\'amu. Gamaaggamaaf olkaa\'ameera.';
+
+  @override
+  String get errorDropoffCheckInClosed =>
+      'Yeroon dhumaa geejjibaa waan darbeef mirkaneessi cufameera. Mirkaneessi kee hin olkaa\'amne.';
+
+  @override
+  String get deliveryErrorGpsPickupFar =>
+      'Fudhachuun hin olkaa\'amne: bakki kee maasii irraa km 5 ol fagaatee ture. Meeshaa qabattee osoo hin deemin maasii irratti koodii QR qonnaan bulaa irra deebi\'ii iskaanii godhi.';
+
+  @override
+  String get deliveryErrorGpsSelfPickupNoFix =>
+      'Fudhachuun hin mirkanoofne: bilbilli kee bakka hin ergine, qonnaan bulaanis hanga ammaatti hin kaffalamne. Tajaajila bakkaa banii maasii irratti koodii QR qonnaan bulaa irra deebi\'ii iskaanii godhi.';
+
+  @override
+  String get deliveryErrorGpsSelfPickupNoFarmPoint =>
+      'Fudhachuun hin mirkanoofne: oomisha kanaaf bakki maasii galmaa\'e waan hin jirreef bakki kee hin mirkanoofne, qonnaan bulaanis hanga ammaatti hin kaffalamne. Deeggarsa qunnami.';
+
+  @override
+  String get deliveryErrorGpsSelfPickupFar =>
+      'Fudhachuun hin mirkanoofne: bakki kee maasii irraa km 5 ol fagaatee ture, qonnaan bulaanis hanga ammaatti hin kaffalamne. Maasii irratti koodii QR qonnaan bulaa irra deebi\'ii iskaanii godhi.';
+
+  @override
+  String get deliveryErrorGpsDropoffFar =>
+      'Geejjibni hin mirkanoofne: bakki kee bakka buusuu irraa km 5 ol fagaatee ture. Bakka meeshaa itti fudhattutti koodii QR konkolaachisaa irra deebi\'ii iskaanii godhi, yookaan deeggarsa qunnami.';
 }

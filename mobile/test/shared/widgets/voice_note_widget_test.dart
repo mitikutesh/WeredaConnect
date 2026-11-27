@@ -326,6 +326,8 @@ void main() {
 
       // Should be in recorded state.
       expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+      // BUG-L16: the icon-only button has a name.
+      expect(find.byTooltip('Play'), findsOneWidget);
       expect(find.text('Audio Note'), findsOneWidget);
       // Duration text (3s from the timer).
       expect(find.text('3s'), findsOneWidget);
@@ -389,6 +391,7 @@ void main() {
 
       // Should now be in playing state.
       expect(find.byIcon(Icons.pause), findsOneWidget);
+      expect(find.byTooltip('Pause'), findsOneWidget);
       expect(find.byType(LinearProgressIndicator), findsOneWidget);
       // Re-record button (mic icon).
       expect(find.byIcon(Icons.mic), findsOneWidget);

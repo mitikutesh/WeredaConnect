@@ -391,6 +391,11 @@ class EscrowRepository extends BaseEscrowRepository {
 
       final response = EscrowHistoryResponse.fromJson(json);
       final payments = response.escrows.map(_mapSummaryResponse).toList();
+      // Rows whose summary carried the server's own rate (FUP-129).
+      final ratedIds = {
+        for (final summary in response.escrows)
+          if (summary.commissionRate != null) summary.escrowId,
+      };
 
       // Upsert all into local cache
       await _isar.writeTxn(() async {
@@ -412,9 +417,16 @@ class EscrowRepository extends BaseEscrowRepository {
             payment.truckerId ??= existing.truckerId;
             payment.truckerPayout ??= existing.truckerPayout;
             payment.orderId ??= existing.orderId;
-            payment.commissionRate = existing.commissionRate;
+            // The server's rate wins; a summary without one keeps the cached
+            // rate (it may be the detail's) over a derived one.
+            if (!ratedIds.contains(payment.paymentId)) {
+              payment.commissionRate = existing.commissionRate;
+            }
             payment.telebirrRef = existing.telebirrRef;
             payment.expiresAt ??= existing.expiresAt;
+            // A confirmation is never undone; servers before FUP-97 send none
+            // on the summary, so a cached one (from the detail) is kept.
+            payment.deliveryConfirmedAt ??= existing.deliveryConfirmedAt;
             payment.disputeWindowEndsAt = existing.disputeWindowEndsAt;
             // releaseNotBefore is NOT kept from the cache: the server sends it
             // to the farmer and the trucker only (FRD-13), so a buyer's
@@ -571,8 +583,12 @@ class EscrowRepository extends BaseEscrowRepository {
       ..farmerId = response.farmerId
       ..amount = response.amount
       ..commission = response.commission
-      ..commissionRate =
-          response.amount > 0 ? response.commission / response.amount : 0.025
+      ..commissionRate = response.commissionRate ??
+          deriveEscrowCommissionRate(
+            amount: response.amount,
+            commission: response.commission,
+            farmerPayout: response.farmerPayout,
+          )
       ..farmerPayout = response.farmerPayout
       ..telebirrRef = response.telebirrRef
       ..status = paymentStatusFromWire(response.status)
@@ -603,6 +619,8 @@ class EscrowRepository extends BaseEscrowRepository {
       ..createdAt = DateTime.parse(response.createdAt)
       ..updatedAt = DateTime.parse(response.updatedAt)
       ..expiresAt = DateTime.parse(response.expiresAt)
+      ..deliveryConfirmedAt =
+          DateTime.tryParse(response.deliveryConfirmedAt ?? '')
       ..disputeWindowEndsAt = response.disputeWindowEndsAt != null
           ? DateTime.parse(response.disputeWindowEndsAt!)
           : null
@@ -623,6 +641,10 @@ class EscrowRepository extends BaseEscrowRepository {
 
   /// Map summary response to local [Payment] entity.
   Payment _mapSummaryResponse(EscrowSummary summary) {
+    // Pre-SIM-15 servers send no per-party legs: the farmer leg is then the
+    // remainder after commission and any trucker leg.
+    final farmerPayout = summary.farmerPayout ??
+        (summary.amount - summary.commission - (summary.truckerPayout ?? 0));
     return Payment()
       ..paymentId = summary.escrowId
       ..deliveryId = summary.deliveryId
@@ -632,12 +654,15 @@ class EscrowRepository extends BaseEscrowRepository {
       ..farmerId = summary.farmerId
       ..amount = summary.amount
       ..commission = summary.commission
-      ..commissionRate =
-          summary.amount > 0 ? summary.commission / summary.amount : 0.025
-      // Pre-SIM-15 servers send no per-party legs: the farmer leg is then the
-      // remainder after commission and any trucker leg.
-      ..farmerPayout = summary.farmerPayout ??
-          (summary.amount - summary.commission - (summary.truckerPayout ?? 0))
+      ..commissionRate = summary.commissionRate ??
+          deriveEscrowCommissionRate(
+            amount: summary.amount,
+            commission: summary.commission,
+            farmerPayout: farmerPayout,
+            truckerPayout: summary.truckerPayout,
+            orderId: summary.orderId,
+          )
+      ..farmerPayout = farmerPayout
       ..truckerPayout = summary.truckerPayout
       ..truckerId = summary.truckerId
       ..orderId = summary.orderId
@@ -647,6 +672,8 @@ class EscrowRepository extends BaseEscrowRepository {
       ..expiresAt = summary.expiresAt != null
           ? DateTime.tryParse(summary.expiresAt!)
           : null
+      ..deliveryConfirmedAt =
+          DateTime.tryParse(summary.deliveryConfirmedAt ?? '')
       ..status = paymentStatusFromWire(summary.status)
       ..createdAt = DateTime.parse(summary.createdAt)
       ..updatedAt = DateTime.parse(summary.createdAt)
@@ -674,8 +701,8 @@ class EscrowRepository extends BaseEscrowRepository {
   ///
   /// MH7: Never log raw request/response bodies. Use error codes only.
   EscrowError _mapApiException(ApiException e) {
-    // Step-up: AUTH_040 (password) or AUTH_041 (Fayda login, payments above
-    // 10,000 ETB). The session is valid; the screen asks for the matching
+    // Step-up: AUTH_040 (password) or AUTH_041 (Fayda login, for higher-risk
+    // payments). The session is valid; the screen asks for the matching
     // proof and retries, never "please log in". Keep the server's code:
     // answering AUTH_041 with the password prompt loops forever.
     if (e is StepUpRequiredException) {
@@ -702,6 +729,15 @@ class EscrowRepository extends BaseEscrowRepository {
       );
     }
     if (e is ServerException) {
+      // FUP-36: a status the client does not type (422 ESCROW_039, ESCROW_010)
+      // still carries the server's own code; keep it so the screen localizes
+      // it. FUP-70: also on 502 and 503, where a `503 ESCROW_012` is a failed
+      // read and not Telebirr. Only an answer without a code falls back to
+      // the gateway texts.
+      final serverCode = escrowCodeOf(e, '');
+      if (serverCode.isNotEmpty) {
+        return EscrowError(serverCode, e.message);
+      }
       final statusCode = e.statusCode;
       if (statusCode == 502) {
         return const EscrowError(
@@ -714,12 +750,6 @@ class EscrowRepository extends BaseEscrowRepository {
           'ESCROW_014',
           'Telebirr is currently unavailable. Please try later.',
         );
-      }
-      // FUP-36: a status the client does not type (422 ESCROW_039, ESCROW_010)
-      // still carries the server's own code; keep it so the screen localizes it.
-      final serverCode = escrowCodeOf(e, '');
-      if (serverCode.isNotEmpty) {
-        return EscrowError(serverCode, e.message);
       }
     }
     return const EscrowError(

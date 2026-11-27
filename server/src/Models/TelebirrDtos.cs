@@ -116,6 +116,48 @@ public sealed record TelebirrPreOrderResponse
     public TelebirrPreOrderRespBiz? BizContent { get; init; }
 }
 
+/// <summary>biz_content of the queryOrder request (FUP-37; ESC-45 F5).</summary>
+public sealed record TelebirrQueryOrderBiz
+{
+    [JsonPropertyName("appid")]
+    public required string AppId { get; init; }
+
+    [JsonPropertyName("merch_code")]
+    public required string MerchCode { get; init; }
+
+    [JsonPropertyName("merch_order_id")]
+    public required string MerchOrderId { get; init; }
+}
+
+/// <summary>
+/// POST /payment/v1/merchant/queryOrder request body (with signature). The answer is read with
+/// <c>JsonDocument</c> (<see cref="WeredaConnect.Server.Services.TelebirrQueryOrder"/>), because its
+/// amount may come as a number or a string.
+/// </summary>
+public sealed record TelebirrQueryOrderRequest
+{
+    [JsonPropertyName("nonce_str")]
+    public required string NonceStr { get; init; }
+
+    [JsonPropertyName("method")]
+    public required string Method { get; init; }
+
+    [JsonPropertyName("timestamp")]
+    public required string Timestamp { get; init; }
+
+    [JsonPropertyName("version")]
+    public required string Version { get; init; }
+
+    [JsonPropertyName("biz_content")]
+    public required TelebirrQueryOrderBiz BizContent { get; init; }
+
+    [JsonPropertyName("sign_type")]
+    public required string SignType { get; init; }
+
+    [JsonPropertyName("sign")]
+    public required string Sign { get; init; }
+}
+
 /// <summary>
 /// The payment fields of an inbound notification, read from the one verified field map
 /// (<see cref="WeredaConnect.Server.Services.TelebirrNotifyParser"/>); also the stored copy on an inbox row (ESC-45).

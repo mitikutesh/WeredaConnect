@@ -18,6 +18,18 @@ String localizeDeliveryError(AppLocalizations l10n, String? code) {
     DeliveryErrorCode.qrPending => l10n.deliveryErrorQrPending,
     DeliveryErrorCode.cancelNotAllowed => l10n.deliveryErrorCancelNotAllowed,
     DeliveryErrorCode.disputeRefused => l10n.deliveryErrorDisputeRefused,
+    DeliveryErrorCode.codeMismatch => l10n.deliveryErrorCodeMismatch,
+    DeliveryErrorCode.codeLocked => l10n.deliveryErrorCodeLocked,
+    DeliveryErrorCode.codeLockedDropoff => l10n.deliveryErrorCodeLockedDropoff,
+    DeliveryErrorCode.codeGpsRequired => l10n.deliveryErrorCodeGpsRequired,
+    DeliveryErrorCode.gpsPickupFar => l10n.deliveryErrorGpsPickupFar,
+    DeliveryErrorCode.gpsSelfPickupNoFix =>
+      l10n.deliveryErrorGpsSelfPickupNoFix,
+    DeliveryErrorCode.gpsSelfPickupNoFarmPoint =>
+      l10n.deliveryErrorGpsSelfPickupNoFarmPoint,
+    DeliveryErrorCode.gpsSelfPickupFar => l10n.deliveryErrorGpsSelfPickupFar,
+    DeliveryErrorCode.gpsDropoffFar => l10n.deliveryErrorGpsDropoffFar,
+    DeliveryErrorCode.stepUpRequired => l10n.deliveryDisputeNotConfirmed,
     _ => l10n.deliveryErrorGeneric,
   };
 }

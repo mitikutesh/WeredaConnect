@@ -15,6 +15,8 @@ export const orderStatusVariant: Record<string, Variant> = {
   payment_submitted: "info",
   payment_failed: "danger",
   funded: "info",
+  // ESC-15: the transport fell through; the buyer decides (cancel for a refund).
+  awaiting_transport: "warning",
   accepted: "info",
   pickup_confirmed: "info",
   in_transit: "transit",
@@ -33,7 +35,8 @@ export const orderStatusVariant: Record<string, Variant> = {
  * list row. Used where the API returns only the raw status (transaction detail).
  * ESC-09: the order follows the money, so disbursing (paying out, possibly days
  * in Manual Payouts) and dispute_resolved (decided) have stages of their own,
- * and rejected ends like a cancel.
+ * and rejected ends like a cancel. ESC-15: awaiting_transport (the money is held,
+ * the buyer decides) is still in progress.
  */
 export function deriveStage(status: string): string {
   switch (status) {
@@ -42,6 +45,7 @@ export function deriveStage(status: string): string {
       return "awaiting_payment";
     case "payment_submitted":
     case "funded":
+    case "awaiting_transport":
     case "accepted":
     case "pickup_confirmed":
     case "in_transit":
@@ -145,6 +149,51 @@ export const timelineActionLabel = (action: string, t: Translate) => {
   return label === key ? humanize(action) : label;
 };
 
+/** The timeline leg of an audit row (order, delivery, escrow, FRD-18 label), or its raw entity type. */
+export const timelineEntityLabel = (entity: string, t: Translate) =>
+  labelOrRaw(t, `transactions.entity_${entity}`, entity);
+
+/** The status labels of each timeline leg (orderStatusLabel, deliveryStatusLabel, escrowStatusLabel). */
+const stateKeyPrefix: Record<string, string> = {
+  order: "transactions.status_",
+  delivery: "transactions.delivery_",
+  escrow: "transactions.escrow_",
+};
+
+/**
+ * FUP-80: a fromState or toState of an audit row in words. The leg's status label first; else the
+ * action label of the same word (some escrow rows store the step, such as release_failed, and admin
+ * rows store the decision); else the words of the snake_case value, as for an action.
+ */
+export function stateLabel(entity: string, state: string, t: Translate): string {
+  if (!state) return "";
+  const prefix = stateKeyPrefix[entity];
+  if (prefix) {
+    const label = labelOrRaw(t, `${prefix}${state}`, "");
+    if (label) return label;
+  }
+  return timelineActionLabel(state, t);
+}
+
 /** ESC-06: why an order waits in the admin stuck-order queue (hold_cap). */
 export const adminQueueLabel = (reason: string, t: Translate) =>
   labelOrRaw(t, `transactions.adminQueue_${reason}`, reason);
+
+/** ESC-15: a farmer's or trucker's answer (pending, accepted, not_asked, ...). */
+export const commitmentResponseLabel = (response: string, t: Translate) =>
+  labelOrRaw(t, `transactions.response_${response}`, response);
+
+/** ESC-15: why the transport of a paid order failed (trucker_declined, trip_full, ...). */
+export const transportFailureLabel = (code: string, t: Translate) =>
+  labelOrRaw(t, `transactions.transportFailure_${code}`, code);
+
+/** ESC-15: who ended an order (buyer, farmer, trucker, system). */
+export const partyLabel = (party: string, t: Translate) =>
+  labelOrRaw(t, `transactions.party_${party}`, party);
+
+/** A GPS fix as "8.75230, 38.97850" (the transaction view and the dispute evidence), or empty without both coordinates. */
+export function formatGps(v: unknown): string {
+  const p = v as Record<string, unknown> | null | undefined;
+  if (!p || p.latitude == null || p.longitude == null) return "";
+  return `${Number(p.latitude).toFixed(5)}, ${Number(p.longitude).toFixed(5)}`;
+}

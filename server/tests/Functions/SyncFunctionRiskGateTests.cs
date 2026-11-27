@@ -45,7 +45,7 @@ public class SyncFunctionRiskGateTests
         }
 
         _fraud.GetUserRiskScoreAsync(Arg.Any<string>()).Returns(Scored(RiskTier.Low));
-        _fraud.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>())
+        _fraud.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<ListingLot?>())
             .Returns(FraudCheckResult.Allowed());
 
         _crops.CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>())
@@ -133,7 +133,8 @@ public class SyncFunctionRiskGateTests
         Data = new Dictionary<string, object>
         {
             { "farmerId", FarmerId }, { "cropType", "teff" }, { "quantity", 50 }, { "pricePerKg", 45.5 },
-            { "woreda", "Jimma" }, { "locationName", "Jimma" }, { "description", "White teff" }
+            { "woreda", "Jimma" }, { "locationName", "Jimma" }, { "description", "White teff" },
+            { "photoIds", CropPhotoFixtures.ValidPhotoIds() }
         }
     };
 
@@ -196,7 +197,7 @@ public class SyncFunctionRiskGateTests
 
     private async Task NothingStoredAsync()
         => await _meta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
 
     // ===== Creates: farmer crop, trucker trip, buyer order =====
 
@@ -450,5 +451,223 @@ public class SyncFunctionRiskGateTests
         Assert.DoesNotContain("HIGH", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("tier", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("score", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ===== The duplicate lot and the trip rules at the create (fraud spec Rules 1 and 6) =====
+
+    private const string DuplicateTrip =
+        "FRAUD_DUPLICATE_LISTING: You already have a trip on this route on that day. Please update your existing trip instead.";
+
+    [Fact]
+    public async Task Farmer_CropCreate_GivesTheListingChecksItsLot()
+    {
+        var create = CropCreate();
+        create.Data!["latitude"] = 9.6797;
+        create.Data["longitude"] = 39.5308;
+
+        await SyncAsync(Function(), Request(FarmerId, "farmer", null, create));
+
+        await _fraud.Received(1).CheckListingCreationAsync(FarmerId, "teff", 45.5m,
+            Arg.Is<ListingLot?>(lot => lot != null && lot.CropId == "crop-001" && lot.Quantity == 50m
+                && lot.Woreda == "Jimma" && lot.Latitude == 9.6797 && lot.Longitude == 39.5308));
+    }
+
+    [Fact]
+    public async Task Farmer_CropCreate_WithoutAPoint_GivesTheLotByItsWoreda()
+    {
+        await SyncAsync(Function(), Request(FarmerId, "farmer", null, CropCreate()));
+
+        await _fraud.Received(1).CheckListingCreationAsync(FarmerId, "teff", 45.5m,
+            Arg.Is<ListingLot?>(lot => lot != null && lot.Quantity == 50m && lot.Woreda == "Jimma"
+                && lot.Latitude == null && lot.Longitude == null));
+    }
+
+    [Fact]
+    public async Task Farmer_CropCreate_OfALotAlreadyListed_IsRefused_RecordedUnderTheTypeThatNeverScores()
+    {
+        _fraud.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<ListingLot?>())
+            .Returns(FraudCheckResult.Rejected(
+                "FRAUD_DUPLICATE_LISTING", "A similar listing already exists. Please update your existing listing instead.")
+                with
+            { FlagReason = FraudDetectionService.DuplicateLotSignal });
+
+        var body = await SyncAsync(Function(), Request(FarmerId, "farmer", null, CropCreate()));
+
+        // The wire answer is the code and sentence clients know.
+        Assert.Contains(
+            "FRAUD_DUPLICATE_LISTING: A similar listing already exists. Please update your existing listing instead.", body);
+        Assert.DoesNotContain("DUPLICATE_LOT", body);
+        await _crops.DidNotReceiveWithAnyArgs().CreateAsync(default!, default!);
+        await _fraud.Received(1).RecordFraudSignalAsync(FarmerId, "DUPLICATE_LOT", "crop-001", "crop", Arg.Any<string?>());
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(
+            Arg.Any<string>(), "FRAUD_DUPLICATE_LISTING", Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Farmer_CropCreate_RefusedByThePriceBand_KeepsItsScoringSignal()
+    {
+        _fraud.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<ListingLot?>())
+            .Returns(FraudCheckResult.Rejected(
+                "FRAUD_DUPLICATE_LISTING", "A similar listing already exists. Please update your existing listing instead."));
+
+        await SyncAsync(Function(), Request(FarmerId, "farmer", null, CropCreate()));
+
+        await _fraud.Received(1).RecordFraudSignalAsync(
+            FarmerId, "FRAUD_DUPLICATE_LISTING", "crop-001", "crop", Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Trucker_TripCreate_GivesTheTripCheckItsPlan_TheDepartureAsUtc()
+    {
+        // Sent with the Ethiopia offset: the plan carries the same instant in UTC.
+        var departure = DateTimeOffset.UtcNow.AddDays(3);
+        departure = departure.AddTicks(-(departure.Ticks % TimeSpan.TicksPerSecond));
+        var create = TripCreate();
+        create.Data!["departureDate"] = departure.ToOffset(TimeSpan.FromHours(3))
+            .ToString("yyyy-MM-dd'T'HH:mm:sszzz", System.Globalization.CultureInfo.InvariantCulture);
+        create.Data["vehiclePlate"] = "3-AA-12345";
+        TripPlan? seen = null;
+        _fraud.CheckTripCreationAsync(Arg.Do<TripPlan>(plan => seen = plan)).Returns(FraudCheckResult.Allowed());
+
+        var body = await SyncAsync(Function(), Request(TruckerId, "trucker", null, create));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        Assert.Equal(
+            new TripPlan(TruckerId, "trip-001", "Bishoftu", "Addis Ababa", departure.UtcDateTime, "3-AA-12345"), seen);
+        Assert.Equal(DateTimeKind.Utc, seen!.DepartureUtc.Kind);
+    }
+
+    [Fact]
+    public async Task Trucker_TripCreate_ADuplicateTrip_IsRefused_RecordedUnderTheTypeThatNeverScores()
+    {
+        _fraud.CheckTripCreationAsync(Arg.Any<TripPlan>()).Returns(FraudCheckResult.Rejected(
+            "FRAUD_DUPLICATE_LISTING", "You already have a trip on this route on that day. Please update your existing trip instead.")
+            with
+        { FlagReason = FraudDetectionService.DuplicateTripSignal });
+
+        var body = await SyncAsync(Function(), Request(TruckerId, "trucker", null, TripCreate()));
+
+        Assert.Contains("\"status\":\"error\"", body);
+        Assert.Contains(DuplicateTrip, body);
+        Assert.DoesNotContain("DUPLICATE_TRIP", body);
+        await _ddb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+        await _fraud.Received(1).RecordFraudSignalAsync(TruckerId, "DUPLICATE_TRIP", "trip-001", "trip", Arg.Any<string?>());
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(
+            Arg.Any<string>(), "FRAUD_DUPLICATE_LISTING", Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Trucker_TripCreate_AnotherTripOfTheDay_IsWrittenAndFlagged()
+    {
+        _fraud.CheckTripCreationAsync(Arg.Any<TripPlan>()).Returns(FraudCheckResult.Flagged(
+            FraudDetectionService.TripSameDaySignal, "Trip Bishoftu to Addis Ababa departs the same day as another open trip."));
+
+        var body = await SyncAsync(Function(), Request(TruckerId, "trucker", null, TripCreate()));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _ddb.Received(1).PutItemAsync(Arg.Any<PutItemRequest>());
+        await _fraud.Received(1).RecordFraudSignalAsync(
+            TruckerId, FraudDetectionService.TripSameDaySignal, "trip-001", "trip",
+            "Trip Bishoftu to Addis Ababa departs the same day as another open trip.");
+    }
+
+    [Fact]
+    public async Task Trucker_TripCreate_AFlaggedTripThatIsNotWritten_RecordsNoFlag()
+    {
+        // The id already holds a trip (a replay): the conflict answers, and no same-day row is written.
+        _fraud.CheckTripCreationAsync(Arg.Any<TripPlan>()).Returns(FraudCheckResult.Flagged(
+            FraudDetectionService.TripSameDaySignal, "flag"));
+        _ddb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "trips"), Arg.Any<CancellationToken>())
+            .Returns(new QueryResponse
+            {
+                Items = new List<Dictionary<string, AttributeValue>>
+                {
+                    new()
+                    {
+                        { "tripId", new AttributeValue { S = "trip-001" } },
+                        { "createdAt", new AttributeValue { S = "2026-10-01T08:00:00Z" } },
+                        { "truckerId", new AttributeValue { S = TruckerId } },
+                        { "status", new AttributeValue { S = "open" } },
+                        { "version", new AttributeValue { N = "1" } }
+                    }
+                }
+            });
+
+        var body = await SyncAsync(Function(), Request(TruckerId, "trucker", null, TripCreate()));
+
+        Assert.Contains("\"status\":\"conflict\"", body);
+        await _ddb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
+        await _fraud.DidNotReceive().RecordFraudSignalAsync(
+            Arg.Any<string>(), FraudDetectionService.TripSameDaySignal, Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public async Task Trucker_TripCreate_ATripCheckThatFails_NeverBlocksTheTrip()
+    {
+        _fraud.CheckTripCreationAsync(Arg.Any<TripPlan>())
+            .Returns<FraudCheckResult>(_ => throw new InternalServerErrorException("index unavailable"));
+
+        var body = await SyncAsync(Function(), Request(TruckerId, "trucker", null, TripCreate()));
+
+        Assert.Contains("\"status\":\"success\"", body);
+        await _ddb.Received(1).PutItemAsync(Arg.Any<PutItemRequest>());
+        await _fraud.DidNotReceiveWithAnyArgs().RecordFraudSignalAsync(default!, default!, default, default!, default);
+    }
+
+    [Fact]
+    public async Task Trucker_TripCreate_Critical_IsRefusedBeforeTheTripCheck()
+    {
+        CallerIs(TruckerId, Scored(RiskTier.Critical));
+
+        var body = await SyncAsync(Function(), Request(TruckerId, "trucker", null, TripCreate()));
+
+        Assert.Contains(AccountHeld, body);
+        await _fraud.DidNotReceiveWithAnyArgs().CheckTripCreationAsync(default!);
+    }
+
+    [Fact]
+    public async Task Trucker_TripCreate_WithTheRealRule_RefusesTheSameRouteAndDayAtAnotherPrice()
+    {
+        // BUG-4 end to end: the trucker's stored open trip on the route and day of the new one, read
+        // through the trucker index by the real service. The new trip asks another price.
+        var create = TripCreate();
+        var sent = (string)create.Data!["departureDate"];
+        var earlier = new QueryResponse
+        {
+            Items = new List<Dictionary<string, AttributeValue>>
+            {
+                new()
+                {
+                    { "tripId", new AttributeValue { S = "trip-earlier" } },
+                    { "fromWoreda", new AttributeValue { S = "Bishoftu" } },
+                    { "toWoreda", new AttributeValue { S = "Addis Ababa" } },
+                    { "departureDate", new AttributeValue { S = sent } },
+                    { "status", new AttributeValue { S = "open" } },
+                    { "pricePerQuintal", new AttributeValue { N = "100" } }
+                }
+            }
+        };
+        // The trucker index, and the strongly consistent read of the trip row that confirms the hit.
+        _ddb.QueryAsync(
+                Arg.Is<QueryRequest>(r => r.TableName == "trips" && r.IndexName == "TruckerIdCreatedAtIndex"),
+                Arg.Any<CancellationToken>())
+            .Returns(earlier);
+        _ddb.QueryAsync(
+                Arg.Is<QueryRequest>(r => r.TableName == "trips" && r.IndexName == null && r.ConsistentRead == true
+                    && r.ExpressionAttributeValues[":id"].S == "trip-earlier"),
+                Arg.Any<CancellationToken>())
+            .Returns(earlier);
+        var service = new FraudDetectionService(
+            _ddb, "crops", "", Substitute.For<WeredaConnect.Server.RateLimiting.IRateLimitRepository>())
+        {
+            TripsTable = "trips"
+        };
+        var function = new SyncFunction(_meta, _crops, _ddb, "trips", "deliveries",
+            fraudService: service, userRepo: _users, orderRepo: _orders);
+
+        var body = await SyncAsync(function, Request(TruckerId, "trucker", null, create));
+
+        Assert.Contains(DuplicateTrip, body);
+        await _ddb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
     }
 }

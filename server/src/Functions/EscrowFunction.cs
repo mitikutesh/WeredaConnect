@@ -20,13 +20,19 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /escrow/{id}      → Get single escrow by ID
 /// - GET  /escrow/by-delivery/{deliveryId} → Get the escrow for a delivery
 ///
-/// Error codes: ESCROW_001 through ESCROW_023 (see escrow-protocol.md)
+/// Error codes: ESCROW_001 through ESCROW_044 (see escrow-protocol.md)
 /// </summary>
 public class EscrowFunction
 {
     private readonly EscrowService _escrowService;
     private readonly IFraudDetectionService? _fraudService;
     private readonly IUserRepository? _userRepo;
+
+    /// <summary>
+    /// FRD-09 (fraud-detection-architecture.md 15.1): the buyer's dispute rate after a dispute succeeded. The
+    /// Lambda wires it when the signals table is set; without one (the test constructor) nothing is read.
+    /// </summary>
+    internal TransactionPatternService? PatternRules { get; init; }
 
     /// <summary>
     /// Default constructor for Lambda runtime.
@@ -82,9 +88,20 @@ public class EscrowFunction
         var cropsTable = Environment.GetEnvironmentVariable("CROPS_TABLE") ?? "";
         var cropRepo = !string.IsNullOrEmpty(cropsTable) ? new CropRepository(dynamoDb, cropsTable) : null;
 
+        // FUP-123: that cancel also releases the order's trip booking, as the sync cancels do. Off with
+        // COMMITMENTS_ENABLED, like every other booking write.
+        var tripsTable = Environment.GetEnvironmentVariable("TRIPS_TABLE");
+        var tripRepo = OrderCommitment.IsEnabled && !string.IsNullOrEmpty(tripsTable)
+            ? new TripRepository(dynamoDb, tripsTable)
+            : null;
+
         _escrowService = new EscrowService(
             escrowRepo, auditRepo, idempotencyRepo, telebirrGateway, userRepo, orderRepo, deliveryRepo,
-            orderCheckoutRepo, txAuditRepo, cropRepo);
+            orderCheckoutRepo, txAuditRepo, cropRepo, tripRepo)
+        {
+            // ESC-20: release and refund settle a ledger escrow through its rows.
+            LedgerRepo = EscrowLedgerConfig.FromEnvironment(dynamoDb, escrowsTable, auditTable)
+        };
         _userRepo = userRepo;
 
         // Fraud detection (F-14)
@@ -96,6 +113,11 @@ public class EscrowFunction
                 dynamoDb, cropsTable, fraudSignalsTable,
                 new RateLimitRepository(dynamoDb, rateLimitTable));
         }
+
+        // FRD-09: the dispute rate reads the buyer's escrows only when its signal can be written.
+        PatternRules = _fraudService != null && !string.IsNullOrEmpty(fraudSignalsTable)
+            ? new TransactionPatternService(orderRepo, escrowRepo)
+            : null;
     }
 
     /// <summary>ESC-45 (D6): run time kept back from Telebirr calls for the writes and the response after them.</summary>
@@ -129,13 +151,14 @@ public class EscrowFunction
         var action = ExtractAction(request);
 
         // ACC-02: an account that is being or has been deleted starts no payment and no dispute.
+        // ESC-29 (reputation-api.md 8.4): neither does a suspended one (403 AUTH_025), from the same read.
         if (request.HttpMethod == "POST" && (action is "initiate" or "order-checkout" or "dispute")
             && _userRepo != null && GetAuthenticatedUserId(request) is { Length: > 0 } callerId)
         {
             APIGatewayProxyResponse? gone;
             try
             {
-                gone = await AccountDeletionGuard.RefuseIfDeletingAsync(_userRepo, callerId);
+                gone = await AccountDeletionGuard.RefuseIfDeletingOrSuspendedAsync(_userRepo, callerId);
             }
             catch (Exception ex)
             {
@@ -195,6 +218,11 @@ public class EscrowFunction
         if (body == null)
         {
             return LambdaResponse.Error(400, "ESCROW_001", "Request body is required.");
+        }
+
+        if (MissingInitiateField(body) is { } missingInitiate)
+        {
+            return missingInitiate;
         }
 
         var userId = GetAuthenticatedUserId(request);
@@ -456,6 +484,12 @@ public class EscrowFunction
             return LambdaResponse.Error(400, "ESCROW_001", "Request body is required.");
         }
 
+        // FUP-139: deliveryId is optional (a self-pickup escrow has no delivery); the service compares one that is sent.
+        if (MissingSettlementField(body.EscrowId, body.Trigger, body.IdempotencyKey) is { } missingRelease)
+        {
+            return missingRelease;
+        }
+
         var userId = GetAuthenticatedUserId(request);
         if (string.IsNullOrEmpty(userId))
         {
@@ -526,6 +560,11 @@ public class EscrowFunction
             return LambdaResponse.Error(400, "ESCROW_001", "Request body is required.");
         }
 
+        if (MissingDisputeField(body) is { } missingDispute)
+        {
+            return missingDispute;
+        }
+
         var userId = GetAuthenticatedUserId(request);
         if (string.IsNullOrEmpty(userId))
         {
@@ -577,6 +616,12 @@ public class EscrowFunction
                 outcome: result.IsSuccess ? "success" : "failure",
                 errorCode: result.Error?.Code);
 
+            // FRD-09: a dispute the buyer raised feeds the buyer's dispute rate (a farmer's does not).
+            if (result.IsSuccess && existingEscrow.IsSuccess && existingEscrow.Value!.BuyerId == userId)
+            {
+                await TryRecordDisputeRateAsync(userId, body.EscrowId, context);
+            }
+
             // FUP-61: a replay answers the row as it is now, which can be settled by a verdict or held.
             return MapResult(result,
                 value => LambdaResponse.Ok(
@@ -620,6 +665,11 @@ public class EscrowFunction
         if (body == null)
         {
             return LambdaResponse.Error(400, "ESCROW_001", "Request body is required.");
+        }
+
+        if (MissingSettlementField(body.EscrowId, body.Trigger, body.IdempotencyKey) is { } missingRefund)
+        {
+            return missingRefund;
         }
 
         var userId = GetAuthenticatedUserId(request);
@@ -807,6 +857,104 @@ public class EscrowFunction
     // ──────────────────────────────────────────────
 
     /// <summary>
+    /// SIM-27 (escrow-protocol 1.37.0): the first missing or blank field of a release or refund body,
+    /// answered with that field's own code, or null when all are there. Before, a missing field
+    /// failed the deserializer and answered <c>ESCROW_001 Invalid JSON</c>, the amount code. Checked
+    /// right after parsing, where a malformed body is answered too, so before the caller's role.
+    /// </summary>
+    private static APIGatewayProxyResponse? MissingSettlementField(
+        string? escrowId, string? trigger, string? idempotencyKey)
+    {
+        if (string.IsNullOrWhiteSpace(escrowId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_VALIDATION", "escrowId is required.", "escrowId");
+        }
+
+        if (string.IsNullOrWhiteSpace(trigger))
+        {
+            return LambdaResponse.Error(400, "ESCROW_VALIDATION", "trigger is required.", "trigger");
+        }
+
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            return LambdaResponse.Error(400, "ESCROW_003", "idempotencyKey is required.", "idempotencyKey");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// FUP-127 (escrow-protocol 2.3.0): the first missing or blank field of an initiate body, answered
+    /// with that field's own code, or null when all are there. An absent <c>amount</c> is read as 0,
+    /// so 0 is answered here with the amount code as well. Checked where
+    /// <see cref="MissingSettlementField"/> is: right after parsing, before the caller's role.
+    /// </summary>
+    private static APIGatewayProxyResponse? MissingInitiateField(InitiateEscrowRequest body)
+    {
+        if (string.IsNullOrWhiteSpace(body.DeliveryId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_002", "deliveryId is required.", "deliveryId");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.BuyerId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_VALIDATION", "buyerId is required.", "buyerId");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.FarmerId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_VALIDATION", "farmerId is required.", "farmerId");
+        }
+
+        if (body.Amount == 0m)
+        {
+            return LambdaResponse.Error(400, "ESCROW_001", "amount is required.", "amount");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.Currency))
+        {
+            return LambdaResponse.Error(400, "ESCROW_004", "currency is required.", "currency");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.IdempotencyKey))
+        {
+            return LambdaResponse.Error(400, "ESCROW_003", "idempotencyKey is required.", "idempotencyKey");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// FUP-127 (escrow-protocol 2.3.0): the first missing or blank field of a dispute body, answered
+    /// with that field's own code, or null when all are there. Checked right after parsing, before
+    /// the step-up read of the escrow.
+    /// </summary>
+    private static APIGatewayProxyResponse? MissingDisputeField(DisputeEscrowRequest body)
+    {
+        if (string.IsNullOrWhiteSpace(body.EscrowId))
+        {
+            return LambdaResponse.Error(400, "ESCROW_VALIDATION", "escrowId is required.", "escrowId");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.DisputedBy))
+        {
+            return LambdaResponse.Error(400, "ESCROW_VALIDATION", "disputedBy is required.", "disputedBy");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.Reason))
+        {
+            return LambdaResponse.Error(400, "ESCROW_017", "reason is required.", "reason");
+        }
+
+        if (string.IsNullOrWhiteSpace(body.IdempotencyKey))
+        {
+            return LambdaResponse.Error(400, "ESCROW_003", "idempotencyKey is required.", "idempotencyKey");
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Extract the action segment from the request path (e.g. "initiate" from "/escrow/initiate").
     /// Falls back to empty string for paths like "/escrow/{id}".
     /// </summary>
@@ -890,6 +1038,44 @@ public class EscrowFunction
         {
             context.Logger.LogWarning(
                 $"Failed to record fraud signal {FraudDetectionService.RoleForbiddenSignal} for user {userId}: [{ex.GetType().Name}]");
+        }
+    }
+
+    /// <summary>
+    /// FRD-09: the buyer's dispute rate after a dispute that succeeded, written on the buyer with the escrow
+    /// as the entity. Best effort: a failed history read or signal write is logged (exception type only)
+    /// and the dispute answer is the same either way.
+    /// </summary>
+    private async Task TryRecordDisputeRateAsync(string buyerId, string escrowId, ILambdaContext context)
+    {
+        if (PatternRules == null || _fraudService == null)
+        {
+            return;
+        }
+
+        IReadOnlyList<PatternHit> hits;
+        try
+        {
+            hits = await PatternRules.CheckDisputeRateAsync(buyerId, escrowId, DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            context.Logger.LogWarning(
+                $"Pattern check dispute_rate skipped for escrow {MoneyAlarmLog.LogId(escrowId)}: [{ex.GetType().Name}]");
+            return;
+        }
+
+        foreach (var hit in hits)
+        {
+            try
+            {
+                await _fraudService.RecordFraudSignalAsync(buyerId, hit.SignalType, escrowId, "escrow", hit.Description);
+            }
+            catch (Exception ex)
+            {
+                context.Logger.LogWarning(
+                    $"Failed to record fraud signal {hit.SignalType} for escrow {MoneyAlarmLog.LogId(escrowId)}: [{ex.GetType().Name}]");
+            }
         }
     }
 

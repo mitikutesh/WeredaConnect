@@ -11,15 +11,16 @@ export function LanguageSwitcher() {
   const { locale, setLocale } = useLocale();
 
   return (
-    <div className="flex items-center gap-1 rounded-lg bg-white p-1 shadow-sm">
+    <div className="flex items-center gap-1 rounded-[14px] bg-track p-1">
       {locales.map(({ code, label }) => (
         <button
           key={code}
           onClick={() => setLocale(code)}
-          className={`rounded-md px-2 py-1 text-sm font-medium transition-colors ${
+          aria-pressed={locale === code}
+          className={`min-h-9 rounded-[10px] px-2.5 text-sm transition-colors ${
             locale === code
-              ? "bg-primary text-white"
-              : "text-text-muted hover:bg-gray-100"
+              ? "bg-ground font-bold text-ink"
+              : "font-semibold text-ink-soft hover:text-ink"
           }`}
         >
           {label}

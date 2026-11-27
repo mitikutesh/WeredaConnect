@@ -232,6 +232,198 @@ void main() {
     expect(op!.status, SyncStatus.synced);
   });
 
+  group('FUP-24: pendingStepUp follows the held op', () {
+    const stepUp = 'AUTH_040: step-up required';
+
+    Map<String, dynamic> answer(String id, String status, [String? message]) =>
+        {'operationId': id, 'status': status, 'message': message};
+
+    Future<void> holdOp1() async {
+      await enqueueOrderPayment('op-1', 'order-1');
+      replyWith([answer('op-1', 'error', stepUp)]);
+      await executor.executeBatch();
+      expect(events.pendingStepUp, isNotNull);
+    }
+
+    test('kept while the op waits, also after a cancelled prompt', () async {
+      await holdOp1();
+
+      events.stepUpDeclined();
+      await executor.executeBatch();
+
+      expect(events.pendingStepUp, isNotNull);
+      expect(
+        events.stepUpHolders(SyncExecutor.stepUpHolderPrefix),
+        ['sync:op-1'],
+      );
+    });
+
+    test('cleared when the held op is refused for good', () async {
+      await holdOp1();
+
+      replyWith([
+        answer('op-1', 'error', 'ORDER_INVALID_TRANSITION: order cancelled'),
+      ]);
+      await executor.executeBatch();
+
+      expect(events.pendingStepUp, isNull);
+    });
+
+    test('cleared when the held op goes through', () async {
+      await holdOp1();
+
+      replyWith([answer('op-1', 'success')]);
+      await executor.executeBatch();
+
+      expect(events.pendingStepUp, isNull);
+    });
+
+    test('cleared when the held op gets a retryable error instead', () async {
+      await holdOp1();
+
+      replyWith([answer('op-1', 'error', 'Internal error')]);
+      await executor.executeBatch();
+
+      expect(events.pendingStepUp, isNull);
+    });
+
+    test('kept for the op still held when another one leaves', () async {
+      await enqueueOrderPayment('op-1', 'order-1');
+      await enqueueOrderPayment('op-2', 'order-2');
+      replyWith([
+        answer('op-1', 'error', stepUp),
+        answer('op-2', 'error', 'AUTH_041: Fayda needed'),
+      ]);
+      await executor.executeBatch();
+      expect(events.pendingStepUp?.withFayda, isTrue);
+
+      replyWith([
+        answer('op-1', 'error', stepUp),
+        answer('op-2', 'error', 'ORDER_INVALID_TRANSITION: order cancelled'),
+      ]);
+      await executor.executeBatch();
+
+      expect(events.pendingStepUp?.withFayda, isFalse);
+      expect(
+        events.stepUpHolders(SyncExecutor.stepUpHolderPrefix),
+        ['sync:op-1'],
+      );
+    });
+
+    test('cleared when the held op left the queue unsent', () async {
+      await holdOp1();
+
+      // Removed without an answer, as when its entity's create was refused.
+      await syncQueue.rejectOpenOperationsFor('order', 'order-1');
+      adapter.onGet('/health', (server) => server.reply(200, {'ok': true}));
+      await executor.syncNow();
+
+      expect(events.pendingStepUp, isNull);
+    });
+
+    test('cleared when the held op was deleted from the queue', () async {
+      await holdOp1();
+
+      await isar.writeTxn(() => isar.syncOperations.clear());
+      adapter.onGet('/health', (server) => server.reply(200, {'ok': true}));
+      await executor.syncNow();
+
+      expect(events.pendingStepUp, isNull);
+    });
+
+    test('an op the response left out keeps its hold', () async {
+      await holdOp1();
+
+      replyWith([]);
+      await executor.executeBatch();
+
+      expect(events.pendingStepUp, isNotNull);
+    });
+  });
+
+  group('FUP-181: the prompt names what the held ops are', () {
+    const stepUp = 'AUTH_040: step-up required';
+
+    Future<void> enqueue(String id, String entityType, String data) =>
+        syncQueue.enqueue(
+          userId: 'user-1',
+          entityType: entityType,
+          entityId: 'entity-$id',
+          action: 'update',
+          data: data,
+          operationId: id,
+        );
+
+    /// The delivery dispute (any participant).
+    Future<void> enqueueDispute(String id) => enqueue(
+          id,
+          'delivery',
+          '{"status":"disputed","disputeReason":"Wrong quantity","version":3}',
+        );
+
+    Future<StepUpRequired> prompt(Map<String, String> messages) async {
+      replyWith([
+        for (final MapEntry(:key, :value) in messages.entries)
+          {'operationId': key, 'status': 'error', 'message': value},
+      ]);
+      await executor.executeBatch();
+      await Future<void>.delayed(Duration.zero);
+      return emitted.whereType<StepUpRequired>().single;
+    }
+
+    test("a buyer's payment", () async {
+      await enqueueOrderPayment('op-1', 'order-1');
+
+      final event = await prompt({'op-1': stepUp});
+
+      expect(event.kind, StepUpKind.payment);
+      expect(events.pendingStepUp?.kind, StepUpKind.payment);
+    });
+
+    test('a delivery dispute', () async {
+      await enqueueDispute('op-1');
+
+      final event = await prompt({'op-1': stepUp});
+
+      expect(event.kind, StepUpKind.dispute);
+      expect(events.pendingStepUp?.kind, StepUpKind.dispute);
+    });
+
+    test("a trucker's drop-out", () async {
+      await enqueue('op-1', 'order', '{"truckerResponse":"decline"}');
+
+      expect((await prompt({'op-1': stepUp})).kind, StepUpKind.other);
+    });
+
+    test("a farmer's cancel of an order they accepted", () async {
+      await enqueue('op-1', 'order', '{"status":"cancelled","version":4}');
+
+      expect((await prompt({'op-1': stepUp})).kind, StepUpKind.other);
+    });
+
+    test('a payment and a dispute together: other', () async {
+      await enqueueOrderPayment('op-1', 'order-1');
+      await enqueueDispute('op-2');
+
+      final event = await prompt({'op-1': stepUp, 'op-2': stepUp});
+
+      expect(event.kind, StepUpKind.other);
+    });
+
+    test('a Fayda payment comes first and is named', () async {
+      await enqueueOrderPayment('op-1', 'order-1');
+      await enqueueDispute('op-2');
+
+      final event = await prompt({
+        'op-1': 'AUTH_041: Fayda needed',
+        'op-2': stepUp,
+      });
+
+      expect(event.withFayda, isTrue);
+      expect(event.kind, StepUpKind.payment);
+    });
+  });
+
   test('ORDER_KYC_REQUIRED rejects the op, reverts via handler, prompts KYC',
       () async {
     await enqueueOrderPayment('op-1', 'order-7');

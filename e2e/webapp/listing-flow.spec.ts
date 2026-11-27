@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { TEST_USERS, apiLogin, API_URL } from "../helpers/auth";
+import { uploadCropPhotos } from "../helpers/crop-photos";
 
 /**
  * E2E: Listing creation flow.
@@ -32,11 +33,19 @@ interface CropsResponse {
     status: string;
     cropType?: string;
     pricePerKg?: number;
+    /** Holds quintals, the unit the create sends as `quantity` (crop-listing-api 1.9.0). */
+    quantityKg?: number;
+    woreda?: string;
     createdAt?: string;
     deletedAt?: string | null;
   }>;
   nextToken?: string;
+  /** True exactly when nextToken is present (crop-listing-api 1.9.0, SIM-26). */
+  hasMore?: boolean;
 }
+
+/** GET /crops serves at most this many listings per page, whatever `limit` asks (SIM-26). */
+const MAX_CROPS_PAGE = 50;
 
 /**
  * Must be one of the server's AllowedCropTypes (SyncFunction.cs), which
@@ -46,6 +55,8 @@ interface CropsResponse {
  */
 const E2E_CROP_TYPE = "sorghum";
 const E2E_PRICE_PER_KG = 50;
+const E2E_QUANTITY = 10;
+const E2E_WOREDA = "E2E Test Woreda";
 
 /** Fraud throttles that make the creation test skip instead of fail. */
 const FRAUD_THROTTLE_CODES = [
@@ -54,9 +65,12 @@ const FRAUD_THROTTLE_CODES = [
 ];
 
 /**
- * The server's duplicate rule (FraudDetectionService): same crop type, price
- * within 5% of the existing listing's, created in the last hour. The window
- * gets 5 minutes of slack for clock skew between this machine and the server.
+ * The server's duplicate rule (FraudDetectionService), either of: same crop
+ * type and a price within 5% of the existing listing's, created in the last
+ * hour (the window gets 5 minutes of slack for clock skew between this machine
+ * and the server); or the same lot, at any price and age: same crop type,
+ * quantity and woreda on a listing that is still available or reserved
+ * (crop-listing-api 1.16.0, rule 13).
  */
 const DUPLICATE_PRICE_TOLERANCE = 0.05;
 const DUPLICATE_WINDOW_MS = 65 * 60 * 1000;
@@ -82,7 +96,11 @@ async function readOpResult(res: Response): Promise<SyncOperationResult> {
   return opResult;
 }
 
-/** Fetch all crops for a user via paginated API calls. */
+/**
+ * Fetch all crops for a user via paginated API calls. Every page is checked
+ * against the paging rules (crop-listing-api 1.9.0, SIM-26): `hasMore` agrees
+ * with `nextToken`, and a page reached through a token is never empty.
+ */
 async function fetchAllCrops(
   token: string,
   params: Record<string, string> = {},
@@ -92,6 +110,7 @@ async function fetchAllCrops(
 
   do {
     const qs = new URLSearchParams(params);
+    const followingToken = nextToken !== undefined;
     if (nextToken) qs.set("nextToken", nextToken);
 
     const res = await fetch(`${API_URL}/crops?${qs}`, {
@@ -100,6 +119,15 @@ async function fetchAllCrops(
     expect(res.ok, `GET /crops failed: ${res.status}`).toBeTruthy();
 
     const data: CropsResponse = await res.json();
+    expect(data.hasMore, "hasMore must agree with nextToken").toBe(
+      Boolean(data.nextToken),
+    );
+    if (followingToken) {
+      expect(
+        data.crops.length,
+        "a nextToken must not lead to an empty page",
+      ).toBeGreaterThan(0);
+    }
     allCrops.push(...data.crops);
     nextToken = data.nextToken ?? undefined;
   } while (nextToken);
@@ -120,20 +148,27 @@ async function expectRecentDuplicate(
 ): Promise<void> {
   const since = Date.now() - DUPLICATE_WINDOW_MS;
   const crops = await fetchAllCrops(token, { farmerId });
-  const duplicate = crops.find(
-    (c) =>
-      c.cropType === cropType &&
-      !c.deletedAt &&
-      c.status !== "deleted" &&
-      typeof c.pricePerKg === "number" &&
-      c.pricePerKg > 0 &&
-      Math.abs(c.pricePerKg - pricePerKg) / c.pricePerKg <=
-        DUPLICATE_PRICE_TOLERANCE &&
-      Date.parse(c.createdAt ?? "") >= since,
+  const live = crops.filter(
+    (c) => c.cropType === cropType && !c.deletedAt && c.status !== "deleted",
   );
+  const duplicate =
+    live.find(
+      (c) =>
+        typeof c.pricePerKg === "number" &&
+        c.pricePerKg > 0 &&
+        Math.abs(c.pricePerKg - pricePerKg) / c.pricePerKg <=
+          DUPLICATE_PRICE_TOLERANCE &&
+        Date.parse(c.createdAt ?? "") >= since,
+    ) ??
+    live.find(
+      (c) =>
+        (c.status === "available" || c.status === "reserved") &&
+        c.quantityKg === E2E_QUANTITY &&
+        c.woreda === E2E_WOREDA,
+    );
   expect(
     duplicate,
-    `FRAUD_DUPLICATE_LISTING but the farmer has no live ${cropType} listing near ${pricePerKg} ETB/kg from the last hour`,
+    `FRAUD_DUPLICATE_LISTING but the farmer has no live ${cropType} listing near ${pricePerKg} ETB/kg from the last hour, and none of ${E2E_QUANTITY} quintals in ${E2E_WOREDA}`,
   ).toBeTruthy();
 }
 
@@ -171,6 +206,8 @@ async function tryCreateListing(
   cropType: string,
 ): Promise<CreateListingResult> {
   const now = new Date().toISOString();
+  // crop-listing-api 1.6.0: the photos go up before the create (rule 9).
+  const photoIds = await uploadCropPhotos(token, listingId);
 
   const res = await fetch(`${API_URL}/sync`, {
     method: "POST",
@@ -192,15 +229,16 @@ async function tryCreateListing(
           data: {
             farmerId,
             cropType,
-            quantity: 10,
+            quantity: E2E_QUANTITY,
             pricePerKg: E2E_PRICE_PER_KG,
             latitude: 9.0,
             longitude: 38.0,
-            locationName: "E2E Test Woreda",
-            woreda: "E2E Test Woreda",
+            locationName: E2E_WOREDA,
+            woreda: E2E_WOREDA,
             description: `E2E test listing - ${cropType}`,
             status: "active",
             createdAt: now,
+            photoIds,
           },
         },
       ],
@@ -334,7 +372,8 @@ test.describe("Listing Creation Flow", () => {
   test("farmer creates a listing and count increases", async () => {
     // Recorded before the request goes out so afterAll can clean up a
     // listing whose create committed even if this test then fails.
-    const listingId = `e2e_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // A UUID: the photo upload endpoint takes nothing else (crop-listing-api 1.6.0).
+    const listingId = crypto.randomUUID();
     sharedListingId = listingId;
 
     const result = await tryCreateListing(
@@ -387,6 +426,24 @@ test.describe("Listing Creation Flow", () => {
       const found = crops.find((c) => c.cropId === sharedListingId);
       expect(found, "Buyer should see farmer's listing in marketplace").toBeTruthy();
     }
+  });
+
+  test("marketplace browse defaults to available listings and caps pages at 50", async () => {
+    // SIM-26: without a status filter the buyer sees only what can be bought.
+    const browse = await fetchAllCrops(buyerToken);
+    for (const crop of browse) {
+      expect(crop.status, `listing ${crop.cropId} in the default browse`).toBe(
+        "available",
+      );
+    }
+
+    // A limit above 50 is served as 50, not refused (shipped web builds ask for 100).
+    const res = await fetch(`${API_URL}/crops?status=available&limit=100`, {
+      headers: { Authorization: `Bearer ${buyerToken}` },
+    });
+    expect(res.status, "limit above the cap must not be refused").toBe(200);
+    const page: CropsResponse = await res.json();
+    expect(page.crops.length).toBeLessThanOrEqual(MAX_CROPS_PAGE);
   });
 
   test("overview stats API returns correct structure for farmer", async () => {

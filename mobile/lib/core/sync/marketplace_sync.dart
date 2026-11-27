@@ -21,6 +21,48 @@ abstract class MarketplaceSync {
   /// Fetch all open trips from the server into local storage.
   Future<void> pullTrips();
 
+  /// FUP-374: fetch the trucker's own trips, whatever their status
+  /// (`GET /trips?truckerId=`, no status filter; the server answers a
+  /// trucker with their own trips only and leaves out cancelled ones), into
+  /// local storage. The status the server sets on a trucker's trip (`matched`
+  /// once a funding fills it, `delivered`, or `open` / `matched` again after
+  /// an admin's no-show re-open revived a trip the order cron closed) reaches
+  /// the phone this way; uploads never bring it. A row with a trip upload
+  /// still on its way is left alone, and a row is never moved to an older
+  /// server version. Never reads another trucker's trips: it is not the
+  /// buyer's market pull ([pullTrips]).
+  ///
+  /// FUP-385: true when it stored a trip that is new to the phone or that
+  /// the server changed, so a screen that showed the stored trips first
+  /// reads them again; false when nothing changed or the pull was throttled.
+  /// A call while one for the same trucker is on its way gets that one's
+  /// answer. Errors (offline) propagate.
+  Future<bool> pullOwnTrips({required String truckerId});
+
+  /// FUP-498: remove from local storage the farmer's own listings the server
+  /// no longer has (deleted on the web or on another phone). The server
+  /// leaves a deleted listing out of every list, and [pullCrops] keeps the
+  /// farmer's own rows, so nothing else takes one off the phone. Reads the
+  /// farmer's own list (`GET /crops?farmerId=`, no `status`: every own
+  /// listing but the deleted ones) to the last page; a stored listing it
+  /// leaves out is read by id and removed when the server says it is gone or
+  /// deleted. A listing with a `crop_listing` upload still on its way, or
+  /// whose create the server refused, stays.
+  ///
+  /// BUG-31 (FUP-520): the listed rows are stored as well, every status the
+  /// server lists for the owner (`reserved` and `sold` too), so a phone that
+  /// holds none of the farmer's listings (a new install) gets them and a
+  /// listing the server moved shows its state. Server wins, as for
+  /// [pullOwnTrips]: a row with a `crop_listing` upload still on its way is
+  /// skipped, a server copy older than the stored row is skipped, and the
+  /// place id and the photo files only this phone keeps stay on the row. A
+  /// row of another farmer is never stored and another user's listings are
+  /// never touched. True when it removed, added or changed a listing; false
+  /// when nothing moved or the pull was throttled. A call while one for the
+  /// same farmer is on its way gets that one's answer. Errors (offline, a
+  /// failed page) propagate, with nothing removed or stored.
+  Future<bool> pullOwnCrops({required String farmerId});
+
   /// Fetch the current user's deliveries from the server into local storage.
   ///
   /// Deliveries are created/updated by whichever party acts (trucker confirms

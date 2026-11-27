@@ -61,6 +61,13 @@ const ESCROW_AUDIT_ACTIONS = [
   "manual_payout_queued",
   "manual_payout_paid",
   "manual_payout_refused",
+  // FUP-05: an admin's claim on a leg
+  "manual_payout_claimed",
+  "manual_payout_claim_released",
+  // FUP-218: a recorded reference corrected by an admin
+  "manual_payout_ref_corrected",
+  // FUP-41: an admin decided to refund a second payment for an order (then the usual refund row)
+  "double_escrow_refund",
   // Disputes (ESC-03, ESC-07)
   "dispute",
   "dispute_propagation_failed",
@@ -72,7 +79,10 @@ const ESCROW_AUDIT_ACTIONS = [
   "dispute_verdict_mismatch",
   "dispute_verdict_propagation_failed",
   "dispute_settlement_blocked",
+  // Written before escrow-protocol 2.21.0 only (FUP-64 removed the override); old rows keep their label.
   "dispute_order_mismatch_overridden",
+  // FUP-64: the admin settled a verdict no goods disposition fits as it is.
+  "dispute_resolved_settled_as_is",
 ];
 
 /** Transaction-audit rows (TransactionAuditWriter callers) and the synthesised timeline rows. */
@@ -91,10 +101,17 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "delivery_cancelled",
   "dispute",
   "dispute_resolved",
+  // Written before escrow-protocol 2.21.0 only (FUP-64); old rows keep their label.
   "dispute_mismatch_override",
+  // FUP-64: the admin's settle_as_is (entity escrow).
+  "dispute_resolved_settled_as_is",
   "refund_mismatch_override",
   "admin_dispute_resolved",
   "admin_manual_payout",
+  "admin_manual_payout_claimed",
+  "admin_manual_payout_claim_released",
+  "admin_manual_payout_refused",
+  "admin_manual_payout_ref_corrected",
   "admin_queue_entered",
   "admin_queue_cleared",
   // AdminFunction writes fraud_<action> and user_<action> for the actions the admin UI sends
@@ -105,6 +122,33 @@ const TRANSACTION_AUDIT_ACTIONS = [
   "user_unsuspend",
   "user_verify",
   "user_change_role",
+  // FUP-317: the user's own profile edit (entity user, SyncFunction)
+  "profile_edited",
+  // ESC-29 and ESC-32: the party's appeal and the admin reputation actions (entity user)
+  "reputation_appealed",
+  "reputation_excused",
+  "reputation_upheld",
+  "reputation_tagged",
+  "reputation_untagged",
+  "reputation_restricted",
+  "reputation_lifted",
+  // FRD-18: the outcome label of a resolved case (Fraud Review decision, dispute verdict, held exit)
+  "outcome_label",
+  // ESC-34: an arrival check-in, the pickup judgement, and late pickup evidence on a queued order
+  "handoff_check_in",
+  "pickup_judged",
+  "late_pickup_evidence",
+  // FUP-19: an admin's cancel of a delivery after pickup
+  "admin_delivery_cancelled",
+  // FUP-287: an admin re-opened a judged pickup (entity order; a confirmed handoff also writes picked_up)
+  "admin_pickup_reopened",
+  // The negotiated commission: an admin agreed another rate for one unpaid order (entity order)
+  "admin_commission_changed",
+  // ESC-36: the drop-off judgement stamp, and the system's confirm of a silent buyer's delivery
+  "dropoff_judged",
+  "delivery_auto_confirmed",
+  // FUP-41: the double escrow refund decision, on the order's trail (entity escrow)
+  "double_escrow_refund",
 ];
 
 /** Written by an open PR that has no admin change of its own; labelled here ahead of the merge. */

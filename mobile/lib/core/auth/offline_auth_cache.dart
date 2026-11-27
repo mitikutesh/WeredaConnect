@@ -207,6 +207,33 @@ class OfflineAuthCache {
     });
   }
 
+  /// SIM-56: a profile edit, or a fresher server copy, on the cached user:
+  /// the name (both `name` and `displayName`, as sign-in stores them), the
+  /// woreda and, when given, the buyer type and company name. No-op when
+  /// the user isn't cached on this device.
+  Future<void> updateProfile({
+    required String userId,
+    required String phoneNumber,
+    required String displayName,
+    required String woreda,
+    String? buyerType,
+    String? companyName,
+  }) async {
+    final isar = IsarService.instance.db;
+    await isar.writeTxn(() async {
+      final user = await isar.users.where().userIdEqualTo(userId).findFirst();
+      if (user == null) return;
+      user
+        ..name = displayName
+        ..displayName = displayName
+        ..woreda = woreda
+        ..buyerType = buyerType ?? user.buyerType
+        ..companyName = companyName ?? user.companyName
+        ..updatedAt = DateTime.now().toUtc();
+      await isar.users.put(user);
+    });
+  }
+
   /// Verify password against cached hash for offline login.
   ///
   /// Returns true if password matches cached hash, false otherwise.

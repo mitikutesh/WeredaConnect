@@ -1,110 +1,196 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/low_reputation_pill.dart';
 
-/// Card showing a suggested trip for transport on the crop detail screen.
-///
-/// Displays trucker name, departure date, capacity, price per quintal,
-/// and a select button.
+/// A trip's transport price per kilogram for display ("1.50"), from the
+/// stored price per quintal: page M leads with the price per kg and puts
+/// the per-quintal price after it in parentheses.
+String transportPricePerKgText(double pricePerQuintal) =>
+    (pricePerQuintal / kgPerQuintal).toStringAsFixed(2);
+
+/// A suggested trip on the crop detail screen, as the CropDetailM board
+/// draws it: a radio, the trucker and the day, the route with the room left
+/// kg first and the trucker's rating when they have one, and on the right
+/// the price per kg in the role colour over "ETB/kg" and "(150/quintal)".
+/// Tapping anywhere on the card picks (or unpicks) it; the chosen one is
+/// the raised paper card, the others are outlined.
 class SuggestedTripCard extends StatelessWidget {
   final Trip trip;
   final bool isSelected;
   final VoidCallback onSelect;
 
+  /// The trucker's average rating, ending the route line as " · 4.7"; null
+  /// (nothing shown, no placeholder) when they have none or it is unknown.
+  final double? rating;
+
+  /// ESC-31: shows the "Low reputation" label under the route line (the
+  /// trucker's public tier is low). Off by default: no label, as before.
+  final bool lowReputation;
+
   const SuggestedTripCard({
     required this.trip,
     required this.isSelected,
     required this.onSelect,
+    this.rating,
+    this.lowReputation = false,
     super.key,
   });
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final dateFormat = DateFormat.MMMd();
+    final day = boardDayInEthiopia(trip.departureDate);
+    final roomKg = tripRoomLeft(trip) * kgPerQuintal;
+    // A full trip reads "0 kg room", not a dash.
+    final room = '${l10n.marketKgRoom(kgRoomText(roomKg, l10n))} '
+            '${quintalsInParensText(roomKg, l10n)}'
+        .trimRight();
+    final rated = rating == null ? '' : ' · ${rating!.toStringAsFixed(1)}';
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+    final radius = BorderRadius.circular(24);
+    final card = Material(
+      color: isSelected ? AppTheme.paper : Colors.transparent,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: isSelected
-            ? const BorderSide(color: AppTheme.primaryGreen, width: 2)
-            : BorderSide.none,
+        borderRadius: radius,
+        side: BorderSide(
+          color: isSelected ? AppTheme.line : AppTheme.fieldBorder,
+        ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            // Truck icon
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: AppTheme.statusTransit.withAlpha(20),
-                borderRadius: BorderRadius.circular(8),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onSelect,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          child: Row(
+            children: [
+              _Radio(selected: isSelected),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Two lines, so the day with its Ethiopian date
+                    // (FUP-545) is not cut.
+                    Text(
+                      '${trip.truckerName} · $day',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.15,
+                        color: AppTheme.ink,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${trip.fromWoreda} → ${trip.toWoreda} · $room$rated',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppTheme.slate,
+                      ),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (lowReputation) ...[
+                      const SizedBox(height: 6),
+                      const LowReputationPill(),
+                    ],
+                  ],
+                ),
               ),
-              child: const Icon(
-                Icons.local_shipping,
-                size: 20,
-                color: AppTheme.statusTransit,
-              ),
-            ),
-            const SizedBox(width: 12),
-            // Trip details
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    '${trip.truckerName} · ${dateFormat.format(dayInEthiopia(trip.departureDate))}',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.textDark,
+                    transportPricePerKgText(trip.pricePerQuintal),
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.17,
+                      color: context.roleColors.primary,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 2),
+                  Text(l10n.etbPerKg, style: _unitStyle),
                   Text(
-                    '${trip.capacity.toStringAsFixed(0)}q ${l10n.capacity} · ${trip.pricePerQuintal.toStringAsFixed(0)} ETB/q',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.textMuted,
+                    l10n.pricePerQuintalInParens(
+                      formatEtbAmount(trip.pricePerQuintal),
                     ),
+                    style: _unitStyle,
                   ),
                 ],
               ),
-            ),
-            const SizedBox(width: 8),
-            // Select button
-            TextButton(
-              onPressed: onSelect,
-              style: TextButton.styleFrom(
-                backgroundColor: isSelected
-                    ? AppTheme.primaryGreen
-                    : AppTheme.primaryGreen.withAlpha(15),
-                foregroundColor:
-                    isSelected ? Colors.white : AppTheme.primaryGreen,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                minimumSize: Size.zero,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: Text(
-                isSelected ? '✓' : l10n.selectThisTrip,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
+    );
+
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      child: isSelected
+          ? DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: radius,
+                // The raised card's soft shadow ([FwCard.raised]).
+                boxShadow: [
+                  BoxShadow(
+                    color: Theme.of(context).colorScheme.shadow,
+                    blurRadius: 30,
+                    offset: const Offset(0, 14),
+                  ),
+                ],
+              ),
+              child: card,
+            )
+          : card,
+    );
+  }
+
+  static const TextStyle _unitStyle = TextStyle(
+    fontSize: 13,
+    color: AppTheme.slate,
+  );
+}
+
+/// The board's radio: a 20 px ring, filled dark when picked.
+class _Radio extends StatelessWidget {
+  final bool selected;
+
+  const _Radio({required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 20,
+      height: 20,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: selected ? AppTheme.ink : AppTheme.slate,
+          width: 2,
+        ),
+      ),
+      child: selected
+          ? Center(
+              child: Container(
+                width: 10,
+                height: 10,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppTheme.ink,
+                ),
+              ),
+            )
+          : null,
     );
   }
 }

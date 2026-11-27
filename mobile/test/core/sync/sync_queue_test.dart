@@ -12,6 +12,8 @@ import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/sync/idempotency_key_generator.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 
+import '../../helpers/wait_for.dart';
+
 void main() {
   group('SyncQueue', () {
     late Isar isar;
@@ -312,6 +314,69 @@ void main() {
       expect(count, 2); // 1 pending + 1 syncing
     });
 
+    // E-5: the Home sync chip follows the queue through this watch.
+    test('watchCounts answers at once and after every queue change', () async {
+      final seen = <({int pending, int failed})>[];
+      final sub = syncQueue.watchCounts().listen(seen.add);
+      addTearDown(sub.cancel);
+      await waitFor(() => seen.isNotEmpty);
+      expect(seen.last, (pending: 0, failed: 0));
+
+      await syncQueue.enqueue(
+        userId: 'user-001',
+        entityType: 'trip',
+        entityId: 'trip-watch',
+        action: 'create',
+        data: '{}',
+        operationId: 'op-watch',
+      );
+      await waitFor(() => seen.last.pending == 1);
+      expect(seen.last, (pending: 1, failed: 0));
+
+      for (var i = 0; i < SyncQueue.maxRetries; i++) {
+        await syncQueue.markAsFailed('op-watch');
+      }
+      await waitFor(() => seen.last.failed == 1);
+      expect(seen.last, (pending: 0, failed: 1));
+    });
+
+    // E-1: what a logout would delete before it reached the server, by the
+    // logout's own `{userId}:` key prefix.
+    test('getUnsentCountForUser counts the user\'s unsent operations only',
+        () async {
+      Future<void> op(String userId, String id, {String type = 'trip'}) =>
+          syncQueue.enqueue(
+            userId: userId,
+            entityType: type,
+            entityId: id,
+            action: 'create',
+            data: '{}',
+            operationId: id,
+          );
+      await op('user-001', 'op-pending');
+      await op('user-001', 'op-syncing');
+      await op('user-001', 'op-failed');
+      await op('user-001', 'op-rejected');
+      await op('user-001', 'op-synced');
+      await op('user-001', 'op-match', type: 'match_event');
+      // A user id that only starts like this one is someone else.
+      await op('user-0012', 'op-lookalike');
+      await op('user-002', 'op-other');
+      await syncQueue.markAsSyncing('op-syncing');
+      for (var i = 0; i < SyncQueue.maxRetries; i++) {
+        await syncQueue.markAsFailed('op-failed');
+      }
+      await syncQueue.markAsRejected('op-rejected');
+      await syncQueue.markAsSynced('op-synced');
+
+      // Pending, on its way, and failed but retried again (getPendingCount
+      // leaves the failed one out).
+      expect(await syncQueue.getUnsentCountForUser('user-001'), 3);
+      expect(await syncQueue.getUnsentCountForUser('user-002'), 1);
+      expect(await syncQueue.getUnsentCountForUser('user-003'), 0);
+      expect(await syncQueue.getUnsentCountForUser(''), 0);
+    });
+
     test('getFailedCount returns count of permanently failed operations',
         () async {
       await syncQueue.enqueue(
@@ -564,6 +629,50 @@ void main() {
 
       final kept = await syncQueue.getOperation('op-keep');
       expect(kept, isNotNull);
+    });
+
+    group('waiting operations of an entity (ESC-35)', () {
+      Future<void> queue(String id, String entityId) => syncQueue.enqueue(
+            userId: 'trucker-1',
+            entityType: 'delivery',
+            entityId: entityId,
+            action: 'update',
+            data: '{"dropoffQrNonce":"d.$id"}',
+            operationId: id,
+          );
+
+      test('lists what still waits, oldest first, and drops only that',
+          () async {
+        await queue('op-1', 'del-1');
+        await queue('op-2', 'del-1');
+        await queue('op-3', 'del-1');
+        await queue('op-other', 'del-2');
+        await syncQueue.markAsSyncing('op-2');
+        await syncQueue.markAsSynced('op-3');
+
+        final waiting =
+            await syncQueue.waitingOperationsFor('delivery', 'del-1');
+        expect([for (final op in waiting) op.operationId], ['op-1']);
+
+        // One on its way or sent is left alone.
+        expect(await syncQueue.dropWaiting(['op-1', 'op-2', 'op-3']), 1);
+        expect(await syncQueue.getOperation('op-1'), isNull);
+        expect(await syncQueue.getOperation('op-2'), isNotNull);
+        expect(await syncQueue.getOperation('op-3'), isNotNull);
+        expect(await syncQueue.getOperation('op-other'), isNotNull);
+      });
+
+      test('a failed operation the retry can still send waits', () async {
+        await queue('op-1', 'del-1');
+        for (var i = 0; i < SyncQueue.maxRetries; i++) {
+          await syncQueue.markAsFailed('op-1');
+        }
+
+        final waiting =
+            await syncQueue.waitingOperationsFor('delivery', 'del-1');
+        expect(waiting, hasLength(1));
+        expect(await syncQueue.dropWaiting(['op-1']), 1);
+      });
     });
   });
 

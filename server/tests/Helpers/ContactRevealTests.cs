@@ -1,5 +1,6 @@
 using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Helpers;
+using WeredaConnect.Server.Services;
 using Xunit;
 
 namespace WeredaConnect.Server.Tests.Helpers;
@@ -40,6 +41,7 @@ public class ContactRevealTests
     [InlineData("payment_submitted", false)]
     [InlineData("payment_failed", false)]
     [InlineData("funded", false)]
+    [InlineData("awaiting_transport", false)]
     [InlineData("cancelled", false)]
     [InlineData("rejected", false)]
     [InlineData("dispute_resolved", false)]
@@ -72,6 +74,211 @@ public class ContactRevealTests
         var order = new Dictionary<string, object> { ["status"] = "accepted", ["refundOverrideAt"] = "" };
 
         Assert.True(ContactReveal.IsOpen(order));
+    }
+
+    // ===== ESC-15: contact per party =====
+
+    private static Dictionary<string, object> Order(
+        string status, string? farmer = null, string? trucker = null, bool trip = true)
+    {
+        var order = new Dictionary<string, object>
+        {
+            ["status"] = status,
+            ["buyerId"] = "buyer-1",
+            ["farmerId"] = "farmer-1"
+        };
+        if (trip)
+        {
+            order["tripId"] = "trip-1";
+            order["truckerId"] = "trucker-1";
+        }
+
+        if (farmer != null)
+        {
+            order[OrderCommitment.FarmerResponseField] = farmer;
+        }
+
+        if (trucker != null)
+        {
+            order[OrderCommitment.TruckerResponseField] = trucker;
+        }
+
+        return order;
+    }
+
+    [Fact]
+    public void Funded_FarmerAccepted_TruckerStillDeciding_OpensBuyerAndFarmerOnly()
+    {
+        var order = Order("funded", farmer: OrderCommitment.Response.Accepted, trucker: OrderCommitment.Response.Pending);
+
+        Assert.True(ContactReveal.IsOpen(order));
+        Assert.False(ContactReveal.IsTruckerOpen(order));
+        Assert.True(ContactReveal.IsOpenFor(order, "buyer-1"));
+        Assert.True(ContactReveal.IsOpenFor(order, "farmer-1"));
+        Assert.False(ContactReveal.IsOpenFor(order, "trucker-1"));
+    }
+
+    [Fact]
+    public void Funded_FarmerPending_IsClosedForEveryone()
+    {
+        var order = Order("funded", farmer: OrderCommitment.Response.Pending, trucker: OrderCommitment.Response.NotAsked);
+
+        Assert.False(ContactReveal.IsOpen(order));
+        Assert.False(ContactReveal.IsTruckerOpen(order));
+        Assert.False(ContactReveal.IsOpenFor(order, "buyer-1"));
+        Assert.False(ContactReveal.IsOpenFor(order, "farmer-1"));
+        Assert.False(ContactReveal.IsOpenFor(order, "trucker-1"));
+    }
+
+    [Fact]
+    public void Accepted_BothCommitted_OpensEveryParty()
+    {
+        var order = Order("accepted", farmer: OrderCommitment.Response.Accepted, trucker: OrderCommitment.Response.Accepted);
+
+        Assert.True(ContactReveal.IsOpen(order));
+        Assert.True(ContactReveal.IsTruckerOpen(order));
+        Assert.True(ContactReveal.IsOpenFor(order, "buyer-1"));
+        Assert.True(ContactReveal.IsOpenFor(order, "farmer-1"));
+        Assert.True(ContactReveal.IsOpenFor(order, "trucker-1"));
+    }
+
+    [Fact]
+    public void AwaitingTransport_TruckerDeclined_KeepsBuyerAndFarmer_DropsTheTrucker()
+    {
+        var order = Order("awaiting_transport", farmer: OrderCommitment.Response.Accepted, trucker: OrderCommitment.Response.Declined);
+        order[OrderCommitment.TransportFailureField] = OrderCommitment.TransportFailure.TruckerDeclined;
+
+        Assert.True(ContactReveal.IsOpen(order));
+        Assert.False(ContactReveal.IsTruckerOpen(order));
+        Assert.True(ContactReveal.IsOpenFor(order, "buyer-1"));
+        Assert.True(ContactReveal.IsOpenFor(order, "farmer-1"));
+        Assert.False(ContactReveal.IsOpenFor(order, "trucker-1"));
+    }
+
+    [Fact]
+    public void AwaitingTransport_TripFullBeforeTheFarmerAnswered_IsClosed()
+    {
+        // The buyer must not get the farmer's phone from a transport failure alone.
+        var order = Order("awaiting_transport", farmer: OrderCommitment.Response.Pending, trucker: OrderCommitment.Response.FailedCapacity);
+        order[OrderCommitment.TransportFailureField] = OrderCommitment.TransportFailure.TripFull;
+
+        Assert.False(ContactReveal.IsOpen(order));
+        Assert.False(ContactReveal.IsTruckerOpen(order));
+        Assert.False(ContactReveal.IsOpenFor(order, "buyer-1"));
+    }
+
+    [Fact]
+    public void LegacyRow_Accepted_WithoutResponseFields_OpensEveryParty()
+    {
+        // A trip order from before ESC-15 counts as farmer- and trucker-accepted from accepted on.
+        var order = Order("accepted");
+
+        Assert.True(ContactReveal.IsOpen(order));
+        Assert.True(ContactReveal.IsTruckerOpen(order));
+        Assert.True(ContactReveal.IsOpenFor(order, "trucker-1"));
+    }
+
+    [Fact]
+    public void SelfPickup_Accepted_HasNoTruckerContact()
+    {
+        var order = Order("accepted", farmer: OrderCommitment.Response.Accepted, trucker: OrderCommitment.Response.None, trip: false);
+
+        Assert.True(ContactReveal.IsOpen(order));
+        Assert.False(ContactReveal.IsTruckerOpen(order));
+    }
+
+    [Theory]
+    [InlineData("stranger-1")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void IsOpenFor_AnyoneElse_IsFalse(string? userId)
+    {
+        var order = Order("accepted", farmer: OrderCommitment.Response.Accepted, trucker: OrderCommitment.Response.Accepted);
+
+        Assert.False(ContactReveal.IsOpenFor(order, userId));
+    }
+
+    [Fact]
+    public void IsTruckerOpen_AdminOverrideRefund_ClosesIt()
+    {
+        var order = Order("accepted", farmer: OrderCommitment.Response.Accepted, trucker: OrderCommitment.Response.Accepted);
+        order["refundOverrideAt"] = "2026-10-10T10:00:00Z";
+
+        Assert.False(ContactReveal.IsTruckerOpen(order));
+        Assert.False(ContactReveal.IsOpenFor(order, "trucker-1"));
+    }
+
+    // ===== FUP-124: who may read an order's existing threads =====
+
+    [Theory]
+    // Committed: reads, also once the order ended or its contact closed (as the buyer and the farmer do).
+    [InlineData("accepted", OrderCommitment.Response.Accepted, true)]
+    [InlineData("in_transit", OrderCommitment.Response.Accepted, true)]
+    [InlineData("delivered", OrderCommitment.Response.Accepted, true)]
+    [InlineData("settled", OrderCommitment.Response.Accepted, true)]
+    [InlineData("dispute_resolved", OrderCommitment.Response.Accepted, true)]
+    // A trip order from before ESC-15 counts as committed from accepted on, and as not asked while funded.
+    [InlineData("accepted", null, true)]
+    [InlineData("funded", null, false)]
+    // Never asked, still deciding, declined, expired, dropped out (or the trip cancelled), trip full.
+    [InlineData("funded", OrderCommitment.Response.NotAsked, false)]
+    [InlineData("funded", OrderCommitment.Response.Pending, false)]
+    [InlineData("awaiting_transport", OrderCommitment.Response.Declined, false)]
+    [InlineData("awaiting_transport", OrderCommitment.Response.Expired, false)]
+    [InlineData("awaiting_transport", OrderCommitment.Response.Cancelled, false)]
+    [InlineData("cancelled", OrderCommitment.Response.Cancelled, false)]
+    [InlineData("awaiting_transport", OrderCommitment.Response.FailedCapacity, false)]
+    public void MayReadThreads_TheTrucker_OnlyWhileCommitted(string status, string? trucker, bool expected)
+    {
+        var order = Order(status, farmer: OrderCommitment.Response.Accepted, trucker: trucker);
+
+        Assert.Equal(expected, ContactReveal.IsTruckerCommitted(order));
+        Assert.Equal(expected, ContactReveal.MayReadThreads(order, "trucker-1"));
+    }
+
+    [Theory]
+    [InlineData("awaiting_transport", OrderCommitment.Response.Declined)]
+    [InlineData("cancelled", OrderCommitment.Response.Cancelled)]
+    [InlineData("funded", OrderCommitment.Response.Pending)]
+    [InlineData("dispute_resolved", OrderCommitment.Response.Accepted)]
+    public void MayReadThreads_TheBuyerAndTheFarmer_Always(string status, string trucker)
+    {
+        var order = Order(status, farmer: OrderCommitment.Response.Accepted, trucker: trucker);
+
+        Assert.True(ContactReveal.MayReadThreads(order, "buyer-1"));
+        Assert.True(ContactReveal.MayReadThreads(order, "farmer-1"));
+    }
+
+    [Fact]
+    public void MayReadThreads_CommittedTrucker_KeepsReadingAfterAnAdminOverrideRefund()
+    {
+        // The override closes the contact (no new message) for everyone; reads stay, as for the
+        // buyer and the farmer.
+        var order = Order("accepted", farmer: OrderCommitment.Response.Accepted, trucker: OrderCommitment.Response.Accepted);
+        order["refundOverrideAt"] = "2026-10-10T10:00:00Z";
+
+        Assert.False(ContactReveal.IsTruckerOpen(order));
+        Assert.True(ContactReveal.MayReadThreads(order, "trucker-1"));
+    }
+
+    [Theory]
+    [InlineData("stranger-1")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void MayReadThreads_AnyoneElse_IsFalse(string? userId)
+    {
+        var order = Order("accepted", farmer: OrderCommitment.Response.Accepted, trucker: OrderCommitment.Response.Accepted);
+
+        Assert.False(ContactReveal.MayReadThreads(order, userId));
+    }
+
+    [Fact]
+    public void MayReadThreads_SelfPickup_HasNoTrucker()
+    {
+        var order = Order("accepted", farmer: OrderCommitment.Response.Accepted, trucker: OrderCommitment.Response.None, trip: false);
+
+        Assert.False(ContactReveal.IsTruckerCommitted(order));
+        Assert.False(ContactReveal.MayReadThreads(order, "trucker-1"));
     }
 
     [Fact]

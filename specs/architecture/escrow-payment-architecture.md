@@ -1,7 +1,7 @@
 # Telebirr Escrow Payment System Architecture
 
 ## Version
-1.0.0 | 2026-02-21
+1.1.0 | 2026-11-06 (commission rule, SIM-30)
 
 ## Status
 Implemented (R4.3 — 100%, mock Telebirr gateway)
@@ -124,8 +124,28 @@ Escrow uses **dedicated endpoints** instead of the sync queue because:
 
 ## 4. Commission Calculation
 
+The rule since order-funded escrows (SIM-30, `escrow-protocol.md` 1.39.0, Commission Calculation):
+the commission is a percentage of the crop cost (SSM `/{prefix}/escrow/commission-rate`, default
+0.05) that the buyer pays on top of the crop and transport cost. Every leg is rounded to the santim.
+
 ```
-commission = max(amount × 0.025, 5.00)    // 2.5% with 5 ETB floor
+cropCost         = round2(quantity × pricePerUnit)
+transportCost    = round2(quantity / 100 × pricePerQuintal)
+commissionAmount = round2(cropCost × 0.05)
+orderTotal       = cropCost + transportCost + commissionAmount   // escrow amount
+
+farmerPayout = cropCost, truckerPayout = transportCost,
+commission   = amount − farmerPayout − truckerPayout
+
+Example: 170 kg at 18.99 ETB/kg, 1.7 quintals at 255.55 ETB/quintal
+  crop ETB 3,228.30 + transport ETB 434.44 + commission ETB 161.42 = ETB 3,824.16
+```
+
+The original R4.3 rule below survives only for a `POST /escrow/initiate` on a delivery without an
+order (mock gateway only):
+
+```
+commission = max(amount × 0.025, 5.00)    // 2.5% with 5 ETB floor, deducted from the amount
 farmerPayout = amount - commission
 
 Examples:
@@ -190,7 +210,7 @@ InitiateAsync():
   2. Check idempotency (30-day TTL)
   3. Validate amount (100-500,000 ETB)
   4. Fayda ID check for > 10,000 ETB (future)
-  5. Calculate commission (2.5%, 5 ETB floor)
+  5. Take the split from the linked order (commission = 5% of crop cost); without an order, 2.5% with a 5 ETB floor
   6. Create escrow record
   7. Store idempotency BEFORE Telebirr call
   8. Save to DynamoDB
@@ -285,4 +305,4 @@ mobile/lib/features/escrow_payment/
 - Detailed design: `specs/decisions/r4-3-escrow-architecture.md`
 - API contract: `specs/contracts/escrow-protocol.md`
 
-**Last Updated**: 2026-02-21
+**Last Updated**: 2026-11-06

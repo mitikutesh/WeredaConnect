@@ -22,6 +22,7 @@ import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
+import '../test/helpers/crop_photo_fixtures.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -53,7 +54,11 @@ void main() {
       );
 
       syncQueue = SyncQueue(isar);
-      repository = CropListingRepository(isar: isar, syncQueue: syncQueue);
+      repository = CropListingRepository(
+        isar: isar,
+        syncQueue: syncQueue,
+        photoFiles: tempCropPhotoFileStore(),
+      );
       conflictResolver = ConflictResolver(isar);
     });
 
@@ -69,6 +74,7 @@ void main() {
       // ===== OFFLINE PHASE =====
       // Create crop listing offline
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,
@@ -214,6 +220,7 @@ void main() {
         (tester) async {
       // ===== OFFLINE PHASE: Create listing =====
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,
@@ -349,6 +356,7 @@ void main() {
         (tester) async {
       // ===== SETUP: Create and sync listing =====
       final listing = await repository.createListing(
+        photos: testCropPhotos(),
         farmerId: 'farmer-001',
         cropType: 'teff',
         quantity: 50.0,

@@ -17,9 +17,11 @@ public static class PickupDeadline
     /// <summary>The cancel reason code of a buyer cancel after a transport failure (spec 4.6).</summary>
     public const string CancelReason = "transport_failed_buyer_cancelled";
 
-    public static readonly TimeSpan TripGrace = TimeSpan.FromHours(48);
+    /// <summary>ESC-16: from SSM (<see cref="OrderTimings.PickupGrace"/>, 48 hours by default).</summary>
+    public static TimeSpan TripGrace => OrderTimings.Current.PickupGrace;
 
-    public static readonly TimeSpan SelfPickupWindow = TimeSpan.FromDays(7);
+    /// <summary>ESC-16: from SSM (<see cref="OrderTimings.SelfPickupWindow"/>, 7 days by default).</summary>
+    public static TimeSpan SelfPickupWindow => OrderTimings.Current.SelfPickupWindow;
 
     /// <param name="departureUtc">The trip's departure; null for self-pickup or a trip that no longer exists.</param>
     /// <param name="acceptedAtUtc">When the farmer accepted the order.</param>

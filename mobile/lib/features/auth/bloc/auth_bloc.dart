@@ -12,10 +12,12 @@ import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart'
     if (dart.library.html) 'package:wereda_connect/core/auth/offline_auth_cache_web.dart';
 import 'package:wereda_connect/core/auth/session_signals.dart';
+import 'package:wereda_connect/core/models/app_notification.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
 import 'package:wereda_connect/core/models/conversation_read.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/models/location_ping.dart';
 import 'package:wereda_connect/core/models/message.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/core/models/payment.dart';
@@ -27,9 +29,16 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart'
+    if (dart.library.html) 'package:wereda_connect/core/sync/sync_queue_web.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
+import 'package:wereda_connect/features/live_trip/data/track_snapshot_store.dart';
 import 'package:wereda_connect/features/messaging/data/repositories/web_message_repository.dart';
+
+/// What a logout would delete before it reached the server (E-1): the
+/// user's queued [changes] and their unpaid [payments] waiting to be sent.
+typedef LogoutUnsentWork = ({int changes, int payments});
 
 /// BLoC for managing authentication state.
 ///
@@ -58,10 +67,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final Future<void> Function()? _pushTokenDeleter;
   final Future<void> Function(String userId) _forgetReadMarkers;
   final Future<void> Function(String userId) _forgetDataUsage;
+  final Future<void> Function(String userId) _forgetTrackSnapshots;
+  final Future<void> Function(String languageCode)? _applyProfileLanguage;
   final SecurityEvents _securityEvents;
+  final SessionSignals _signals;
   StreamSubscription<void>? _sessionExpiredSub;
   StreamSubscription<String>? _accountGoneSub;
+  StreamSubscription<void>? _suspendedSub;
+  StreamSubscription<void>? _otherAccountSub;
   String? _currentPhoneNumber;
+  String? _sessionSubject;
   bool _cancelled = false;
 
   // Registration waiting for its SMS OTP. The password stays in memory only
@@ -79,6 +94,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// Budget for the best-effort server-side token revocation on logout,
   /// counted from when the call starts.
   static const logoutRevokeBudget = Duration(seconds: 5);
+
+  /// Budget for showing the profile's language after a sign-in (SIM-37).
+  /// It runs before the session is emitted, so it must never hold it long.
+  static const profileLanguageBudget = Duration(seconds: 2);
 
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
@@ -103,9 +122,18 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// deleted (mobile only).
   /// [forgetReadMarkers] removes the web read markers of a deleted account,
   /// [forgetDataUsage] the data usage counters of one that is not signed in.
+  /// [forgetTrackSnapshots] removes the user's stored live trip snapshots
+  /// (truck positions) on logout and account deletion.
+  /// [applyProfileLanguage] gets the server profile's `preferredLanguage`
+  /// after each sign-in that carried one (SIM-37); the app wires it to
+  /// `LanguageProvider.applyProfileLanguage`.
   /// [sessionExpired] fires when the server rejects the refresh token,
   /// [accountGone] when it refuses a request with `410 ACCOUNT_004`.
   /// [securityEvents] defaults to the app-wide bus (tests inject one).
+  /// [sessionSignals] defaults to the app-wide [SessionSignals]: the bloc
+  /// moves its session count on when it clears or replaces the stored
+  /// session, and signs out when told another account's session is stored.
+  /// [sessionExpired] and [accountGone] default to its streams.
   AuthBloc({
     AuthService? authService,
     OfflineAuthCache? offlineCache,
@@ -114,9 +142,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Future<void> Function()? pushTokenDeleter,
     Future<void> Function(String userId)? forgetReadMarkers,
     Future<void> Function(String userId)? forgetDataUsage,
+    Future<void> Function(String userId)? forgetTrackSnapshots,
+    Future<void> Function(String languageCode)? applyProfileLanguage,
     Stream<void>? sessionExpired,
     Stream<String>? accountGone,
     SecurityEvents? securityEvents,
+    SessionSignals? sessionSignals,
   })  : _authService = authService ?? AuthService(),
         _offlineCache = offlineCache ?? OfflineAuthCache(),
         _isar = isar,
@@ -125,7 +156,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         _forgetReadMarkers =
             forgetReadMarkers ?? WebMessageRepository.forgetReadMarkers,
         _forgetDataUsage = forgetDataUsage ?? DataUsageTracker.forgetStoredUser,
+        _forgetTrackSnapshots =
+            forgetTrackSnapshots ?? TrackSnapshotStore.forgetStoredUser,
+        _applyProfileLanguage = applyProfileLanguage,
         _securityEvents = securityEvents ?? SecurityEvents.instance,
+        _signals = sessionSignals ?? SessionSignals.instance,
         super(const AuthInitial()) {
     // Register event handlers
     on<AuthCheckRequested>(_onAuthCheckRequested);
@@ -144,22 +179,77 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthVerifyOtpRequested>(_onVerifyOtp);
     on<AuthResendOtpRequested>(_onResendOtp);
     on<AuthStepUpSucceeded>(_onStepUpSucceeded);
+    on<AuthProfileChanged>(_onProfileChanged);
     on<AuthSessionExpired>(_onSessionExpired);
+    on<AuthOtherAccountSignedIn>(_onOtherAccountSignedIn);
 
-    _sessionExpiredSub =
-        (sessionExpired ?? SessionSignals.instance.onSessionExpired)
-            .listen((_) => add(const AuthSessionExpired()));
-    _accountGoneSub = (accountGone ?? SessionSignals.instance.onAccountGone)
+    _sessionExpiredSub = (sessionExpired ?? _signals.onSessionExpired)
+        .listen((_) => add(const AuthSessionExpired()));
+    _accountGoneSub = (accountGone ?? _signals.onAccountGone)
         .listen((state) => add(AuthAccountGone(deletionState: state)));
+    _otherAccountSub = _signals.onOtherAccountSignedIn
+        .listen((_) => add(const AuthOtherAccountSignedIn()));
+    _suspendedSub = _signals.onAccountSuspended
+        .listen((_) => add(const AuthSessionExpired(suspended: true)));
+  }
+
+  /// The account this app instance is signed in as, as the `sub` of its
+  /// session's ID token (the user id when that cannot be read). The token's
+  /// `sub` is what the server acts for, and a profile resolved by phone can
+  /// carry another id. Set by each sign-in, kept while a sign-out is in
+  /// progress ([AuthLoading]), null once signed out. The web interceptor
+  /// checks every bearer against it (FUP-96).
+  String? get sessionSubject => _sessionSubject;
+
+  static String _subjectOf(AuthAuthenticated session) =>
+      jwtSubject(session.tokens.idToken) ?? session.userId;
+
+  @override
+  void onChange(Change<AuthState> change) {
+    super.onChange(change);
+    final next = change.nextState;
+    if (next is AuthAuthenticated) {
+      _sessionSubject = _subjectOf(next);
+    } else if (next is! AuthLoading) {
+      _sessionSubject = null;
+    }
   }
 
   /// The auth service, for flows that talk to it directly (step-up dialog).
   AuthService get authService => _authService;
 
+  /// What logging [userId] out would delete before it reached the server
+  /// (E-1), for the logout dialog to say: the queued changes the logout's
+  /// own predicate deletes ([SyncQueue.getUnsentCountForUser]) and the
+  /// unpaid payments waiting to be sent that it cancels
+  /// ([_cancelUserPendingIntents]). None on web, which has no queue, and
+  /// without Isar.
+  Future<LogoutUnsentWork> unsentWorkFor(String userId) async {
+    final isar = _isar;
+    if (kIsWeb || isar == null || userId.isEmpty) {
+      return (changes: 0, payments: 0);
+    }
+    final queue = SyncQueue(isar);
+    try {
+      final changes = await queue.getUnsentCountForUser(userId);
+      // Typed: the web build's Isar stub answers dynamic.
+      final int payments = await isar.paymentIntents
+          .filter()
+          .statusEqualTo(IntentStatus.pendingSync)
+          .buyerIdEqualTo(userId)
+          .count();
+      return (changes: changes, payments: payments);
+    } finally {
+      queue.dispose();
+    }
+  }
+
   @override
   Future<void> close() async {
     await _sessionExpiredSub?.cancel();
     await _accountGoneSub?.cancel();
+    await _suspendedSub?.cancel();
+    await _otherAccountSub?.cancel();
     return super.close();
   }
 
@@ -188,6 +278,24 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
     try {
       return await _secureStorage.read(key: currentUserIdKey) == userId;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// Whether the stored session (on web, shared by every tab) is another
+  /// account's than [userId]'s: its user pointer names someone else, or
+  /// without one its ID token's `sub` differs from [subject] (default
+  /// [userId]). An empty or unreadable store is not.
+  Future<bool> _storedSessionIsOther(String userId, {String? subject}) async {
+    try {
+      final storedUser = await _secureStorage.read(key: currentUserIdKey);
+      if (storedUser != null && storedUser.isNotEmpty) {
+        return storedUser != userId;
+      }
+      final token = await _secureStorage.read(key: _activeIdTokenKey);
+      final storedSubject = token == null ? null : jwtSubject(token);
+      return storedSubject != null && storedSubject != (subject ?? userId);
     } on Object {
       return false;
     }
@@ -237,7 +345,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }
 
   /// Save the current session phone number and user ID to secure storage.
+  /// A new session: a token refresh still running for an earlier one must
+  /// not write over it (FUP-82).
   Future<void> _saveSession(String phoneNumber, String userId) async {
+    _signals.sessionChanged();
     _currentPhoneNumber = phoneNumber;
     await _secureStorage.write(
       key: _currentUserPhoneKey,
@@ -269,14 +380,44 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     );
   }
 
-  /// Clear the current session from secure storage.
-  Future<void> _clearSession() async {
+  /// Clear [userId]'s session from secure storage.
+  ///
+  /// FUP-82: on web every tab shares the stored session. When it is already
+  /// another account's (signed in from another tab since), it stays: only
+  /// this instance lets go of it. The session count moves on first, so a
+  /// token refresh still running for the leaving session drops its answer
+  /// instead of writing it back after the clear. The refresh token goes
+  /// first for a refresh running in another tab, which compares it.
+  Future<void> _clearSession(String userId, {String? subject}) async {
+    _signals.sessionChanged();
     _currentPhoneNumber = null;
+    if (await _storedSessionIsOther(userId, subject: subject)) {
+      debugPrint('[AuthBloc] stored session is another account\'s; kept');
+      return;
+    }
+    await _secureStorage.delete(key: _activeRefreshTokenKey);
     await _secureStorage.delete(key: _currentUserPhoneKey);
     await _secureStorage.delete(key: currentUserIdKey);
     await _secureStorage.delete(key: _activeAccessTokenKey);
     await _secureStorage.delete(key: _activeIdTokenKey);
-    await _secureStorage.delete(key: _activeRefreshTokenKey);
+  }
+
+  /// SIM-37: pass the profile's `preferredLanguage` from a sign-in to the
+  /// app, which shows it unless the user picked a language on this device.
+  /// Runs before the session is emitted, so the first screen is already in
+  /// that language. Bounded by [profileLanguageBudget] and best effort: a
+  /// failure never fails the sign-in. An offline sign-in carries no
+  /// language (the offline cache does not keep it), so the device keeps
+  /// the one it shows.
+  Future<void> _showProfileLanguage(AuthResult result) async {
+    final apply = _applyProfileLanguage;
+    final languageCode = result.preferredLanguage;
+    if (apply == null || languageCode == null) return;
+    try {
+      await apply(languageCode).timeout(profileLanguageBudget);
+    } on Object catch (e) {
+      debugPrint('[AuthBloc] profile language not applied: $e');
+    }
   }
 
   /// Check if user is already authenticated.
@@ -399,6 +540,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       } else if (result.isSuccess) {
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
+        await _showProfileLanguage(result);
 
         emit(
           AuthAuthenticated(
@@ -467,6 +609,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
+        await _showProfileLanguage(result);
 
         emit(
           AuthAuthenticated(
@@ -535,6 +678,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
+        await _showProfileLanguage(result);
 
         emit(
           AuthAuthenticated(
@@ -602,6 +746,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
         await _saveSession(event.phoneNumber, result.userId!);
         await _saveActiveTokens(result.tokens!);
+        await _showProfileLanguage(result);
 
         emit(
           AuthAuthenticated(
@@ -646,6 +791,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     final currentState = state;
 
     final result = await _authService.refreshToken(event.refreshToken);
+
+    // The session may have ended while the refresh ran (FUP-82): never
+    // write its tokens back over a logout or the next user's session.
+    final now = state;
+    if (currentState is AuthAuthenticated &&
+        (now is! AuthAuthenticated || now.userId != currentState.userId)) {
+      return;
+    }
 
     if (result.isSuccess) {
       // Update tokens in current authenticated state
@@ -716,14 +869,24 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       // the bearer token is still in storage, and is bounded so a slow
       // network never holds up logout.
       await _unregisterPushToken();
+      // FUP-82: its budget is spent. A token refresh it started that is
+      // still running belongs to the session ending now: from here on its
+      // answer is dropped, never written after the clears below.
+      _signals.sessionChanged();
 
       // Revoke the refresh token server-side, in parallel with the local
       // clear below. clearCache: false because the bloc clears credentials
       // itself; the service's deferred clear could wipe a re-login's cache.
-      final revocation = _revokeServerSession(
-        phoneNumber,
-        await _liveTokens(userId: userId, fallback: tokens),
-      );
+      final live = await _liveTokens(userId: userId, fallback: tokens);
+      final revocation = _revokeServerSession(phoneNumber, live);
+
+      // FUP-82: the refresh token leaves its slot now, before the slow clears
+      // below. A refresh that starts after the unregister (a sync request's
+      // 401) shares the current session count, so it would otherwise write
+      // its tokens, and the offline cache, around the cache clear below.
+      // Without the slot it has nothing to refresh, or finds its token gone
+      // and keeps nothing.
+      await _forgetRefreshToken(live.refreshToken);
 
       // Always clear business data to prevent data leakage on shared devices
       if (_isar != null) {
@@ -734,6 +897,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
       // Sync refusals kept for a listener belong to the leaving user.
       _securityEvents.clearKeptRejections();
+      // LT-10: where the trucks of this user's deliveries were. Kept outside
+      // Isar (both platforms), so it is cleared here.
+      try {
+        await _forgetTrackSnapshots(userId);
+      } on Object catch (e) {
+        debugPrint('[AuthBloc] track snapshot clear skipped: $e');
+      }
 
       // Clear offline credentials by default (event.clearCache). Hardcoding
       // false left the password hash + tokens on the device after an
@@ -742,7 +912,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         await _offlineCache.clearCredentials(phoneNumber);
       }
 
-      await _clearSession();
+      await _clearSession(userId, subject: _subjectOf(currentState));
 
       emit(const AuthUnauthenticated());
 
@@ -780,6 +950,20 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       );
     } on Object {
       return stateCopy;
+    }
+  }
+
+  /// Delete the stored refresh token when it is still [refreshToken], the
+  /// leaving session's own. On web the slot may hold another account's
+  /// token (signed in from another tab); that one stays. Best effort.
+  Future<void> _forgetRefreshToken(String refreshToken) async {
+    try {
+      final stored = await _secureStorage.read(key: _activeRefreshTokenKey);
+      if (stored == refreshToken) {
+        await _secureStorage.delete(key: _activeRefreshTokenKey);
+      }
+    } on Object catch (e) {
+      debugPrint('[AuthBloc] refresh token not dropped early: $e');
     }
   }
 
@@ -861,6 +1045,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     }
 
     if (signedIn) {
+      // FUP-82: a token refresh still running must not write this account's
+      // tokens back after the wipe.
+      _signals.sessionChanged();
       _clearPendingOtp();
       emit(const AuthLoading());
       final deleter = _pushTokenDeleter;
@@ -880,12 +1067,16 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       await step('offline cache', () => _offlineCache.forgetAccount(phone));
     }
     await step('read markers', () => _forgetReadMarkers(userId));
+    await step('track snapshots', () => _forgetTrackSnapshots(userId));
     if (!signedIn) {
       await step('data usage', () => _forgetDataUsage(userId));
       return;
     }
     _securityEvents.clearKeptRejections();
-    await step('session', _clearSession);
+    await step(
+      'session',
+      () => _clearSession(userId, subject: _subjectOf(session)),
+    );
 
     emit(const AuthAccountWiped());
   }
@@ -965,6 +1156,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       _clearPendingOtp();
       await _saveSession(phone, result.userId!);
       await _saveActiveTokens(result.tokens!);
+      await _showProfileLanguage(result);
       emit(
         AuthAuthenticated(
           userId: result.userId!,
@@ -1031,6 +1223,19 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     emit(current.withTokens(event.tokens));
   }
 
+  /// SIM-56: the session shows the edited name and woreda (account sheet,
+  /// profile). Only for the account that is signed in; nothing else changes.
+  void _onProfileChanged(
+    AuthProfileChanged event,
+    Emitter<AuthState> emit,
+  ) {
+    final current = state;
+    if (current is! AuthAuthenticated || current.userId != event.userId) {
+      return;
+    }
+    emit(current.withProfile(userName: event.userName, woreda: event.woreda));
+  }
+
   /// The refresh token was rejected: the interceptor already wiped the
   /// active tokens, so sign out locally instead of leaving the UI "logged
   /// in" with no credentials. The offline cache for this phone is cleared
@@ -1042,6 +1247,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ) async {
     final current = state;
     if (current is! AuthAuthenticated) return;
+    _signals.sessionChanged();
     final phone = _currentPhoneNumber ?? current.phoneNumber;
     if (phone != null && phone.isNotEmpty) {
       try {
@@ -1050,7 +1256,39 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         debugPrint('[AuthBloc] clearing expired session cache failed: $e');
       }
     }
-    await _clearSession();
+    await _clearSession(current.userId, subject: _subjectOf(current));
+    emit(
+      event.suspended
+          ? const AuthSuspendedSignedOut()
+          : const AuthUnauthenticated(),
+    );
+  }
+
+  /// FUP-96: a request was refused because the stored session is another
+  /// account's (on web every tab shares it, and another tab signed someone
+  /// else in). Sign this instance out so it stops acting for an account
+  /// whose session it no longer has. The stored session and this account's
+  /// offline cache stay: the session is the other account's, and this one
+  /// did not log out (a reload opens the stored account). Nothing else is
+  /// wiped, as for an expired session.
+  Future<void> _onOtherAccountSignedIn(
+    AuthOtherAccountSignedIn event,
+    Emitter<AuthState> emit,
+  ) async {
+    final current = state;
+    if (current is! AuthAuthenticated) return;
+    if (!await _storedSessionIsOther(
+      current.userId,
+      subject: _subjectOf(current),
+    )) {
+      return;
+    }
+    final now = state;
+    if (now is! AuthAuthenticated || now.userId != current.userId) return;
+    _signals.sessionChanged();
+    _currentPhoneNumber = null;
+    _clearPendingOtp();
+    _securityEvents.clearKeptRejections();
     emit(const AuthUnauthenticated());
   }
 
@@ -1183,16 +1421,25 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       }
       await isar.payments.deleteAll(paymentIds.toList());
 
-      // Delete orders where user is a participant
+      // Delete orders where user is a participant (the trucker's too: a
+      // trucker pulls the orders of their trips, ESC-15).
       final buyerOrders =
           await isar.orders.filter().buyerIdEqualTo(userId).findAll();
       final farmerOrders =
           await isar.orders.filter().farmerIdEqualTo(userId).findAll();
+      final truckerOrders =
+          await isar.orders.filter().truckerIdEqualTo(userId).findAll();
       final orderIds = <int>{};
-      for (final o in [...buyerOrders, ...farmerOrders]) {
+      for (final o in [...buyerOrders, ...farmerOrders, ...truckerOrders]) {
         orderIds.add(o.id);
       }
       await isar.orders.deleteAll(orderIds.toList());
+
+      // ESC-21: the user's inbox.
+      await isar.appNotifications.filter().userIdEqualTo(userId).deleteAll();
+
+      // LT-08: the trucker's check-ins (where the truck was).
+      await isar.locationPings.filter().truckerIdEqualTo(userId).deleteAll();
 
       // Delete chat messages the user sent or received.
       final sent =

@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// Standard card with subtle border matching mockup design.
+/// The plain card: paper grey with the quiet edge, radius 24 (the same
+/// ground as `FwCard`'s default).
 ///
-/// Wraps content in a white card with rounded corners and a light border.
 /// Use [padding] to override the default 16px internal padding.
 class WcCard extends StatelessWidget {
   final Widget child;
@@ -24,9 +24,9 @@ class WcCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final card = Container(
       decoration: BoxDecoration(
-        color: color ?? AppTheme.surfaceWhite,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.borderLight),
+        color: color ?? AppTheme.paper,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppTheme.line),
       ),
       child: Padding(
         padding: padding,
@@ -39,7 +39,7 @@ class WcCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(24),
           child: card,
         ),
       );

@@ -1,24 +1,97 @@
 @import "tailwindcss";
 
 /*
- * WeredaConnect tokens — must match mobile/lib/shared/theme/app_theme.dart
- * and admin/src/index.css (design brief 2026-07-06).
+ * Website tokens follow the mobile app theme, design canvas page M
+ * ("White, role colours"): mobile/lib/shared/theme/app_theme.dart and the
+ * boards in specs/design-canvas. White ground, black text, one orange
+ * action with black ink. A role colour appears only where that role is the
+ * subject (role cards, role steps, the farmer phone illustration).
  */
 @theme {
-  --color-primary: #1A6B5C;
-  --color-primary-light: #2D9B89;
-  --color-primary-dark: #14524A;
-  --color-money: #A64B1A;
-  --color-accent: #D4804A;
-  --color-accent-light: #E09A6C;
-  --color-cream: #F5F3F0;
-  --color-surface: #FFFFFF;
-  --color-text-dark: #1E293B;
-  --color-text-muted: #526071;
-  --color-border-light: #E2E8F0;
+  /* Ground and text */
+  --color-ink: #1A1516;
+  --color-slate: #5C5450;
+  --color-ink-soft: #4A4340;
+
+  /* Surfaces: paper for a raised card, sand for a flat tile or note */
+  --color-paper: #F5F3F1;
+  --color-sand: #E4D5C7;
+  --color-line: #DDD5CE;
+  /* The edge of a control (inputs, outlined buttons, chips): 3.6:1 on white */
+  --color-edge: #8E857E;
+
+  /* The one action. Its ink is black; orange is never text on white,
+   * orange-ink is. orange-deep is the web hover state only. */
+  --color-orange: #F0873A;
+  --color-orange-deep: #E0762A;
+  --color-orange-tint: #FBE6D6;
+  --color-orange-ink: #8A4510;
+
+  /* Role colours */
+  --color-farmer: #9A45A0;
+  --color-farmer-tint: #F4E6F3;
+  --color-trucker: #2B62C4;
+  --color-trucker-tint: #E4ECFA;
+  --color-buyer: #18775F;
+  --color-buyer-tint: #E3F0EB;
+
+  /* On a black ground: a card set into it, and its secondary text */
+  --color-ink-card: #2A2526;
+  --color-ink-muted: #CAC9C9;
+
+  /* Status */
+  --color-success: #18775F;
+  --color-success-tint: #E3F0EB;
+  --color-error: #B3261E;
+
+  --font-sans: 'Bricolage Grotesque', 'Noto Sans Ethiopic', system-ui, -apple-system, sans-serif;
+  --font-ethiopic: 'Noto Sans Ethiopic', 'Bricolage Grotesque', system-ui, sans-serif;
 }
 
-/* Self-hosted variable font (400-700) — was CDN-loaded; local file keeps
+/* Self-hosted static weights 400-800, the same five files the app bundles
+ * (mobile/assets/fonts), repacked as woff2. SIL Open Font License, see
+ * /fonts/BricolageGrotesque-OFL.txt. */
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/BricolageGrotesque-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/BricolageGrotesque-Medium.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/BricolageGrotesque-SemiBold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/BricolageGrotesque-Bold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Bricolage Grotesque';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('/fonts/BricolageGrotesque-ExtraBold.woff2') format('woff2');
+}
+
+/* Self-hosted variable font (400-700), was CDN-loaded; local file keeps
  * fidäl rendering consistent and independent of gstatic availability. */
 @font-face {
   font-family: 'Noto Sans Ethiopic';
@@ -34,9 +107,53 @@ html {
 }
 
 body {
-  font-family: system-ui, -apple-system, 'Noto Sans Ethiopic', sans-serif;
-  color: var(--color-text-dark);
-  background-color: var(--color-cream);
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background-color: #FFFFFF;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Black ring on light grounds and on orange, white ring on black. */
+:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+.bg-ink:focus-visible,
+.bg-ink :focus-visible {
+  outline-color: #FFFFFF;
+}
+
+.bg-ink .bg-orange:focus-visible,
+.bg-ink .bg-orange :focus-visible {
+  outline-color: var(--color-orange);
+}
+
+/* Small uppercase label above headings and inside cards. */
+@utility eyebrow {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* The app's 54px pill button; colour comes from the caller: orange with
+ * black ink for the one action, black with white ink for the second,
+ * an edge-coloured outline for the third. */
+@utility btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 54px;
+  box-sizing: border-box;
+  padding: 14px 26px;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 800;
+  text-decoration: none;
+  transition: background-color 150ms, color 150ms, border-color 150ms;
 }
 
 @keyframes fade-in-up {
@@ -61,7 +178,7 @@ body {
 
 /* Only pre-hide elements when scripting is available to add `.is-visible`.
    Without JS (or if the IntersectionObserver never fires) the content must
-   stay visible — otherwise the page renders permanently blank. */
+   stay visible, otherwise the page renders permanently blank. */
 @media (scripting: enabled) {
   .animate-on-scroll {
     opacity: 0;
@@ -90,3 +207,14 @@ body {
 .stagger-children .animate-on-scroll:nth-child(4) { animation-delay: 300ms; }
 .stagger-children .animate-on-scroll:nth-child(5) { animation-delay: 400ms; }
 .stagger-children .animate-on-scroll:nth-child(6) { animation-delay: 500ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .animate-on-scroll,
+  .animate-on-scroll.is-visible {
+    opacity: 1;
+    animation: none !important;
+  }
+}

@@ -27,7 +27,11 @@ Map<String, dynamic> _tokens() => {
       'expiresIn': 900,
     };
 
-Map<String, dynamic> _user({bool faydaVerified = false}) => {
+Map<String, dynamic> _user({
+  bool faydaVerified = false,
+  Object? preferredLanguage,
+}) =>
+    {
       'userId': 'user-1',
       'phoneNumber': _phone,
       'displayName': 'Abebe',
@@ -37,6 +41,7 @@ Map<String, dynamic> _user({bool faydaVerified = false}) => {
       'faydaVerified': faydaVerified,
       if (faydaVerified) 'faydaVerifiedAt': '2026-09-01T10:00:00Z',
       'isPhoneVerified': true,
+      if (preferredLanguage != null) 'preferredLanguage': preferredLanguage,
     };
 
 void main() {
@@ -413,6 +418,84 @@ void main() {
     });
   });
 
+  // BUG-35: a first login on a very slow network waited for the timeout and
+  // then said "log in online first to enable offline mode" to a user who
+  // was online.
+  group('login on a network that does not answer (BUG-35)', () {
+    void loginFailsWith(DioExceptionType type) => adapter.onPost(
+          '/auth/login',
+          (server) => server.throws(
+            0,
+            DioException(
+              requestOptions: RequestOptions(path: '/auth/login'),
+              type: type,
+            ),
+          ),
+          data: Matchers.any,
+        );
+
+    Future<String?> loginCode() async => (await service.login(
+          phoneNumber: _phone,
+          password: 'Secret123',
+        ))
+            .errorCode;
+
+    test(
+        'a timeout with nothing to log in with offline says the network is '
+        'too slow, not "log in online first"', () async {
+      when(() => cache.hasCachedCredentials(_phone))
+          .thenAnswer((_) async => false);
+      for (final type in [
+        DioExceptionType.connectionTimeout,
+        DioExceptionType.receiveTimeout,
+        DioExceptionType.sendTimeout,
+      ]) {
+        loginFailsWith(type);
+
+        final result =
+            await service.login(phoneNumber: _phone, password: 'Secret123');
+
+        expect(result.isSuccess, isFalse, reason: '$type');
+        expect(result.errorCode, AuthErrorCode.networkTooSlow, reason: '$type');
+        expect(result.timedOut, isTrue, reason: '$type');
+      }
+    });
+
+    test('a timeout still falls back to the offline login when one exists',
+        () async {
+      loginFailsWith(DioExceptionType.connectionTimeout);
+      when(() => cache.hasCachedCredentials(_phone))
+          .thenAnswer((_) async => true);
+      when(() => cache.verifyPassword(_phone, 'Secret123'))
+          .thenAnswer((_) async => false);
+
+      // The offline login's own answer (a wrong password here) is returned.
+      expect(await loginCode(), AuthErrorCode.invalidCredentials);
+      verify(() => cache.verifyPassword(_phone, 'Secret123')).called(1);
+    });
+
+    test(
+        'no connection at all (not a timeout) keeps the offline first-login '
+        'answer', () async {
+      loginFailsWith(DioExceptionType.connectionError);
+      when(() => cache.hasCachedCredentials(_phone))
+          .thenAnswer((_) async => false);
+
+      expect(await loginCode(), AuthErrorCode.offlineNotAvailable);
+    });
+
+    test('a phone that is offline keeps the offline first-login answer',
+        () async {
+      when(() => connectivity.checkConnectivity())
+          .thenAnswer((_) async => [ConnectivityResult.none]);
+      when(() => cache.hasCachedCredentials(_phone))
+          .thenAnswer((_) async => false);
+
+      expect(await loginCode(), AuthErrorCode.offlineNotAvailable);
+      expect(requests, isEmpty);
+    });
+  });
+
   group('unregisterDeviceToken', () {
     test('sends DELETE /device-tokens with the token', () async {
       adapter.onDelete(
@@ -440,6 +523,93 @@ void main() {
     test('skips an empty token', () async {
       await service.unregisterDeviceToken('');
       expect(requests, isEmpty);
+    });
+  });
+
+  group('profile language (SIM-37)', () {
+    test('login reads the profile preferredLanguage', () async {
+      adapter.onPost(
+        '/auth/login',
+        (server) => server.reply(200, {
+          'tokens': _tokens(),
+          'user': _user(preferredLanguage: 'om'),
+        }),
+        data: Matchers.any,
+      );
+
+      final result = await service.loginOnline(
+        phoneNumber: _phone,
+        password: 'Secret123',
+      );
+
+      expect(result.isSuccess, isTrue);
+      expect(result.preferredLanguage, 'om');
+    });
+
+    for (final (label, user) in [
+      ('a missing', _user()),
+      ('a non-string', _user(preferredLanguage: 42)),
+    ]) {
+      test('$label value is null and never fails the login', () async {
+        adapter.onPost(
+          '/auth/login',
+          (server) => server.reply(200, {'tokens': _tokens(), 'user': user}),
+          data: Matchers.any,
+        );
+
+        final result = await service.loginOnline(
+          phoneNumber: _phone,
+          password: 'Secret123',
+        );
+
+        expect(result.isSuccess, isTrue);
+        expect(result.preferredLanguage, isNull);
+      });
+    }
+
+    test('verify-otp reads it', () async {
+      adapter.onPost(
+        '/auth/verify-otp',
+        (server) => server.reply(200, {
+          'tokens': _tokens(),
+          'user': _user(preferredLanguage: 'am'),
+        }),
+        data: Matchers.any,
+      );
+
+      final result = await service.verifyOtp(
+        phoneNumber: _phone,
+        otpCode: '123456',
+        password: 'Secret123',
+      );
+
+      expect(result.isSuccess, isTrue);
+      expect(result.preferredLanguage, 'am');
+    });
+
+    test('register 201 reads it', () async {
+      adapter.onPost(
+        '/auth/register',
+        (server) => server.reply(201, {
+          'userId': 'user-1',
+          'tokens': _tokens(),
+          'user': _user(faydaVerified: true, preferredLanguage: 'en'),
+        }),
+        data: Matchers.any,
+      );
+
+      final result = await service.register(
+        phoneNumber: _phone,
+        password: 'Secret123',
+        name: 'Abebe',
+        role: UserRole.buyer,
+        woreda: 'Adama',
+        faydaVerificationToken: 'fayda-token',
+        preferredLanguage: 'en',
+      );
+
+      expect(result.isSuccess, isTrue);
+      expect(result.preferredLanguage, 'en');
     });
   });
 }

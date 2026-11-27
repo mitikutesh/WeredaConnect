@@ -8,12 +8,19 @@ namespace WeredaConnect.Server.Models;
 /// POST /escrow/initiate request body.
 /// Buyer initiates escrow payment for a delivery.
 /// </summary>
+/// <remarks>
+/// No member is <c>required</c> (escrow-protocol 2.3.0, FUP-127), as on <see cref="ReleaseEscrowRequest"/>:
+/// a missing or blank field is answered with that field's code by the handler, not ESCROW_001
+/// "Invalid JSON". The source-generated reader does not run the initializers of init properties:
+/// an absent string arrives as null (an absent amount as 0), so the handler checks them before
+/// anything reads them. The initializers only serve code that builds a request itself.
+/// </remarks>
 public sealed record InitiateEscrowRequest
 {
     /// <summary>
     /// The delivery this payment covers (UUID).
     /// </summary>
-    public required string DeliveryId { get; init; }
+    public string DeliveryId { get; init; } = "";
 
     /// <summary>
     /// Optional: the order this escrow is linked to (UUID).
@@ -24,27 +31,27 @@ public sealed record InitiateEscrowRequest
     /// <summary>
     /// Buyer initiating payment (must match JWT sub claim).
     /// </summary>
-    public required string BuyerId { get; init; }
+    public string BuyerId { get; init; } = "";
 
     /// <summary>
     /// Farmer receiving payment (must be a verified user).
     /// </summary>
-    public required string FarmerId { get; init; }
+    public string FarmerId { get; init; } = "";
 
     /// <summary>
     /// Total payment amount in ETB (100.00 – 500,000.00).
     /// </summary>
-    public required decimal Amount { get; init; }
+    public decimal Amount { get; init; }
 
     /// <summary>
     /// Currency code. Must be "ETB".
     /// </summary>
-    public required string Currency { get; init; }
+    public string Currency { get; init; } = "";
 
     /// <summary>
     /// Idempotency key: {buyerId}:{deliveryId}:initiate:{timestamp}.
     /// </summary>
-    public required string IdempotencyKey { get; init; }
+    public string IdempotencyKey { get; init; } = "";
 }
 
 /// <summary>
@@ -59,6 +66,10 @@ public sealed record InitiateEscrowResponse
     public required string FarmerId { get; init; }
     public required decimal Amount { get; init; }
     public required decimal Commission { get; init; }
+
+    /// <summary>The escrow's stored rate (FUP-129); null on rows that carry none.</summary>
+    public decimal? CommissionRate { get; init; }
+
     public required decimal FarmerPayout { get; init; }
     public required string Currency { get; init; }
     public required string Status { get; init; }
@@ -80,9 +91,14 @@ public sealed record InitiateEscrowResponse
 /// ESC-01: POST /escrow/order-checkout request body. The server derives everything else
 /// (amount, buyer, merch_order_id) from its own order record.
 /// </summary>
+/// <remarks>
+/// Not <c>required</c> (escrow-protocol 2.26.0, FUP-148), as on <see cref="InitiateEscrowRequest"/>: a
+/// missing <c>orderId</c> arrives as null and is answered <c>400 ESCROW_033 "orderId is required."</c>
+/// with <c>field: orderId</c>, as a null or blank one was, not <c>"Invalid JSON in request body."</c>.
+/// </remarks>
 public sealed record OrderCheckoutRequest
 {
-    public required string OrderId { get; init; }
+    public string OrderId { get; init; } = "";
 }
 
 /// <summary>
@@ -109,17 +125,26 @@ public sealed record OrderCheckoutResponse
 /// POST /escrow/release request body.
 /// Triggers release of escrowed funds to the farmer.
 /// </summary>
+/// <remarks>
+/// No member is <c>required</c> (escrow-protocol 1.37.0, SIM-27): a missing or blank field is
+/// answered with that field's code by the handler, not ESCROW_001 "Invalid JSON".
+/// </remarks>
 public sealed record ReleaseEscrowRequest
 {
-    public required string EscrowId { get; init; }
+    public string EscrowId { get; init; } = "";
 
     /// <summary>
     /// Enum: delivery_confirmed, dispute_resolved, admin_override.
     /// </summary>
-    public required string Trigger { get; init; }
+    public string Trigger { get; init; } = "";
 
-    public required string DeliveryId { get; init; }
-    public required string IdempotencyKey { get; init; }
+    /// <summary>
+    /// Optional (escrow-protocol 2.5.0, FUP-139): the delivery this release pays for. When it is sent and the
+    /// escrow is linked to a delivery, the two must be equal; a self-pickup escrow has none. Null when absent.
+    /// </summary>
+    public string? DeliveryId { get; init; }
+
+    public string IdempotencyKey { get; init; } = "";
 
     /// <summary>
     /// FRD-03: why an admin releases a <c>held</c> escrow (10 to 500 characters, required for a held
@@ -148,19 +173,22 @@ public sealed record ReleaseEscrowResponse
 /// POST /escrow/dispute request body.
 /// Buyer or farmer raises a dispute within 48 hours of delivery confirmation.
 /// </summary>
+/// <remarks>
+/// No member is <c>required</c> (escrow-protocol 2.3.0, FUP-127), as on <see cref="InitiateEscrowRequest"/>.
+/// </remarks>
 public sealed record DisputeEscrowRequest
 {
-    public required string EscrowId { get; init; }
+    public string EscrowId { get; init; } = "";
 
     /// <summary>
     /// Must be buyer or farmer on this escrow (UUID).
     /// </summary>
-    public required string DisputedBy { get; init; }
+    public string DisputedBy { get; init; } = "";
 
     /// <summary>
     /// Enum: damaged_goods, wrong_quantity, wrong_crop, not_delivered, quality_mismatch, other.
     /// </summary>
-    public required string Reason { get; init; }
+    public string Reason { get; init; } = "";
 
     /// <summary>
     /// Free-text explanation (0-1000 chars, supports Amharic/Oromo/English).
@@ -172,7 +200,7 @@ public sealed record DisputeEscrowRequest
     /// </summary>
     public List<string>? EvidenceRefs { get; init; }
 
-    public required string IdempotencyKey { get; init; }
+    public string IdempotencyKey { get; init; } = "";
 }
 
 /// <summary>
@@ -194,31 +222,42 @@ public sealed record DisputeEscrowResponse
 /// POST /escrow/refund request body.
 /// Refunds escrowed funds to the buyer.
 /// </summary>
+/// <remarks>
+/// No member is <c>required</c> (escrow-protocol 1.37.0, SIM-27), as on <see cref="ReleaseEscrowRequest"/>.
+/// </remarks>
 public sealed record RefundEscrowRequest
 {
-    public required string EscrowId { get; init; }
+    public string EscrowId { get; init; } = "";
 
     /// <summary>
     /// Enum: dispute_resolved, delivery_timeout, admin_override.
     /// </summary>
-    public required string Trigger { get; init; }
+    public string Trigger { get; init; } = "";
 
     /// <summary>
-    /// Explanation for audit trail (0-500 chars; 10-500 with <see cref="OverrideOrderMismatch"/> and,
-    /// FRD-03, for a <c>held</c> escrow).
+    /// Explanation for audit trail (0-500 chars; 10-500 with <see cref="OverrideOrderMismatch"/>, with
+    /// <see cref="DoubleEscrow"/> and, FRD-03, for a <c>held</c> escrow).
     /// </summary>
     public string? Reason { get; init; }
 
-    public required string IdempotencyKey { get; init; }
+    public string IdempotencyKey { get; init; } = "";
 
     /// <summary>
-    /// ESC-03, admin group only: refund a <c>buyer_wins</c> verdict although its order cannot
-    /// follow it (the goods are already moving). Needs a <see cref="Reason"/>; audited with the
-    /// admin and the reason, and the order is flagged. The sweep never sets it. Deprecated for
-    /// verdicts since escrow-protocol 1.21.0 (FUP-16): a disposition on the verdict moves the order
-    /// and delivery instead. Still the tool for an ESC-09 Part B refund of a plain escrowed escrow.
+    /// ESC-09 Part B, admin group only: refund a plain escrowed escrow although its order cannot follow
+    /// it (the goods are moving). Needs a <see cref="Reason"/>; audited with the admin and the reason,
+    /// and the order is flagged. The sweep never sets it. Until escrow-protocol 2.21.0 it also refunded a
+    /// <c>buyer_wins</c> verdict over a mismatch (ESC-03, deprecated in 1.21.0); since FUP-64 it has no
+    /// effect on a <c>dispute_resolved</c> escrow, whose disposition (<c>settle_as_is</c>) settles it.
     /// </summary>
     public bool OverrideOrderMismatch { get; init; }
+
+    /// <summary>
+    /// FUP-41 (escrow-protocol 2.19.0), admin group only, trigger <c>admin_override</c>, a <see cref="Reason"/>
+    /// of 10 to 500 characters: refund an <c>/escrow/initiate</c> escrow that is a second payment for an order
+    /// whose own escrow (<c>escrow-order-{orderId}</c>) holds or paid the trade's money. The order and its
+    /// delivery belong to that escrow and are not touched. Not with <see cref="OverrideOrderMismatch"/>.
+    /// </summary>
+    public bool DoubleEscrow { get; init; }
 }
 
 /// <summary>
@@ -282,6 +321,21 @@ public sealed record ManualPayoutLegDto
     /// portal for it before paying a leg whose outcome is unknown.
     /// </summary>
     public string? GatewayRef { get; init; }
+
+    /// <summary>
+    /// FUP-05: the admin who claimed this pending leg, when the claim was taken and when it ends. Shown while the
+    /// claim lives and for 24 hours after it lapsed (<see cref="ClaimLive"/> false: that admin may have paid). All
+    /// null when there is no claim, it was released, or it lapsed longer ago.
+    /// </summary>
+    public string? ClaimedBy { get; init; }
+    public string? ClaimedAt { get; init; }
+    public string? ClaimExpiresAt { get; init; }
+
+    /// <summary>FUP-05: true when the caller is the admin of <see cref="ClaimedBy"/>; null when there is no claim shown.</summary>
+    public bool? ClaimedByMe { get; init; }
+
+    /// <summary>FUP-05: true while the claim lives (at the time of the read), false once it lapsed; null without a claim.</summary>
+    public bool? ClaimLive { get; init; }
 }
 
 /// <summary>
@@ -356,6 +410,76 @@ public sealed record CompleteManualPayoutResponse
 
     /// <summary>True when this leg was already recorded with the same reference (a replay); nothing new was paid or settled.</summary>
     public bool AlreadyRecorded { get; init; }
+}
+
+/// <summary>
+/// FUP-05: POST /admin/payouts/{escrowId}/{ref}/claim and /unclaim. No request body.
+/// </summary>
+public sealed record ManualPayoutClaimResponse
+{
+    public required string EscrowId { get; init; }
+    public string? OrderId { get; init; }
+
+    /// <summary>The 1.x leg name or the ledger ref.</summary>
+    public required string Ref { get; init; }
+
+    /// <summary>True when the caller holds a live claim on the leg after this call.</summary>
+    public required bool Claimed { get; init; }
+
+    public string? ClaimedBy { get; init; }
+    public string? ClaimedAt { get; init; }
+    public string? ClaimExpiresAt { get; init; }
+
+    /// <summary>Claim: the caller already held a live claim, and its end moved on.</summary>
+    public bool Renewed { get; init; }
+
+    /// <summary>Unclaim: the caller's claim was removed.</summary>
+    public bool Released { get; init; }
+
+    public string? Message { get; init; }
+}
+
+/// <summary>
+/// FUP-218: POST /admin/payouts/{escrowId}/{ref}/correct body. Replaces the portal reference of a leg an admin
+/// recorded by mistake.
+/// </summary>
+public sealed record CorrectPayoutReferenceRequest
+{
+    /// <summary>The reference the leg carries now, as the page showed it (the correction is refused if it moved).</summary>
+    public string? OldExternalRef { get; init; }
+
+    /// <summary>The Telebirr merchant-portal transaction id of the leg's real payment.</summary>
+    public string? ExternalRef { get; init; }
+
+    /// <summary>Why the recorded reference is wrong: 10 to 500 characters after trimming.</summary>
+    public string? Reason { get; init; }
+}
+
+/// <summary>FUP-218: the answer of a reference correction.</summary>
+public sealed record CorrectPayoutReferenceResponse
+{
+    public required string EscrowId { get; init; }
+    public string? OrderId { get; init; }
+
+    /// <summary>The 1.x leg name or the ledger ref.</summary>
+    public required string Ref { get; init; }
+
+    public required string OldExternalRef { get; init; }
+
+    /// <summary>The reference the leg carries now.</summary>
+    public required string ExternalRef { get; init; }
+
+    /// <summary>The trimmed reason, as recorded in the audit rows.</summary>
+    public required string Reason { get; init; }
+
+    /// <summary>The admin who corrected it and when; null on a replay (nothing was written by this call).</summary>
+    public string? CorrectedBy { get; init; }
+    public string? CorrectedAt { get; init; }
+
+    /// <summary>True when the leg already carried the new reference: nothing was written and no audit row added.</summary>
+    public bool AlreadyCorrected { get; init; }
+
+    public string? Message { get; init; }
 }
 
 // ──────────────────────────────────────────────
@@ -523,7 +647,61 @@ public sealed record EscrowDto
     /// <summary>FRD-03, admin only: <c>release</c> or <c>refund</c>, what the sweep was about to do.</summary>
     public string? HeldFor { get; init; }
 
+    /// <summary>
+    /// FUP-41, admin responses only: why the hourly sweeps do not settle this escrow (ESC-10,
+    /// <c>&lt;op&gt;:&lt;gate&gt;:&lt;reason&gt;</c>, for example <c>release:payout:phone_unverified</c> or
+    /// <c>release:trade:double_escrow</c>), and since when. Party reads never fill them.
+    /// </summary>
+    public string? SettlementBlockReason { get; init; }
+
+    /// <summary>FUP-41, admin only: when the sweep first stored <see cref="SettlementBlockReason"/> (ISO 8601).</summary>
+    public string? SettlementBlockReasonAt { get; init; }
+
+    /// <summary>
+    /// FUP-41, admin escrow detail only: on an escrow that is not order-funded and names an order, the status of
+    /// that order's own escrow (<c>escrow-order-{orderId}</c>) when there is one. Null otherwise.
+    /// </summary>
+    public string? OrderEscrowStatus { get; init; }
+
+    /// <summary>
+    /// FUP-41, admin escrow detail only: true when <see cref="OrderEscrowStatus"/> holds or paid the trade's money, so
+    /// this escrow is a second payment that an admin refunds with <c>POST /escrow/refund</c> and <c>doubleEscrow</c>.
+    /// Null when not computed.
+    /// </summary>
+    public bool? DoubleEscrow { get; init; }
+
     public required int Version { get; init; }
+
+    /// <summary>
+    /// ESC-20 (escrow-protocol.md 2.2.0, P.11): a ledger escrow's legs, <c>crop</c>, <c>transport</c> and
+    /// <c>commission</c>, each <c>held</c>, <c>released</c>, <c>refunded</c> or <c>kept</c>. Null on a 1.x escrow.
+    /// </summary>
+    public Dictionary<string, string>? LegStatus { get; init; }
+
+    /// <summary>ESC-20: the part of <see cref="Amount"/> decided for the buyer so far. Null on a 1.x escrow.</summary>
+    public decimal? RefundedTotal { get; init; }
+
+    /// <summary>ESC-20: the part of <see cref="Amount"/> decided for the farmer and the trucker so far. Null on a 1.x escrow.</summary>
+    public decimal? ReleasedTotal { get; init; }
+
+    /// <summary>ESC-24, admin responses only: the trucker's display name. Party reads never fill it.</summary>
+    public string? TruckerName { get; set; }
+
+    /// <summary>
+    /// ESC-24, admin responses only: where the transport leg stands (owed, blocked by the payout gate, waiting in
+    /// Manual Payouts, paid). Null when the escrow carries no transport leg. Party reads never fill it.
+    /// </summary>
+    public AdminTruckerLegDto? TruckerLeg { get; init; }
+
+    /// <summary>ESC-24, admin responses only: the split an admin recorded with a <c>partial_refund</c> verdict (ESC-20).</summary>
+    public VerdictAmountsDto? VerdictAmounts { get; init; }
+
+    /// <summary>
+    /// FUP-218, admin responses only: the legs of a 1.x escrow's manual payout (1.8.0), open or closed, so the escrow
+    /// page can correct a reference recorded by mistake. Null when the escrow never entered the queue. Party reads
+    /// never fill it.
+    /// </summary>
+    public List<AdminManualLegDto>? ManualLegs { get; init; }
 }
 
 /// <summary>
@@ -553,6 +731,50 @@ public sealed record DisputeDto
 
     /// <summary>FUP-16: when <see cref="Disposition"/> was recorded. Admin routes only.</summary>
     public string? DispositionAt { get; init; }
+
+    /// <summary>
+    /// Persona simulation BUG-6 (2.28.0): the handoff evidence stamped when the dispute was created.
+    /// Admin routes only; null for the parties and for a dispute from before 2.28.0.
+    /// </summary>
+    public DisputeHandoffEvidenceDto? HandoffEvidence { get; init; }
+}
+
+/// <summary>
+/// The handoffs of the disputed delivery as the server held them when the dispute was created
+/// (escrow-protocol.md 2.28.0, <c>Helpers.DisputeHandoffEvidence</c>). Admin routes only.
+/// </summary>
+public sealed record DisputeHandoffEvidenceDto
+{
+    public required string DeliveryId { get; init; }
+
+    /// <summary>The delivery's status when the dispute was created.</summary>
+    public string? DeliveryStatus { get; init; }
+
+    /// <summary>A self-pickup has no pickup leg: the buyer confirms at the farm.</summary>
+    public bool SelfPickup { get; init; }
+
+    public string? PickedUpAt { get; init; }
+
+    /// <summary><c>qr</c> or <c>code</c>, stamped on the delivery since 2.30.0, else from the audit row; null when neither has it.</summary>
+    public string? PickupMethod { get; init; }
+
+    public string? PickupBy { get; init; }
+
+    /// <summary>Whether the pickup carried a GPS fix (BUG-5); null without a pickup leg.</summary>
+    public bool? PickupFix { get; init; }
+
+    public string? ConfirmedAt { get; init; }
+
+    /// <summary><c>qr</c> or <c>code</c>, stamped on the delivery since 2.30.0, else from the audit row; null when neither has it.</summary>
+    public string? ConfirmMethod { get; init; }
+
+    public string? ConfirmedBy { get; init; }
+
+    /// <summary>Whether the confirmation carried a GPS fix; null when the delivery was not confirmed.</summary>
+    public bool? DropoffFix { get; init; }
+
+    /// <summary>True when the user who opened the dispute is the one who confirmed receipt; null when unknown.</summary>
+    public bool? ConfirmedByDisputer { get; init; }
 }
 
 /// <summary>
@@ -579,6 +801,9 @@ public sealed record EscrowSummaryDto
     public required decimal Amount { get; init; }
     public required decimal Commission { get; init; }
 
+    /// <summary>The escrow's stored rate (FUP-129); null on rows that carry none.</summary>
+    public decimal? CommissionRate { get; init; }
+
     /// <summary>Crop leg of the held amount: what the farmer receives on release.</summary>
     public decimal FarmerPayout { get; init; }
 
@@ -596,10 +821,17 @@ public sealed record EscrowSummaryDto
     public string? ExpiresAt { get; init; }
 
     /// <summary>
+    /// When the delivery was confirmed (as on <see cref="EscrowDto.DeliveryConfirmedAt"/>); null before.
+    /// FUP-97: a confirmed hold waits for its release, so a client never reads its past
+    /// <see cref="ExpiresAt"/> as a refund.
+    /// </summary>
+    public string? DeliveryConfirmedAt { get; init; }
+
+    /// <summary>
     /// True while the money is still held but on its way back to the buyer: the
     /// order was cancelled or rejected (refund scheduled), or the hold expired
-    /// and the refund sweep has not run yet. Clients label such rows
-    /// "Refund pending", never "Funds held safely". SIM-20.
+    /// before its delivery was confirmed and the refund sweep has not run yet.
+    /// Clients label such rows "Refund pending", never "Funds held safely". SIM-20, FUP-97.
     /// </summary>
     public bool RefundPending { get; init; }
 

@@ -325,6 +325,77 @@ public class TelebirrSandboxGatewayTests
         resp.ToPayUrl.Should().StartWith(config.WebUrl).And.Contain("prepay_id=");
     }
 
+    /// <summary>
+    /// FUP-430: QueryOrderAsync against the running simulator, same env gate as above. The simulator
+    /// answers from its own order state: WAIT_PAY before the payment, PAY_SUCCESS after one whose notify
+    /// never came, ORDER_CLOSED after the window, and a refusal (read as unknown, never "not paid") for
+    /// an order it never created.
+    /// </summary>
+    [Fact]
+    public async Task QueryOrder_against_live_simulator()
+    {
+        var simUrl = Environment.GetEnvironmentVariable("TELEBIRR_SIM_URL");
+        var credsFile = Environment.GetEnvironmentVariable("TELEBIRR_CREDS_FILE");
+        if (string.IsNullOrEmpty(simUrl) || string.IsNullOrEmpty(credsFile) || !File.Exists(credsFile))
+        {
+            // No-op without a running simulator, as HoldFunds_against_live_simulator.
+            return;
+        }
+
+        var config = TelebirrConfig.FromJson(
+            File.ReadAllText(credsFile!), notifyUrl: "http://127.0.0.1:1/webhooks/telebirr");
+        var gateway = new TelebirrSandboxGateway(
+            new HttpClient(),
+            new TelebirrSignatureService(config.MerchantPrivateKeyPem, config.TelebirrPublicKeyPem, config.Padding),
+            config);
+        using var sim = new HttpClient { BaseAddress = new Uri(simUrl!) };
+        var stamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        async Task<string> OpenCheckoutAsync(string merchOrderId)
+        {
+            var hold = await gateway.HoldFundsAsync(new HoldFundsRequest
+            {
+                TransactionRef = merchOrderId,
+                BuyerPhone = "+251900100003",
+                Amount = 150m,
+                Description = "live-sim queryOrder test",
+            });
+            hold.Success.Should().BeTrue($"error: {hold.ErrorCode} {hold.ErrorMessage}");
+            return hold.PrepayId!;
+        }
+
+        async Task SimulateAsync(string action, string prepayId, string extra = "")
+            => (await sim.PostAsync($"/simulate/{action}?prepay_id={Uri.EscapeDataString(prepayId)}{extra}", null))
+                .IsSuccessStatusCode.Should().BeTrue($"simulate/{action}");
+
+        var paidId = $"WCOSIMQUERY{stamp}P";
+        var paidPrepay = await OpenCheckoutAsync(paidId);
+        var waiting = await gateway.QueryOrderAsync(paidId);
+        waiting.State.Should().Be(TelebirrPaymentState.Pending);
+        waiting.Status.Should().Be("WAIT_PAY");
+
+        // A payment whose notify never arrives: only queryOrder can tell.
+        await SimulateAsync("complete", paidPrepay, "&result=success&notify=0");
+        var paid = await gateway.QueryOrderAsync(paidId);
+        paid.State.Should().Be(TelebirrPaymentState.Paid);
+        paid.Status.Should().Be("PAY_SUCCESS");
+        paid.MerchOrderId.Should().Be(paidId);
+        paid.PaymentOrderId.Should().NotBeNullOrEmpty("the reconciliation keys the inbox row on it");
+        paid.TransId.Should().NotBeNullOrEmpty();
+        paid.TotalAmount.Should().Be("150.00");
+        paid.TransCurrency.Should().Be("ETB");
+
+        var closedId = $"WCOSIMQUERY{stamp}C";
+        await SimulateAsync("expire", await OpenCheckoutAsync(closedId));
+        var closed = await gateway.QueryOrderAsync(closedId);
+        closed.State.Should().Be(TelebirrPaymentState.NotPaid);
+        closed.Status.Should().Be("ORDER_CLOSED");
+
+        var never = await gateway.QueryOrderAsync($"WCOSIMQUERY{stamp}N");
+        never.State.Should().Be(TelebirrPaymentState.Unknown);
+        never.ErrorCode.Should().Be("TELEBIRR_SIM_ORDER_NOT_FOUND");
+    }
+
     // ===== ESC-45 (D6): every call ends at the invocation's deadline (timeout tests) =====
 
     private static HttpResponseMessage TokenAnswer()
@@ -456,7 +527,112 @@ public class TelebirrSandboxGatewayTests
         title.Should().NotBeNull().And.NotContain("&").And.NotContain("=");
     }
 
+    // ── FUP-37: queryOrder ───────────────────────────────────────────────────
+
+    [Fact]
+    public async Task QueryOrder_signs_a_request_the_gateway_would_accept_and_reads_a_paid_answer()
+    {
+        var verifier = new TelebirrSignatureService(null, TestPublicKeyPem, TelebirrSignaturePadding.Pkcs1);
+        var signatureVerified = false;
+        string? method = null, auth = null, appKey = null, timestamp = null;
+        var handler = new FakeHandler(async (req, _) =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/token"))
+            {
+                return TokenAnswer();
+            }
+
+            req.RequestUri.AbsolutePath.Should().EndWith("/payment/v1/merchant/queryOrder");
+            auth = req.Headers.TryGetValues("Authorization", out var a) ? a.First() : null;
+            appKey = req.Headers.TryGetValues("X-APP-Key", out var k) ? k.First() : null;
+            var query = JsonSerializer.Deserialize(await req.Content!.ReadAsStringAsync(), AppJsonContext.Default.TelebirrQueryOrderRequest)!;
+            method = query.Method;
+            timestamp = query.Timestamp;
+            signatureVerified = verifier.VerifyObject(new Dictionary<string, object?>
+            {
+                ["nonce_str"] = query.NonceStr,
+                ["method"] = query.Method,
+                ["timestamp"] = query.Timestamp,
+                ["version"] = query.Version,
+                ["biz_content"] = new Dictionary<string, object?>
+                {
+                    ["appid"] = query.BizContent.AppId,
+                    ["merch_code"] = query.BizContent.MerchCode,
+                    ["merch_order_id"] = query.BizContent.MerchOrderId,
+                },
+            }, query.Sign);
+            return Raw(HttpStatusCode.OK,
+                """{"result":"SUCCESS","code":"0","biz_content":{"merch_order_id":"WCO7","order_status":"PAY_SUCCESS","payment_order_id":"PO-7","trans_id":"T-7","trans_currency":"ETB","total_amount":"150.00"}}""");
+        });
+
+        var result = await Gateway(handler).QueryOrderAsync("WCO7");
+
+        signatureVerified.Should().BeTrue("real Telebirr would verify the queryOrder signature");
+        method.Should().Be("payment.queryorder");
+        auth.Should().Be("Bearer T");
+        appKey.Should().Be("local-fabric-app-id");
+        timestamp.Should().MatchRegex("^[0-9]{10}$");
+        result.State.Should().Be(TelebirrPaymentState.Paid);
+        result.PaymentOrderId.Should().Be("PO-7");
+        result.TotalAmount.Should().Be("150.00");
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, "{}", "TELEBIRR_QUERY_HTTP_401")]
+    [InlineData(HttpStatusCode.OK, "<html>", TelebirrGatewayErrors.Network)]
+    [InlineData(HttpStatusCode.OK, """{"result":"FAIL","code":"60200099","msg":"x"}""", "TELEBIRR_60200099")]
+    public async Task QueryOrder_failures_decide_nothing(HttpStatusCode status, string body, string error)
+    {
+        var handler = new FakeHandler((req, _) => Task.FromResult(
+            req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/token") ? TokenAnswer() : Raw(status, body)));
+
+        var result = await Gateway(handler).QueryOrderAsync("WCO7");
+
+        result.State.Should().Be(TelebirrPaymentState.Unknown);
+        result.ErrorCode.Should().Be(error);
+    }
+
+    [Fact]
+    public async Task QueryOrder_without_a_token_or_time_sends_nothing()
+    {
+        var queries = 0;
+        var noToken = new FakeHandler((req, _) =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/queryOrder"))
+            {
+                queries++;
+            }
+
+            return Task.FromResult(Raw(HttpStatusCode.Unauthorized, "{}"));
+        });
+
+        (await Gateway(noToken).QueryOrderAsync("WCO7")).ErrorCode.Should().Be(TelebirrGatewayErrors.TokenFailed);
+
+        using (GatewayDeadline.Begin(DateTimeOffset.UtcNow.AddSeconds(1)))
+        {
+            (await Gateway(noToken).QueryOrderAsync("WCO7")).ErrorCode.Should().Be(TelebirrGatewayErrors.NoTime);
+        }
+
+        queries.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task QueryOrder_cut_at_the_deadline_is_a_timeout()
+    {
+        var handler = new FakeHandler((req, ct) =>
+            req.RequestUri!.AbsolutePath.EndsWith("/payment/v1/token") ? Task.FromResult(TokenAnswer()) : Hang(ct));
+        using var deadline = GatewayDeadline.Begin(DateTimeOffset.UtcNow.AddSeconds(3));
+
+        var result = await Gateway(handler).QueryOrderAsync("WCO7");
+
+        result.State.Should().Be(TelebirrPaymentState.Unknown);
+        result.ErrorCode.Should().Be(TelebirrGatewayErrors.Timeout);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    private static HttpResponseMessage Raw(HttpStatusCode status, string body)
+        => new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 
     private static HttpResponseMessage Json<T>(T value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> ti)
         => new(HttpStatusCode.OK)

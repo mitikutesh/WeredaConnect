@@ -1,14 +1,18 @@
 import 'package:isar/isar.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
+import 'package:wereda_connect/core/models/crop_status_wire.dart';
+import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/models/payment.dart';
 import 'package:wereda_connect/core/models/payment_status_wire.dart';
 import 'package:wereda_connect/core/models/sync_operation.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
 import 'package:wereda_connect/core/models/user.dart';
 
 /// Service for resolving sync conflicts when server reports version mismatch.
@@ -99,11 +103,31 @@ class ConflictResolver {
     int serverVersion,
   ) async {
     try {
+      // FUP-149: the listing was deleted (on another device of the farmer, or
+      // a delete that won a race with this one). The app has no status for
+      // that, and the parse below made it a local draft: server wins by
+      // removing the local listing.
+      if (isDeletedCropRow(serverData)) {
+        await _isar.writeTxn(
+          () => _isar.cropListings.deleteByListingId(operation.entityId),
+        );
+        return {
+          'entityType': operation.entityType,
+          'entityId': operation.entityId,
+          'action': operation.action,
+          'serverVersion': serverVersion,
+          'removed': true,
+          'resolvedAt': DateTime.now().toUtc().toIso8601String(),
+        };
+      }
+
       // Find the local CropListing entity (may be null if deleted locally)
       var listing = await _isar.cropListings
           .filter()
           .listingIdEqualTo(operation.entityId)
           .findFirst();
+
+      final isNewListing = listing == null;
 
       // Update or create local entity with server data
       await _isar.writeTxn(() async {
@@ -115,24 +139,43 @@ class ConflictResolver {
         listing!.quantity = (serverData['quantity'] as num).toDouble();
         listing!.pricePerKg = (serverData['pricePerKg'] as num).toDouble();
 
-        // Update location if present
+        // A server crop row holds the point as `latitude` and `longitude`
+        // (crop-listing-api.md); a `location` map is read too. A row with
+        // neither keeps the local point (a new row starts at 0, 0, as the
+        // crop pull does).
         final locationData = serverData['location'] as Map<String, dynamic>?;
-        if (locationData != null) {
+        final latitude =
+            (locationData?['latitude'] ?? serverData['latitude']) as num?;
+        final longitude =
+            (locationData?['longitude'] ?? serverData['longitude']) as num?;
+        if (latitude != null && longitude != null) {
           listing!.location = LatLng()
-            ..latitude = (locationData['latitude'] as num).toDouble()
-            ..longitude = (locationData['longitude'] as num).toDouble();
+            ..latitude = latitude.toDouble()
+            ..longitude = longitude.toDouble();
+        } else if (isNewListing) {
+          listing!.location = LatLng()
+            ..latitude = 0
+            ..longitude = 0;
         }
 
-        listing!.description = serverData['description'] as String;
+        // Optional on the server row: a hard `as String` failed the whole
+        // conflict for a listing without a description (FUP-128).
+        listing!.description = (serverData['description'] as String?) ?? '';
         listing!.locationName = (serverData['locationName'] as String?) ?? '';
         listing!.audioNoteRef = serverData['audioNoteRef'] as String?;
+        // ESC-31: the owner's reputation copy as the echo carries it (none
+        // while the public reputation flag is off).
+        listing!.readOwnerReputation(serverData);
 
-        // Parse status enum
+        // Parse status enum. The server's live status is `available`, the
+        // app's `active`, as in the crop pull.
         final statusStr = serverData['status'] as String;
-        listing!.status = ListingStatus.values.firstWhere(
-          (e) => e.name == statusStr,
-          orElse: () => ListingStatus.draft,
-        );
+        listing!.status = statusStr == 'available'
+            ? ListingStatus.active
+            : ListingStatus.values.firstWhere(
+                (e) => e.name == statusStr,
+                orElse: () => ListingStatus.draft,
+              );
 
         // Update timestamps (ensure UTC)
         listing!.createdAt =
@@ -188,6 +231,19 @@ class ConflictResolver {
         // pending-to-delivered confirmation key on it).
         delivery!.deliveryType =
             serverData['deliveryType'] as String? ?? delivery!.deliveryType;
+        // The list card's crop line (1.21.0); older rows carry none.
+        delivery!.cropType =
+            serverData['cropType'] as String? ?? delivery!.cropType;
+        delivery!.quantity =
+            (serverData['quantity'] as num?)?.toDouble() ?? delivery!.quantity;
+        delivery!.pickupPlace =
+            serverData['pickupPlace'] as String? ?? delivery!.pickupPlace;
+        // UTC, as the full sync and the web read it, so the pickup day is
+        // the same whichever path wrote the row.
+        delivery!.pickupPlannedAt =
+            DateTime.tryParse(serverData['pickupPlannedAt'] as String? ?? '')
+                    ?.toUtc() ??
+                delivery!.pickupPlannedAt;
         delivery!.listingId = serverData['listingId'] as String? ?? '';
         delivery!.farmerId = serverData['farmerId'] as String? ?? '';
         delivery!.farmerName = serverData['farmerName'] as String? ?? '';
@@ -223,8 +279,20 @@ class ConflictResolver {
           delivery!.gpsDropoff = null;
         }
 
-        delivery!.pickupPhotoRef = serverData['pickupPhotoRef'] as String?;
-        delivery!.dropoffPhotoRef = serverData['dropoffPhotoRef'] as String?;
+        // FRD-12: until the server holds a handoff photo, this phone keeps
+        // the path of the one it took (its upload waits in the queue), as a
+        // delivery pull does.
+        delivery!.pickupPhotoRef = serverData['pickupPhotoRef'] as String? ??
+            _localPhotoPath(delivery!.pickupPhotoRef);
+        delivery!.dropoffPhotoRef = serverData['dropoffPhotoRef'] as String? ??
+            _localPhotoPath(delivery!.dropoffPhotoRef);
+        // ESC-36 (FUP-336): the trucker's arrival photo, kept the same way,
+        // and the system's confirm for a silent buyer.
+        delivery!.arrivalPhotoRef = serverData['arrivalPhotoRef'] as String? ??
+            _localPhotoPath(delivery!.arrivalPhotoRef);
+        delivery!.autoConfirmedAt =
+            DateTime.tryParse(serverData['autoConfirmedAt'] as String? ?? '')
+                ?.toUtc();
         delivery!.disputeReason = serverData['disputeReason'] as String?;
 
         // Timestamps
@@ -276,12 +344,20 @@ class ConflictResolver {
           .tripIdEqualTo(operation.entityId)
           .findFirst();
 
+      final isNewTrip = trip == null;
+
       await _isar.writeTxn(() async {
         trip ??= Trip()..tripId = operation.entityId;
 
         trip!.truckerId = serverData['truckerId'] as String;
-        trip!.truckerName = serverData['truckerName'] as String;
-        trip!.truckerPhone = serverData['truckerPhone'] as String;
+        // Optional on the server row (older trips carry neither): a hard
+        // `as String` failed the whole conflict (FUP-128). A row without
+        // them keeps the local values; a new row starts empty, as the trip
+        // pull does.
+        trip!.truckerName = (serverData['truckerName'] as String?) ??
+            (isNewTrip ? '' : trip!.truckerName);
+        trip!.truckerPhone = (serverData['truckerPhone'] as String?) ??
+            (isNewTrip ? '' : trip!.truckerPhone);
         trip!.fromWoreda = serverData['fromWoreda'] as String;
         trip!.toWoreda = serverData['toWoreda'] as String;
         trip!.departureDate =
@@ -289,8 +365,13 @@ class ConflictResolver {
         trip!.capacity = (serverData['capacity'] as num).toDouble();
         trip!.pricePerQuintal =
             (serverData['pricePerQuintal'] as num).toDouble();
+        trip!.bookedQuintals = quintalsFromWire(serverData['bookedQuintals']);
+        trip!.remainingQuintals =
+            quintalsFromWire(serverData['remainingQuintals']);
         trip!.vehiclePlate = serverData['vehiclePlate'] as String?;
         trip!.vehicleDescription = serverData['vehicleDescription'] as String?;
+        // ESC-31: the owner's reputation copy as the echo carries it.
+        trip!.readOwnerReputation(serverData);
 
         // Parse status enum
         final statusStr = serverData['status'] as String;
@@ -331,7 +412,20 @@ class ConflictResolver {
     }
   }
 
+  /// The user an operation was queued for: its idempotency key starts with
+  /// the user id (`SyncQueue.enqueue`).
+  static String? _operationUserId(SyncOperation operation) {
+    final key = operation.idempotencyKey;
+    final separator = key.indexOf(':');
+    return separator > 0 ? key.substring(0, separator) : null;
+  }
+
   /// Whether a `/sync` row field holds a value (a non-empty string).
+  /// [ref] when it is a photo file on this phone (an absolute path), else
+  /// null: a server key always comes from the server's own row.
+  static String? _localPhotoPath(String? ref) =>
+      ref != null && ref.startsWith('/') ? ref : null;
+
   static bool _hasValue(Object? value) =>
       value != null && value.toString().isNotEmpty;
 
@@ -346,6 +440,7 @@ class ConflictResolver {
           .filter()
           .orderIdEqualTo(operation.entityId)
           .findFirst();
+      final isNewOrder = order == null;
 
       await _isar.writeTxn(() async {
         order ??= Order()..orderId = operation.entityId;
@@ -358,13 +453,17 @@ class ConflictResolver {
         order!.cropType = serverData['cropType'] as String;
         order!.quantity = (serverData['quantity'] as num).toDouble();
         order!.pricePerUnit = (serverData['pricePerUnit'] as num).toDouble();
-        order!.totalPrice = (serverData['totalPrice'] as num).toDouble();
+        // A server order row has no totalPrice (it carries orderTotal), so a
+        // required read failed every order conflict (SIM-25). Keep the local
+        // total; a new row starts at 0, as the order pull does.
+        order!.totalPrice = (serverData['totalPrice'] as num?)?.toDouble() ??
+            (isNewOrder ? 0 : order!.totalPrice);
 
         // Parse status enum. Server sends snake_case; map to the camelCase enum.
         final statusStr = orderStatusFromWire(serverData['status'] as String);
         order!.status = OrderStatus.values.firstWhere(
           (e) => e.name == statusStr,
-          orElse: () => OrderStatus.created,
+          orElse: () => OrderStatus.unknown,
         );
 
         // Timestamps
@@ -414,6 +513,9 @@ class ConflictResolver {
             (serverData['commissionAmount'] as num?)?.toDouble();
         order!.orderTotal = (serverData['orderTotal'] as num?)?.toDouble();
 
+        // ESC-15: who has answered and until when.
+        applyOrderCommitmentFields(order!, serverData);
+
         // ESC-48: /sync rows carry no contact flag or phones. An admin override
         // refund leaves the order in an open status but flags the row, which
         // closes contact; otherwise the status set decides until the next pull.
@@ -428,6 +530,22 @@ class ConflictResolver {
             ..buyerPhone = null
             ..farmerPhone = null
             ..truckerPhone = null;
+        }
+        // ESC-15: the trucker is in the contact only once committed. An
+        // uncommitted trucker's number goes; on the trucker's own device (the
+        // refused operation was theirs) the parties' numbers go too.
+        if (truckerResponseOf(order!) != CommitmentResponse.accepted) {
+          order!.truckerPhone = null;
+          final opUser = _operationUserId(operation);
+          if (opUser != null &&
+              opUser == order!.truckerId &&
+              opUser != order!.buyerId &&
+              opUser != order!.farmerId) {
+            order!
+              ..contactOpen = false
+              ..buyerPhone = null
+              ..farmerPhone = null;
+          }
         }
 
         // CRITICAL: Update version to server version

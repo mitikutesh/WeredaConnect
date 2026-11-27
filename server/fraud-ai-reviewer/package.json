@@ -1,0 +1,14 @@
+{
+  "name": "weredaconnect-fraud-ai-reviewer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FRD-19 AI advisory reviewer: one Claude call on Amazon Bedrock per redacted fraud timeline (Lambda, Node.js 24).",
+  "main": "index.js",
+  "scripts": {
+    "build": "node --check index.js && for f in src/*.js; do node --check \"$f\" || exit 1; done",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

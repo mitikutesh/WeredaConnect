@@ -118,7 +118,7 @@ public class SyncFunctionDeletedPartyTests
     {
         await _orders.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default!, default);
         await _meta.DidNotReceive().StoreIdempotencyKeyAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>());
     }
 
     [Theory]

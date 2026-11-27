@@ -1,9 +1,12 @@
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 /// Web-only delivery repository.
@@ -14,6 +17,12 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
   final ApiClient _api;
 
   WebDeliveryRepository({required ApiClient api}) : _api = api;
+
+  /// Disputes the server answered with a step-up (`AUTH_040`, `AUTH_041`),
+  /// by delivery id: nothing was written, and the resend after the prompt
+  /// goes as the same operation (same id and idempotency key), like the
+  /// held operation of the mobile sync queue (FUP-43).
+  final Map<String, _HeldDispute> _disputesHeldForStepUp = {};
 
   @override
   Future<Delivery> createDelivery({
@@ -146,6 +155,56 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       ..version = 1;
   }
 
+  /// Registers the trucker's drop-off nonce (ESC-35), sent at once as web
+  /// has no queue. Throws when it did not get through (offline, refused, or
+  /// `deferred` because the pickup is not on the server yet), so the caller
+  /// sends it again when the drop-off QR is opened.
+  @override
+  Future<DropoffCodeRegistration> persistDropoffQrNonce({
+    required String deliveryId,
+    required String nonce,
+    required String truckerId,
+    bool renew = false,
+  }) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final response = await _api.post<Map<String, dynamic>>(
+      '/sync',
+      data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
+        'operations': [
+          {
+            'operationId': _uuid.v4(),
+            'entityType': 'delivery',
+            'action': 'update',
+            'entityId': deliveryId,
+            'timestamp': now,
+            'idempotencyKey': 'web_dropoff_nonce_${deliveryId}_$now',
+            'data': {
+              'dropoffQrNonce': nonce,
+              if (renew) 'dropoffQrRenew': true,
+              'version': await _currentVersion(deliveryId),
+            },
+          },
+        ],
+      },
+    );
+    ensureSyncSucceeded(response);
+    // A code the server did not keep still answers success, with a message.
+    final results = response['results'];
+    final first = results is List && results.isNotEmpty ? results.first : null;
+    final message = first is Map ? first['message'] : null;
+    if (message is String) {
+      if (message.startsWith(dropoffCodeSupersededCode)) {
+        return DropoffCodeRegistration.superseded;
+      }
+      if (message.startsWith(dropoffCodeNotStoredCode)) {
+        return DropoffCodeRegistration.notStored;
+      }
+    }
+    return DropoffCodeRegistration.sent;
+  }
+
   /// Registers the farmer's QR nonce with the server: a `/sync` delivery
   /// update carrying only `qrNonce` (the server moves it to the QR secret
   /// store). Web has no sync queue, so without this a QR shown on web could
@@ -209,8 +268,10 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String deliveryId,
     required String truckerId,
     LatLng? gpsPickup,
+    GpsCaptureResult? gpsCapture,
     String? photoRef,
     String? scannedQrNonce,
+    String? scannedQrCode,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
     final data = <String, dynamic>{
@@ -225,15 +286,17 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       data['gpsPickup'] = {
         'latitude': gpsPickup.latitude,
         'longitude': gpsPickup.longitude,
+        ...?gpsCapture?.pointEvidence,
       };
     }
-    // Server upload keys only (the server refuses any other shape and would
-    // fail the whole pickup); same rule as the mobile repository.
-    if (photoRef != null &&
-        DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
-      data['pickupPhotoRef'] = photoRef;
+    // FUP-440: why there is no fix, or that there is one.
+    if (gpsCapture != null) data['gpsStatus'] = gpsCapture.gpsStatus;
+    // The photo is attached after the handoff, by its own operation (FRD-12).
+    if (scannedQrNonce != null) {
+      data['scannedQrNonce'] = scannedQrNonce;
+    } else if (scannedQrCode != null) {
+      data['scannedQrCode'] = scannedQrCode;
     }
-    if (scannedQrNonce != null) data['scannedQrNonce'] = scannedQrNonce;
 
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -254,6 +317,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       },
     );
     ensureSyncSucceeded(response);
+    await _attachHandoffPhoto(deliveryId, 'pickup', photoRef);
   }
 
   @override
@@ -261,8 +325,10 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String deliveryId,
     required String buyerId,
     LatLng? gpsDropoff,
+    GpsCaptureResult? gpsCapture,
     String? photoRef,
     String? scannedQrNonce,
+    String? scannedQrCode,
   }) async {
     final now = DateTime.now().toUtc().toIso8601String();
     final data = <String, dynamic>{
@@ -275,13 +341,15 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       data['gpsDropoff'] = {
         'latitude': gpsDropoff.latitude,
         'longitude': gpsDropoff.longitude,
+        ...?gpsCapture?.pointEvidence,
       };
     }
-    if (photoRef != null &&
-        DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
-      data['dropoffPhotoRef'] = photoRef;
+    if (gpsCapture != null) data['gpsStatus'] = gpsCapture.gpsStatus;
+    if (scannedQrNonce != null) {
+      data['scannedQrNonce'] = scannedQrNonce;
+    } else if (scannedQrCode != null) {
+      data['scannedQrCode'] = scannedQrCode;
     }
-    if (scannedQrNonce != null) data['scannedQrNonce'] = scannedQrNonce;
 
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -302,6 +370,46 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       },
     );
     ensureSyncSucceeded(response);
+    await _attachHandoffPhoto(deliveryId, 'dropoff', photoRef);
+  }
+
+  /// FRD-12: attach the photo the browser uploaded when it was taken
+  /// (`delivery_photo`). Best effort, after the handoff succeeded: the
+  /// photo is optional evidence, so a refusal or a network failure is
+  /// logged and the confirmed handoff stands.
+  Future<void> _attachHandoffPhoto(
+    String deliveryId,
+    String type,
+    String? photoRef,
+  ) async {
+    if (photoRef == null ||
+        !DeliveryConstants.isServerPhotoRef(photoRef, deliveryId)) {
+      return;
+    }
+    final entityId = deliveryPhotoEntityId(deliveryId, type);
+    try {
+      final response = await _api.post<Map<String, dynamic>>(
+        '/sync',
+        data: {
+          'syncBatchId': _uuid.v4(),
+          'clientId': 'web',
+          'operations': [
+            {
+              'operationId': _uuid.v4(),
+              'entityType': deliveryPhotoEntityType,
+              'action': 'create',
+              'entityId': entityId,
+              'timestamp': DateTime.now().toUtc().toIso8601String(),
+              'idempotencyKey': 'web_photo_${entityId}_$photoRef',
+              'data': {deliveryPhotoRefKey: photoRef},
+            },
+          ],
+        },
+      );
+      ensureSyncSucceeded(response);
+    } on Object catch (e) {
+      debugPrint('[WebDeliveryRepository] handoff photo not attached: $e');
+    }
   }
 
   @override
@@ -342,30 +450,46 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String userId,
     required String reason,
   }) async {
-    final now = DateTime.now().toUtc().toIso8601String();
+    // A dispute held for a step-up goes again as it was; a changed reason
+    // is a new dispute.
+    final held = _disputesHeldForStepUp.remove(deliveryId);
+    final dispute = held != null && held.reason == reason
+        ? held
+        : _HeldDispute(
+            operationId: _uuid.v4(),
+            timestamp: DateTime.now().toUtc().toIso8601String(),
+            reason: reason,
+          );
+    final now = dispute.timestamp;
     final version = await _currentVersion(deliveryId);
-    final response = await _api.post<Map<String, dynamic>>(
-      '/sync',
-      data: {
-        'syncBatchId': _uuid.v4(),
-        'clientId': 'web',
-        'operations': [
-          {
-            'operationId': _uuid.v4(),
-            'entityType': 'delivery',
-            'action': 'update',
-            'entityId': deliveryId,
-            'timestamp': now,
-            'idempotencyKey': 'web_dispute_${deliveryId}_$now',
-            'data': {
-              'status': 'disputed',
-              'disputeReason': reason,
-              'version': version,
+    final Map<String, dynamic> response;
+    try {
+      response = await _api.post<Map<String, dynamic>>(
+        '/sync',
+        data: {
+          'syncBatchId': _uuid.v4(),
+          'clientId': 'web',
+          'operations': [
+            {
+              'operationId': dispute.operationId,
+              'entityType': 'delivery',
+              'action': 'update',
+              'entityId': deliveryId,
+              'timestamp': now,
+              'idempotencyKey': 'web_dispute_${deliveryId}_$now',
+              'data': {
+                'status': 'disputed',
+                'disputeReason': reason,
+                'version': version,
+              },
             },
-          },
-        ],
-      },
-    );
+          ],
+        },
+      );
+    } on StepUpRequiredException {
+      _disputesHeldForStepUp[deliveryId] = dispute;
+      rethrow;
+    }
     try {
       ensureSyncSucceeded(response);
     } on SyncConflictException {
@@ -382,6 +506,11 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       }
       final current = await getDeliveryById(deliveryId, userId: userId);
       if (current?.status != DeliveryStatus.disputed) rethrow;
+    } on SyncRejectedException catch (e) {
+      if (isStepUpRequiredMessage(e.message)) {
+        _disputesHeldForStepUp[deliveryId] = dispute;
+      }
+      rethrow;
     }
   }
 
@@ -583,7 +712,21 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       ..qrToken = m['qrToken'] as String? ?? ''
       ..deliveryType = m['deliveryType'] as String?
       ..orderId = m['orderId'] as String?
+      ..cropType = m['cropType'] as String?
+      ..quantity = (m['quantity'] as num?)?.toDouble()
+      ..pickupPlace = m['pickupPlace'] as String?
+      ..pickupPlannedAt =
+          DateTime.tryParse(m['pickupPlannedAt'] as String? ?? '')
       ..status = _parseDeliveryStatus(m['status'] as String?)
+      // FRD-12: the server keys of the handoff photos; the detail loads
+      // their presigned URLs from GET /deliveries/{id}.
+      ..pickupPhotoRef = m['pickupPhotoRef'] as String?
+      ..dropoffPhotoRef = m['dropoffPhotoRef'] as String?
+      // ESC-36 (FUP-336): the trucker's arrival photo and the system's
+      // confirm for a silent buyer.
+      ..arrivalPhotoRef = m['arrivalPhotoRef'] as String?
+      ..autoConfirmedAt =
+          DateTime.tryParse(m['autoConfirmedAt'] as String? ?? '')?.toUtc()
       ..pickedUpAt = DateTime.tryParse(m['pickedUpAt'] as String? ?? '')
       ..confirmedAt = DateTime.tryParse(m['confirmedAt'] as String? ?? '')
       ..disputeReason = m['disputeReason'] as String?
@@ -600,4 +743,19 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       orElse: () => DeliveryStatus.pending,
     );
   }
+}
+
+/// A dispute the server asked a step-up for, kept to send again unchanged.
+class _HeldDispute {
+  const _HeldDispute({
+    required this.operationId,
+    required this.timestamp,
+    required this.reason,
+  });
+
+  final String operationId;
+
+  /// The operation's timestamp, also the tail of its idempotency key.
+  final String timestamp;
+  final String reason;
 }

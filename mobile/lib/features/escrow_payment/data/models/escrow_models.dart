@@ -4,6 +4,34 @@
 /// Local persistence uses [Payment] and [PaymentIntent] Isar schemas.
 library;
 
+/// Commission rate of an escrow whose response carries none (FUP-129): servers
+/// before escrow-protocol 2.4.0 send `commissionRate` on the detail only.
+///
+/// The base follows the split the server used. An order escrow charges the
+/// commission on the crop cost, which is the farmer leg, never on the amount
+/// (the amount also holds the commission itself and any transport). Only the
+/// legacy delivery escrow without an order takes it out of the amount. An
+/// order split is recognised by its order id, a transport leg, or legs that
+/// leave part of the amount to neither the farmer nor the platform.
+///
+/// Display metadata only: no money is computed from the result.
+double deriveEscrowCommissionRate({
+  required double amount,
+  required double commission,
+  double? farmerPayout,
+  double? truckerPayout,
+  String? orderId,
+}) {
+  const legacyRate = 0.025;
+  final cropLeg = farmerPayout ?? 0;
+  final orderSplit = (orderId != null && orderId.isNotEmpty) ||
+      truckerPayout != null ||
+      (farmerPayout != null && amount - cropLeg - commission > 0.005);
+  final base = orderSplit && cropLeg > 0 ? cropLeg : amount;
+  if (base <= 0) return legacyRate;
+  return (commission / base * 10000).roundToDouble() / 10000;
+}
+
 // ──────────────────────────────────────────────
 // Request DTOs
 // ──────────────────────────────────────────────
@@ -79,6 +107,10 @@ class InitiateEscrowResponse {
   final String farmerId;
   final double amount;
   final double commission;
+
+  /// The escrow's stored rate; null from servers before FUP-129, callers then
+  /// use [deriveEscrowCommissionRate].
+  final double? commissionRate;
   final double farmerPayout;
   final String currency;
   final String status;
@@ -105,6 +137,7 @@ class InitiateEscrowResponse {
     required this.status,
     required this.createdAt,
     required this.expiresAt,
+    this.commissionRate,
     this.telebirrRef,
     this.message,
     this.isDuplicate = false,
@@ -119,6 +152,7 @@ class InitiateEscrowResponse {
       farmerId: json['farmerId'] as String,
       amount: (json['amount'] as num).toDouble(),
       commission: (json['commission'] as num).toDouble(),
+      commissionRate: (json['commissionRate'] as num?)?.toDouble(),
       farmerPayout: (json['farmerPayout'] as num).toDouble(),
       currency: json['currency'] as String,
       status: json['status'] as String,
@@ -235,6 +269,9 @@ class EscrowDetailResponse {
   final int version;
   final String? telebirrRef;
   final Map<String, dynamic>? dispute;
+
+  /// When the delivery was confirmed; null before (FUP-97).
+  final String? deliveryConfirmedAt;
   final String? disputeWindowEndsAt;
 
   /// FRD-13: earliest payout (ISO 8601); sent to the farmer and the trucker
@@ -266,6 +303,7 @@ class EscrowDetailResponse {
     this.refundPending = false,
     this.refundReason,
     this.dispute,
+    this.deliveryConfirmedAt,
     this.disputeWindowEndsAt,
     this.releaseNotBefore,
     this.releasedAt,
@@ -285,7 +323,14 @@ class EscrowDetailResponse {
       farmerId: json['farmerId'] as String? ?? '',
       amount: (json['amount'] as num?)?.toDouble() ?? 0,
       commission: (json['commission'] as num?)?.toDouble() ?? 0,
-      commissionRate: (json['commissionRate'] as num?)?.toDouble() ?? 0.025,
+      commissionRate: (json['commissionRate'] as num?)?.toDouble() ??
+          deriveEscrowCommissionRate(
+            amount: (json['amount'] as num?)?.toDouble() ?? 0,
+            commission: (json['commission'] as num?)?.toDouble() ?? 0,
+            farmerPayout: (json['farmerPayout'] as num?)?.toDouble(),
+            truckerPayout: (json['truckerPayout'] as num?)?.toDouble(),
+            orderId: json['orderId'] as String?,
+          ),
       farmerPayout: (json['farmerPayout'] as num?)?.toDouble() ?? 0,
       truckerPayout: (json['truckerPayout'] as num?)?.toDouble(),
       truckerId: json['truckerId'] as String?,
@@ -301,6 +346,7 @@ class EscrowDetailResponse {
       version: (json['version'] as num?)?.toInt() ?? 1,
       telebirrRef: json['telebirrRef'] as String?,
       dispute: json['dispute'] as Map<String, dynamic>?,
+      deliveryConfirmedAt: json['deliveryConfirmedAt'] as String?,
       disputeWindowEndsAt: json['disputeWindowEndsAt'] as String?,
       releaseNotBefore: json['releaseNotBefore'] as String?,
       releasedAt: json['releasedAt'] as String?,
@@ -354,6 +400,10 @@ class EscrowSummary {
   final double amount;
   final double commission;
 
+  /// The escrow's stored rate; null from servers before FUP-129, callers then
+  /// use [deriveEscrowCommissionRate].
+  final double? commissionRate;
+
   /// Per-party legs of [amount] (amount = farmerPayout + truckerPayout +
   /// commission). Null on responses from servers that predate SIM-15; callers
   /// fall back to amount - commission - truckerPayout.
@@ -369,6 +419,10 @@ class EscrowSummary {
   /// Auto-refund deadline; the server sets it to "now" when a cancelled
   /// order's refund is scheduled.
   final String? expiresAt;
+
+  /// When the delivery was confirmed; null before, and from servers before
+  /// FUP-97. A confirmed hold past [expiresAt] still waits for its payout.
+  final String? deliveryConfirmedAt;
 
   /// SIM-20: the money is still held but on its way back to the buyer. Such a
   /// row is labelled "Refund pending", never "Funds held safely".
@@ -389,12 +443,14 @@ class EscrowSummary {
     this.orderId,
     this.buyerId = '',
     this.farmerId = '',
+    this.commissionRate,
     this.farmerPayout,
     this.truckerPayout,
     this.truckerId,
     this.counterpartyName,
     this.completedAt,
     this.expiresAt,
+    this.deliveryConfirmedAt,
     this.refundPending = false,
     this.refundReason,
     this.releaseNotBefore,
@@ -411,6 +467,7 @@ class EscrowSummary {
       farmerId: json['farmerId'] as String? ?? '',
       amount: (json['amount'] as num).toDouble(),
       commission: (json['commission'] as num).toDouble(),
+      commissionRate: (json['commissionRate'] as num?)?.toDouble(),
       farmerPayout: (json['farmerPayout'] as num?)?.toDouble(),
       truckerPayout: (json['truckerPayout'] as num?)?.toDouble(),
       truckerId: json['truckerId'] as String?,
@@ -420,6 +477,7 @@ class EscrowSummary {
       counterpartyName: json['counterpartyName'] as String?,
       completedAt: json['completedAt'] as String?,
       expiresAt: json['expiresAt'] as String?,
+      deliveryConfirmedAt: json['deliveryConfirmedAt'] as String?,
       refundPending: json['refundPending'] as bool? ?? false,
       refundReason: json['refundReason'] as String?,
       releaseNotBefore: json['releaseNotBefore'] as String?,

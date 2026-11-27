@@ -32,17 +32,20 @@ class MatchingService extends BaseMatchingService {
     // No-op: match counts are refreshed by WebMatchingService via BLoC.
   }
 
-  /// Find trips from listing origin to buyer's delivery woreda via API.
+  /// Find trips from listing origin to buyer's delivery woreda via API, with
+  /// the same signature and rule as the mobile `findTripsForListing`.
   Future<List<Trip>> findTripsForListing(
     CropListing listing,
     String deliveryWoreda,
-    double quantityNeeded,
-  ) async {
+    double quantityNeeded, {
+    DateTime? neededByDate,
+  }) async {
     final webService = WebMatchingService(api: ApiClient());
     return webService.findTripsForListing(
       listing,
       deliveryWoreda,
       quantityNeeded,
+      neededByDate: neededByDate,
     );
   }
 }

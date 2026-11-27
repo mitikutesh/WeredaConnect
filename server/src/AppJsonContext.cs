@@ -21,6 +21,8 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(FaydaLinkResponse))]
 [JsonSerializable(typeof(LoginRequest))]
 [JsonSerializable(typeof(LoginResponse))]
+[JsonSerializable(typeof(UserProfileResponse))]
+[JsonSerializable(typeof(UserProfileDto))]
 [JsonSerializable(typeof(VerifyOtpRequest))]
 [JsonSerializable(typeof(ResendOtpRequest))]
 [JsonSerializable(typeof(ResendOtpResponse))]
@@ -49,6 +51,17 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(GetCropResponse))]
 [JsonSerializable(typeof(CropDto))]
 [JsonSerializable(typeof(List<CropDto>))]
+// Crop photos (crop-listing-api 1.6.0)
+[JsonSerializable(typeof(CropPhotoDto))]
+[JsonSerializable(typeof(List<CropPhotoDto>))]
+[JsonSerializable(typeof(CropPhotoUploadRequest))]
+[JsonSerializable(typeof(CropPhotoUploadItem))]
+[JsonSerializable(typeof(List<CropPhotoUploadItem>))]
+[JsonSerializable(typeof(CropPhotoUploadResponse))]
+[JsonSerializable(typeof(CropPhotoUploadUrl))]
+[JsonSerializable(typeof(List<CropPhotoUploadUrl>))]
+// A DynamoDB L read back by DynamoDbHelper.FromList (crop photoIds) inside a sync ServerData.
+[JsonSerializable(typeof(List<object>))]
 [JsonSerializable(typeof(TripDto))]
 [JsonSerializable(typeof(List<TripDto>))]
 [JsonSerializable(typeof(GetTripsResponse))]
@@ -56,6 +69,10 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(MatchDto))]
 [JsonSerializable(typeof(List<MatchDto>))]
 [JsonSerializable(typeof(GetMatchesResponse))]
+// SIM-56: GET /intents, the buyer's own requests.
+[JsonSerializable(typeof(IntentDto))]
+[JsonSerializable(typeof(List<IntentDto>))]
+[JsonSerializable(typeof(ListIntentsResponse))]
 [JsonSerializable(typeof(RegisterDeviceTokenRequest))]
 [JsonSerializable(typeof(RegisterDeviceTokenResponse))]
 // DynamoDB stream partial-batch-response (CropMatchStreamFunction)
@@ -67,6 +84,7 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(List<DeliveryDto>))]
 [JsonSerializable(typeof(GetDeliveriesResponse))]
 [JsonSerializable(typeof(GetDeliveryResponse))]
+[JsonSerializable(typeof(DeliveryTrackResponse))]
 [JsonSerializable(typeof(LatLngDto))]
 [JsonSerializable(typeof(UploadPhotoRequest))]
 [JsonSerializable(typeof(UploadPhotoResponse))]
@@ -90,6 +108,15 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(ManualPayoutListResponse))]
 [JsonSerializable(typeof(CompleteManualPayoutRequest))]
 [JsonSerializable(typeof(CompleteManualPayoutResponse))]
+[JsonSerializable(typeof(ManualPayoutClaimResponse))]
+// Correction of a recorded payout reference (FUP-218, admin)
+[JsonSerializable(typeof(CorrectPayoutReferenceRequest))]
+[JsonSerializable(typeof(CorrectPayoutReferenceResponse))]
+[JsonSerializable(typeof(AdminManualLegDto))]
+[JsonSerializable(typeof(List<AdminManualLegDto>))]
+// Admin delivery cancel after pickup (FUP-19)
+[JsonSerializable(typeof(AdminDeliveryCancelRequest))]
+[JsonSerializable(typeof(AdminDeliveryCancelResponse))]
 // Manual refund of an unapplied payment (FUP-02, admin)
 [JsonSerializable(typeof(UnappliedPaymentDto))]
 [JsonSerializable(typeof(List<UnappliedPaymentDto>))]
@@ -99,6 +126,7 @@ namespace WeredaConnect.Server;
 // Escrow domain DTOs
 [JsonSerializable(typeof(EscrowDto))]
 [JsonSerializable(typeof(DisputeDto))]
+[JsonSerializable(typeof(DisputeHandoffEvidenceDto))]
 [JsonSerializable(typeof(EscrowSummaryDto))]
 [JsonSerializable(typeof(List<EscrowSummaryDto>))]
 [JsonSerializable(typeof(EscrowAuditEntryDto))]
@@ -116,6 +144,7 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(TelebirrTokenResponse))]
 [JsonSerializable(typeof(TelebirrPreOrderRequest))]
 [JsonSerializable(typeof(TelebirrPreOrderResponse))]
+[JsonSerializable(typeof(TelebirrQueryOrderRequest))]
 [JsonSerializable(typeof(TelebirrWebhookBiz))]
 // Escrow error DTOs
 [JsonSerializable(typeof(EscrowErrorResponse))]
@@ -125,6 +154,9 @@ namespace WeredaConnect.Server;
 // Order DTOs
 [JsonSerializable(typeof(OrderDto))]
 [JsonSerializable(typeof(List<OrderDto>))]
+// ESC-34: the arrival check-ins on an order.
+[JsonSerializable(typeof(OrderCheckInDto))]
+[JsonSerializable(typeof(Dictionary<string, OrderCheckInDto>))]
 [JsonSerializable(typeof(GetOrdersResponse))]
 [JsonSerializable(typeof(GetOrderResponse))]
 // Rating DTOs
@@ -133,17 +165,45 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(RatingSummaryDto))]
 [JsonSerializable(typeof(GetRatingsResponse))]
 [JsonSerializable(typeof(GetRatingResponse))]
+// ESC-29: reputation endpoints (reputation-api.md sections 2 to 6)
+[JsonSerializable(typeof(GetReputationResponse))]
+[JsonSerializable(typeof(ReputationDto))]
+[JsonSerializable(typeof(GetReputationEventsResponse))]
+[JsonSerializable(typeof(ReputationEventDto))]
+[JsonSerializable(typeof(ReputationAppealPhotoRequest))]
+[JsonSerializable(typeof(ReputationAppealPhotoResponse))]
+[JsonSerializable(typeof(ReputationAppealRequest))]
+[JsonSerializable(typeof(ReputationAppealResponse))]
+// ESC-32: admin reputation endpoints (reputation-api.md section 9)
+[JsonSerializable(typeof(AdminReputationResponse))]
+[JsonSerializable(typeof(AdminReputationAppealsResponse))]
+[JsonSerializable(typeof(AdminReputationDecisionRequest))]
+[JsonSerializable(typeof(AdminReputationDecisionResponse))]
+[JsonSerializable(typeof(AdminReputationActionRequest))]
+[JsonSerializable(typeof(AdminReputationActionResponse))]
 // Message DTOs (in-app chat)
 [JsonSerializable(typeof(MessageDto))]
 [JsonSerializable(typeof(List<MessageDto>))]
 [JsonSerializable(typeof(GetMessagesResponse))]
 [JsonSerializable(typeof(GetMessageResponse))]
+// Notification inbox DTOs (ESC-21, GET /notifications)
+[JsonSerializable(typeof(NotificationDto))]
+[JsonSerializable(typeof(List<NotificationDto>))]
+[JsonSerializable(typeof(GetNotificationsResponse))]
 // Admin endpoint DTOs
 [JsonSerializable(typeof(AdminDashboardStatsResponse))]
 [JsonSerializable(typeof(AdminEscrowListResponse))]
 [JsonSerializable(typeof(AdminEscrowDetailResponse))]
 [JsonSerializable(typeof(AdminEscrowAuditResponse))]
+// ESC-24: the escrow ledger view and the stuck orders page.
+[JsonSerializable(typeof(AdminEscrowLedgerResponse))]
+[JsonSerializable(typeof(AdminStuckOrderListResponse))]
 [JsonSerializable(typeof(AdminDisputeListResponse))]
+[JsonSerializable(typeof(AdminDeliveryTrailResponse))]
+// FRD-14: the dispute evidence package.
+[JsonSerializable(typeof(AdminDisputeEvidenceResponse))]
+[JsonSerializable(typeof(AdminHandoffEvidenceDto))]
+[JsonSerializable(typeof(List<AdminHandoffEvidenceDto>))]
 [JsonSerializable(typeof(ResolveDisputeRequest))]
 [JsonSerializable(typeof(ResolveDisputeResponse))]
 [JsonSerializable(typeof(FraudSignalDto))]
@@ -153,8 +213,24 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(FraudActionResponse))]
 [JsonSerializable(typeof(FraudOpenEscrowDto))]
 [JsonSerializable(typeof(List<FraudOpenEscrowDto>))]
+// FRD-07: the risk score of each user on a Fraud Review page.
+[JsonSerializable(typeof(FraudSignalUserDto))]
+[JsonSerializable(typeof(List<FraudSignalUserDto>))]
+// FUP-67: the admin queue of listing reports.
+[JsonSerializable(typeof(ListingReportDto))]
+[JsonSerializable(typeof(List<ListingReportDto>))]
+[JsonSerializable(typeof(ListingReportListingDto))]
+[JsonSerializable(typeof(List<ListingReportListingDto>))]
+[JsonSerializable(typeof(ListingReportListResponse))]
+[JsonSerializable(typeof(ReviewListingReportsRequest))]
+[JsonSerializable(typeof(ReviewListingReportsResponse))]
 [JsonSerializable(typeof(AdminUserListResponse))]
 [JsonSerializable(typeof(AdminUserDetailResponse))]
+// FUP-317: the profile history on the user detail, and the changes in a profile_edited audit row's metadata.
+[JsonSerializable(typeof(AdminProfileEditDto))]
+[JsonSerializable(typeof(List<AdminProfileEditDto>))]
+[JsonSerializable(typeof(ProfileFieldChange))]
+[JsonSerializable(typeof(List<ProfileFieldChange>))]
 [JsonSerializable(typeof(UserActionRequest))]
 [JsonSerializable(typeof(UserActionResponse))]
 [JsonSerializable(typeof(AdminHealthOverviewResponse))]
@@ -168,6 +244,16 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(AdminTransactionTimelineEvent))]
 [JsonSerializable(typeof(List<AdminTransactionTimelineEvent>))]
 [JsonSerializable(typeof(AdminTransactionDetailResponse))]
+// FUP-287: the pickup judgement's evidence and its re-open
+[JsonSerializable(typeof(AdminPickupEvidenceDto))]
+[JsonSerializable(typeof(AdminCheckInEvidenceDto))]
+[JsonSerializable(typeof(Dictionary<string, AdminCheckInEvidenceDto>))]
+[JsonSerializable(typeof(AdminPickupReopenDto))]
+[JsonSerializable(typeof(PickupReopenRequest))]
+[JsonSerializable(typeof(PickupReopenResponse))]
+// Order-lifecycle 2.26.0: an admin's commission change on one unpaid order
+[JsonSerializable(typeof(CommissionChangeRequest))]
+[JsonSerializable(typeof(CommissionChangeResponse))]
 [JsonSerializable(typeof(AdminAuditEntryDto))]
 [JsonSerializable(typeof(List<AdminAuditEntryDto>))]
 [JsonSerializable(typeof(AdminAuditListResponse))]
@@ -179,6 +265,9 @@ namespace WeredaConnect.Server;
 [JsonSerializable(typeof(AccountDeletionError))]
 [JsonSerializable(typeof(AccountDeletionErrorResponse))]
 [JsonSerializable(typeof(AccountDeletionJobRequest))]
+// FRD-19: the AI advisory reviewer's request and answer (fraud spec section 21)
+[JsonSerializable(typeof(AdvisoryReviewRequest))]
+[JsonSerializable(typeof(AdvisoryReviewReply))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

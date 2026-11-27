@@ -38,6 +38,9 @@ void main() {
     String buyerId = 'buyer-001',
     String farmerId = 'farmer-001',
     String farmerName = 'Abebe Kebede',
+    double? orderCropCost,
+    double? orderTransportCost,
+    double? orderCommission,
   }) {
     return BlocProvider<EscrowBloc>.value(
       value: escrowBloc,
@@ -51,6 +54,9 @@ void main() {
           farmerId: farmerId,
           farmerName: farmerName,
           amount: amount,
+          orderCropCost: orderCropCost,
+          orderTransportCost: orderTransportCost,
+          orderCommission: orderCommission,
         ),
       ),
     );
@@ -127,18 +133,58 @@ void main() {
   });
 
   group('InitiatePaymentScreen', () {
+    testWidgets("an order's split: its commission, crop and transport (SIM-30)",
+        (WidgetTester tester) async {
+      // 170 kg at 18.99 ETB/kg on a 255.55 ETB/quintal trip: the commission
+      // is 5 % of the crop cost on top, not 2.5 % of the amount (95.60).
+      await tester.pumpWidget(
+        buildScreen(
+          amount: 3824.16,
+          orderCropCost: 3228.3,
+          orderTransportCost: 434.44,
+          orderCommission: 161.42,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('3,824.16 ETB'), findsNWidgets(2));
+      expect(find.text('Platform Commission'), findsOneWidget);
+      expect(find.text('161.42 ETB'), findsOneWidget);
+      expect(find.text('3,228.30 ETB'), findsOneWidget);
+      expect(find.text('Trucker Receives'), findsOneWidget);
+      expect(find.text('434.44 ETB'), findsOneWidget);
+      expect(find.textContaining('%'), findsNothing);
+    });
+
+    testWidgets('an order without a trip: no trucker row',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        buildScreen(
+          amount: 19.95,
+          orderCropCost: 19,
+          orderCommission: 0.95,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('0.95 ETB'), findsOneWidget);
+      expect(find.text('19 ETB'), findsOneWidget);
+      expect(find.text('Trucker Receives'), findsNothing);
+    });
+
     testWidgets('renders commission breakdown correctly',
         (WidgetTester tester) async {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
-      // Total amount
-      expect(find.textContaining('15,000.00'), findsWidgets);
+      // Total amount, as the boards write money: in the amount card and
+      // in the breakdown.
+      expect(find.text('15,000 ETB'), findsNWidgets(2));
       // Commission: max(15000 * 0.025, 5) = 375
-      expect(find.textContaining('375.00'), findsOneWidget);
+      expect(find.text('375 ETB'), findsOneWidget);
       // Farmer payout: 15000 - 375 = 14,625
-      expect(find.textContaining('14,625.00'), findsOneWidget);
-      // 2.5% label
+      expect(find.text('14,625 ETB'), findsOneWidget);
+      // Without an order split, the legacy rule and its effective rate.
       expect(find.textContaining('2.5'), findsOneWidget);
     });
 
@@ -148,10 +194,10 @@ void main() {
       await tester.pumpWidget(buildScreen(amount: 100.0));
       await tester.pumpAndSettle();
 
-      // Commission should be 5.00 (minimum)
-      expect(find.textContaining('5.00'), findsWidgets);
+      // Commission should be 5 (minimum)
+      expect(find.text('5 ETB'), findsOneWidget);
       // Farmer receives: 100 - 5 = 95
-      expect(find.textContaining('95.00'), findsOneWidget);
+      expect(find.text('95 ETB'), findsOneWidget);
     });
 
     testWidgets('shows Fayda warning when amount > 10,000',

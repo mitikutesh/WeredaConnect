@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.27.0
+1.72.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -34,12 +34,13 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
     {
       "operationId": "uuid-v4",
       "idempotencyKey": "farmer-123:crop_listing:crop-456:create:1707998400000",
-      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message",
+      "entityType": "crop_listing | trip | delivery | order | buyer_intent | match_event | rating | message | user | location_ping | delivery_photo | listing_report | handoff_check_in",
       "entityId": "uuid-v4",
       "action": "create | update | delete",
       "clientVersion": 3,
       "data": { },
-      "timestamp": "2026-02-09T12:00:00Z"
+      "timestamp": "2026-02-09T12:00:00Z",
+      "platform": "android | web"
     }
   ]
 }
@@ -51,6 +52,31 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
 - `clientVersion`: the version the client had when making the change. The server accepts it here (op level, preferred) or as `data.version` (what the shipped mobile and web clients send); when both are present the op-level value wins. `order` updates REQUIRE one of them: a versionless order update is rejected with `ORDER_VALIDATION: version is required for order updates ...` and nothing is written. For other entity types a missing version is treated as 0, which yields a `conflict` against any stored entity (1.3.0, SIM-08).
 - `timestamp` — ISO 8601, UTC; used for display ordering, NOT for conflict resolution
 - `data` — entity-specific payload; schema defined per `entityType`
+- `platform` (optional, 1.71.0, GCR-02): the app the operation came from, `android` or `web`. Only a
+  handoff reads it (Handoff evidence); any other value, or none, is ignored, never refused
+
+**Missing members (1.64.0, FUP-148).** No member of the body is marked required for the reader; the
+server checks them itself, right after the body is read (before the caller, the rate limit or any
+operation):
+
+- A missing, `null` or blank `syncBatchId` answers `400 SYNC_VALIDATION` `"syncBatchId is required."`
+  with `field: syncBatchId`; a `clientId` the same with `"clientId is required."` and
+  `field: clientId`; a missing, `null` or empty `operations` answers `"Request must contain at least
+  one operation."` (text unchanged) with `field: operations`. In that order; nothing in the batch is
+  applied. A body that is not JSON keeps `"Invalid JSON in request body."` and a JSON `null` body keeps
+  `"Request must contain at least one operation."`, both without a `field`.
+- An operation with a missing, `null` or empty `operationId`, `idempotencyKey`, `entityType`,
+  `entityId` or `action` is refused on its own: an `error` result with
+  `SYNC_VALIDATION: <member> is required.`, naming the first one missing in that order
+  (`operationId` is `unknown` in the result when it is the one missing). Nothing is read or stored for
+  it, and the other operations of the batch are processed. Every client treats `SYNC_VALIDATION` as
+  permanent (Retry Logic).
+- Before 1.64.0 an absent member at either level failed deserialization and the whole batch answered
+  `400 SYNC_VALIDATION` `"Invalid JSON in request body."` without a `field`; a `null` `syncBatchId` or
+  `clientId` was accepted; a `null` or empty operation member answered
+  `Missing required fields: operationId, idempotencyKey, entityType, entityId, action.` with no code,
+  which the mobile app retried. Every client sends all of them (mobile `clientId` `mobile-<ms>`, web
+  `web`), so no app change.
 
 **Idempotency Key Format**:
 ```
@@ -95,9 +121,21 @@ This format ensures:
   it instead). This keeps offline-first: the op is never lost. Currently emitted for a
   delivery `pickedUp`/`delivered` transition whose QR handoff secret (farmer-authored nonce)
   has not yet reached the server, and (1.19.0) for one without a nonce whose escrow could
-  not be read to decide whether it needs the QR (`delivery-verification-api.md` 1.17.0).
+  not be read to decide whether it needs the QR (`delivery-verification-api.md` 1.17.0),
+  and (1.31.0) for a `location_ping` whose trip has no delivery on the road yet
+  (`LOCATION_NOT_ACTIVE:`, see Location pings).
   `serverData`/`serverVersion` are absent.
 - `status: "error"` — operation failed (validation, auth, etc.); `message` explains why
+- `serverData` (on `success` and `conflict`) is the entity row with the JSON types GET gives
+  the same row (1.37.0, SIM-25): numbers are JSON numbers (`version`, quantities, prices and
+  money fields such as `pricePerKg`, `pricePerUnit`, `orderTotal`, `capacity`,
+  `pricePerQuintal`, `bookedQuintals`, coordinates including the `latitude` and `longitude`
+  inside a delivery's `gpsPickup` and `gpsDropoff`, a rating's `stars`) and a trip's
+  `matchedListings` is an array of listing ids. Every other value keeps its type: a string
+  that reads as a number (a woreda code, a phone number) stays a string, a stored list such
+  as `photoIds` stays a list. A whole number comes without a decimal point, so clients read
+  numbers as `num`. Before 1.37.0 these numbers came as strings (`"version":"2"`,
+  `"pricePerKg":"18"`) and `matchedListings` as the text `"[]"`.
 
 ---
 
@@ -110,6 +148,11 @@ This format ensures:
 3. **Last-write-wins within same version.** If `clientVersion` equals server version, the operation is applied (optimistic concurrency).
 4. **Client behind = conflict.** If `clientVersion < serverVersion`, return `conflict` with the server's current data.
 5. **Deletes are soft.** Deleted entities are marked with a `deletedAt` timestamp, not physically removed. This prevents sync issues with other clients that haven't synced yet.
+6. **The loser of a status race gets a conflict (1.38.0, SIM-28).** A status change that is not a valid transition from the stored status, sent with a version lower than the stored one (another device or party moved the entity first), is answered `conflict` with `serverVersion` and the current row in `serverData`, like any version conflict, instead of the entity's invalid-transition error (`ORDER_VALIDATION: Invalid status transition ...`, `DELIVERY_INVALID_TRANSITION`, `TRIP_INVALID_TRANSITION`, `CROP_INVALID_TRANSITION`). Nothing is written. Only a caller who may ask for that status gets it, and the row is scrubbed as in the other conflicts: an order's party for a status that party may set (a system-managed status or another party's keeps the error, `order-lifecycle.md` 2.6.0), a delivery's trucker for `pickedUp` and `inTransit`, its buyer for `delivered`, any of its parties for `disputed` (anyone else keeps the error), the listing's farmer, the trip's trucker. With the current version, a newer one or none, the invalid-transition error stands. Clients need no change: they already resolve a `conflict` server-wins (mobile) or treat it as a failure (web).
+7. **The same for a change that reaches a finished entity (1.45.0, FUP-128).** A delivery update that reaches a delivery already `cancelled` (or soft-deleted before `delivery-verification-api.md` 1.9.0) with a version lower than the stored one is answered `conflict` with the row, by rule 6's caller rule (the trucker for `pickedUp` and `inTransit`, the buyer for `delivered`, any party for `disputed`; for an update without a status the trucker, or the farmer storing `qrNonce`). A trip update or delete that reaches a trip already `cancelled`, `delivered` or deleted has answered that way to its trucker since `trip-listing-api.md` 2.4.0. In every other case the errors stand (`DELIVERY_ALREADY_CANCELLED`, `TRIP_TERMINAL_STATE`, `TRIP_ALREADY_CANCELLED`), and clients no longer resend them (see Changes to a finished delivery or trip).
+8. **A deleted crop listing never changes again (1.66.0, FUP-152).** A `crop_listing` `update` that reaches a listing already deleted (`deletedAt` set, or `status: deleted`) writes nothing and is answered `conflict` with `serverVersion` and the stored row in `serverData` to the listing's farmer, whatever version it carries and with or without a `status`, message `CROP_ALREADY_DELETED: The listing is already deleted.` (`crop-listing-api.md` 1.14.0, rule 11). Anyone else keeps `CROP_UNAUTHORIZED` and gets no row. The write's own condition carries the check, so a delete that lands between the server's read and its write gets the same answer. Before, an update without a `status` sent at the version the delete left was written onto the hidden row (its version moved), and one with a `status` at that version got `CROP_INVALID_TRANSITION`, which the mobile queue retried. No client change: the mobile queue resolves the conflict server-wins (the deleted row removes the local listing with the FUP-149 client, 1.65.0; an older app keeps it as a local `draft`), and web treats it as a failed save.
+9. **A deleted crop listing is not deleted again, and a sold one is not edited (1.67.0, FUP-494 and FUP-495).** A `crop_listing` `delete` that reaches a listing already deleted writes nothing and is answered `success` with the stored version to the listing's farmer, whatever version it carries (not a conflict: an app older than the FUP-149 client would keep a conflict's deleted row as a local `draft`). A `crop_listing` `update` that reaches a `sold` listing writes nothing and is answered `conflict` with the stored row, message `CROP_SOLD: The listing is sold.`, as rule 8 answers a deleted one (`crop-listing-api.md` 1.15.0, rules 11 and 12). Both checks are in the write's condition too, so a delete or a `sold` that lands between the server's read and its write gets the same answer. Anyone else keeps `CROP_UNAUTHORIZED`. No client change.
+10. **A caller who is no party to a delivery learns nothing from a refusal (1.70.0).** A `delivery` `update` from a caller who is not the delivery's buyer, farmer or trucker is answered `DELIVERY_UNAUTHORIZED` before any rule that reads the row: `Only the trucker can mark as <status>.` for `pickedUp` and `inTransit`, `Only the buyer can confirm delivery.` for `delivered`, `Only participants can dispute a delivery.` for `disputed`, `You can only update your own deliveries.` for anything else. Before, an invalid transition was checked first and answered `DELIVERY_INVALID_TRANSITION: Cannot transition from '<stored>' to '<requested>'.`, which told the stored status to anyone who guessed an id; a cancelled delivery answered `DELIVERY_ALREADY_CANCELLED` and an old one `DELIVERY_DISPUTE_EXPIRED` the same way. Rules 6 and 7 are unchanged for parties: the errors that "stand" there now stand for parties only. A cancel already checked the party first. Orders, trips and crop listings already check the party or owner before the transition. Clients need no change (`DELIVERY_UNAUTHORIZED` is permanent since 1.43.0).
 
 ### Client-Side Conflict Resolution (Mobile)
 
@@ -120,6 +163,55 @@ When the client receives `status: "conflict"`:
 3. **Update version**: Set local version to `serverVersion` to prevent future conflicts
 4. **Mark as synced**: Operation is marked as `synced`, not `failed` (conflict is resolved, not an error)
 5. **No user intervention**: For MVP, conflicts resolve automatically without UI notification
+
+**A deleted crop listing (1.65.0, FUP-149).** A `crop_listing` conflict whose `serverData` is a
+deleted listing (`deletedAt` set, or `status: deleted`, the rule of `crop-listing-api.md` 1.10.0:
+the farmer's other device deleted it, or a delete won a race with this one) removes the local
+listing; none is created when the phone has none. The app has no status for a deleted listing, and
+before 1.65.0 it kept the row as a local `draft`. The same rule holds in the crop reads
+listed here: the mobile crop pull (`GET /crops`) and the read behind a reverted listing
+(`GET /crops/{id}`) remove a deleted row's listing, the farmer's own included, and the web
+repository and matcher leave such a row out of their lists and read it by id as not found. The
+server already leaves deleted listings out of its lists and answers 404 for one by id, so these
+reads only guard against a row that still comes. Every other crop status maps as before. No wire
+change.
+
+**A listing deleted elsewhere leaves the farmer's phone (1.67.2, FUP-498).** Because the server
+leaves a deleted listing out of every list, the reads above never see one deleted on the web or on
+another phone, and the market crop pull keeps the farmer's own rows; before 1.67.2 such a listing
+stayed on the phone as it was (`active`) until an edit of it got the conflict above. Now, when the
+farmer's own list opens (My Crops, `LoadCropListings`), the phone shows what it holds, then reads
+the farmer's own list (`GET /crops?farmerId=`, no `status`: every own listing but the deleted ones,
+`crop-listing-api.md` 1.9.0) to the last page, and paints again only when a listing went. A listing
+of that farmer the phone holds that the list leaves out (or lists as deleted) is read by id
+(`GET /crops/{id}`): a 404, a 403 or a deleted row removes it; a live row (the farmer index can
+lag a create that just synced) or a failed read (offline, 401, 5xx) keeps it. A listing stays,
+with no read, while a `crop_listing` operation of it is pending, on its way, or failed and to be
+sent again, checked before the list is read and again when the removal is written, and when the
+server refused its create for good (it never held the listing). A listing deleted on this phone,
+shown there as `expired`, leaves the same way once its delete reached the server. A page that
+fails removes nothing. The pull never touches another user's listings and runs at most once per 30
+seconds per farmer. Buyers and truckers never run it. Web reads the server and needs no change. The
+photo files of a removed listing stay on the phone (FUP-488). No wire change. (Until 1.68.0 the
+pull stored none of the listed rows and sent nothing when the phone held no listing of the farmer
+it could remove; see the next paragraph.)
+
+**The farmer's own listings reach the phone (1.68.0, BUG-31, FUP-520).** The same pull now stores
+the rows it lists, so a farmer who logs in on a phone that holds none of their listings (a new
+install, a second phone) sees them, and a listing the server moved without an upload from this
+phone (`reserved` or `sold` when orders take stock, stock back after a cancel, an edit made on the
+web or another phone) shows the server's state. Before 1.68.0 the pull returned before its request
+when the phone held no listing of the farmer, so My Crops stayed empty. Every row of the answer
+whose `farmerId` is the farmer's is stored, whatever its status; a deleted row and a row that names
+another farmer are never stored, and a listing id the phone holds under another farmer is left
+alone. Server wins, as for the trucker's own trips (`trip-listing-api.md` 2.8.0): a row with a
+`crop_listing` operation pending, on its way, or failed and to be sent again is skipped (checked
+inside the write, so a change queued while the list was read wins), and a server copy with a lower
+`version` than the stored row is skipped (the farmer index lags a change just synced). The place
+id and the photo files only this phone keeps stay on the row. A page that fails stores nothing. The
+list is read again only when a listing was removed, added or changed. The pull now always sends
+its list request (one small `GET /crops?farmerId=` per page, at most once per 30 seconds), and the
+farmer's Home tiles run it too, after the stored numbers painted. No wire change.
 
 **Rationale**:
 - Solo farmers rarely have conflicts (one user per device)
@@ -135,6 +227,7 @@ When the client receives `status: "conflict"`:
 3. **Server checks before processing.** On receiving an operation, the server looks up the idempotency key in the `SyncMetadata` DynamoDB table. If found, return the stored result without re-processing.
 4. **Keys expire after 7 days.** DynamoDB TTL automatically deletes idempotency records after 7 days. Clients should not retry operations older than 7 days.
 5. **Keys are scoped to the caller (1.7.0, SIM-48/ESC-11/SEC-03).** The server never trusts the `{userId}` segment. It stores and looks up a key as sent when the key starts with the caller's Cognito `sub` followed by `:` (the documented format), and as `{sub}:{key}` otherwise (web keys such as `web_create_{id}`, keys carrying another user's id, any other string). So the same key sent by two users is two different operations, and `duplicate` only means the caller itself already sent that key: another user can no longer pre-claim your key and get your operation dropped. Any non-empty key string is accepted; the documented format is still the recommended one. If the caller id cannot scope a key (it contains `:`, which a Cognito `sub` never does) the operation is answered `error` with `SYNC_VALIDATION: caller identity cannot scope the idempotency key.` and nothing is processed. No client change is needed.
+6. **A key belongs to one payload (1.38.0, SIM-28).** The server stores a fingerprint of the operation with its key: the SHA-256 of a canonical JSON of `entityType`, `entityId`, `action`, `clientVersion` and `data` (after the server drops the fields it owns, such as `isFlagged`), with object keys sorted at every depth and numbers compared by value (`18`, `18.0` and `1.8e1` are equal). `operationId` and `timestamp` are left out, so a resend that renews them still matches. The same key sent again with the same payload answers `duplicate` as before. Sent with a different payload it answers `error` with `SYNC_VALIDATION: idempotency key already used for a different operation payload; send this change with a new idempotency key.`: nothing is processed or stored, because answering `duplicate` would drop the change as if it had been applied. Clients already treat `SYNC_VALIDATION` as permanent (mobile marks the operation rejected, and reverts a refused order from `GET /orders/{id}`; web shows the message). Records written before 1.38.0 carry no fingerprint and keep answering `duplicate` until they expire.
 
 ### SyncMetadata Table Schema (DynamoDB)
 
@@ -145,6 +238,7 @@ When the client receives `status: "conflict"`:
 | `operationId` | String | Client-generated UUID for the sync operation |
 | `result` | String | JSON-encoded sync result (for returning on duplicate requests) |
 | `expiresAt` | Number (TTL) | Unix timestamp when this record should be deleted (7 days from creation) |
+| `payloadFingerprint` | String | Lowercase hex SHA-256 of the operation's canonical payload (rule 6, 1.38.0); absent on records written before it |
 
 **Performance**: Every stored key starts with the caller's `sub`, so the table naturally partitions across users, preventing hot partition issues.
 
@@ -157,11 +251,12 @@ When the client receives `status: "conflict"`:
 | `SYNC_SUCCESS` | Operation applied | Remove from local queue |
 | `SYNC_CONFLICT` | Client version behind | Accept server data, re-queue if needed |
 | `SYNC_DUPLICATE` | Idempotency key already processed | Remove from local queue (already done) |
-| `SYNC_VALIDATION` | Payload failed validation | Fix data, re-queue with new idempotency key |
+| `SYNC_VALIDATION` | Payload failed validation, (1.38.0) an idempotency key already used for a different payload, or (1.72.0) an `entityType` the server does not route (`SYNC_VALIDATION: Unsupported entity type: '<type>'.`) | Fix data, re-queue with new idempotency key |
 | `SYNC_AUTH` | Authentication failed | Re-authenticate, retry |
 | `SYNC_RATE_LIMIT` | Too many requests | Back off, retry with exponential delay |
 | `SYNC_SERVER_ERROR` | Server failure | Retry with exponential backoff |
 | `ACCOUNT_004` (HTTP 410, whole request) | The caller's account is being or has been deleted (1.26.0) | Stop this sync, no retry counted, the operations stay queued. `cognito_pending` or `completed`: never resend while the app runs, wipe and go to login; `in_progress`: a later sync may resend. See Deleted accounts (1.26.0) |
+| `AUTH_025` (HTTP 403, whole request) | The caller's account is suspended (1.48.0) | Stop this sync, no retry counted, the operations stay queued; end the session like a rejected token refresh. See Suspended accounts and reputation gates (1.48.0) |
 
 ---
 
@@ -193,7 +288,7 @@ These rules must always hold:
 - 5xx server errors (500, 502, 503, 504)
 
 **When to Revert to Pending (no `retryCount` increment)**:
-- Network errors (timeout, connection refused, DNS failure) — the operation payload is valid, only the transport failed. `syncNow()` exits immediately; the periodic worker (15 min) or connectivity listener triggers a fresh attempt.
+- Network errors (timeout, connection refused, DNS failure): the operation payload is valid, only the transport failed. `syncNow()` exits immediately; the early retries below (1.68.0), the periodic worker (15 min) or the connectivity listener trigger a fresh attempt.
 - 429 Too Many Requests (rate limiting) — revert and wait
 - 401/403 Unauthorized — revert (AuthInterceptor should refresh token)
 
@@ -205,12 +300,27 @@ These rules must always hold:
 - Order rejections (every `ORDER_*` code except `ORDER_KYC_REQUIRED`, since 1.10.0) → Mark as permanently rejected and revert the local order (see Permanent order rejections)
 - `DELIVERY_CANCEL_NOT_ALLOWED` (since 1.11.0) → Mark as permanently rejected and revert the local delivery (see Delivery cancel)
 - `DELIVERY_DISPUTE_REFUSED` and `DELIVERY_DISPUTE_EXPIRED` (since 1.12.0) → Mark as permanently rejected and revert the local delivery (see Delivery dispute); `DELIVERY_DISPUTE_RETRY` is transient and retried
-- `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` (since 1.23.0) → Mark as permanently rejected, not reverted (see Listing text refusal)
+- `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED`, `DELIVERY_CODE_LOCKED_DROPOFF` and `DELIVERY_CODE_GPS_REQUIRED` (since 1.33.0) → Mark as permanently rejected and revert the local delivery (see Typed handoff code)
+- `CROP_CONTACT_IN_TEXT` and `TRIP_CONTACT_IN_TEXT` (since 1.23.0) → Mark as permanently rejected; since 1.43.0 also revert the local crop listing or trip (see Listing text refusal)
+- `DELIVERY_NONCE_MISSING` (since 1.43.0) → Mark as permanently rejected and revert the local delivery (see Refusals no retry can pass)
+- `DELIVERY_GPS_PROXIMITY` (since 1.62.0), whatever its reason → Mark as permanently rejected and revert the local delivery (see GPS refusals of a handoff)
+- `DELIVERY_ALREADY_CANCELLED`, `TRIP_TERMINAL_STATE` and `TRIP_ALREADY_CANCELLED` as an `error` (since 1.45.0) → Mark as permanently rejected and revert the local delivery or trip (see Changes to a finished delivery or trip)
+- Every `*_UNAUTHORIZED` code but a role gate (`... Only farmers can ...`, `truckers`, `buyers`), `RATING_FORBIDDEN: You can only rate your own orders.` and a `CROP_VALIDATION`, `TRIP_VALIDATION` or `DELIVERY_VALIDATION` `... is immutable and cannot be changed on update.` (since 1.43.0) → Mark as permanently rejected, not reverted (see Refusals no retry can pass)
+- `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` (since 1.31.0) → Mark as permanently rejected, not reverted (see Location pings); `LOCATION_NOT_ACTIVE` comes as `deferred`, not as an error
+- A refused `listing_report` (since 1.44.0, always `SYNC_VALIDATION`) → Mark as permanently rejected; nothing local to revert (see Listing reports)
+- `CROP_VALIDATION` and `TRIP_VALIDATION`, whatever the text (since 1.72.0), but the two profile texts a server before 1.72.0 still sends under them → Mark as permanently rejected, not reverted (see Profile refusals and the unsupported entity); `CROP_PROFILE_UNAVAILABLE`, `CROP_PROFILE_INCOMPLETE`, `TRIP_PROFILE_UNAVAILABLE` and `TRIP_PROFILE_INCOMPLETE` are retried
+- `USER_PROFILE_VALIDATION` and `AUTH_027` on a `user` operation (since 1.72.0) → Mark as permanently rejected and put the phone's copy of the profile back from `GET /user/profile` (see Profile text)
 
 **Retry State Management**:
 - `retryCount` field in `SyncOperation` entity tracks attempts (only incremented by server errors, not network failures)
 - Max retries: 3 (configurable in `SyncExecutor`)
 - Failed operations remain in queue for manual inspection
+
+**Early retries after a sync that did not reach the server (1.68.0, BUG-32, mobile only)**:
+- A sync run that ends because the health check failed (`GET /health`) or the `/sync` request hit a network error, while the phone reports a network and operations wait, is tried again by the `SyncWorker` after 10 s, 30 s, 1 min, 2 min and 5 min (at most five attempts, about nine minutes in all). Before 1.68.0 one failed health check right after the signal came back left the queue untouched until the 15 minute timer.
+- The retries stop at once when the queue is empty or the phone reports no network (the connectivity listener starts a sync when it is back), and the count starts again when a run reaches the server, at each periodic sync and at each app resume. An attempt that still cannot reach the server costs one health check; no operation's `retryCount` moves.
+- The health check has a deadline of 10 s for the whole request, connecting included (BUG-35). Before, only its send and receive phases were bounded (3 s) and a connection that never opened held the sync for the client's connect timeout (30 s in dev).
+- Not retried early: a run that only held operations back (a listing whose photo upload failed, a deferral, a step-up). Those wait for the next sync trigger as before.
 
 **Crash Recovery**:
 - If the app is killed during sync, operations stuck in `syncing` status are recovered by `recoverStaleSyncing()` at the start of each `syncNow()` call. They are reset to `pending` with `retryCount = 0`.
@@ -248,6 +358,76 @@ Given Ethiopian mobile data costs ($0.50 per MB, average farmer income $300/mont
 
 ---
 
+## User profile updates (1.28.0)
+
+The `user` entity carries a profile change the client made in Settings. Only
+`action: "update"` is accepted, `entityId` MUST equal the authenticated caller (a
+user can only change their own profile), and the server allow-lists a single field:
+
+- `preferredLanguage`: one of `en`, `am`, `om`. Every other key in `data` is
+  ignored, so role, woreda, phone and the like can never change through sync.
+
+The update is version-less (last-write-wins): the server reads the caller's row,
+writes the new language and bumps `version`; an unchanged value is a no-op
+`success`. This lets the language chosen on one device follow the user to the
+others, and gives order notifications (ESC-21) the right language.
+
+Errors (all `status: "error"`): `USER_PROFILE_VALIDATION` (missing or invalid
+`preferredLanguage`, or a non-update action), `USER_PROFILE_UNAUTHORIZED`
+(`entityId` is not the caller), `USER_PROFILE_NOT_FOUND`, `USER_PROFILE_CONFLICT`
+(a rare concurrent write; the client retries) and `USER_PROFILE_UNAVAILABLE`.
+
+### Profile text (1.57.0, SIM-56)
+
+Since 1.57.0 the `user` entity also takes `displayName`, `woreda` and `companyName` (a company
+buyer's only), so every role edits their profile from the app (`user-entity.md` 2.2.0 section 14).
+`data` must carry at least one of these four keys; each is optional. Still ignored: every other
+key (role, phone, Fayda, verification, `buyerType`, `version`, admin fields).
+
+- Values are trimmed; a JSON `null` is not sent; a non-string is `USER_PROFILE_VALIDATION`.
+- A value equal to the stored one is an unchanged echo: not checked, not written.
+- Changed fields must not be empty, must be at most 100 characters, the name must not be the
+  deleted-account name, and `companyName` is refused unless the caller is a company buyer:
+  `USER_PROFILE_VALIDATION: <reasons>`.
+- Then a phone number in a changed field is refused with the registration's code and text
+  (FUP-52): `AUTH_027: Remove the phone number from displayName, woreda. Contact opens after
+  payment is held in escrow.` (the fields that hold one, in the order `displayName`, `woreda`,
+  `companyName`).
+- A refusal writes nothing, the language included; nothing changed is a no-op `success`.
+
+Example:
+
+```json
+{
+  "operationId": "7c2d...",
+  "idempotencyKey": "user-1:user:user-1:update:1762941600000",
+  "entityType": "user",
+  "entityId": "user-1",
+  "action": "update",
+  "data": { "displayName": "Abebe K.", "woreda": "Meki" },
+  "timestamp": "2026-11-12T10:00:00Z"
+}
+```
+
+Clients: the phone queues the operation (it works offline) after the form ran the same rules;
+web sends it alone to `/sync` and marks the fields an `AUTH_027` names. The form never sends what
+they refuse, so a refusal comes only from a rule that changed on one side (the phone number detector
+of another app version) or a client that skips the form.
+
+Since 1.72.0 (FUP-315) `USER_PROFILE_VALIDATION` and `AUTH_027` on a `user` operation are permanent
+on the phone: the same values always get the same answer. Before, the queue sent the edit three times
+per sync, `retryFailed` put it back on every reconnect, and the phone showed the refused values until
+the edit screen read `GET /user/profile` again.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `USER_PROFILE_VALIDATION:` or `AUTH_027:` on a `user` operation | Rejected, never resent, not reset by a reconnect. The phone reads `GET /user/profile` and its copy of the profile (and the signed-in session the account sheet shows) takes the server's `displayName`, `woreda` and `companyName`, with the edits still waiting in the queue on top (their own answers settle them). When that read fails nothing changes; the edit screen reads the profile again when it opens and, with no edit waiting, shows the server's values. The operation leaves the "Sync failed" count once the handler returned. Explained with `errorChangeNotSaved`. | Unchanged: the save fails, nothing on the device or in the session changes (so the profile still shows the server's values), the form keeps the typed text and marks the fields an `AUTH_027` names, or says the details were not accepted. |
+| `USER_PROFILE_UNAUTHORIZED:` | Permanent, not reverted (1.43.0), as before. | Unchanged. |
+| `USER_PROFILE_CONFLICT:`, `USER_PROFILE_UNAVAILABLE:`, `USER_PROFILE_NOT_FOUND:` | Retried as before. | Unchanged. |
+
+The same codes on another entity mean nothing to the queue and are retried. No server change: every
+server since 1.57.0 sends these codes, so the client needs no older-server case.
+
 ## Create-conflict echo (1.4.0)
 
 A `create` for an entity id that already exists returns `status: "conflict"` with
@@ -256,6 +436,26 @@ farmer, the trip's trucker, the order's buyer, farmer or trucker, the delivery's
 farmer or trucker. Anyone else gets the conflict status with `serverData: null`
 (role-visibility rule). The client treats a null `serverData` as "already exists, not
 yours" and drops the operation.
+
+Since 1.70.0 a `crop_listing` create looks the id up before the listing fraud rules
+(velocity, duplicate, price), with a strongly consistent read. A create for an id that already exists is answered by this
+conflict and the rules are not asked: before, the farmer's own re-queued create, sent with a
+new idempotency key, was called a duplicate of the listing it had already made
+(`FRAUD_DUPLICATE_LISTING`, with a fraud signal on an honest farmer).
+
+## Updates with nothing to write (1.70.0)
+
+An `order` or `delivery` update whose payload holds nothing the server stores, once the fields
+it owns, the echo keys and unchanged echoes are dropped, writes nothing and is answered
+`success` with the stored `serverVersion` and the stored row (scrubbed as in every answer). The
+version does not move. That holds only when the client sent the stored version: with any other
+version the answer is the usual `conflict` with `serverVersion` and the row, as the write's
+version check gave before, because a phone that is behind applies the row of a `conflict` and
+ignores the row of a `success`. Examples: an order update that holds only `orderTotal`; a trucker's
+delivery update that holds only `qrNonce` (only the farmer sets it, so it is dropped). The
+caller must still pass the entity's party and role rules, and an order update still needs its
+`version`. Before 1.70.0 such an update was written empty and the version moved, which made the
+next queued change of another party conflict. Clients need no change.
 
 ## Operation errors added (1.4.0)
 
@@ -274,6 +474,7 @@ Since 1.5.0 the KYC message is `ORDER_KYC_REQUIRED: <reason>: <text>`:
 | `farmer_phone` | the farmer (phone) | explain only; do not send the buyer to Fayda |
 | `farmer_fayda` | the farmer (Fayda, above 10,000 ETB) | explain only; do not send the buyer to Fayda |
 | `unavailable` | nobody (profiles could not be read) | explain, try later |
+| any other token (since 1.49.0) | not known to this client | explain only; no Fayda action, nothing sent again |
 
 A failed, cancelled or refused verification (`FAYDA_005`/`006`/`007`) leaves the payment
 unsent. Clients fall back to the wording ("farmer", "phone") for servers older than 1.5.0.
@@ -318,7 +519,7 @@ payment.` Clients are unchanged (1.18.0 below).
 
 | Code | Mobile client (sync queue) | Web client (calls `/sync` directly) |
 |------|----------------------------|-------------------------------------|
-| `FRAUD_ACCOUNT_HELD:` | Permanent, as before. A refused order operation is reverted as in 1.10.0 (a refused create removes the local order, a refused `payment_submitted` puts the server's order back); a refused crop or trip create keeps its local row, like the other `FRAUD_*` codes. For every entity and action the user is told, in en, am and om: "Your account is under review, so this action is paused. Contact support." The batch result's error message picks the code too. | The refused call fails with the same text (crop, trip and order create, payment). |
+| `FRAUD_ACCOUNT_HELD:` | Permanent, as before. A refused order operation is reverted as in 1.10.0 (a refused create removes the local order, a refused `payment_submitted` puts the server's order back); a refused crop or trip create keeps its local row, like the other `FRAUD_*` codes (until 1.43.0: since then it is removed, with the 1.17.0 revert, FUP-51). For every entity and action the user is told, in en, am and om: "Your account is under review, so this action is paused. Contact support." The batch result's error message picks the code too. | The refused call fails with the same text (crop, trip and order create, payment). |
 | `AUTH_041:` | Unchanged: kept pending, the Fayda login opens, the operation goes again after it. The prompt no longer names an amount, since the server may ask at any amount. | Unchanged: the payment screen opens the Fayda login and sends the same payment again, with the same prompt. |
 
 The escrow routes (`/escrow/initiate`, `/escrow/order-checkout`, `/escrow/dispute`) and the
@@ -332,9 +533,11 @@ a generic refusal for `FRAUD_ACCOUNT_HELD` and do not retry it either.
 Every `ORDER_*` operation error except `ORDER_KYC_REQUIRED` is permanent: sending
 the same payload again gets the same answer. Today the server sends
 `ORDER_VALIDATION:`, `ORDER_UNAUTHORIZED:`, `ORDER_CANCEL_NOT_ALLOWED:` (1.13.0) and
-`ORDER_PAYMENT_METHOD_UNAVAILABLE:` (1.16.0); the planned `ORDER_DEADLINE_PASSED`,
-`ORDER_ACTION_NOT_ALLOWED`, `ORDER_TRIP_NOT_ELIGIBLE` and
-`ORDER_TRANSPORT_ATTEMPTS_EXCEEDED` fall under the same rule. `ORDER_KYC_REQUIRED`
+`ORDER_PAYMENT_METHOD_UNAVAILABLE:` (1.16.0), `ORDER_RESPONSE_NOT_PENDING:` and
+`ORDER_DEADLINE_PASSED:` (1.29.0, Order commitments), `ORDER_CONTACT_IN_TEXT:` and
+`ORDER_DROPOFF_NOTE_LOCKED:` (1.36.0, Drop-off landmark), `ORDER_TRIP_NOT_ELIGIBLE:` (1.34.0, on an
+order create naming a trip that has left); the planned `ORDER_ACTION_NOT_ALLOWED` and
+`ORDER_TRANSPORT_ATTEMPTS_EXCEEDED` (Transport choice, PLANNED) fall under the same rule. `ORDER_KYC_REQUIRED`
 keeps its own revert and Fayda prompt (1.4.0, 1.5.0).
 
 Mobile client (sync queue):
@@ -346,7 +549,7 @@ Mobile client (sync queue):
 | Refused order update | Re-read `GET /orders/{id}` and replace the local order with it (server wins), unless another operation for that order is still queued (its own outcome settles the row). A 404 or 403 on that read removes the local order. Any other failed read (offline, 401, 5xx) puts the local version back to the lowest version the order's refused operations sent, so the next pull overwrites the row. |
 | Any other permanent rejection of an order operation (`FRAUD_*`, `SYNC_VALIDATION`, a whole batch refused with HTTP 400 or 422) | Reverted the same way. FRD-06 adds the `FRAUD_ACCOUNT_HELD` wording. |
 | Any refused `create` (every entity type, every permanent code) | Also reject the operations queued behind it for that entity: they could only get a transient "not found" and would be resent forever. |
-| Permanent rejection of any other entity (listing, trip, delivery, rating, message) | Not reverted, except the cases in the later sections (delivery 1.11.0 and 1.12.0, message 1.15.0, listing and trip 1.17.0). Explained (the listing-form wording for `FRAUD_DUPLICATE_LISTING` and `FRAUD_VELOCITY_EXCEEDED`, otherwise "This change could not be saved on the server") and still counted as failed, because its local change never reached the server. Background match events are neither. |
+| Permanent rejection of any other entity (listing, trip, delivery, rating, message) | Not reverted, except the cases in the later sections (delivery 1.11.0 and 1.12.0, message 1.15.0, listing and trip 1.17.0, the arrival check-in 1.58.1). Explained (the listing-form wording for `FRAUD_DUPLICATE_LISTING` and `FRAUD_VELOCITY_EXCEEDED`, otherwise "This change could not be saved on the server") and still counted as failed, because its local change never reached the server. Background match events are neither. |
 | Pulls | A rejected operation no longer protects its row: `GET /orders` (and the crop, trip and delivery pulls) may overwrite it. Pending, syncing and retryable failed operations still do. |
 | Reason | A localized message (en, am, om) says the change was not allowed, that a refused order was removed, or that a change was not saved. Refusals from one batch share one message per distinct text. A rejection raised before the signed-in screen listens (the first sync after a launch) is kept, up to 10, and shown once it does; it is shown only to the user whose operation it was, and logout drops kept ones. |
 
@@ -491,9 +694,11 @@ and show the generic `errorOrderRefused` text (1.10.0).
 Five codes from spec `three-party-escrow-commitments-reputation.md` section 8 are permanent:
 replaying the same payload gets the same answer, so the client never resends them. The one
 exception is `APP_UPDATE_REQUIRED` on anything but an order: the build is the problem, not the
-payload, so the client keeps that operation for the updated build (below). No server sends them
-yet: ESC-15, ESC-17, ESC-18, ESC-25 and ESC-29 add them, each with its
-own server rules. The three `ORDER_*` codes of section 8 that had the generic order text get
+payload, so the client keeps that operation for the updated build (below). Since 1.29.0 the server sends
+`TRIP_HAS_BOOKINGS` and `TRIP_CAPACITY_EXCEEDED` behind `COMMITMENTS_ENABLED` (ESC-15, Order
+commitments below), and since 1.35.0 `CROP_HAS_ACTIVE_ORDERS` behind the same flag (ESC-18);
+since 1.41.0 `APP_UPDATE_REQUIRED` on order operations from an app below the minimum build (ESC-25,
+Minimum app version for order operations below); ESC-29 adds the others, each with its own server rules. The three `ORDER_*` codes of section 8 that had the generic order text get
 their own text too.
 
 | Code | Sent on | What it means to the client |
@@ -501,22 +706,23 @@ their own text too.
 | `REPUTATION_RESTRICTED:` | `crop_listing` create, `trip` create, `order` update (the farmer's or trucker's accept), `order` create (the listing's or trip's owner is restricted, spec A7) | The account (or, on a buyer's create, the owner) may not do this for now. Existing orders continue. |
 | `TRIP_HAS_BOOKINGS:` | `trip` update or delete | Orders are booked on the trip, so this change is not allowed. |
 | `TRIP_CAPACITY_EXCEEDED:` | `order` create or update naming a trip | The trip has no room left for this order: an order refusal. |
-| `CROP_HAS_ACTIVE_ORDERS:` | `crop_listing` delete, or a quantity below what active orders hold | The listing has funded or accepted orders. |
-| `APP_UPDATE_REQUIRED:` | `order` commands from an app below the server's minimum (the minimum-version gate, spec K1, ESC-25). Clients also handle it defensively on `crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent` and `match_event` operations: kept pending, never reverted. | This build must be updated. |
-| `ORDER_DEADLINE_PASSED:`, `ORDER_TRIP_NOT_ELIGIBLE:`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | `order` operations (permanent since 1.10.0) | The deadline passed; the named truck cannot take the order; no more trucks may be tried. |
+| `CROP_HAS_ACTIVE_ORDERS:` | `crop_listing` delete, or update to `status: deleted` (sent since 1.35.0 behind `COMMITMENTS_ENABLED`, ESC-18, `crop-listing-api.md` 1.7.0 rule 10; since 1.56.0 whatever the flag, SIM-56). A quantity edit never gets it: `quantity` is the free stock, so it cannot reach what orders hold | Orders still depend on the listing: one is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`. |
+| `APP_UPDATE_REQUIRED:` | `order` operations from an app below the server's minimum (the minimum-version gate, spec K1, ESC-25; sent since 1.41.0). Clients also handle it defensively on `crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent` and `match_event` operations: kept pending, never reverted. | This build must be updated. |
+| `ORDER_DEADLINE_PASSED:`, `ORDER_TRIP_NOT_ELIGIBLE:`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | `order` operations (permanent since 1.10.0; `ORDER_DEADLINE_PASSED` sent since 1.29.0; `ORDER_TRIP_NOT_ELIGIBLE` sent since 1.34.0 on an `order` create naming a trip that has left, `trip-listing-api.md` 2.2.0) | The deadline passed; the named truck cannot take the order; no more trucks may be tried. |
 
 Mobile client (sync queue):
 
 | Case | Client action |
 |------|---------------|
 | Any of the five codes (`APP_UPDATE_REQUIRED` only on an `order`) | Mark the operation rejected: never sent again, a reconnect does not reset it. |
-| Refused `crop_listing` with `REPUTATION_RESTRICTED` or `CROP_HAS_ACTIVE_ORDERS`; refused `trip` with `REPUTATION_RESTRICTED` or `TRIP_HAS_BOOKINGS` | Reverted with the order rules. A refused `create` was never stored: remove the local row. A refused update or delete: re-read `GET /crops/{id}` or `GET /trips/{id}` (the owner's own read: only a farmer sends crop operations and only a trucker trip operations) and replace the local row (server wins), unless another operation for it is still queued. A 404 (deleted, or for a trip cancelled) or 403 removes the local row. Any other failed read puts the local version back to the lowest version the refused operations sent and clears the pull stamp, so the next crop or trip pull overwrites the row. |
-| Reverted crop listing or trip | Once the revert returned (a failed read included, since the next pull settles the row), its rejected operations are flagged `reverted` and leave the "Sync failed" count: nothing is left for the user to act on. A revert that threw keeps them counted. |
-| Any other refusal of a crop listing or trip (`FRAUD_*`, `SYNC_VALIDATION`, a code meant for another entity, a whole batch refused) | Unchanged: not reverted, still counted. When one entity has several refused operations in a batch, the first one whose code undoes the change drives the revert; the first refusal is what the user is told. |
+| Refused `crop_listing` with `REPUTATION_RESTRICTED` or `CROP_HAS_ACTIVE_ORDERS`; refused `trip` with `REPUTATION_RESTRICTED` or `TRIP_HAS_BOOKINGS`; since 1.43.0 (FUP-51) also a `crop_listing` with `CROP_CONTACT_IN_TEXT` and a `trip` with `TRIP_CONTACT_IN_TEXT`, and either with `FRAUD_ACCOUNT_HELD` | Reverted with the order rules. A refused `create` was never stored: remove the local row. A refused update or delete: re-read `GET /crops/{id}` or `GET /trips/{id}` (the owner's own read: only a farmer sends crop operations and only a trucker trip operations) and replace the local row (server wins), unless another operation for it is still queued. A 404 (deleted, or for a trip cancelled) or 403 removes the local row. Any other failed read puts the local version back to the lowest version the refused operations sent and clears the pull stamp, so the next crop or trip pull overwrites the row. |
+| Reverted crop listing or trip | Once the revert returned (a failed read included, since the next pull settles the row), its rejected operations are flagged `reverted` and leave the "Sync failed" count: nothing is left for the user to act on. A revert that threw keeps them counted. Since 1.43.0 (FUP-25) the same holds for a reverted delivery and for a message removed because its thread is closed. |
+| Refused `trip` `create` with `FRAUD_DUPLICATE_LISTING` (1.69.0, `trip-listing-api.md` 2.10.0 rule 14: the trucker already has an open trip on that route, departure day and vehicle) | Reverted like the row above: the create was never stored, so the local trip is removed without a read and its operation leaves the "Sync failed" count. Before 1.69.0 the local trip stayed in My Trips, which has no mark for a trip that failed to sync, so it looked posted. Explained with a sentence of its own in en, am and om (`errorDuplicateTrip`: "You already have a trip on this route on that day, so this one was not posted. Edit that trip instead. If this is a second truck, add its plate number."), not the listing-form wording. Web: the create fails with the same sentence and the form stays open. A `crop_listing` with this code is unchanged (next row). |
+| Any other refusal of a crop listing or trip (`FRAUD_*` other than `FRAUD_ACCOUNT_HELD` and, on a trip, `FRAUD_DUPLICATE_LISTING`; `SYNC_VALIDATION`, `*_UNAUTHORIZED`, a changed immutable field, a code meant for another entity, a whole batch refused) | Unchanged: not reverted, still counted. When one entity has several refused operations in a batch, the first one whose code undoes the change drives the revert; the first refusal is what the user is told. |
 | Refused delivery `create` that reaches the delivery revert (any code that undoes a delivery change) | The server never stored it: the local delivery is removed without a read. Every other refused delivery change is still re-read and never removed (1.11.0). |
 | Order operation refused with one of the five codes | Reverted like any permanent order rejection (1.10.0), not counted. |
 | `APP_UPDATE_REQUIRED` on anything but an `order` (`crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent`, `match_event`) | Kept pending without burning a retry and never reverted or removed (a create included): the same payload goes through once the app is updated. Not counted as failed. This build does not send it, or any operation queued behind it for the same entity, again while it runs (an in-memory hold, cleared by a restart or an update); every other entity keeps syncing. Explained once per entity, except background match events. |
-| `APP_UPDATE_REQUIRED`, refused order or held operation | The app also raises an in-memory "update required" flag the shell can read (the banner is ESC-25's). The client does no version gating of its own. |
+| `APP_UPDATE_REQUIRED`, refused order or held operation | The app also raises the "update required" flag the shell's banner reads (since 1.53.0 kept with the build number and cleared by an accepted order operation, see Minimum app version for order operations). The client does no version gating of its own. |
 | Reason | Each code has its own text in en, am and om (below), shown in the rejection snackbar. On an `order` create, `REPUTATION_RESTRICTED` says the farmer or trucker cannot take orders; on every other operation it says the user's account cannot do this for now. On a refused order create, `REPUTATION_RESTRICTED`, `TRIP_CAPACITY_EXCEEDED`, `ORDER_TRIP_NOT_ELIGIBLE` and `APP_UPDATE_REQUIRED` keep their own text (they already say what to do next); any other code on a refused create still reads "This order could not be placed". |
 
 Texts (keys in `app_en.arb`, `app_am.arb`, `app_om.arb`):
@@ -535,7 +741,8 @@ Texts (keys in `app_en.arb`, `app_am.arb`, `app_om.arb`):
 
 Web client (no queue, calls `/sync` directly): every code is a failure with the same text. A
 buyer's order create refused `REPUTATION_RESTRICTED` reads `errorCounterpartyRestricted`. Web
-reads live data, so nothing is reverted, and it raises no update flag.
+reads live data, so nothing is reverted. Since 1.53.0 (FUP-75) an `APP_UPDATE_REQUIRED` refusal
+also raises the "update required" flag, as on mobile (before, web raised none).
 
 Rules for server authors:
 - Each code must be deterministic for the same payload. A transient failure in the same
@@ -543,9 +750,15 @@ Rules for server authors:
 - Send `APP_UPDATE_REQUIRED` on order commands only (spec K1). A client holds any other
   operation answered with it until the app is updated, so sending it there only delays that
   operation.
-- `CROP_VALIDATION`, `TRIP_VALIDATION`, `CROP_UNAUTHORIZED` and `TRIP_UNAUTHORIZED` stay
-  retryable: `CROP_VALIDATION` and `TRIP_VALIDATION` also carry "The farmer profile could not
-  be read" when the users table read fails.
+- Send `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS` and `CROP_HAS_ACTIVE_ORDERS` only to an app that
+  sends `X-App-Build`; an app without it gets the sentence under `SYNC_VALIDATION` or
+  `ORDER_VALIDATION` (1.52.0, Codes older apps do not know).
+- `CROP_VALIDATION` and `TRIP_VALIDATION` judge only the operation: since 1.72.0 the clients treat
+  them as permanent (Profile refusals and the unsupported entity). A refusal decided by the owner's
+  profile, which a retry can pass, uses `CROP_PROFILE_UNAVAILABLE` or `CROP_PROFILE_INCOMPLETE` (and
+  the `TRIP_` twins); a read that failed uses no `_VALIDATION` code. `CROP_UNAUTHORIZED` and
+  `TRIP_UNAUTHORIZED` are permanent except their role gate (Refusals no retry can pass, 1.43.0):
+  never send those for a read that failed either.
 
 Clients older than 1.17.0 retry the five codes like any other error (up to three tries per sync,
 and `retryFailed` puts the operation back on every reconnect) and keep their local change. An
@@ -572,7 +785,10 @@ takes the ordered quantity off and a listing at 0 becomes `reserved` (`order-lif
 | A `cropListing` operation an older build left in the queue | Removed at app start, whatever its status, before the sync executor runs: not sent, not counted as failed, not announced. While it was queued it kept its listing row out of the crop pull's stale delete, so a listing the server took off the market is now dropped by the next pull. A listing the server still returns was already overwritten by every pull. | Nothing is queued on web. |
 
 No server change: the server never applied a `cropListing` operation. Older builds keep sending
-theirs until they update, and the server answers each the same way.
+theirs until they update, and the server answers each the same way. Since 1.72.0 (FUP-74) that answer
+is `SYNC_VALIDATION: Unsupported entity type: 'cropListing'.`, which every mobile build since
+2026-03-02 treats as permanent: such a build stops resending it after the first refusal (shown once as
+a change that was not accepted). A build before 2026-03-02 still retries it.
 
 ---
 
@@ -592,7 +808,7 @@ an unchanged echo is not checked), so the same operation always gets the same an
 
 | Server answer | Mobile client (sync queue) | Web client |
 |---|---|---|
-| `CROP_CONTACT_IN_TEXT:` or `TRIP_CONTACT_IN_TEXT:` | Permanent: mark the operation rejected (never resent, not reset by a reconnect). Not reverted: like any refused listing or trip outside the 1.17.0 revert list, the local row stays and the operation counts as failed. Explained in en, am and om with `errorContactInText` ("Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow."). | Failure with the same text. |
+| `CROP_CONTACT_IN_TEXT:` or `TRIP_CONTACT_IN_TEXT:` | Permanent: mark the operation rejected (never resent, not reset by a reconnect). Since 1.43.0 (FUP-51) reverted with the 1.17.0 rules: a refused create removes the local row, a refused update puts back the server's row, and the operations leave the "Sync failed" count (before, the row stayed and counted as failed). Only the entity's own code reverts: `TRIP_CONTACT_IN_TEXT` on a crop listing does not. Explained in en, am and om with `errorContactInText` ("Phone numbers are not allowed here. Remove the number: contact opens after payment is held in escrow."). | Failure with the same text; nothing local to undo. |
 
 The crop and trip forms run the same detector before anything is queued (offline-first) and show
 the same text under the field, so the refusal comes back only for an operation queued by an older
@@ -604,8 +820,72 @@ Clients from before 1.23.0 do not know the codes: they retry them like any other
 their local change; every retry gets the same refusal.
 
 The crop and trip revert for permanent refusals (1.17.0, ESC-12 part B, FUP-01) reverts only the
-codes it lists. These two codes are not on that list yet; adding them so a refused create is
-removed locally is a follow-up.
+codes it lists. Since 1.43.0 (FUP-51) these two codes are on that list.
+
+---
+
+## Drop-off landmark (1.36.0, LT-12)
+
+An `order` create may carry `dropoffNote`, and the order's buyer may send it alone on an `update`
+(`{"dropoffNote": "...", "version": n}`, the pre-change version; an empty string clears it) until
+pickup (`order-lifecycle.md` 2.5.0). The server refuses, nothing written:
+
+`ORDER_CONTACT_IN_TEXT: Remove the phone number from dropoffNote. Contact opens after payment is held in escrow.`
+
+`ORDER_DROPOFF_NOTE_LOCKED: The drop-off note can only be changed before pickup.`
+
+and `ORDER_UNAUTHORIZED` for a change from anyone but the buyer, and for any `dropoffNote` at all
+from a party who may not read it (a trucker not committed: the same text whatever the value, so no
+answer tells what the note says), `ORDER_VALIDATION` for more than 80 user-visible characters, a
+control character or a U+2028/U+2029 separator. Clients send the note on one line: every control
+character and line or paragraph separator becomes a space, runs of spaces collapse, the ends are
+trimmed (mobile and web share the helper), so an offline order never meets that refusal. An
+unchanged echo of the stored note from a party who reads it is dropped, never refused. A delivery that cannot be read for the edit window answers the unprefixed
+`The order's delivery could not be read. Please try again later.` (retryable).
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `ORDER_CONTACT_IN_TEXT:` | Permanent under the `ORDER_*` rule (1.10.0): a refused create removes the local order and says it was not placed; a refused update puts the order back to the server's view and is explained with `errorContactInText` (the listing text refusal's wording). | Failure with `errorContactInText`. |
+| `ORDER_DROPOFF_NOTE_LOCKED:` | Permanent under the `ORDER_*` rule: the order is put back to the server's view, explained with `errorDropoffNoteLocked` ("The goods were picked up, so the drop-off landmark can no longer be changed."). | Failure with the same text. |
+
+The order forms run the same length and phone checks first, and offer the edit only to the buyer
+of a trip order before pickup, so the refusals come back only for a race with the pickup or an
+operation queued by another build. An order row in `serverData` leaves out `dropoffNote` for a
+caller who may not read it (a trucker not committed): clients apply the row as is, so a device
+holding the order of such a trucker drops its copy.
+
+Deploy order: a server before 1.36.0 refuses the field (`ORDER_VALIDATION: Unknown fields:
+dropoffNote`, permanent), so the server ships before clients that send it.
+
+---
+
+## Drop-off place (1.42.0, LT-14)
+
+An `order` create may carry `deliveryLatitude` and `deliveryLongitude` (JSON numbers, both or
+neither, inside Ethiopia's box), and the order's buyer may send them alone on an `update`
+(`{"deliveryLatitude": 8.5872, "deliveryLongitude": 39.1213, "version": n}`, the pre-change version)
+until pickup (`order-lifecycle.md` 2.9.0). The server refuses, nothing written:
+
+`ORDER_DELIVERY_LOCATION_LOCKED: The drop-off place can only be changed before pickup.`
+
+and `ORDER_UNAUTHORIZED: Only the buyer can change the drop-off place.` for a change from anyone but
+the buyer and for either field at all from a party who may not read the point (the trucker of an
+order whose money is not held, or one who declined, expired, dropped out or failed on capacity; an
+asked trucker reads it), `ORDER_VALIDATION` for half a point, a value that is not a number or one outside the
+box. An unchanged echo from a party who reads it is dropped. The clients send only the centroid of a
+place picked from the bundled list, checked against the box first, so an offline order never meets
+the validation refusal.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `ORDER_DELIVERY_LOCATION_LOCKED:` | Permanent under the `ORDER_*` rule: the order is put back to the server's view, explained with `errorDeliveryLocationLocked` ("The goods were picked up, so the drop-off place can no longer be changed."). | Failure with the same text. |
+
+On an order without a trip (self-pickup) the fields are ignored: dropped, never refused, never
+stored. An order row in `serverData` leaves the point out for a caller who may not read it, by its
+own rule (the buyer, the farmer, the order's trucker while the money is held and the trucker is
+still on the order), and the note by the note's.
+Deploy order: a server before 1.42.0 refuses the fields (`ORDER_VALIDATION: Unknown fields`,
+permanent), so the server ships before clients that send them.
 
 ---
 
@@ -649,6 +929,27 @@ set, copied names `Deleted user`), so browse drops them as it drops any deleted 
 
 ---
 
+## Typed handoff code (1.33.0, usability audit T-1)
+
+When the camera or the screen fails, a pickup (`pickedUp`) or a delivery confirm
+(`delivered`) may carry `scannedQrCode`, the nine-digit code of the QR's nonce, instead of
+`scannedQrNonce` (`delivery-verification-api.md` 1.22.0, QR Secret Storage). The apps check the
+Damm digit before anything is queued, so a typo never reaches the server, and they require a
+GPS fix for a typed code. The code is checked only by the server: the mobile app says "Pickup
+saved. The code is checked when your phone is online." instead of "verified".
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `success` | Synced. | Done. |
+| `DELIVERY_CODE_MISMATCH:` (not this delivery's code), `DELIVERY_CODE_LOCKED:` (five wrong codes for this leg; scan the QR, or the farmer regenerates), `DELIVERY_CODE_LOCKED_DROPOFF:` (the same at a trucker's drop-off, whose code cannot be renewed: scan the trucker's drop-off QR, or contact support; checked before `DELIVERY_CODE_LOCKED`, which it starts with) and `DELIVERY_CODE_GPS_REQUIRED:` (a paid delivery's typed code without the leg's GPS) | Permanent: mark the operation rejected (never resent, so the queue never spends more of the five tries) and revert the local delivery as for `DELIVERY_CANCEL_NOT_ALLOWED` (re-read `GET /deliveries/{id}`, server wins; else the lowest sent version). Explained in en, am and om, one text per code. | Shows the same message. |
+| `deferred` (`DELIVERY_NONCE_PENDING`) | Re-queued without a retry, as for a scan. | Shows its QR-pending text. |
+| `DELIVERY_VALIDATION: scannedQrCode ...` (not nine digits with a valid check digit) | Unchanged `DELIVERY_*` handling (the apps never send one). | Failure. |
+
+A miss is counted once per operation id and code, so a resent operation cannot lock the code by
+itself, and a new code under a reused operation id still counts.
+
+---
+
 ## Fraud signals from refusals (1.27.0, FRD-08)
 
 Some operation refusals now also write a fraud signal on the caller (the authenticated user of the
@@ -662,7 +963,7 @@ logged. Signals feed the caller's risk score (`specs/architecture/fraud-detectio
 | A crop, trip, order or delivery `create` that conflicts with a row the caller does not own and is no party to (the 1.4.0 conflict with no `serverData`) | `IDOR_CREATE_CONFLICT` | 40 |
 | `CROP_UNAUTHORIZED`, `TRIP_UNAUTHORIZED`, `ORDER_UNAUTHORIZED`, `DELIVERY_UNAUTHORIZED`, `INTENT_UNAUTHORIZED`, `RATING_UNAUTHORIZED`, `MESSAGE_UNAUTHORIZED` and `RATING_FORBIDDEN: You can only rate your own orders.`; a role gate met by a token without `custom:role` writes nothing | `ROLE_FORBIDDEN` | 25 |
 | `CROP_VALIDATION`, `TRIP_VALIDATION`, `DELIVERY_VALIDATION` or `ORDER_VALIDATION` for a changed identity or money field (`... is immutable and cannot be changed on update.`), and `ORDER_VALIDATION: orderId does not match the operation entityId.` | `IMMUTABLE_FIELD_CHANGE` | 25 |
-| `DELIVERY_NONCE_MISMATCH`, `DELIVERY_NONCE_REPLAY`, and `DELIVERY_NONCE_MISSING: QR nonce verification required for this transition.` | `QR_HANDOFF_FAILURE` | 5 |
+| `DELIVERY_NONCE_MISMATCH`, `DELIVERY_NONCE_REPLAY`, `DELIVERY_NONCE_MISSING: QR nonce verification required for this transition.`, and since 1.33.0 `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED` (except the one for a delivery without the secret store) and `DELIVERY_CODE_LOCKED_DROPOFF` | `QR_HANDOFF_FAILURE` | 5 |
 | The 10th `conflict` on an `update` or `delete` in one batch | `STALE_VERSION_BURST` | 0 |
 
 The caller holds at most one row per signal type per hour, and the score counts these types once
@@ -676,10 +977,1040 @@ per delivery. The rest are requests the shipped apps never send. Clients need no
 
 ---
 
+## Order commitments (1.29.0, ESC-15)
+
+Server slice of the sequential commitments (`order-lifecycle.md` 2.0.0, Commitments), behind
+`COMMITMENTS_ENABLED` (off everywhere until the clients ship; off, the server behaves as before).
+Two commands travel as an order `update` (`entityType: order`, `action: update`), each with the
+order's pre-increment `version`:
+
+| Command | `data` | Who | Effect |
+|---|---|---|---|
+| farmer response | `{"farmerResponse": "accept" \| "decline", "declineReason"?: code, "version": n}` | the order's farmer, on a `funded` order | accept: `accepted` (self-pickup), or the order stays `funded` and the trucker is asked (trip order); decline: `rejected`, refund |
+| trucker response | `{"truckerResponse": "accept" \| "decline", "declineReason"?: code, "version": n}` | the order's trucker, on a `funded` order whose farmer accepted | accept: `accepted`, booking confirmed; decline: `awaiting_transport`; from `accepted` before pickup a `decline` is the drop-out (fresh sign-in) |
+
+`farmerResponse`, `truckerResponse` and `declineReason` are the only new update keys a client may
+send (`ORDER_VALIDATION: Unknown fields: ...` otherwise, as before). `declineReason` is one of
+`date`, `capacity`, `price`, `route`, `crop_not_ready`, `other`. The farmer's legacy
+`status: accepted | rejected` is mapped to the farmer command, so shipped farmer apps keep working.
+The new status `awaiting_transport` and every new order field (`fulfillment`, `pickupDate`, the
+response, deadline and reminder stamps, `transportFailure`, `cancelledBy`, `faultParty`) are
+server-written: a client value is dropped from create and update payloads, and `GET /orders`
+returns them.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `success` | Synced; the pulled order says what happened (an accepted trip order stays `funded` with `truckerResponse: pending`). A repeated accept is a `success` with no write. | Done; re-read the order. |
+| `ORDER_RESPONSE_NOT_PENDING:` (the party's answer is not pending: the farmer has not accepted yet, the request is closed, or the order was already answered) | Permanent under the `ORDER_*` rule (1.10.0): revert the local order and explain. | Failure with the same message. |
+| `ORDER_DEADLINE_PASSED:` (the farmer's or the trucker's deadline passed; the cron is ending the order) | Permanent: revert and explain (`errorDeadlinePassed`, shipped since 1.17.0). Like `ORDER_CANCEL_NOT_ALLOWED` it depends on the server clock, and the client never resends it. | Failure. |
+| `ORDER_CANCEL_NOT_ALLOWED:` on a buyer's `funded -> cancelled` ("The farmer and the trucker are deciding; you will be told as soon as they answer.") or on a committed cancel after pickup | Permanent (1.13.0): revert the local cancel. | Failure. |
+| `AUTH_040:` on a trucker `decline` from `accepted`, or a farmer `cancelled` from `accepted` (the drop-out needs a fresh sign-in) | Ask for the password and resend, as on a payment (`order-lifecycle.md` 1.5.0); not a permanent rejection. | Re-authenticate and retry. |
+| `TRIP_CAPACITY_EXCEEDED:` on an order create above the trip's `remainingQuintals`; `TRIP_HAS_BOOKINGS:` on a trip update or delete the bookings forbid | Permanent since 1.17.0 (ESC-12 part B): the order create is reverted, the trip change reverted with the trip rules. | Failure. |
+| `ORDER_VALIDATION: This trip is no longer available; place a new order.` on `payment_submitted` | Permanent: revert the local order (the trip left `open` / `matched`, lost the room, or departs in under 12 hours). | Failure. |
+| unprefixed error (a trip or escrow that could not be read) | Retried. | Failure (generic). |
+
+Both codes are new strings on an existing rule: the `ORDER_` prefix made them permanent on every
+client since 1.10.0, so no client change is needed for them. The ESC-15 client PRs add the commands,
+the `awaiting_transport` status and the texts. Clients older than those PRs never send a trucker
+command and send the farmer's answer as the legacy status.
+
+**Clients (1.30.0, app build 3).** The farmer's accept and reject are sent as
+`{"farmerResponse": "accept" | "decline", "respondedAt", "rejectionReason"?, "version"}` on every
+server: with `COMMITMENTS_ENABLED` off the server translates the command into the old status write.
+The trucker's command is sent only on an order whose `fulfillment` was stamped (the server runs the
+commitments); a server without the flag answers it `ORDER_VALIDATION: Transport requests are not
+enabled on this server yet.` `ORDER_RESPONSE_NOT_PENDING:` now has its own text
+(`errorResponseNotPending`, en, am and om) on mobile and web; it stays permanent and reverts the
+local order like any `ORDER_*` refusal. On mobile an `AUTH_040` on the drop-out or the farmer's
+committed cancel waits in the queue for the password prompt, as for a payment.
+
+---
+
+## Location pings (1.31.0, LT-05)
+
+The `location_ping` entity carries one check-in (`fix`) or sharing event (`paused`, `resumed`,
+`declined`) of the trucker's phone after pickup. The fields, bounds, storage and the read side are
+in `live-trip-api.md` 1.0.0, section 1. What matters to the sync queue:
+
+- `action: "create"` only. `entityId` is `{tripId}#{capturedAt in epoch ms}` and must match `data`.
+  Fields that belong to another kind (a `source` on a `paused` event) are ignored and not stored.
+- Accepted only from the trip's trucker while a delivery on the trip is `pickedUp` or `inTransit`,
+  or left those statuses after `capturedAt` (`delivered` and `disputed` at `confirmedAt`, an admin
+  cancel after pickup at `cancelledAt`), so a ping that waited offline is kept.
+- A resend of the same `entityId` and `kind` is an idempotent `success` with
+  `message: "Location already stored."`; nothing is written twice. A repeated idempotency key
+  answers `duplicate`, as for every entity.
+
+| Server answer | Meaning | Mobile client (sync queue) |
+|---|---|---|
+| `success` | Stored, or an idempotent resend. | Synced. |
+| `deferred` with `LOCATION_NOT_ACTIVE:` | No delivery on the trip is on the road yet: the first pickup may still wait in a queue (for example held back until its QR handoff secret syncs), or another delivery of the trip is still `pending`. Also sent instead of `LOCATION_SHARING_ENDED` when an earlier operation of the same batch wrote a delivery, because the server's deliveries-by-trip read may not show that write yet. | Re-queue without using a retry (the `deferred` rule above). Once the ping is older than 7 days it answers `LOCATION_STALE`. |
+| `LOCATION_VALIDATION:` | A missing or out-of-range field, an unknown `kind`, `source` or field, an `entityId` that does not match `tripId` and `capturedAt`, or an `update` or `delete`. | Permanent: mark rejected, never resent. |
+| `LOCATION_NOT_TRUCKER:` | The caller is not the trip's trucker, or the trip does not exist. | Permanent. |
+| `LOCATION_SHARING_ENDED:` | Every delivery on the trip that was picked up left the road before `capturedAt`, and none is still `pending`. | Permanent; the phone also stops sharing for the trip. |
+| `LOCATION_RATE_LIMITED:` | The trip already has 20 `fix` pings in the clock hour (UTC) of `capturedAt`. Events do not count. | Permanent. |
+| `LOCATION_STALE:` | `capturedAt` is more than 2 minutes in the future or more than 7 days old by the server clock. | Permanent. |
+| unprefixed error (a read failed, or the server has no trip-locations table) | Nothing was written. | Retried. |
+
+A refused or deferred ping writes nothing and stores no idempotency key. Refused pings are not
+reverted and not announced to the user: there is no local row to put back, and a lost check-in
+only leaves a gap in the trail. The server sends these answers since 1.31.0; the mobile and web
+handling ships with LT-08, and no client sends the entity before it.
+
+**Client handling as built (1.32.0, LT-08).** No server change.
+
+- Mobile queues each ping as a `location_ping` create with the idempotency key
+  `{userId}:location_ping:{entityId}:create:{capturedAt in epoch ms}` and keeps its own copy in
+  Isar (`LocationPing`, platform pair `core/models/web/location_ping.dart`).
+- A batch takes every other pending operation first (FIFO) and fills the rest with pings (FIFO
+  among them): a trip's pickup always goes before its pings, and pings that wait as `deferred`
+  never hold back other writes.
+- Once a trip's ping is answered `deferred`, each sync sends only one ping of that trip, the
+  oldest, as a probe; the others wait until a probe is stored or refused with a `LOCATION_*`
+  code, then go in the same sync. A transient error keeps probing. The probe state is in memory,
+  so the first sync after a restart sends the waiting pings once.
+- A `LOCATION_*` error is rejected for good, not reverted, not announced and not counted in the
+  "Sync failed" badge. `LOCATION_SHARING_ENDED` also stops sharing for the ping's trip, once per
+  trip per batch. `deferred` is re-queued without a retry; an unprefixed error is retried.
+- Coalescing: when more than 24 pings wait unsent (`pending`), at most one `fix` per trip and
+  clock hour (UTC) of `capturedAt` stays (by source: `start`, `scan`, `arrived`, `manual`,
+  `near_stop`, `hourly`; the latest on a tie) plus every event. A ping on its way is never
+  coalesced.
+- A delivery update to `pickedUp` rejected for good (any permanent code, or a refused batch)
+  drops the waiting pings of its trip, unless another delivery of the trip is on the road on the
+  phone; they could only wait as `deferred` for 7 days. Pings captured before another delivery
+  of the trip left the road (its `confirmedAt`, or its last update when cancelled after pickup)
+  stay, and nothing is dropped when the phone cannot read the trip's deliveries.
+- Web has no queue: each ping goes to `/sync` at once, together with any that wait, with the
+  same key, codes and coalescing; what waits is kept in memory while the page is open.
+
+---
+
+## Handoff photos (1.39.0, FRD-12)
+
+The `delivery_photo` entity attaches a handoff photo, already uploaded through the presigned `PUT`
+of `POST /deliveries/{id}/photos`, to its delivery. The rules, the checks and the order they run in
+are in `delivery-verification-api.md` 1.25.0, section 4b. What matters to the sync queue:
+
+- `action: "create"` only. `entityId` is `{deliveryId}#{pickup|dropoff}` and `data` is
+  `{"photoRef": key}`, nothing else. The id names the photo, not the delivery, so a photo waiting
+  in the queue holds back neither the delivery's operations nor its pull.
+- Only the photo's taker may send it: the delivery's trucker for `pickup`, its buyer for `dropoff`.
+- The write sets the delivery's `pickupPhotoRef` or `dropoffPhotoRef` and nothing else: the
+  delivery's `version` and `updatedAt` stay, so no queued handoff of another phone conflicts with
+  it. A `success` carries the delivery's `serverVersion` and no `serverData`.
+- Since 1.39.0 a `pickupPhotoRef` or `dropoffPhotoRef` in a `delivery` create or update is still
+  shape-checked (`DELIVERY_INVALID_FIELD` as before) but a valid key is dropped, not written.
+  Since 1.43.0 (FUP-08) the mobile queue leaves either field out of a `delivery` operation unless
+  it holds this delivery's upload key, so an operation an old build queued with a photo file path
+  goes through instead of being refused on every sync.
+
+| Server answer | Meaning | Mobile client (sync queue) |
+|---|---|---|
+| `success` | Attached, or the same key was attached already. | Synced. |
+| `deferred` with `DELIVERY_PHOTO_PENDING:` | The delivery or the photo's storage could not be read (or, 1.61.0, the photo's copy to its kept key failed), or the server has no uploads bucket. Since 1.61.0 (FUP-140) also a `pickup` or `dropoff` photo whose handoff is not on the delivery yet (`The handoff has not reached the server yet.`, judged on a strongly consistent read): it attaches once the pickup or the delivery confirm is there. The buyer's drop-off photo on a dispute the order cron opened that no admin decided is not held back: it is taken as late evidence (`success`). | Re-queue without using a retry. |
+| `DELIVERY_PHOTO_INVALID:` | Not a create, an entity id without a known type, a field other than `photoRef`, a key that is not this delivery's key of this type, or an object whose stored type is not its key's. | Permanent. |
+| `DELIVERY_PHOTO_FORBIDDEN:` | The caller does not take this photo (the farmer, the other party, an outsider; anyone for a self-pickup's pickup). An outsider also writes `ROLE_FORBIDDEN` (1.27.0). | Permanent. |
+| `DELIVERY_PHOTO_REFUSED:` | The delivery was cancelled; since 1.61.0 also a `pickup` or `dropoff` photo of a disputed delivery without that handoff that is not taken as late evidence (`The delivery is disputed without this handoff.`). | Permanent. |
+| `DELIVERY_PHOTO_EXISTS:` | The handoff already has another photo; the first stays. | Permanent. |
+| `DELIVERY_PHOTO_MISSING:` | No object at the key: the photo never went up. | Permanent. |
+| `DELIVERY_PHOTO_TOO_LARGE:` | The object is empty or over 200 KiB. | Permanent. |
+| unprefixed `Delivery not found.` | The delivery's own create may still be on its way. | Retried. |
+
+A refused photo writes nothing. Like a refused check-in, it is not reverted, not announced and not
+counted in the "Sync failed" badge: the handoff it belongs to stands without its photo, and there
+is nothing for the user to do (an exception to invariant 1's "tells the user why").
+
+**Client handling (1.39.0).**
+
+- Mobile queues the photo right behind its handoff (the pickup or delivery confirm) with the
+  file's path in `data._localPath` (a `_` key: never sent). When a batch is built, a preflight
+  uploads the file and stores `{"photoRef": key, "_localPath": path}` in the batch and in the
+  queued operation, so a later run sends the key without uploading again.
+- Every wait is bounded. Offline, a `PUT` that did not reach S3 or got a `5xx`, or a presign
+  answered `401` or `5xx` holds only the photo until the next run, without using a retry. A
+  presign answered `404` (the delivery is unknown) holds it while an operation of the delivery
+  itself (its create) still waits on the phone, and for 10 minutes after the photo was queued;
+  after that the photo is given up. A presign answered `400`, `403` or `409` (over the cap, not
+  this user's photo, the handoff has its photo, or since this version a cancelled delivery,
+  `409 DELIVERY_PHOTO_REFUSED`), a file that is gone, and the third `PUT` refused with a `4xx`
+  also give it up. A photo given up is sent without a key, so the server refuses it for good
+  (`DELIVERY_PHOTO_INVALID`) and the queue settles it. Since 1.61.0 (FUP-140) S3's
+  `400 RequestTimeout` (it closed a stalled upload) and a `408` are no refusal: the photo waits
+  for the next run, uncounted.
+- A `delivery` operation rejected for good rejects the photos waiting behind it: a create both,
+  a `pickedUp` the pickup photo, a `delivered` the drop-off photo (they could only wait for a
+  delivery or a handoff the server never took).
+- Since 1.61.0 (FUP-140) so does a `pickedUp` or `delivered` update answered `conflict` (server
+  wins: that handoff was not taken), once the batch is settled, unless its `serverData` shows the
+  handoff anyway (`pickedUpAt`, or a status of `pickedUp`, `inTransit` or `delivered`, for the
+  pickup; `confirmedAt` or `delivered` for the drop-off) or, for the drop-off photo, a `disputed`
+  row without `disputeResolution` (the server keeps it as late evidence on the order cron's T8 or
+  T9 dispute, and refuses it for good on any other). A photo of the same batch that the server
+  held back (`deferred`) goes too. Not announced and not counted, like the rejection above. A
+  conflicted create gives no photo up (its photos wait for the handoffs queued behind it).
+- After a `success` (or `duplicate`) the phone's photo files of that handoff are deleted and the
+  delivery row takes the server's key. Until then a delivery pull or a delivery conflict keeps
+  the phone's own photo path while the server has no photo of that type.
+- Web has no queue: the browser uploads the photo when it is taken and sends the
+  `delivery_photo` operation on its own `/sync` call after the handoff succeeded; any refusal is
+  logged and the handoff stands.
+
+---
+
+## Refusals no retry can pass (1.43.0, FUP-110, FUP-138)
+
+Client change only; the server sends these as before. The FRD-08 refusals (1.27.0) that the same
+payload always gets, and that the shipped apps never cause, are no longer resent: before, the queue
+tried each three times per sync and `retryFailed` put it back on every reconnect.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| Any `*_UNAUTHORIZED` code (`CROP_`, `TRIP_`, `DELIVERY_`, `INTENT_`, `RATING_`, `MESSAGE_`, `MATCH_EVENT_`, `USER_PROFILE_`; `ORDER_UNAUTHORIZED` was already permanent under the `ORDER_*` rule) except a role gate | Permanent: rejected, never resent, not reverted, still counted as failed, explained with `errorChangeNotSaved` (a match event is not announced). These compare the caller's id with the row or the payload: no read that can fail decides them. | Unchanged: a failure. |
+| A role gate: `CROP_UNAUTHORIZED: Only farmers can create crop listings.`, `TRIP_UNAUTHORIZED: Only truckers can create trip listings.`, `INTENT_UNAUTHORIZED: Only buyers can create purchase intents.`, `RATING_UNAUTHORIZED: Only buyers can rate counterparties.`, `MATCH_EVENT_UNAUTHORIZED: Only buyers can log match events.` | Retried as before: a token without the `custom:role` claim (an access token sent instead of the ID token, a client set-up problem the server does not score, 1.27.0) gets the same answer, and the same operation passes once the app sends the right token. | Unchanged. |
+| `RATING_FORBIDDEN: You can only rate your own orders.` | Same. `RATING_FORBIDDEN: You can only rate a delivered order ...` stays retryable: the order may still be delivered. | Unchanged. |
+| `CROP_VALIDATION`, `TRIP_VALIDATION` or `DELIVERY_VALIDATION` with `... is immutable and cannot be changed on update.` | Same. Any other `DELIVERY_VALIDATION` text stays retryable; since 1.72.0 every `CROP_VALIDATION` and `TRIP_VALIDATION` is permanent (Profile refusals and the unsupported entity). | Unchanged. |
+| `DELIVERY_NONCE_MISSING:` (all three texts: a handoff without a scanned nonce or typed code while the server holds the farmer's nonce, and a pickup or paid drop-off whose farmer's nonce never reached the server within 14 days) | Permanent and reverted like a refused typed code (1.33.0): the delivery goes back to `GET /deliveries/{id}`, the photo waiting behind the handoff is rejected, a refused pickup drops its trip's waiting check-ins, and the operations leave the "Sync failed" count. Explained with `errorChangeNotSaved`. `DELIVERY_NONCE_MISMATCH`, `_REPLAY`, `_EXPIRED` stay retryable (a code regenerated offline passes once it syncs), and `DELIVERY_NONCE_PENDING` stays `deferred`. | Unchanged: a failure with the generic delivery text. |
+
+Reverted deliveries and messages (FUP-25): once the revert handler returned, a delivery refused for
+good (cancel after pickup, refused or late dispute, typed code, missing nonce) and a message removed
+because its thread is closed are flagged `reverted` and leave the "Sync failed" count, like a
+reverted crop listing or trip (1.17.0). A revert that threw keeps them counted.
+
+Clients before 1.43.0 retry these codes like any other error.
+
+---
+
+## Changes to a finished delivery or trip (1.45.0, FUP-128)
+
+A cancelled delivery and a trip that is `cancelled`, `delivered` or deleted never change again.
+A change that reaches one comes from a client that did not know yet: the other party, the cron or
+an admin's verdict ended it while the phone was offline. Rule 6 (SIM-28) covered the changes the
+transition table refuses; the finished states are refused before that table is read.
+
+Server (the delivery part is new in 1.45.0; the trip part has been built since
+`trip-listing-api.md` 2.4.0, ESC-17, and is unchanged):
+
+| Operation | Sent version | Caller | Answer |
+|---|---|---|---|
+| Delivery `update` on a delivery that is `cancelled` or carries a legacy `deletedAt` | lower than the stored one | may make the change: the trucker for `pickedUp` and `inTransit`, the buyer for `delivered`, any party for `disputed`; without a `status`, the trucker, or the farmer when the update stores `qrNonce` | `conflict`, `serverVersion`, the scrubbed row in `serverData` (no phones, no `qrNonce`, no photo version ids), message `DELIVERY_ALREADY_CANCELLED: The delivery is already cancelled.` Nothing is written. |
+| The same | lower than the stored one | anyone else (an outsider, or a party asking for another party's status) | `error` `DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery.` (or `... a deleted delivery.`), no row |
+| The same | the stored version, a newer one or none | anyone | The same `error` |
+| Delivery cancel (`update` to `cancelled` or the legacy `delete`) of a cancelled delivery | any | a party | `conflict` with the row, as since 1.11.0 |
+| Trip `update` or `delete` on a trip that is `cancelled`, `delivered` or deleted | lower than the stored one, or asking for the status it already has | the trip's trucker (ownership is checked first) | `conflict` with the row (2.4.0) |
+| The same | the stored version or none, asking for something else | the trip's trucker | `error` `TRIP_TERMINAL_STATE` or `TRIP_ALREADY_CANCELLED` |
+
+A pickup that reaches a delivery cancelled by a transport-failure cancel still logs the alarmed
+`ORDER_TRANSPORT_CANCEL_PICKUP_REFUSED` token before it is answered, conflict or error.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `conflict` with the cancelled delivery or the finished trip | Server wins, as for any conflict: the local row takes the server's status and version, the operation is settled. The resolver reads a row without its optional fields (a crop without `description` or with the flat `latitude` and `longitude`, a trip without `truckerName` or `truckerPhone`, a self-pickup without a trucker) and maps the server's crop status `available` to the app's `active`. | A failure, as for any conflict (the web reads the version right before it writes, so it is rarely behind); the next read shows the cancelled delivery. |
+| `error` `DELIVERY_ALREADY_CANCELLED:` | Permanent and reverted like a refused delivery cancel (1.11.0): rejected, never resent, the delivery goes back to `GET /deliveries/{id}`, the operation leaves the "Sync failed" count, explained with `errorChangeNotSaved`. This is what the second of two queued changes gets (a pickup, then in transit): the first is behind and gets the conflict, the second was queued one version higher, which is the cancelled row's version. | Unchanged: a failure with the message. |
+| `error` `TRIP_TERMINAL_STATE:` or `TRIP_ALREADY_CANCELLED:` | Permanent and reverted with the trip rules (1.17.0): the trip goes back to `GET /trips/{id}` (a `404`, which a cancelled trip answers, removes it, as the trip pull does), the operation leaves the "Sync failed" count, explained with `errorChangeNotSaved`. | Unchanged. |
+
+All three roles: the trucker's pickup, in-transit mark and trip changes, the buyer's confirmation
+(a self-pickup included) and any party's dispute. Clients before 1.45.0 resolve the new conflict
+as any other and keep retrying the errors as before, so the server ships first or together.
+
+---
+
+## Minimum app version for order operations (1.41.0, ESC-25)
+
+Spec `three-party-escrow-commitments-reputation.md` K1: client support first, then the server, and
+`/sync` refuses order commands from apps below the minimum. The clients have handled
+`APP_UPDATE_REQUIRED` since 1.17.0, and every app from build 2 on sends `X-App-Build` (FUP-61,
+`escrow-protocol.md` 1.31.0). `COMMITMENTS_ENABLED` stays off in staging and prod until the owner
+turns it on there, after this gate is deployed (an infra test requires the gate at build 3 or more
+in every environment with the flag on).
+
+**The build.** `X-App-Build: <n>` on the `/sync` request, `n` being the `+N` of `version:` in
+`mobile/pubspec.yaml` (mobile and web send the same number). Read case-insensitively with
+`ClientAppBuild`, once per batch; only a positive whole number counts. A missing, empty or unreadable
+header is an old app (FUP-61 decision 3, waiting for confirmation in FUP-91).
+
+**The minimum.** `MIN_ORDER_APP_BUILD` on the sync Lambda, set per environment in the infra config
+(`minOrderAppBuild` in `infra/lib/config/environments.ts`). Only a positive whole number turns the
+gate on; 0, absent or unreadable turns it off. The value is 3 in dev, staging and prod: build 3 is the
+first app that renders `awaiting_transport` and sends the farmer and trucker commands (#237). It does
+not depend on `COMMITMENTS_ENABLED`, so it is live before the flag. Only the sync Lambda carries it:
+no other Lambda takes order commands.
+
+**What it covers.** Every `order` operation, `create`, `update` and `delete` alike: the commitment
+commands (`farmerResponse`, `truckerResponse`, the planned `transportChoice`), the legacy status
+changes (payment, cancel, accept, reject), the drop-off note. An app below the minimum cannot show
+the commitment statuses, so it may not act on orders at all (spec K1). Not covered: every other
+entity (`crop_listing`, `trip`, `delivery`, `rating`, `message`, `buyer_intent`, `match_event`,
+`location_ping`, `delivery_photo`, `user`), which the clients would only hold (1.17.0), and the
+`/escrow/*` routes, which map the statuses an old app cannot parse instead (`escrow-protocol.md`
+1.31.0).
+
+**When.** Per order operation, right after the shape check (the required fields and the action) and
+before any read, other field check or write, so the answer is the same for every payload from the
+same build. Nothing is written, no idempotency key is read or stored, no fraud signal is written
+(1.27.0), and the rest of the batch goes on. A retry of an order operation the server applied before
+the gate went live gets the refusal too; the client's next order pull brings the order back.
+
+**The answer.**
+
+| Caller | Operation result |
+|---|---|
+| sends `X-App-Build` (build 2 or later, so it has the 1.17.0 client) below the minimum | `{"operationId": "...", "status": "error", "message": "APP_UPDATE_REQUIRED: This version of the app is too old for orders. Update WeredaConnect to continue."}` |
+| sends no readable `X-App-Build` (build 1 or older; such an app may predate the 1.17.0 client, which retries an unknown code forever, FUP-75) | `{"operationId": "...", "status": "error", "message": "ORDER_VALIDATION: This version of the app is too old for orders. Update WeredaConnect to continue."}`, permanent on every client since 1.10.0 |
+| at or above the minimum, or the gate off | unchanged |
+
+Clients (1.17.0, no change): mobile marks the order operation rejected (never sent again), reverts
+the local order (a refused create removes it), leaves it out of the "Sync failed" count, raises the
+in-memory "update required" flag and shows `errorAppUpdateRequired` ("Please update the app to
+continue. This change was not saved."); web shows the same text. Server rule unchanged: send
+`APP_UPDATE_REQUIRED` on order operations only.
+
+**The update banner (1.53.0, FUP-75).** Client only. The flag is raised by the mobile queue (an
+order refused, or an operation held, with `APP_UPDATE_REQUIRED`) and, since 1.53.0, by a web `/sync`
+refusal with that code. While it is set, the signed-in shell shows a banner above every main screen
+(the phone's tabs; every web page, beside the sidebar): `appUpdateBannerMessage` ("Please update the
+app to place or change orders. Everything else still works."), with a button. It takes at most 40% of
+the height and scrolls inside when the text is long. The banner never blocks: every screen and the
+data kept on the device stay usable, nothing is wiped, and only orders wait.
+
+- Phone: "Update" opens the app's Play Store page (`et.wereda.connect`). The listing is not live yet,
+  so a second line, `appUpdateBannerStoreHint`, always says to get the latest app from where it was
+  installed (a launch that "worked" may land on a page without the app).
+- Web: "Reload page" reloads only once the newer app is in hand, because the app's code can be held
+  in two places. A Flutter caching service worker (the default of the Flutter that CI builds the web
+  app with) answers `main.dart.js` from its own cache whatever the page asks, so the page first asks
+  its worker to update and waits (up to 3 minutes) for the newer worker to be active (its install
+  downloads the app past the browser cache). Then it fetches `main.dart.js` with `cache: 'reload'`
+  (the browser cache keeps it for a year, `immutable`), then reloads. Offline (`navigator.onLine`
+  false), or when the worker update or the fetch fails, nothing is reloaded and nothing cached is
+  dropped, so the app keeps running and still starts offline; a snackbar says so
+  (`appUpdateReloadFailed`).
+
+The flag is kept on the device with the running build's number (`X-App-Build`'s `n`): a restart on
+the same build shows the banner again before any sync; the first start of another build forgets it,
+and the next refusal raises it again if that build is still too old. Logout keeps it. An order
+operation the server accepts (`success` or `duplicate`; mobile in the queue, web in the order
+repository) clears it, kept value included: the minimum-version gate runs first on every order
+operation, so this build passes it now (a minimum raised by mistake and rolled back, say). The
+client still does no version gating of its own: the banner follows the server's last answer.
+
+---
+
+## Transport choice (1.40.0, PLANNED: ESC-19)
+
+> **PLANNED. Not built at 1.40.0.** ESC-19 builds it, on the escrow ledger of ESC-20
+> (`escrow-protocol.md` 2.0.0, P.10). Source: spec 4.7, 8 and 10.1, decisions D4, D10 and D14. Built
+> today in `awaiting_transport` (Order commitments, 1.29.0): the buyer's cancel (`status: cancelled`),
+> the farmer's cancel without penalty, and the 48 hour `buyerChoiceDeadlineAt`.
+>
+> **D4 awaits the user's confirmation** (spec 14: confirm the reading when ESC-19 starts): a pricier
+> truck is covered from the commission, at most the commission left. **Open question for the user:**
+> after a D4 shift, a later cheaper truck refunds "old cost minus new" from the current
+> `truckerPayout`, so the commission the platform shifted ends up with the buyer. Example: transport
+> 1,000 and commission 750; truck 2 at 1,500 shifts 500 from the commission; truck 3 at 800 refunds
+> 700, and the platform has lost the 500 it shifted. Shift the 500 back to the commission first
+> (refund 200), or let the buyer keep it? `escrow-protocol.md` P.10 asks the same.
+
+One more order `update` command, sent by the order's buyer with the pre-increment `version`, alone
+in `data` (any other key with it is `ORDER_VALIDATION`):
+
+| `data` | Effect |
+|---|---|
+| `{"transportChoice": {"kind": "trip", "tripId": "trip-202"}, "version": n}` | Another truck: the rebind below, then the farmer's or the trucker's answer |
+| `{"transportChoice": {"kind": "self_pickup", "pickupDate": "2026-11-20"}, "version": n}` | Collect it myself: below |
+| `{"transportChoice": {"kind": "cancel"}, "version": n}` | Cancel: the same as the built buyer cancel (`transport_failed_buyer_cancelled`, full refund with commission, stock and capacity returned). The legacy `status: cancelled` stays accepted |
+
+**Another truck.** The server rebinds the order (`tripId`, `truckerId`, `truckerName`, `transportCost`
+computed from the new trip, a new `transportAttempts` entry with `outcome: pending`), reserves the
+trip's capacity, rebinds the escrow (cheaper: the difference is refunded; pricier: covered from the
+commission, D4, awaiting confirmation) and removes `buyerChoiceDeadlineAt`. What follows depends on
+the farmer:
+
+- **The farmer already accepted:** the order stays `awaiting_transport` and the new trucker is asked
+  at once (`truckerResponse: pending`, `truckerAskedAt`, `truckerDeadlineAt` = T6 = the built
+  `ResponseDeadline` against the new departure: min(now + 24h, departure - 12h), at least 1 hour
+  from now). The trucker's accept makes the order `accepted` (with `pickupDeadlineAt`, as built).
+  A decline or T6 fails the attempt (`outcome: declined` or `expired`, the trucker's fault
+  recorded) and the buyer chooses again with a fresh 48 hours (`buyerChoiceDeadlineAt`).
+- **The farmer has not accepted yet** (the D14 park: the trip was full or cancelled at funding, so
+  the order went `funded -> awaiting_transport` with `farmerResponse: pending`, and the farmer can
+  answer only in `funded`): the order goes back to `funded` with the farmer asked:
+  `farmerResponse: pending`, `truckerResponse: not_asked`, and `farmerDeadlineAt` **restamped**
+  against the new departure with the same rule (the old deadline was against the failed trip). The
+  trucker is asked after the farmer's accept (D10), as for any trip order; the farmer's decline or
+  deadline ends the order as built (`rejected` or `cancelled`, full refund).
+
+**Collect it myself.** `pickupDate` is an ISO date 1 to 7 days ahead, counted in Ethiopia time
+(Africa/Addis_Ababa). `fulfillment: self_pickup`, `truckerResponse: none`, the transport leg refunded,
+the trip's capacity released, `buyerChoiceDeadlineAt` removed. Farmer already accepted: `accepted`,
+with `pickupDeadlineAt` = the switch + 7 days, the built self-pickup window (`PickupDeadline`, counted
+from acceptance). Farmer not yet: `funded` with the farmer asked (`farmerResponse: pending`,
+`farmerDeadlineAt` restamped with the same rule against the start of `pickupDate` in Ethiopia time);
+the farmer's accept makes it `accepted` with `pickupDeadlineAt` = that accept + 7 days. The P3 pickup
+judgement (ESC-34, `delivery-verification-api.md` 2.0.0 P.2) later judges at `pickupDate` + 24 hours
+plus the grace instead.
+
+**Eligible trip** (spec 4.7): status `open` or `matched`, as the order create accepts (a `matched` trip
+is full since D12, so the room rule below refuses it); `remainingQuintals` at least the order's
+quintals; departing at least `orderLeadHours` (24) from now and no more than 7 days after the original
+`pickupDate`; its trucker not restricted (`REPUTATION_RESTRICTED`, P2) and not already tried on this
+order; its extra transport cost at most the commission still held. At most 3 trucks per order, the
+original included.
+
+**New order fields** (server-written, returned by `GET /orders`, dropped when a client sends them):
+
+- `transportAttempts`: at most 3 entries `{tripId, truckerId, transportCost, outcome, requestedAt,
+  closedAt}`, the first being the original trip. `outcome`: `pending` (asked, or waiting for the
+  farmer's accept), `accepted` (the committed truck), `declined`, `expired`, `cancelled` (the trucker
+  dropped out after accepting), `trip_cancelled`, `trip_full` (the failure values match
+  `transportFailure`, D11), `order_closed` (the order ended while the attempt was open, such as the
+  farmer's cancel), and `no_show` from P3 (ESC-34). **Backfill:** an order already in
+  `awaiting_transport` when ESC-19 deploys gets entry 1 from its original trip (`outcome` from its
+  `transportFailure`, `requestedAt` = `truckerAskedAt`, else `paymentVerifiedAt`; `closedAt` =
+  `truckerRespondedAt`, else its `updatedAt`); any other order gets entry 1 at its first transport
+  event.
+- `refundedTotal`: ETB returned so far; `orderTotal` stays what the buyer paid.
+
+| Refusal | When |
+|---|---|
+| `ORDER_UNAUTHORIZED:` | the caller is not the order's buyer (the built answer to an order command from the wrong party) |
+| `ORDER_ACTION_NOT_ALLOWED:` | the order is not `awaiting_transport`, or a replacement request is still open |
+| `ORDER_DEADLINE_PASSED:` | `buyerChoiceDeadlineAt` has passed |
+| `ORDER_TRIP_NOT_ELIGIBLE:` | the trip fails a rule above other than its room (status, departure window, trucker), its extra cost is above the commission left, or the `pickupDate` is outside 1 to 7 days |
+| `TRIP_CAPACITY_EXCEEDED:` | the trip has less room than the order's quintals. The same code when the room is too small at the buyer's request (read) and when the reservation write loses a race, as the order create (`trip-listing-api.md` 2.0.0) |
+| `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED:` | the order already used 3 trucks |
+| `ORDER_VALIDATION:` | a malformed choice, an unknown `kind`, or other keys with it |
+
+All are permanent and already handled by the clients (1.10.0, 1.17.0): mobile reverts the local order
+and shows the code's text; web shows the failure. An unprefixed error (a trip or escrow that could not
+be read) stays retryable. The buyer may browse cached trips offline; the server checks the choice when
+it arrives (spec section 7). The choice sheet is ESC-23's.
+
+**Pushes** (spec 4.12, `notifications-api.md` bumps with ESC-19): the new trucker gets
+`replacement_request` when asked; a farmer asked again after the D14 park gets `order_request` as at
+funding.
+
+---
+
+## Suspended accounts and reputation gates (1.48.0, ESC-29)
+
+Source: `reputation-api.md` 1.2.0 sections 7 and 8.
+
+**Suspended caller (not flagged).** The read the server already makes for a deleted account
+(Deleted accounts, 1.26.0: the caller's users row, strongly consistent, once per request) also
+refuses a row with `suspended: true`: the whole request answers HTTP `403` with
+`{"error":{"code":"AUTH_025","message":"Account suspended."}}`. No operation is applied, no
+idempotency key is read or stored and nothing is recorded for a retry to trip over. A deleting
+account still gets its `410` first. Before 1.48.0 a suspended user's ID token kept working on `/sync`
+until it expired (FRD-08).
+
+| Client | On `403 AUTH_025` from `/sync` |
+|---|---|
+| Mobile queue (app build with ESC-29) | Reverts the batch to pending without a retry counted, signs the user out as after a rejected refresh, with the "account disabled" text on the login screen, and keeps the queue for the next sign-in |
+| Web (app build with ESC-29) | The API client does the same for a `403 AUTH_025` from any route outside `/auth/`; the caller still gets the error |
+| Older builds | Keep the batch pending without a retry counted (the `401`/`403` rule) and are signed out when their token refresh is refused with `AUTH_025` |
+
+**Reputation gates (behind `reputationPenalties`, off in every environment).** The codes and the
+client rules are those of Permanent trip and crop rejections (1.17.0); 1.48.0 is the server
+sending them:
+
+| Operation | Refusal | When |
+|---|---|---|
+| `crop_listing` create, `trip` create | `REPUTATION_RESTRICTED: until=<ISO time or review>: Your account can't take new orders until <date>. Your current orders continue.` | The caller's stored restriction has not ended. Update, delete and cancel stay allowed |
+| `order` update with `farmerResponse: accept` or `truckerResponse: accept` | the same text | As above, after the no-op answer for an accept already given; `decline` stays allowed |
+| `order` create | `REPUTATION_RESTRICTED: counterparty: This farmer or trucker can't take new orders right now.` | The listing's farmer or the trip's trucker is restricted or suspended (one strongly consistent read each). An order id the server already holds gets its `conflict` answer instead |
+| `order` create | `The seller's account could not be checked. Please try again later.` (no prefix, retryable) | The owner's row could not be read; nothing is written |
+
+To a client that sends no readable `X-App-Build` (build 1 or older; it may not know the code, as for
+the minimum app version, 1.41.0) the same sentence goes out as `SYNC_VALIDATION: ...` on a crop or
+trip and `ORDER_VALIDATION: ...` on an order, which every client treats as permanent.
+
+**Owner fields (section 7 of `reputation-api.md`).** `ownerTier`, `ownerEffectiveRating`,
+`ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt` are server-written on crop and trip
+rows. The server drops them from every client payload, create and update alike (no refusal), stamps
+them on a create while `reputationPenalties` is on, and returns them in a `serverData` row (success
+and conflict) only while `reputationPublicTags` is on, with `ownerTier` as the public tier (`good` or
+`low`) and the three numbers as JSON numbers (1.37.0).
+
+**`farmerReliability` (1.50.0, ESC-30).** Server-only like the owner fields: dropped from every
+client payload, and no longer stamped on a crop create (matching reads `ownerReliabilityPct`,
+`match-api.md` 1.4.0). A crop create reads no listing history any more.
+
+---
+
+## Listing reports (1.44.0, FUP-67)
+
+New create-only entity `listing_report`: a buyer reports a crop listing or a trip to the admins. Full contract: `listing-report-api.md` 1.0.0.
+
+- `entityId` = `{listingType}#{listingId}`; `data` = `{listingType: crop | trip, listingId, reason}` with `reason` one of `contact_info`, `misleading`, `scam`, `offensive`, `other`. No free text; any other field is refused.
+- Buyers only (a farmer or a trucker sees only their own listings), never the caller's own listing, one report per buyer and listing (a repeat answers `duplicate`), at most 10 a day per buyer.
+- Every refusal is `SYNC_VALIDATION:`, which every client already treats as permanent (Retry Logic): `Only buyers can report a listing.`, `Unsupported action ...`, the payload problems, `The reported listing does not exist.`, `You cannot report your own listing.`, `report limit reached. A buyer can send at most 10 reports a day.` A server without the reports table answers the unprefixed `Listing reports are not enabled on this server yet.`, which clients retry.
+- Nothing is written to the listing and no `serverData` is returned: the owner never learns who reported.
+- Client handling: mobile queues the create in the sync queue (offline first) with no local row, so a refusal reverts nothing; it is announced like any refusal, as `errorReportLimitReached` for the limit and `errorReportNotSent` otherwise (en, am, om). `listing_report` is not in the unannounced types. Web sends the create straight to `/sync` and shows the same texts in the report sheet; `duplicate` reads as "already reported".
+
+---
+
+## Order detail read (1.46.0, ESC-23)
+
+Client only, no server change. The mobile order detail no longer waits for a list pull to learn what the other parties did.
+
+- On open the screen shows the order the device holds at once, then reads `GET /orders/{id}` once behind it. Pull to refresh reads it again. There is no polling and no read per rebuild or per local reload.
+- The read follows the pull rules: it is not sent while an operation for that order is pending, syncing or failed but retryable (the queued change is newer than the server's copy), the server's order is stored only when its `version` is not lower than the local one, and a change queued while the read was in flight wins.
+- Best effort and silent: offline, a timeout, a 5xx, a `404` and a `403` leave the local order and the screen as they were. Unlike the revert of a refused update (1.10.0), a `404` or `403` here never removes the local order.
+- The screen and its actions are never blocked by the read: the stored row is shown again without a loading state.
+- Web has no local store; its order detail load is `GET /orders/{id}` already. Pull to refresh there loads the order again.
+
+---
+
+## Step-up leftovers on the clients (1.47.0, FUP-24, FUP-43)
+
+Client only, no server change.
+
+**The pending step-up follows the held operation (mobile, FUP-24).** An operation answered `AUTH_040:` or `AUTH_041:` stays pending as before, and the device remembers that a step-up is pending so the checkout can offer "Confirm it's you" after a cancelled prompt (ESC-44). That memory is now tied to the held operations (sync queue operations and queued escrow payment intents):
+
+- It is dropped once every operation held for it has left its queue or got any other answer: sent, `duplicate`, `conflict`, `deferred`, refused for good, failed, out of retries, rejected along with a refused `create`, or deleted. Each sync run also checks the held operations against the queue, so a removal that never got an answer is noticed on the next run.
+- While another held operation still waits it stays, and it asks for Fayda only if one of the operations still waiting was answered `AUTH_041:`.
+- A cancelled prompt releases nothing: the memory and the 10 minute quiet period are unchanged. A completed step-up and a logout drop it as before. It is kept in memory only, as before: after an app restart the next sync raises it again.
+- An operation the response left out keeps its hold (it is still unanswered).
+
+**Delivery dispute on web (FUP-43).** Web sends the dispute straight to `/sync`. An `AUTH_040:` answer (as the operation's error, or as a `403` on the request) now opens the password prompt the payment screens use, and after a confirmed password the dispute is sent once more as the same operation (same `operationId`, `timestamp` and `idempotencyKey`, a fresh `syncBatchId`). A cancelled prompt, or a second `AUTH_040:` after the resend, leaves the dispute unsent with `deliveryDisputeNotConfirmed` (en, am, om). A reason changed in between is a new operation. `AUTH_041:` and every other answer keep their handling. Any party of the delivery (buyer, farmer, trucker) can dispute, so this holds for all three roles. Mobile is unchanged: the queue holds the operation and prompts.
+
+---
+
+## Refusal texts the clients read (1.49.0, FUP-77, FUP-83)
+
+Client only, no server change. Two refusals are now told apart by what the server already sends.
+
+**Order cancel refused for its payment.** The buyer's transport-failure cancel is answered
+`ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` when a dispute froze the money, or it
+is being settled or held for review (1.13.0, escrow-protocol.md 1.25.0). The clients read the phrase
+`payment is being settled or reviewed` after the code and show "This order can't be cancelled now because
+its payment is under dispute or being settled. Wait for the outcome or contact support." (en, am, om)
+instead of the pickup rule text. The phrase is now part of the contract: a server that rewords it must keep
+it, or the clients fall back to the pickup rule text. Still permanent, and the local cancel is still undone.
+Every other `ORDER_CANCEL_NOT_ALLOWED` keeps its text.
+
+**`ORDER_KYC_REQUIRED` reason tokens.** In `ORDER_KYC_REQUIRED: <reason>: <text>` (1.5.0) a `<reason>` is
+lower-case words joined by underscores.
+
+- A reason the client does not know (a later server may add one, for example `trucker_fayda`) is explained
+  only: "This payment was not sent because an identity check is still missing. Update the app or contact
+  support to see what is needed." No Fayda action is offered and nothing is sent again, because the check may
+  be another party's. Before, such a token was read as the buyer's and opened the buyer's Fayda flow.
+- `buyer_phone` has its own error text (the phone wording) on every surface. Before, the inline error used
+  the 10,000 ETB Fayda wording; the dialog already used the phone wording. It still offers Fayda, with the
+  phone proof.
+- A message without a token (servers before 1.5.0) is read from its wording as before, and the bare code
+  still reads as the buyer's Fayda.
+
+A new reason token therefore reaches old clients safely only from this version on; clients before it treat
+it as the buyer's.
+
+---
+
+## A funded order's reject or cancel and its refund (1.51.0, FUP-53)
+
+Server only; no client change. The `funded → rejected|cancelled` write (the farmer's reject, the buyer's
+cancel while it is allowed, and the commitment `farmerResponse: decline`) and the refund arm on the
+order's escrow are one transaction (`escrow-protocol.md` 2.11.0). New answers to that operation, all
+with nothing written:
+
+| Answer | When | Client |
+|---|---|---|
+| `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` | The money is frozen by a dispute, being settled, in the manual payout queue or past a confirmed delivery | Permanent like every `ORDER_*` refusal: the local change is undone; the 1.49.0 payment text is shown where the client reads the phrase |
+| `The order's payment could not be read. Please try again later.` | The escrow read failed | Unprefixed, retried |
+| `The order's payment changed while the order was updated. Please try again later.` | The escrow kept changing over 3 writes | Unprefixed, retried |
+| `The order could not be updated right now. Please try again later.` | The transaction was cancelled by a conflicting transaction or throttling | Unprefixed, retried |
+
+A `conflict` (the order moved) and a success answer as before. With nothing in the way the success,
+`serverVersion` and `serverData` are the same as before.
+
+---
+
+## Codes older apps do not know (1.52.0, FUP-241)
+
+Server only; no client change. The five codes of Permanent trip and crop rejections (1.17.0) are
+known to clients only since FUP-01. An app that sends no readable `X-App-Build` (build 1 or older,
+read as in Minimum app version for order operations, 1.41.0) may predate that client, and such a
+client resends an unknown code on every reconnect. So the server sends each code only to an app that
+sends the header. An app without it gets the same sentence under a code every client already treats
+as permanent (Retry Logic): the code and any reason token before the sentence (`until=...`,
+`counterparty`) are dropped.
+
+| Code | Sent on | To an app without `X-App-Build` |
+|---|---|---|
+| `TRIP_HAS_BOOKINGS` (new in 1.52.0) | `trip` update or delete, behind `COMMITMENTS_ENABLED` (1.29.0) | `SYNC_VALIDATION: <sentence>`, for example `SYNC_VALIDATION: capacity cannot drop below the 20 quintals already booked.` or `SYNC_VALIDATION: Crops from this trip are already on the way; it can no longer be cancelled.` |
+| `CROP_HAS_ACTIVE_ORDERS` (new in 1.52.0) | `crop_listing` delete or update to `status: deleted`, behind `COMMITMENTS_ENABLED` (1.35.0), whatever the flag since 1.56.0 | `SYNC_VALIDATION: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.` |
+| `REPUTATION_RESTRICTED` (1.48.0, unchanged) | `crop_listing` and `trip` create, `order` accept and create, behind `reputationPenalties` | `ORDER_VALIDATION: <sentence>` on an order, `SYNC_VALIDATION: <sentence>` on anything else |
+| `APP_UPDATE_REQUIRED` (1.41.0, unchanged) | `order` operations below `MIN_ORDER_APP_BUILD` | `ORDER_VALIDATION: This version of the app is too old for orders. Update WeredaConnect to continue.` |
+| `TRIP_CAPACITY_EXCEEDED` (unchanged) | `order` create or update naming a trip | Never reaches such an app: the minimum app version gate (1.41.0) refuses every `order` operation without the header first, and an infra test keeps that gate on in every environment with `COMMITMENTS_ENABLED` on. |
+
+Why `SYNC_VALIDATION` and not `TRIP_VALIDATION` or `CROP_VALIDATION`: those two stay retryable on
+every client (only their immutable-field text is permanent, and only since 1.43.0), while every
+mobile build since March 2026 marks a `SYNC_VALIDATION` refusal rejected and never resends it. Such
+an app does not revert its local change (the 1.17.0 revert came with the codes) and counts the
+operation as failed; web shows the message as a failure. An app that sends the header (build 2 or
+later) gets the code exactly as before, with the 1.17.0 revert and text. The fraud signal of a
+refused booked-trip change (1.27.0, `IMMUTABLE_FIELD_CHANGE`) still records the `TRIP_HAS_BOOKINGS`
+text. Built in `Helpers/OldClientRefusal.cs`, shared with the 1.48.0 fallback.
+
+## Handoff fields by status (1.54.0, FUP-246)
+
+Server only; no client change. A `delivery` operation writes each handoff field only with the status
+of its own handoff. The role check already pins each of those statuses to one party, so the field
+can only come from that party's handoff:
+
+| Field | Written only with | By |
+|---|---|---|
+| `gpsPickup` | `status: pickedUp` | the trucker (pickup scan) |
+| `gpsDropoff` | `status: delivered` | the buyer (drop-off scan, or a self-pickup at the farm) |
+| `disputeReason` | `status: disputed` | the party who disputes |
+
+Anywhere else (a create, which is always `pending`; `inTransit`; `delivered` for `gpsPickup`;
+`disputed` for both points; an update without a status) the field is dropped, not refused: the
+operation is answered as if it had not been sent, and the server logs
+`DELIVERY_FIELD_DROPPED field=<field> status=<status or none> deliveryId=<id>` at Information (no
+personal data). The length check of `disputeReason` (empty or over 500 characters) still runs
+first and refuses such a value on any status. Before, a buyer's confirm could carry `gpsPickup` and move the trucker's pickup point
+(the impossible delivery time rule then wrote `IMPOSSIBLE_DELIVERY_TIME` on an honest trucker), and
+any party's dispute, or the trucker's update without a status, could rewrite both points the admin
+reads as dispute evidence (`fraud-detection-architecture.md` 3.34.0,
+`delivery-verification-api.md` 2.5.0).
+
+Shipped clients are unaffected: mobile and web send `gpsPickup` only in the pickup confirm,
+`gpsDropoff` only in the delivery confirm and `disputeReason` only in the dispute, and none of them
+on a create, `inTransit` or the farmer's `qrNonce` update.
+
+Checked and unchanged: the photo keys (`pickupPhotoRef`, `dropoffPhotoRef`) were already dropped
+from every `delivery` operation (1.39.0, attached only by their taker through `delivery_photo`, first
+photo kept); `pickedUpAt`, `confirmedAt` and `updatedAt` are stamped by the server and a client
+value is dropped (1.3.1); `pickupCapturedAt` and the photo version ids are refused as unknown fields;
+`qrNonce` is taken only from the farmer (SIM-41) and a party's `scannedQrNonce` or `scannedQrCode`
+is never stored.
+
+---
+
+## Arrival check-ins (1.55.0, ESC-34)
+
+Behind `pickupClassification` (off everywhere; `delivery-verification-api.md` 2.6.0, "Arrival
+check-ins and the pickup judgement"). A new create-only entity `handoff_check_in`:
+
+```json
+{
+  "entityType": "handoff_check_in",
+  "entityId": "ord-101#arrived_pickup",
+  "action": "create",
+  "data": {
+    "orderId": "ord-101",
+    "kind": "arrived_pickup",
+    "capturedAt": "2026-11-20T06:40:00.000Z",
+    "latitude": 8.7523,
+    "longitude": 38.9785,
+    "accuracyM": 35
+  }
+}
+```
+
+- `kind`: `arrived_pickup` (the order's trucker; the buyer of a self-pickup order) with GPS, or
+  `crops_ready` (the order's farmer), GPS optional. `entityId` is `{orderId}#{kind}`. `version` may be
+  echoed and is ignored.
+- With the flag off the entity does not exist: the answer is the unsupported entity error every
+  unknown `entityType` gets (`Unsupported entity type: 'handoff_check_in'.`, prefixed `SYNC_VALIDATION: ` since 1.72.0), with no order read and no
+  fraud signal, exactly as before 1.55.0.
+- Taken only on an order the server stamped `pickupJudgement: pending` at acceptance (the flag on),
+  while it is `accepted`, from `pickupDate` minus 24 hours (a self-pickup order from acceptance) to
+  `pickupDeadlineAt`, by the server clock. The phone's `capturedAt` never decides anything.
+- `success` (with the order's unchanged `version` as `serverVersion`, no `serverData`) when stored, or
+  when a check-in of that kind is already stored (the first one is kept). The write moves neither the
+  order's `version` nor its `updatedAt`, so no queued order operation conflicts with it.
+- Refusals, every one permanent (the client drops the check-in, takes back its local mark and says
+  why; nothing to revert on the server): `CHECKIN_VALIDATION` (payload, `entityId`, an action other
+  than `create`, a kind whose flag is off: `arrived_dropoff` without `dropoffClassification`, 1.59.0), `CHECKIN_NOT_PARTY` (not the party of
+  that kind; a stranger also gets the `ROLE_FORBIDDEN` signal), `CHECKIN_NOT_OPEN` (an order accepted
+  without the stamp, an order no longer waiting for its pickup, or unknown), `CHECKIN_TOO_EARLY`,
+  `CHECKIN_TOO_FAR` (an arrival more than 5 km from the farm; a farmer's far fix is stored unmeasured
+  instead, the farmer's GPS being optional), `CHECKIN_TOO_LATE` (it reached the server after
+  the deadline: kept on the order as late evidence, never counted). An order or listing that cannot
+  be read answers an unprefixed error, which the phone retries.
+- **A pickup refused after the judgement** (FUP-147): a `delivery` update to `pickedUp` (the trucker)
+  or a self-pickup `delivered` (the buyer) on an order whose pickup was judged a no-show, or sent to
+  the admin queue, is refused `ORDER_DEADLINE_PASSED:` and nothing is written. It arrives on a
+  `delivery` operation, and the clients already treat every `ORDER_*` refusal of a delivery operation
+  as permanent: mobile marks it rejected and puts the delivery back from `GET /deliveries/{id}` (its
+  waiting pickup photo is rejected with it, and the live-trip check-ins of the trip stop waiting);
+  web keeps nothing local and shows the refusal text. A real QR scan (the farmer's nonce) also puts
+  the order in the admin queue (`late_pickup_evidence`).
+
+Clients (BUILT in 1.58.1, FUP-285): the order detail of an `accepted` order stamped
+`pickupJudgement: pending` offers "I have arrived" to the trucker (the buyer on a self-pickup order)
+and "Crops are ready" to the farmer from `pickupDate` minus 24 hours (a self-pickup order from its
+acceptance) to `pickupDeadlineAt` by the device clock. The arrival takes a GPS fix and is not sent
+without one inside the box above; the farmer's waits at most 5 seconds for a fix and goes without it
+(a fix the server would refuse is left out). The data is exactly `orderId`, `kind`, `capturedAt` (the
+tap, UTC) and, with a fix, `latitude`, `longitude` and `accuracyM`; no `version`. Mobile queues it (the
+queued operation is the local mark, shown as "saved on this phone" until the order's next read brings
+`checkIns`; only the signed-in user's own queued check-ins show, and while one waits for the server's
+copy the order screen reads the order again after each sync, so a sent one says so and a refused one
+gives its button back at once); web sends it at once. A repeat tap sends nothing and says the check-in
+was already given; the buttons come and go at the window's edges while the screen is open, and the
+local guard refuses with the same texts as the server. Every `CHECKIN_*` refusal, and the unsupported-entity answer of a
+server with the flag off (`Unsupported entity type: 'handoff_check_in'.`, with or without the 1.72.0 `SYNC_VALIDATION: ` prefix), is permanent: mobile rejects
+the operation (never retried, so a stray check-in on a flag-off server cannot loop), takes the mark
+back, reads the order again (a late check-in kept for review shows on it) and says why with one text
+per code (`CHECKIN_TOO_LATE`: kept for review); web shows the same texts. An unprefixed error is
+retried. The order reads (`GET /orders`, `GET /orders/{id}`, the `/sync` order rows of a conflict)
+fill `pickupJudgement`, `pickupJudgedAt` and `checkIns`; the buyer's deadline cancel is not offered on
+an order with any `pickupJudgement`. The flag goes on only once the app build that sends check-ins is
+the minimum (`MIN_ORDER_APP_BUILD`).
+
+### The drop-off check-in (1.59.0, ESC-36)
+
+Behind its own flag `dropoffClassification` (off everywhere; `delivery-verification-api.md` 2.10.0 P.4). Each
+kind exists only with its flag: with `pickupClassification` off and `dropoffClassification` on, the entity
+takes `arrived_dropoff` only (`CHECKIN_VALIDATION` for the arrival kinds, before any read); with both off it
+is unsupported as before.
+
+```json
+{
+  "entityType": "handoff_check_in",
+  "entityId": "ord-101#arrived_dropoff",
+  "action": "create",
+  "data": { "orderId": "ord-101", "kind": "arrived_dropoff", "capturedAt": "2026-11-22T09:10:00.000Z",
+            "latitude": 9.0310, "longitude": 38.7400, "accuracyM": 20 }
+}
+```
+
+- The order's trucker only, GPS required, after the trucker's arrival photo was attached: a
+  `delivery_photo` `{deliveryId}#arrival` queued ahead of the check-in (the photo type `arrival` of
+  `delivery-verification-api.md` section 4, the trucker's, only while the delivery is on the road; with the
+  flag off `DELIVERY_PHOTO_INVALID`).
+- Taken while the order (stamped `dropoffJudgement: pending` when it left `accepted` after the pickup) is
+  `pickup_confirmed` or `in_transit`, its delivery `pickedUp` or `inTransit`, and the server clock not past
+  `dropoffDeadlineAt` (T8). `success` and the first one kept, as for the arrival kinds; the write moves
+  neither `version` nor `updatedAt`.
+- Refusals, permanent as above: `CHECKIN_NOT_PARTY`, `CHECKIN_NOT_OPEN` (not stamped, judged, or the
+  delivery no longer on the road), `CHECKIN_TOO_FAR` (more than 5 km from both the order's drop-off point
+  and the trip's destination as stamped at pickup; the first such attempt with its photo, before T8, is kept
+  on the server as evidence and the message ends "The attempt was kept for review."; the client still treats
+  it as a refusal and may check in again closer), the new `CHECKIN_PHOTO_REQUIRED` (no arrival photo on
+  the delivery yet: attach it, then check in again) and `CHECKIN_TOO_LATE` (after T8 or the overdue
+  judgement: kept as late evidence).
+- Late evidence (1.60.0, FUP-373; `delivery-verification-api.md` 2.13.0): a check-in queued offline before
+  T8 and synced after the order cron's T8 run is kept late and answered `CHECKIN_TOO_LATE` whether or not
+  its arrival photo is attached (`CHECKIN_PHOTO_REQUIRED` only before T8; a late one more than 5 km away is
+  kept as a late attempt, also `CHECKIN_TOO_LATE`, or `CHECKIN_TOO_FAR` when an attempt is stored already;
+  `CHECKIN_NOT_OPEN` once an admin decided the delivery's dispute), and the `delivery_photo`
+  `{deliveryId}#arrival` queued ahead of it is taken on the system's T8 dispute (`delivery_overdue` or
+  `dropoff_out_of_range`, no `disputeResolution`) as evidence only, marked `arrivalPhotoLateAt` (`success`,
+  no version move); any other dispute, or a verdict landing first, still answers `DELIVERY_PHOTO_REFUSED`.
+- The order rows (`GET /orders`, `GET /orders/{id}`, the order rows of `/sync` results) carry it as
+  `checkIns.arrived_dropoff`, and the new fields `dropoffJudgement`, `dropoffJudgedAt`,
+  `dropoffDeadlineAt` and `disputeReason` (`order-lifecycle.md` 2.18.0); never the stamped points or the
+  raw check-in. A delivery the order cron confirmed for a silent buyer carries `autoConfirmedAt`; one it
+  disputed carries `disputedBy: system` and `disputeReason` `delivery_overdue`, `dropoff_out_of_range` or
+  `silent_buyer`. A client
+  treats them as any server change of the row (server wins).
+
+Clients (BUILT in 1.59.1, FUP-336, no wire change): the order detail of an order stamped
+`dropoffJudgement` shows a "Drop-off check-in" card to its three parties: the trucker's row (the server's
+`receivedAt`, a late one marked, or the trucker's own check-in waiting on the phone), then what happens next or
+the outcome. While the order is `pickup_confirmed` or `in_transit`, `pending`, and the device clock is not past
+`dropoffDeadlineAt`, the trucker gets "Arrived at drop-off" for the order's delivery when it is `pickedUp` or
+`inTransit`: the arrival photo first (the camera, unless the delivery has `arrivalPhotoRef`; a photo taken
+before a failed fix is kept for the next tap), then a GPS fix, which it needs (inside the box of the arrival
+kinds). The data is exactly `orderId`, `kind`, `capturedAt` (the tap, UTC), `latitude`, `longitude` and
+`accuracyM`. Mobile queues `delivery_photo` `{deliveryId}#arrival` (the FRD-12 upload, not twice while one
+waits; the delivery shows the file until the server's key replaces it) and then the check-in, which names its
+delivery in the never-sent `_deliveryId`: the sync preflight holds the check-in while that photo waits
+(pending, on its way, or failed and to be retried) and asks again in the next batch of the same run, so the
+photo is attached before the server reads the check-in. Web attaches the key the browser uploaded when the
+photo was taken, then sends the check-in whatever the attach answered (`DELIVERY_PHOTO_EXISTS` is an earlier
+attempt's photo); the server decides. Every `CHECKIN_*` refusal is permanent and takes the mark back as for the
+arrival kinds, with the drop-off texts, chosen by the operation's kind: `CHECKIN_PHOTO_REQUIRED` says to take
+the photo first (mobile also forgets the arrival photo path it kept, whose upload was given up, so the next tap
+takes a new one), `CHECKIN_TOO_FAR` says to check in again closer and, when the message ends "The attempt was
+kept for review.", that it was kept, `CHECKIN_TOO_LATE` that it was kept for review, and `CHECKIN_NOT_OPEN`
+and `CHECKIN_NOT_PARTY` their own texts. The buyer reads, after a counted check-in (received by T8, not late),
+the time the delivery may be confirmed for them (T9: `receivedAt` plus 48 hours, the SSM default; the server
+sends no T9), on the order detail and on the delivery detail next to Confirm Delivery; the farmer and the
+trucker read the same time about the buyer, and before the check-in every party reads T8. A delivery a party
+confirmed or disputed while the order still says `pending` shows no promise. The outcomes `closed`,
+`auto_confirmed`, `silent_buyer`, `delivery_overdue`, `dropoff_out_of_range` and `queued` have labels for every
+party; a delivery with `autoConfirmedAt` says the system confirmed it, a system dispute shows its label
+instead of the raw `disputeReason`, and the delivery detail shows the arrival photo (`arrivalPhotoUrl`) to the
+delivery's parties. The pulls, the web repositories and the conflict echo read the new order and delivery
+fields. The flag stays off until this build is the minimum (`MIN_ORDER_APP_BUILD`) and the buyer's pushes of
+FUP-338 (the trucker arrived, the coming auto-confirm) are live.
+
+Clients (1.60.0, FUP-373, no wire change): the `CHECKIN_VALIDATION` a server with `dropoffClassification` off
+gives an `arrived_dropoff` ("arrived_dropoff is not taken yet", the drop-off flag rolled back while
+`pickupClassification` stays on) reads as the drop-off's not-open text, not the update-the-app text. Mobile
+hands a `delivery_photo` `{deliveryId}#arrival` refused for good to the rejection handler (still never
+announced), which forgets the photo path the phone kept on the delivery when it is that operation's file, as
+`CHECKIN_PHOTO_REQUIRED` does; a pickup or drop-off photo refused for good is left alone as before. Delivery
+rows may carry the server-only `arrivalPhotoLateAt`; the apps ignore it. A new arrival photo taken while one
+already waits in the queue is deleted from the phone (it would never be sent). The too-far texts and the
+`dropoff_out_of_range` label say the check-in was more than 5 km from the order's drop-off point, not that
+the trucker was (the buyer's pin may be wrong, FUP-204).
+
+---
+
+## The trucker's drop-off code (1.58.0, ESC-35)
+
+After a confirmed pickup the trucker's app makes its own drop-off nonce (tag `d.`) and registers it
+with a `delivery` update carrying only `dropoffQrNonce` and `version` (`delivery-verification-api.md`
+2.7.0, QR Secret Storage). The buyer's `delivered` is then checked against it, by scan or by its typed
+code. A registration never replaces a code the server keeps; only the trucker's confirmed New drop-off
+code does, sent with `dropoffQrRenew: true` as well. Not flagged: shipped buyer apps scan and type it
+as before, and a trucker app that sends none keeps the 1.22.0 path (the farmer's token).
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `success` with the current row and version, no `message` (stored, the same code again, or nothing to store: delivered, disputed) | Synced. The registration is queued right behind the pickup and again when the drop-off QR opens, never twice while the same code waits; a renewal drops the drop-off codes still waiting first. | Sent at once when the pickup is confirmed, on every open of the drop-off QR, and on a renewal. |
+| `success` with `message` `DROPOFF_CODE_SUPERSEDED: ...` (another code is stored and this was no renewal) or `DROPOFF_CODE_NOT_STORED: ...` (no farmer's nonce on the row) | Synced; nothing to retry (the phone cannot show it: its kept code may not work, and New drop-off code is the way out). | The drop-off QR says another phone or browser has the working code (`deliveryDropoffQrSuperseded`), or that the code is not on the server (`deliveryDropoffQrNotSent`). |
+| `deferred` `DELIVERY_NONCE_PENDING: Waiting for the pickup to sync. ...` (the delivery is still `pending` on the server) | Re-queued without a retry; the pickup ahead of it gets there first. | The drop-off QR says the code is not on the server yet and shows it anyway; the next open sends it again. |
+| `DELIVERY_VALIDATION: dropoffQrNonce must ...` or `DELIVERY_VALIDATION: The drop-off QR code can only be registered after the pickup.` (14 days without a pickup) | Unchanged `DELIVERY_*` handling (the apps never send a malformed one). | As for `deferred`. |
+| `DELIVERY_UNAUTHORIZED` (anyone but the trucker; the value is dropped first) | Unchanged. | Unchanged. |
+
+The buyer's confirm:
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `deferred` `DELIVERY_NONCE_PENDING: Waiting for the trucker's drop-off QR code to sync. ...` (a scan tagged `d.` while no trucker's nonce is stored, or one that differs from the stored code and was scanned after it was stored: a renewal made offline); no miss, no fraud signal | Re-queued without a retry, as for any scan. | Shows its own text naming the trucker's drop-off code (`deliveryErrorDropoffQrPending`), chosen by that server text: other `DELIVERY_NONCE_PENDING` texts (the farmer's QR, a payment check) keep `deliveryErrorQrPending`. |
+| `DELIVERY_NONCE_MISSING: The trucker's drop-off QR code never reached the server. ...` (14 days later) | Permanent and reverted under the existing `DELIVERY_NONCE_MISSING` rule (1.43.0). | Failure with the generic delivery text. |
+| `DELIVERY_NONCE_MISMATCH` (a tagged scan taken before the stored code was stored: a replaced code; or an untagged wrong scan) | Unchanged (retryable, 1.43.0). | Unchanged. |
+| `DELIVERY_CODE_LOCKED: Too many wrong codes for this drop-off. ...` (the trucker's code, renewable; a typed code is always compared, so the five-miss cap holds) | Permanent and reverted (1.33.0); the shared lock text no longer names the farmer. Shipped builds show their old text naming the farmer (known limit). | Its own text naming the trucker (`deliveryErrorDropoffCodeLocked`), chosen by that server text; other `DELIVERY_CODE_LOCKED` texts keep `deliveryErrorCodeLocked`. |
+| `DELIVERY_NONCE_EXPIRED: QR code has expired. Ask the trucker for a new drop-off code.` | Unchanged (retryable, 1.43.0). | Unchanged. |
+
+---
+
+## GPS refusals of a handoff (1.62.0, FUP-439)
+
+A pickup or delivery confirm whose GPS fails a handoff rule (`delivery-verification-api.md` 2.15.0,
+GPS Validation) is answered `error` with `DELIVERY_GPS_PROXIMITY: <reason>: <text>`. The code is
+unchanged; the reason, a token of lower-case words joined by underscores right after it (the shape
+of the `ORDER_KYC_REQUIRED` reasons, 1.5.0, rule written in 1.49.0), is new. The clients key on the reason, never on the
+text. Nothing is written to the delivery, and the same payload always gets the same answer.
+
+| Reason | Operation | Mobile client (sync queue) | Web client |
+|---|---|---|---|
+| `pickup_far` | The trucker's `pickedUp`, `gpsPickup` more than 5 km from the listing's point | Permanent and reverted like a refused typed code (1.33.0): rejected, never resent, the delivery goes back to `GET /deliveries/{id}` (server wins; else the lowest sent version), the photo waiting behind the handoff is rejected, and so are the trucker's drop-off code registration and, since 1.63.0, "Mark in transit" waiting behind the pickup (below), a refused pickup drops its trip's waiting check-ins, the operation leaves the "Sync failed" count. Explained once with its own text (en, am, om): `deliveryErrorGpsPickupFar` | The same text on the scan screen |
+| `self_pickup_no_fix` | The self-pickup buyer's `delivered` without `gpsDropoff` | Same; `deliveryErrorGpsSelfPickupNoFix` (the farmer is not paid yet) | Same text |
+| `self_pickup_no_farm_point` | The self-pickup buyer's `delivered` on a listing without coordinates | Same; `deliveryErrorGpsSelfPickupNoFarmPoint` (contact support) | Same text |
+| `self_pickup_far` | The self-pickup buyer's `delivered`, `gpsDropoff` more than 5 km from the listing's point | Same; `deliveryErrorGpsSelfPickupFar` | Same text |
+| `dropoff_far` | The buyer's `delivered` of a trucker delivery, `gpsDropoff` more than 5 km from both drop-off points | Same; `deliveryErrorGpsDropoffFar` | Same text |
+| No reason this build knows (a server before 1.62.0, whose text follows the code, or a later reason) | Any | Permanent and reverted the same way; explained with `errorChangeNotSaved` | `deliveryErrorGeneric` |
+
+Before 1.62.0 the code was in neither client's permanent list: the mobile queue sent the operation
+three times and again on every reconnect, never put the local `pickedUp` or `delivered` back (the
+delivery pull does not replace a row with an older server version) and announced nothing, so a
+trucker could drive off while the server said `pending`, or a self-pickup buyer leave believing the
+farmer was paid. Web showed "Delivery operation failed".
+
+A refused pickup and the drop-off code (any refusal of a `pickedUp` that puts the delivery back, not
+only these: a typed code, `DELIVERY_NONCE_MISSING`, an `ORDER_*` refusal): the trucker's phone queues
+its drop-off code registration (`dropoffQrNonce`, 1.58.0) behind every pickup of a trucker delivery,
+and the server answers it `deferred` while the delivery is `pending`. While it waited, the revert
+skipped the delivery (another upload for it was on its way, and the pull skips it too), so a refused
+pickup stayed `pickedUp` on the phone whatever its code. Since 1.62.0 the queue rejects that
+registration when it rejects such a pickup, before the revert, as it rejects the waiting handoff photo
+(1.39.0), and the revert flags it with the pickup, so neither counts as "Sync failed". A permanent
+refusal of the pickup that puts nothing back (`FRAUD_*`, `SYNC_VALIDATION`, an `*_UNAUTHORIZED` code)
+does not touch the registration, and a transient failure keeps both. The phone
+registers a drop-off code again after the next pickup, and whenever the drop-off QR opens (1.58.0).
+
+A refused pickup and the trucker's status changes behind it (1.63.0, FUP-456): the trucker's "Mark in
+transit" queued offline behind the pickup held the revert back the same way. It is sent at the pickup's
+version plus one, so while the server holds the delivery `pending` it is answered
+`DELIVERY_INVALID_TRANSITION: Cannot transition from 'pending' to 'inTransit'.`, which the queue retried
+(three times, then again on every reconnect). The phone stayed `inTransit`, and with
+`pickupClassification` on, T7 judged a trucker no-show while the trucker held the goods. Since 1.63.0,
+when the queue rejects a pickup by a code that puts the delivery back, it also rejects, before the
+revert, every operation of that delivery still waiting (pending, or failed and not yet rejected) that sets
+a `status`, was queued after the pickup and belongs to the same user (the `{userId}:` prefix of the
+idempotency key), and the revert flags it with the pickup: the phone shows the server's `pending`, the
+mark is never sent again, nothing counts as "Sync failed", and the pickup's refusal is the one
+announcement. On the trucker's phone that is the in-transit mark (a cancel needs a `pending` delivery
+and a dispute a `delivered` one), including one already out of retries. Left alone, as for the
+registration: a refusal of the pickup that puts nothing back and a transient failure; and also another
+user's operations (the farmer's `qrNonce`, a buyer's confirm on a shared phone), anything queued
+before the pickup (the create), another delivery's operations, and anything behind a refused delivery
+confirm. The other operations that can wait behind a refused pickup settle on their own answers and
+never held the revert back (none is a `delivery` operation): the pickup photo (rejected with the
+pickup, 1.39.0), the trip's check-ins (dropped when a pickup is refused, 1.32.0), the arrival photo
+`delivery_photo` `{deliveryId}#arrival` (`DELIVERY_PHOTO_REFUSED` while the goods are not on the road,
+permanent and not announced, 1.60.0) and the drop-off check-in (`CHECKIN_NOT_OPEN`, permanent, its mark
+taken back, 1.59.1). No wire change; web has no queue (it sends the pickup at once, and reads the
+delivery's version from the server before marking it in transit).
+
+Matched when the mark's answer arrives (1.67.1, FUP-493): 1.63.0 looked for the mark only once, when
+the pickup was refused. A mark tapped while that sync ran (after the queue looked, while the revert read
+the delivery), or left waiting by an app killed between the pickup's rejection and its settling, was
+never matched: the revert was skipped and the phone stayed `inTransit`. Since 1.67.1 a `delivery`
+operation that sets a `status` and is answered
+`DELIVERY_INVALID_TRANSITION: Cannot transition from 'pending' ...` is rejected at once when the queue
+still holds a pickup of that delivery refused for good in an earlier batch, by the same user and queued
+before it. The answer itself says the server holds the delivery `pending`, so the pickup's code is not
+needed (the queue does not keep it). Once per delivery, the drop-off code registration and the other
+status changes still waiting behind that pickup are rejected with it, the delivery is put back from
+`GET /deliveries/{id}`, and its rejected operations leave the "Sync failed" count. Nothing new is
+announced: the pickup's refusal is what the user was told. A pickup refused in the same batch keeps the
+1.63.0 rule above, which knows its code. No wire change.
+
+All three roles: the trucker (pickup), the buyer (self-pickup and drop-off confirm). The farmer
+never sends these operations; the farmer's app shows the server's `pending` from the delivery pull,
+and the farmer's QR stays usable (a refused handoff consumes no nonce). Either side may ship first:
+an older app keeps retrying as before (it never read this code), and a newer app treats a refusal
+without a reason as permanent with the generic text.
+
+---
+
+## Handoff evidence (1.71.0, FUP-440, GCR-01, GCR-02)
+
+The `delivery` update that confirms a handoff (the trucker's `pickedUp`, the buyer's `delivered`,
+the self-pickup confirm) may carry, all optional, as `delivery-verification-api.md` 2.19.0 sets out
+("Handoff evidence"):
+
+```json
+{
+  "operationId": "uuid-v4",
+  "entityType": "delivery",
+  "action": "update",
+  "timestamp": "2026-11-26T09:00:00Z",
+  "platform": "android",
+  "data": {
+    "status": "pickedUp",
+    "scannedQrNonce": "...",
+    "gpsStatus": "fix",
+    "gpsPickup": { "latitude": 9.0, "longitude": 38.7, "capturedAt": "2026-11-26T08:59:41Z", "accuracyM": 12.5 }
+  }
+}
+```
+
+- `platform` on the operation: `android` from the mobile queue, `web` from the web queue.
+- `gpsStatus` in `data`: `fix` or `approximate` with the point; `services_off`, `denied`,
+  `denied_forever` or `timeout` without one. Input only: the delivery's unknown field check accepts
+  it (as `scannedQrNonce` and `scannedQrCode`) and it is never stored as sent.
+- `capturedAt` (ISO 8601 UTC) and `accuracyM` (metres) inside `gpsPickup` or `gpsDropoff`: the fix's
+  own time and accuracy. The stored point stays `latitude` and `longitude`.
+
+The server stamps what passes its checks on the delivery, server-only, in the transition's own write
+(`{leg}GpsStatus`, `{leg}GpsCapturedAt`, `{leg}GpsAccuracyM`, `{leg}Method`, `{leg}Platform` and
+`dropoffCapturedAt`, leg `pickup` or `dropoff`); a value that fails is left out and the handoff is
+answered as without it. No stamp is in any result's `serverData`, and a `delivery` operation that
+sends one of these names in `data` is refused `DELIVERY_VALIDATION: Unknown fields: <field>` with
+nothing written (FUP-246's whitelist). Old clients send none of these and are answered unchanged.
+
+Rollout: server first. A server before 1.71.0 answers a handoff carrying `gpsStatus` with
+`DELIVERY_VALIDATION: Unknown fields: gpsStatus`, which no retry passes; it ignores `platform` (an
+unknown member of the operation is skipped by the reader) and the point's `capturedAt` and
+`accuracyM` (only `latitude` and `longitude` are read and stored).
+
+---
+
+## Profile refusals and the unsupported entity (1.72.0, FUP-74, FUP-315)
+
+A transient or profile-made refusal shared `CROP_VALIDATION` and `TRIP_VALIDATION` with the field
+rules, so the clients retried every text but the immutable-field one (1.43.0): an operation that broke
+a field rule was sent three times per sync and put back on every reconnect, without end. The server
+now gives the owner's profile its own codes, and the clients treat the field codes as permanent.
+
+Server (FUP-74; `crop-listing-api.md` 1.18.0, `trip-listing-api.md` 2.11.0):
+
+| Operation | Before 1.72.0 | Since 1.72.0 |
+|---|---|---|
+| `crop_listing` or `trip` `create` whose owner's profile cannot be read (no users row, or no users table configured) | `CROP_VALIDATION: Your profile could not be read. Please try again later.` (`TRIP_VALIDATION: ...` on a trip) | `CROP_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.` (`TRIP_PROFILE_UNAVAILABLE: ...`) |
+| The same, whose profile has neither a display name nor a Fayda name | `CROP_VALIDATION: Add your name to your profile before creating a listing.` (`TRIP_VALIDATION: ...`) | `CROP_PROFILE_INCOMPLETE: Add your name to your profile before creating a listing.` (`TRIP_PROFILE_INCOMPLETE: ...`) |
+| Any operation whose `entityType` the server does not route (`cropListing` from a build before FUP-18, `handoff_check_in` with both check-in flags off, any unknown type) | `Unsupported entity type: '<type>'.` | `SYNC_VALIDATION: Unsupported entity type: '<type>'.` |
+
+Nothing is written, as before. A users table read that throws is still answered `Internal server
+error.` and retried. Registration does not require a display name, so a profile with no name is
+real, and the same create passes once the user adds one (Profile text): the profile codes are retried.
+
+Every other `CROP_VALIDATION` and `TRIP_VALIDATION` of the sync path depends on the operation (the
+field rules, unknown fields, a changed immutable field, a client `matched`), on the row it updates, or
+on the server clock: a departure in the past, more than 30 days ahead or a `createdAt` more than a day
+ahead. The forms keep to the same bounds, so only a phone clock days off reaches the clock rules, and
+the user posts the listing or trip again. On a trip create the `truckerName` and `truckerPhone` rules
+read the values stamped from the profile: a registered phone always passes, and a name over 100
+characters can only be a Fayda name with no display name.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `CROP_VALIDATION:` or `TRIP_VALIDATION:` | Permanent: rejected, never resent, not reset by a reconnect. Not reverted (it says nothing the server holds): the local row stays and counts as failed, as for `SYNC_VALIDATION`. Explained with `errorListingDetailsNotAccepted` or `errorTripDetailsNotAccepted` (the immutable-field text with `errorChangeNotSaved`, as before). | Unchanged: a failure (no queue). |
+| The same with `profile could not be read` or `Add your name to your profile` (a server before 1.72.0) | Retried, as before. | Unchanged. |
+| `CROP_PROFILE_UNAVAILABLE:`, `CROP_PROFILE_INCOMPLETE:`, `TRIP_PROFILE_UNAVAILABLE:`, `TRIP_PROFILE_INCOMPLETE:` | Retried like any code no rule names (three tries per sync, again on reconnect), not announced. | A failure, like any refusal. |
+| `SYNC_VALIDATION: Unsupported entity type: ...` | Permanent under the `SYNC_VALIDATION` rule. A `cropListing` operation is no longer queued (1.20.0). A refused `handoff_check_in` still reads as check-ins not open: the check-in rules take the text with or without the prefix. | A refused check-in still says check-ins are not open. |
+
+Profile edits (FUP-315, mobile only, no wire change): see Profile text.
+
+Older clients: every shipped client retries the profile codes, as it retried the shared code, so
+nothing changes for them there. Every mobile build since 2026-03-02 treats `SYNC_VALIDATION` as
+permanent, so a build before FUP-18 stops resending its `cropListing` operation after one refusal; a
+build before 1.72.0 explains a `handoff_check_in` refused with the prefixed text as a change that was
+not accepted instead of check-ins not open (still permanent and reverted; both flags are off only after
+a rollback).
+
+Older servers: a client of 1.72.0 keeps retrying the two profile texts an older server sends under
+`CROP_VALIDATION` and `TRIP_VALIDATION` and treats every other text under them as permanent, which
+the same operation always got anyway. Either side may deploy first.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.72.0 | 2026-11-27 | Profile refusals and the unsupported entity (FUP-74, FUP-315; `crop-listing-api.md` 1.18.0, `trip-listing-api.md` 2.11.0). Server: a crop or trip create whose owner's profile cannot be read answers `CROP_PROFILE_UNAVAILABLE` or `TRIP_PROFILE_UNAVAILABLE`, one whose profile has no name `CROP_PROFILE_INCOMPLETE` or `TRIP_PROFILE_INCOMPLETE` (both were `CROP_VALIDATION` or `TRIP_VALIDATION`); an unrouted `entityType` answers `SYNC_VALIDATION: Unsupported entity type: '<type>'.` (was unprefixed), so a build before FUP-18 stops resending `cropListing`. Mobile: every `CROP_VALIDATION` and `TRIP_VALIDATION` is permanent and not reverted, but the two profile texts of an older server; `USER_PROFILE_VALIDATION` and `AUTH_027` on a `user` operation are permanent and put the phone's copy of the profile and the session back from `GET /user/profile`, with the edits still waiting on top; the check-in rules read the unsupported answer with or without the prefix. Web unchanged (a refused profile save changes nothing on the device). Either side may deploy first. See Profile refusals and the unsupported entity, and Profile text |
+| 1.71.0 | 2026-11-26 | Handoff evidence (FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0): every operation may carry an optional `platform` (`android`, `web`); a handoff's `data` may carry the input-only `gpsStatus`, and its `gpsPickup` or `gpsDropoff` the fix's `capturedAt` and `accuracyM`, which are never stored in the point. The server stamps them server-only on the delivery with the leg's method and, for the drop-off, the phone's time of the operation; never in `serverData`; a client value of a stamp is an unknown field. A bad value is dropped, never refused; old clients unchanged. Server deploys first (an older server refuses `gpsStatus` as an unknown field). See Handoff evidence |
+| 1.70.0 | 2026-11-19 | Persona simulation fixes (server only, no client change; `order-lifecycle.md` 2.24.0, `delivery-verification-api.md` 2.17.0, `crop-listing-api.md` 1.17.0, `rating-api.md` 1.6.0): a `delivery` update from a caller who is no party is `DELIVERY_UNAUTHORIZED` before the transition, cancelled and dispute-window rules (conflict rule 10); an `order` or `delivery` update with nothing left to write answers `success` at the stored version and writes nothing (Updates with nothing to write); a `crop_listing` create for an existing id is answered by the create-conflict echo before the listing fraud rules; the delivery's buyer who sends `qrNonce` reads `DELIVERY_UNAUTHORIZED: Only the farmer sets the pickup code.`; a delivery confirm under a disputed escrow answers with the delivery as the dispute mirror left it (`disputed`); a `payment_submitted` for an order the listing can no longer fill is `ORDER_VALIDATION`; a rating of an order whose escrow is in dispute is `RATING_FORBIDDEN` |
+| 1.69.0 | 2026-11-19 | A refused duplicate trip create (persona simulation 2026-11-19 BUG-4, `trip-listing-api.md` 2.10.0 rule 14, fraud spec 3.43.0 Rule 6). Server: a trip `create` can now be answered `FRAUD_DUPLICATE_LISTING:` (the trucker already has an open trip on that route, departure day and vehicle), and a `crop_listing` `create` gets the same code for a lot the farmer already lists at any price (`crop-listing-api.md` 1.16.0 rule 13); both are permanent on every shipped client under the `FRAUD_*` rule. Clients: on mobile a trip create refused with it is reverted (the local trip is removed without a read, its operation leaves the failed count) and explained with its own sentence in en, am and om (`errorDuplicateTrip`); on web the create trip form shows the same sentence. A crop listing refused with the code is unchanged (not reverted, the listing-form wording) |
+| 1.68.0 | 2026-11-19 | Mobile client only, no wire change (persona simulation 2026-11-19). The farmer's own listings reach the phone (BUG-31, FUP-520): the own-listing pull of 1.67.2 now stores the rows it lists (every status, `reserved` and `sold` too), server wins, skipping a row with a `crop_listing` operation still on its way and a server copy older than the stored row, never a row of another farmer; it no longer returns before its request when the phone holds none of the farmer's listings. Early retries (BUG-32): a sync that did not reach the server while the phone has a network and operations wait is tried again after 10 s, 30 s, 1 min, 2 min and 5 min, stopping when the queue is empty or the phone is offline; the health check has a 10 s deadline, connecting included (BUG-35). See "Client-Side Conflict Resolution (Mobile)" and "Retry Logic and Exponential Backoff" |
+| 1.67.2 | 2026-11-17 | A listing deleted elsewhere leaves the farmer's phone (FUP-498, mobile only, no wire change): when My Crops opens, the phone reads the farmer's own list (`GET /crops?farmerId=`, every page, no `status`) and removes a listing of that farmer it holds that the list leaves out once `GET /crops/{id}` answers 404, 403 or a deleted row; a listing with a `crop_listing` operation still on its way, or whose create the server refused for good, stays, and a failed page removes nothing. A listing deleted on this phone (`expired` there) leaves the same way once its delete reached the server. The listed rows are not stored; buyers and truckers never run it; web needs no change. See "Client-Side Conflict Resolution (Mobile)" |
+| 1.67.1 | 2026-11-16 | The trucker's status change behind a refused pickup is matched when its own answer arrives (FUP-493, mobile only, no wire change): a `delivery` operation that sets a `status`, answered `DELIVERY_INVALID_TRANSITION` from `pending`, is rejected when the queue holds a pickup of that delivery refused for good in an earlier batch, by the same user and queued before it; the drop-off code registration and status changes still waiting behind that pickup go with it, the delivery is put back from the server and leaves the "Sync failed" count, nothing new is announced. Covers a mark tapped while the pickup's sync ran and one left by an app killed before the refusal was settled. See "GPS refusals of a handoff" |
+| 1.67.0 | 2026-11-16 | Deleted and sold crop listings (FUP-494, FUP-495, `crop-listing-api.md` 1.15.0): a `crop_listing` `delete` of a listing already deleted writes nothing and answers its farmer `success` with the stored version (before, it was written again and its `deletedAt` and version moved); a `crop_listing` `update` of a `sold` listing writes nothing and answers `conflict` with the stored row, message `CROP_SOLD: The listing is sold.` (before, an update without a `status` was written onto it). Both checks are in the write's condition. Anyone else keeps `CROP_UNAUTHORIZED`. No client change. New conflict resolution rule 9 |
+| 1.66.0 | 2026-11-13 | A deleted crop listing never changes again (FUP-152, `crop-listing-api.md` 1.14.0): a `crop_listing` `update` that reaches a deleted listing (`deletedAt` set, or `status: deleted`) writes nothing and answers its farmer `conflict` with the stored row and version, message `CROP_ALREADY_DELETED: The listing is already deleted.`, with or without a `status` and at any version; the write's condition carries the check, so a delete between the read and the write gets the same answer. Before, an update without a `status` at the version the delete left was written onto the hidden row, and one with a `status` got `CROP_INVALID_TRANSITION`. Anyone else keeps `CROP_UNAUTHORIZED`. No client change. New conflict resolution rule 8 |
+| 1.65.0 | 2026-11-13 | A deleted crop listing on the clients (FUP-149): a mobile `crop_listing` conflict whose `serverData` is a deleted listing (`deletedAt` set or `status: deleted`) removes the local listing instead of keeping it as a `draft`, and creates none; the mobile crop pull and the read behind a reverted listing remove a deleted row's listing (the farmer's own included) instead of storing it as `active`; the web repository and matcher leave a deleted row out and read it by id as not found. Other statuses map as before. No wire change. See "Client-Side Conflict Resolution (Mobile)" |
+| 1.64.0 | 2026-11-13 | Missing members (FUP-148, Request Format "Missing members"), as `escrow-protocol.md` 2.3.0 did for initiate and dispute. A missing, `null` or blank `syncBatchId` or `clientId` answers `400 SYNC_VALIDATION` with the member's text and `field`; a missing, `null` or empty `operations` keeps `"Request must contain at least one operation."` and gains `field: operations`. An operation missing an `operationId`, `idempotencyKey`, `entityType`, `entityId` or `action` (absent, `null` or empty) is its own `error` result `SYNC_VALIDATION: <member> is required.` and the rest of the batch goes on. Before, an absent member refused the whole batch as `"Invalid JSON in request body."` with no `field`, a `null` `syncBatchId` or `clientId` was accepted, and a `null` operation member answered `Missing required fields: ...` with no code (retried by mobile). No client sends such a body; no app change |
+| 1.63.0 | 2026-11-13 | A refused pickup and the trucker's status changes behind it (FUP-456, mobile only, no wire change): when the queue rejects a pickup by a code that puts the delivery back, it also rejects that delivery's waiting operations that set a `status`, were queued after the pickup and belong to the same user (on the trucker's phone the "Mark in transit", answered `DELIVERY_INVALID_TRANSITION` and retried while the server holds the delivery `pending`), before the revert, which flags them with the pickup: the phone goes back to `pending`, the mark is not resent and nothing counts as "Sync failed". Another user's operations, anything queued before the pickup and anything behind a refused delivery confirm are left alone. See "GPS refusals of a handoff" |
+| 1.62.0 | 2026-11-13 | GPS refusals of a handoff (FUP-439, `delivery-verification-api.md` 2.15.0): `DELIVERY_GPS_PROXIMITY` names its reason right after the code (`pickup_far`, `self_pickup_no_fix`, `self_pickup_no_farm_point`, `self_pickup_far`, `dropoff_far`); every one is now permanent on mobile and reverted like a refused typed code (the delivery goes back from `GET /deliveries/{id}`, the waiting photo is rejected, a refused pickup drops its trip's check-ins, the operation leaves the "Sync failed" count) with one text per reason in en, am and om, and web shows the same texts. A refusal without a known reason is permanent with the generic text. Any pickup refused by a code that puts the delivery back now also rejects the trucker's drop-off code registration waiting behind it, which held the revert back, and the revert flags it with the pickup. See "GPS refusals of a handoff" |
+| 1.61.0 | 2026-11-13 | Handoff photos (FUP-140, `delivery-verification-api.md` 2.14.0; 1.60.0 is FUP-373): the server holds a `pickup` or `dropoff` `delivery_photo` back (`deferred`, `DELIVERY_PHOTO_PENDING: The handoff has not reached the server yet.`) until its handoff is on the delivery, and keeps a copy of each attached photo for the reads (server only); the buyer's drop-off photo on a dispute the order cron opened that no admin decided is kept as late evidence, and a disputed delivery without the handoff refuses the photo for good; mobile rejects the photo waiting behind a pickup or delivery confirm answered `conflict` whose `serverData` does not show that handoff (the drop-off photo stays when the row is an undecided dispute), and no longer counts S3's `400 RequestTimeout` or a `408` on the photo `PUT` toward the 3 refusals. Web unchanged (no queue; it attaches after a successful handoff). See "Handoff photos" |
+| 1.60.0 | 2026-11-13 | Late drop-off evidence (FUP-373, `delivery-verification-api.md` 2.13.0), behind `dropoffClassification`: a `handoff_check_in` `arrived_dropoff` received after T8 or after the T8 judgement is kept late and answered `CHECKIN_TOO_LATE` without the arrival photo check (before, a check-in queued offline before T8 whose photo the T8 dispute refused got `CHECKIN_PHOTO_REQUIRED` and kept nothing); a late one more than 5 km away is kept as a late attempt; a decided dispute closes it (`CHECKIN_NOT_OPEN`); `delivery_photo` `{deliveryId}#arrival` is taken on the system's undecided T8 dispute (`delivery_overdue`, `dropoff_out_of_range`) as evidence only, marked late (`arrivalPhotoLateAt` on the delivery rows). Clients, no wire change: the drop-off kind not taken (`CHECKIN_VALIDATION`, the drop-off flag rolled back) reads as not open; mobile forgets the kept arrival photo path when its `delivery_photo` is refused for good and deletes a new arrival photo taken while one already waits; the too-far and out-of-range texts name the check-in and the order's drop-off point, not the trucker. See "The drop-off check-in". |
+| 1.59.1 | 2026-11-13 | The drop-off check-in, the clients (FUP-336, no wire change): the trucker's "Arrived at drop-off" on the order detail takes the arrival photo, then a GPS fix; mobile queues `delivery_photo` `{deliveryId}#arrival` ahead of `handoff_check_in` `arrived_dropoff` and the sync preflight holds the check-in while the photo waits (the check-in carries the never-sent `_deliveryId`), web attaches the uploaded key then sends the check-in; every `CHECKIN_*` refusal takes the mark back with its drop-off text (`CHECKIN_PHOTO_REQUIRED` also forgets the phone's given-up photo path; a `CHECKIN_TOO_FAR` attempt kept for review says so); the parties read the check-in, T8, the buyer's T9 (receipt plus 48 hours) and every outcome's label on the order and delivery detail; the pulls, the web repositories and the conflict echo read the new fields. See "The drop-off check-in", Clients. |
+| 1.59.0 | 2026-11-13 | The drop-off check-in (ESC-36, `delivery-verification-api.md` 2.10.0 P.4), server only, behind the new flag `dropoffClassification` (off everywhere): `handoff_check_in` takes `arrived_dropoff` from the order's trucker (GPS within 5 km of the drop-off points stamped at pickup, after the arrival photo `delivery_photo` `{deliveryId}#arrival`), up to T8; new permanent refusal `CHECKIN_PHOTO_REQUIRED`; a `CHECKIN_TOO_FAR` attempt with its photo is kept on the server as evidence (message suffix); each kind exists only with its own flag. Order rows gain `dropoffJudgement`, `dropoffJudgedAt`, `dropoffDeadlineAt`, `disputeReason` and `checkIns.arrived_dropoff`; deliveries gain `arrivalPhotoRef`, `arrivalPhotoUrl` (detail only) and `autoConfirmedAt`. Clients: FUP-336. 1.58.1 is FUP-285. |
+| 1.58.1 | 2026-11-13 | Arrival check-ins, the clients (FUP-285, no wire change): mobile and web send `handoff_check_in` from the order detail with exactly the server's fields; every `CHECKIN_*` refusal and the unsupported-entity answer to `handoff_check_in` (flag off) is a permanent refusal that takes the local mark back, reads the order again and is explained per code; the buyer's deadline cancel is hidden on a stamped order. See "Arrival check-ins", Clients. |
+| 1.58.0 | 2026-11-13 | The trucker's drop-off code (ESC-35, `delivery-verification-api.md` 2.7.0): a `delivery` update carrying only `dropoffQrNonce` from the delivery's trucker stores the trucker's drop-off nonce (nothing else, no version move; dropped from anyone else or with a `status`; `deferred` while the delivery is `pending`, refused `DELIVERY_VALIDATION` after 14 days); a registration never replaces a stored code, only `dropoffQrRenew: true` (the trucker's confirmed New drop-off code) does, and a code not stored answers `success` with the message `DROPOFF_CODE_SUPERSEDED` or `DROPOFF_CODE_NOT_STORED`; the buyer's `delivered` is checked against it once stored, with `DELIVERY_CODE_LOCKED` (renewable) for its lock and a new `deferred` text, without a signal, for a tagged scan whose nonce has not synced or that differs from the stored code but was scanned after it (`DELIVERY_NONCE_MISSING` after 14 days). Mobile queues the registration behind the pickup and on every open of the drop-off QR (never twice while waiting), and a renewal drops the drop-off codes still queued; web sends it at once and again on open and shows the `success` messages. Web names the trucker in the wait and lock texts when the server's text is the trucker's; the shared lock text no longer names the farmer. 1.57.0 is taken by another open branch. |
+| 1.57.0 | 2026-11-12 | Profile text on the `user` entity (SIM-56, `user-entity.md` 2.2.0): `displayName`, `woreda` and a company buyer's `companyName` beside `preferredLanguage`, at least one of the four; trimmed, unchanged echoes skipped, not empty, at most 100 characters, not the deleted-account name (`USER_PROFILE_VALIDATION`), then the FUP-52 screen with the registration's `AUTH_027` code and text; a refusal writes nothing. Every other key is still ignored. The read is `GET /user/profile` (not a sync pull) |
+| 1.56.0 | 2026-11-12 | `CROP_HAS_ACTIVE_ORDERS` whatever `COMMITMENTS_ENABLED` says (SIM-56, `crop-listing-api.md` 1.13.0 rule 10): a `crop_listing` delete, or an update to `status: deleted`, while an order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted` is refused in staging and prod too (the flag is off there), since a deleted listing refuses its delivery create and stranded such an order. An app without `X-App-Build` gets the `SYNC_VALIDATION:` sentence as before (FUP-241); an unreadable orders index is the same retryable unprefixed error. Clients already handle the code (1.17.0); the apps' own edit and delete now check first (SIM-56). `TRIP_HAS_BOOKINGS` stays behind the flag |
+| 1.55.0 | 2026-11-12 | Arrival check-ins (ESC-34, `delivery-verification-api.md` 2.6.0, `order-lifecycle.md` 2.15.0), behind `pickupClassification` (off everywhere): new create-only entity `handoff_check_in` (`{orderId}#{arrived_pickup\|crops_ready}`), taken only on an order stamped `pickupJudgement: pending` (with the flag off the entity is unsupported, as before: no read, no signal), judged by the server's receipt time, first check-in kept, no version or `updatedAt` move; the `CHECKIN_*` refusals are permanent (`CHECKIN_TOO_LATE` keeps the check-in as late evidence). FUP-147: a pickup scan refused `ORDER_DEADLINE_PASSED` after the judgement arrives on a `delivery` operation and is a permanent delivery refusal that puts the delivery back, on mobile and web, under the existing `ORDER_*` rule. |
+| 1.54.0 | 2026-11-12 | Handoff fields by status (FUP-246, `delivery-verification-api.md` 2.5.0, `fraud-detection-architecture.md` 3.34.0): a `delivery` operation writes `gpsPickup` only with `status: pickedUp`, `gpsDropoff` only with `delivered` and `disputeReason` only with `disputed`; anywhere else (a create, `inTransit`, the other handoffs, a dispute, an update without a status) the field is dropped, not refused, and logged as `DELIVERY_FIELD_DROPPED`. A buyer's confirm can no longer move the trucker's pickup point, nor a dispute rewrite either point. Server only; every shipped client already sends each field only with its own status. |
+| 1.53.0 | 2026-11-12 | The "update the app" banner (FUP-75), client only: the shell shows it above every main screen while the "update required" flag is set, with a Play Store button and a hint on the phone, and on web a reload that first updates the caching service worker, then fetches `main.dart.js` past the browser cache, and does nothing offline; web now raises the flag on an `APP_UPDATE_REQUIRED` refusal; the flag is kept with the build number (survives a restart on the same build, forgotten by another build) and an accepted order operation clears it (see Minimum app version for order operations). No server change. |
+| 1.52.0 | 2026-11-12 | Codes older apps do not know (FUP-241, `crop-listing-api.md` 1.12.1, `trip-listing-api.md` 2.6.1): `TRIP_HAS_BOOKINGS` and `CROP_HAS_ACTIVE_ORDERS` go only to an app that sends `X-App-Build`; an app without it (build 1 or older) gets the same sentence as `SYNC_VALIDATION:`, permanent on every mobile build since March 2026, as `REPUTATION_RESTRICTED` already did (1.48.0, unchanged). Apps with the header get the codes as before. Server only |
+| 1.51.0 | 2026-11-12 | A funded order's reject or cancel and its refund arm are one transaction (FUP-53, `escrow-protocol.md` 2.11.0, `order-lifecycle.md` 2.12.0): money frozen or moving answers `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` (permanent), and three unprefixed retryable texts cover a failed escrow read, an escrow that kept changing and a cancelled transaction; nothing is written on any of them. Server only. |
+| 1.50.0 | 2026-11-12 | `farmerReliability` retired (ESC-30, `match-api.md` 1.4.0): dropped from client payloads like the owner fields and no longer stamped on a crop create. |
+| 1.49.0 | 2026-11-12 | Refusal texts the clients read, client only (FUP-77, FUP-83): `ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.` has its own text (the phrase is now relied on by the clients); an `ORDER_KYC_REQUIRED` reason token the client does not know is explained only, with no Fayda action; `buyer_phone` has its own error text on every surface. 1.48.0 is taken by another branch |
+| 1.48.0 | 2026-11-11 | Suspended accounts and reputation gates (ESC-29, `reputation-api.md` 1.2.0, `auth-api.md` 2.15.0). Not flagged: a batch from a suspended account answers HTTP `403 AUTH_025` for the whole request from the caller row the server already reads, nothing applied, no idempotency key stored; clients with ESC-29 keep the queue without a retry and end the session, older builds keep the queue and are signed out at their next token refresh. Behind `reputationPenalties` (off everywhere): the server now sends `REPUTATION_RESTRICTED` on a restricted caller's `crop_listing` create, `trip` create and order accept, and on an `order` create whose listing farmer or trip trucker is restricted or suspended (an unreadable owner row answers an unprefixed retryable text); a client without `X-App-Build` gets the sentence as `SYNC_VALIDATION` or `ORDER_VALIDATION`. The owner fields (`ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct`, `ownerReputationAt`) are dropped from client payloads and returned in `serverData` only with `reputationPublicTags` on. |
+| 1.47.0 | 2026-11-11 | Step-up leftovers, client only (FUP-24, FUP-43): on mobile the remembered pending step-up is tied to the held operations and dropped once they all left the queue or got another answer, kept across a cancelled prompt; on web a delivery dispute answered `AUTH_040:` opens the password prompt and is sent once more as the same operation, and a cancelled prompt leaves it unsent with its own text (en, am, om) |
+| 1.46.0 | 2026-11-11 | Order detail read (ESC-23), client only: the mobile order detail shows the stored order at once and reads `GET /orders/{id}` once per open and on pull to refresh, under the pull rules (not sent while an operation for the order is queued, never to an older `version`); a failed read, `404` and `403` included, is silent and removes nothing. No server change. |
+| 1.45.0 | 2026-11-11 | Changes to a finished delivery or trip (FUP-128, `delivery-verification-api.md` 2.2.0): a delivery update that reaches a cancelled (or legacy soft-deleted) delivery with a version behind the stored one answers `conflict` with the scrubbed row to a caller who may make that change (SIM-28's rule; the trucker or the farmer's `qrNonce` for an update without a status), instead of `DELIVERY_ALREADY_CANCELLED`; at the current version, without one or for anyone else the error stands. The trip side was built in `trip-listing-api.md` 2.4.0. Mobile: `DELIVERY_ALREADY_CANCELLED`, `TRIP_TERMINAL_STATE` and `TRIP_ALREADY_CANCELLED` errors are permanent and revert the delivery or trip (they were retried); the conflict resolver no longer fails on a crop row without `description`, a trip row without `truckerName` or `truckerPhone`, reads a crop's flat `latitude` and `longitude` and maps `available` to `active`. Web unchanged. New conflict resolution rule 7 |
+| 1.44.1 | 2026-11-11 | A JSON `null` inside `operations` (FUP-127 audit): the whole batch is refused with `400 SYNC_VALIDATION` `"Operations must not contain null."` and nothing is applied. Before, the request failed with an unhandled error (a `502` without a code from API Gateway), also for the valid operations sent with it. No client sends one; no app change |
+| 1.44.0 | 2026-11-07 | Listing reports (FUP-67, `listing-report-api.md` 1.0.0): new create-only entity `listing_report` (`{listingType}#{listingId}`, `{listingType, listingId, reason}`), buyers only, one per buyer and listing (`duplicate` on a repeat), 10 a day; every refusal `SYNC_VALIDATION:`, already permanent on every client; nothing local to revert. New mobile and web report sheet, texts `errorReportNotSent` and `errorReportLimitReached` (en, am, om). The entityType list in Request Format now also names `delivery_photo` (1.39.0) |
+| 1.43.0 | 2026-11-07 | Mobile sync refusals (B1: FUP-08, FUP-25, FUP-51, FUP-74, FUP-110, FUP-138), client only: every `*_UNAUTHORIZED` but a role gate (a token without the role claim gets it too), `RATING_FORBIDDEN` for another user's order, the immutable-field `CROP_VALIDATION`, `TRIP_VALIDATION` and `DELIVERY_VALIDATION` texts and `DELIVERY_NONCE_MISSING` are permanent (see Refusals no retry can pass; `CROP_UNAUTHORIZED` and `TRIP_UNAUTHORIZED` no longer stay retryable, 1.17.0); `DELIVERY_NONCE_MISSING` is reverted like a refused typed code; `CROP_CONTACT_IN_TEXT`, `TRIP_CONTACT_IN_TEXT` and `FRAUD_ACCOUNT_HELD` revert a crop listing or trip (1.17.0 rules); a reverted delivery and a message removed for a closed thread leave the "Sync failed" count; the mobile queue leaves a `pickupPhotoRef` or `dropoffPhotoRef` that is not this delivery's upload key out of a `delivery` operation (an old build's file path); the old `ORDER_VALIDATION` total text is no longer read as `ORDER_PAYMENT_TOTAL_OUT_OF_RANGE` (1.24.0). No server change |
+| 1.42.0 | 2026-11-07 | Drop-off place (LT-14, `order-lifecycle.md` 2.9.0): `deliveryLatitude` and `deliveryLongitude` are new order fields on create and on the buyer's update until pickup; new permanent `ORDER_DELIVERY_LOCATION_LOCKED` (a change after pickup) under the `ORDER_*` rule, with its own text in en, am and om (`errorDeliveryLocationLocked`); an order row in `serverData` leaves the point out for a caller who may not read it, and carries it as numbers. Older clients revert and show the generic order refusal |
+| 1.41.0 | 2026-11-07 | Minimum app version for order operations built (ESC-25): `/sync` refuses every `order` operation (create, update, delete) from a build below `MIN_ORDER_APP_BUILD` on the sync Lambda (infra `minOrderAppBuild`, 3 in dev, staging and prod; 0 or absent = off; independent of `COMMITMENTS_ENABLED`) before any read or write: `APP_UPDATE_REQUIRED: This version of the app is too old for orders. Update WeredaConnect to continue.` to an app that sends `X-App-Build`, `ORDER_VALIDATION:` with the same text to one that sends none (confirmed). Nothing stored, no idempotency key, no fraud signal; the rest of the batch goes on; other entities and `/escrow/*` are not gated. `COMMITMENTS_ENABLED` stays off in staging and prod until the owner turns it on after the gate is deployed. No client change: mobile and web already treat it as permanent on an order and show `errorAppUpdateRequired` (1.17.0) |
+| 1.40.0 | 2026-11-07 | Two PLANNED sections (ESC-14), nothing built changes. Minimum app version for order operations (ESC-25): the server refuses every `order` operation, create and update, from a build below a per-environment minimum (proposed `MIN_ORDER_APP_BUILD`, 0 or absent = off; build 3 is the first that renders the commitments) before any read or write, with `APP_UPDATE_REQUIRED:` to an app that sends `X-App-Build` and, proposed, `ORDER_VALIDATION:` with the same text to one that sends none (it may predate the 1.17.0 client, FUP-75); other entities and the `/escrow/*` routes are not gated. Transport choice (ESC-19): the buyer's `transportChoice` command (`trip` with `tripId`, `self_pickup` with `pickupDate`, `cancel`) in `awaiting_transport`; a choice on an order the farmer has not accepted (the D14 park) goes back to `funded` with the farmer asked and `farmerDeadlineAt` restamped, the trucker asked after the farmer (D10); the eligible trip rules (`open` or `matched`), the order fields `transportAttempts` (with its `outcome` values and the backfill) and `refundedTotal`, the `replacement_request` push, and its refusals (`ORDER_UNAUTHORIZED`, `ORDER_ACTION_NOT_ALLOWED`, `ORDER_DEADLINE_PASSED`, `ORDER_TRIP_NOT_ELIGIBLE`, `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED`, `TRIP_CAPACITY_EXCEEDED` at read time and in a race, `ORDER_VALIDATION`), all already handled by the clients. D4 is marked as awaiting the user's confirmation, with the open question of a cheaper truck after a shift. Doc fix: Permanent order rejections listed `ORDER_TRIP_NOT_ELIGIBLE` as planned; it is sent since 1.34.0 |
+| 1.39.0 | 2026-11-07 | Handoff photos (FRD-12, `delivery-verification-api.md` 1.25.0): new create-only entity `delivery_photo` (`{deliveryId}#{pickup\|dropoff}`, `{photoRef}`), sent by the photo's taker only, attaching an uploaded photo without moving the delivery's version; `DELIVERY_PHOTO_INVALID`, `_FORBIDDEN`, `_REFUSED`, `_EXISTS`, `_MISSING` and `_TOO_LARGE` are permanent, not reverted, not announced and not counted as failures; `DELIVERY_PHOTO_PENDING` answers `deferred`; a photo ref in a `delivery` op is shape-checked but no longer written. Mobile uploads the photo in a batch preflight and stores the key in the operation; every wait is bounded (a presign `404` only while the delivery's own create waits on the phone and 10 minutes, the third refused `PUT`), a refused delivery create, pickup or delivery confirm rejects its waiting photo, and an attached photo's files are deleted; web uploads at capture and attaches after the confirm |
+| 1.38.0 | 2026-11-06 | Idempotency and races (SIM-28): the server stores a payload fingerprint with each idempotency key (SHA-256 of a canonical JSON of `entityType`, `entityId`, `action`, `clientVersion` and `data`; keys sorted, numbers by value; `operationId` and `timestamp` left out) in the new `payloadFingerprint` attribute; a key sent again with a different payload answers `error` `SYNC_VALIDATION: idempotency key already used for a different operation payload; ...` instead of `duplicate`, nothing processed or stored; records from before keep answering `duplicate`. A status change that is not a valid transition from the stored status and carries a version behind the stored one answers `conflict` with the row (to a caller who may ask for that status, `order-lifecycle.md` 2.6.0) instead of `ORDER_VALIDATION: Invalid status transition`, `DELIVERY_INVALID_TRANSITION`, `TRIP_INVALID_TRANSITION` or `CROP_INVALID_TRANSITION`; at the current version the error stands. No client change: `SYNC_VALIDATION` is already permanent and `conflict` already resolved server-wins (mobile) or a failure (web) |
+| 1.37.0 | 2026-11-06 | Typed `serverData` (SIM-25): `success` and `conflict` rows carry numbers as JSON numbers (`version`, quantities, prices, money fields, coordinates, `stars`) and a trip's `matchedListings` as an array, the types GET returns for the same row; before, every number was a string and `matchedListings` the text `"[]"`. Other values keep their type. The mobile conflict resolver already read these as numbers and a list, so its crop, trip and order conflicts failed on the string shape and are now applied server-wins; it also no longer requires `totalPrice` on an order row (the server never stores it): the local total is kept, a new row starts at 0 as the order pull does. Web reads only `status` from a row. No new code |
+| 1.36.0 | 2026-11-06 | Drop-off landmark (LT-12, `order-lifecycle.md` 2.5.0): `dropoffNote` is a new order field on create and on the buyer's update until pickup; new permanent `ORDER_CONTACT_IN_TEXT` (a phone number in it) and `ORDER_DROPOFF_NOTE_LOCKED` (a change after pickup), both under the `ORDER_*` rule clients already apply (1.10.0), now with their own text in en, am and om (`errorContactInText`, `errorDropoffNoteLocked`); an order row in `serverData` leaves the note out for a caller who may not read it. Older clients revert and show the generic order refusal |
+| 1.35.0 | 2026-11-06 | Listings that orders depend on (ESC-18, `crop-listing-api.md` 1.7.0, `order-lifecycle.md` 2.4.0): behind `COMMITMENTS_ENABLED`, the server sends `CROP_HAS_ACTIVE_ORDERS: This listing has N order(s) in progress. It cannot be deleted until they are completed or cancelled.` on a `crop_listing` delete, or an update to `status: deleted`, while an order of the listing is `payment_submitted`, `funded`, `awaiting_transport` or `accepted`; when the orders cannot be read, the unprefixed `The listing's orders could not be checked. Please try again later.` (retryable). A quantity edit never gets the code. Clients already handle it (1.17.0: permanent, the listing reverted from `GET /crops/{id}`, `errorCropHasActiveOrders`). A funding that loses the listing's stock cancels the order on the server (`listing_out_of_stock`); clients see it through the order pull. No client change |
+| 1.34.0 | 2026-11-04 | Orders on a trip that left (L-7, `order-lifecycle.md` 2.3.0, `trip-listing-api.md` 2.2.0): the server sends `ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; choose another trip.` on an `order` create naming a trip whose departure day is over in Ethiopia, flag on or off. Clients already treat the code as permanent (1.10.0) and give it its own text on a refused create (1.17.0, `errorTripNotEligible`): the mobile queue removes the local order and explains it, web shows the same text. No client change; no new code |
+| 1.33.0 | 2026-11-04 | Typed handoff code (T-1, `delivery-verification-api.md` 1.22.0): a delivery `pickedUp` or `delivered` update may carry `scannedQrCode` in place of `scannedQrNonce` (allowed in `data`, never stored); new permanent `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED`, `DELIVERY_CODE_LOCKED_DROPOFF` and `DELIVERY_CODE_GPS_REQUIRED`, rejected and reverted by the mobile queue and shown by web with their own en, am and om text; mismatches and locks write `QR_HANDOFF_FAILURE`. Trucker clients: Stop sharing in trip mode sends a `declined` `location_ping` before the phone stops (no server change). |
+| 1.32.0 | 2026-10-28 | Location pings, clients (LT-08): mobile queues `location_ping` with the capture time in the idempotency key, fills a batch with pings only after every other operation, sends one probe ping per sync for a trip whose pings are deferred, rejects `LOCATION_*` errors for good without announcing or counting them (`LOCATION_SHARING_ENDED` also stops sharing), coalesces over 24 waiting pings to one `fix` per trip and clock hour plus every event, and drops a trip's waiting pings when its pickup is refused for good; web posts each ping at once with the same rules. No server change |
+| 1.31.0 | 2026-10-28 | Location pings (LT-05, `live-trip-api.md` 1.0.0): new create-only entity `location_ping` (the trucker's check-ins and sharing events after pickup), accepted from the trip's trucker while a delivery on the trip is on the road or left it after `capturedAt` (late offline pings kept); `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` are permanent errors, not reverted; `LOCATION_NOT_ACTIVE` answers `deferred` (no delivery on the road yet, another still pending, or a delivery written earlier in the same batch); a resend of the same `entityId` and `kind` is `success`; clients handle it from LT-08 |
+| 1.30.0 | 2026-10-27 | Order commitments, clients (ESC-22, ESC-23, app build 3): the farmer's answer is sent as `farmerResponse: accept \| decline` on every server (translated with the flag off); the trucker's command only on an order with a `fulfillment` stamp; `ORDER_RESPONSE_NOT_PENDING:` has its own text. No server change. |
+| 1.29.0 | 2026-10-26 | Order commitments (ESC-15, `order-lifecycle.md` 2.0.0, behind `COMMITMENTS_ENABLED`): the farmer answers a `funded` order with `farmerResponse: accept \| decline` (legacy `status: accepted \| rejected` mapped) and the trucker, once the farmer accepted, with `truckerResponse: accept \| decline`, each with an optional `declineReason` (`date`, `capacity`, `price`, `route`, `crop_not_ready`, `other`) and the pre-increment `version`; these three are the only new allowed update keys, every other new order field and the system-managed status `awaiting_transport` are server-written and returned by `GET /orders`; `ORDER_RESPONSE_NOT_PENDING:` and `ORDER_DEADLINE_PASSED:` are permanent under the `ORDER_*` rule (no client change for them); `AUTH_040:` on the trucker's drop-out from `accepted` and the farmer's cancel from `accepted`; `ORDER_CANCEL_NOT_ALLOWED:` on a buyer's `funded -> cancelled`; the server now sends `TRIP_CAPACITY_EXCEEDED:` (order create above `remainingQuintals`) and `TRIP_HAS_BOOKINGS:` (a trip change the bookings forbid) behind the flag; header and footer versions aligned (the footer had stayed at 1.27.0) |
+| 1.28.0 | 2026-10-24 | User profile updates (SIM-37): the `user` entity takes `action: update` from the caller on their own row with the single allow-listed field `preferredLanguage` (`en`, `am`, `om`), version-less last-write-wins, an unchanged value a no-op `success`; errors `USER_PROFILE_VALIDATION`, `USER_PROFILE_UNAUTHORIZED`, `USER_PROFILE_NOT_FOUND`, `USER_PROFILE_CONFLICT` (retried) and `USER_PROFILE_UNAVAILABLE` (row added 2026-10-26; the section was in the body without one) |
 | 1.27.0 | 2026-10-23 | Fraud signals from refusals (FRD-08, fraud spec 3.9.0): create conflicts on another user's id, the `*_UNAUTHORIZED` refusals, identity and money field changes, QR nonce failures and a burst of 10 version conflicts in one batch write a typed signal on the caller, at most one row per type per hour, counted once per refused entity; responses unchanged, a failed write only logged; clients unchanged |
 | 1.26.0 | 2026-10-23 | Deleted accounts (ACC-02, `account-deletion.md` 1.2.0): a batch from an account that is being or has been deleted answers HTTP `410 ACCOUNT_004` with `error.deletionState` and nothing is applied (the client stops that sync without counting a retry; for `cognito_pending` and `completed` it never resends and wipes, for `in_progress` a later sync may resend because the deletion can still abort); a batch whose caller row cannot be read answers `503 SYNC_SERVER_ERROR`; a message to, or a rating about, an account with `deletionState` is op-level `SYNC_VALIDATION`; a `payment_submitted` for an order of such an account is `ORDER_VALIDATION` (`order-lifecycle.md` 1.26.0) |
 | 1.25.0 | 2026-10-23 | Risk tier built on the server (FRD-04, the 1.9.0 rules): `FRAUD_ACCOUNT_HELD:` on crop, trip and order create and on order `payment_submitted` for a caller at risk tier CRITICAL (a truncated score read included), nothing written; MEDIUM and HIGH raise `AUTH_040:` and `AUTH_041:` at any amount (Fayda first); the caller's tier only, read once per batch; an unreadable score or a missing fraud-signals table is LOW; the position of each check; `AUTH_041:` text amount-neutral; clients unchanged |
@@ -708,5 +2039,5 @@ per delivery. The rest are requests the shipped apps never send. Clients need no
 
 ---
 
-**Last Updated**: 2026-10-23
-**Version**: 1.27.0
+**Last Updated**: 2026-11-27
+**Version**: 1.72.0

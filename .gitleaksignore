@@ -1,0 +1,9 @@
+# False positive (approved): the Afaan Oromo value "Bitataan dhufaa jira" ("jira" = "is") followed by
+# the 24-letter key notifBuyerCollectingBody matches the default atlassian-api-token rule (ESC-21 PR 3).
+mobile/lib/shared/l10n/app_om.arb:atlassian-api-token:2734
+# False positive: "... jiraate qofa barreessi." ("jiraate" = "is there") followed by the 24-letter
+# key qrTypeCodeSelfPickupHint matches the same rule (usability fixes PR #276, its commit only).
+5afac728fa7372bc97ea4381b60f6ac45eac952b:mobile/lib/shared/l10n/app_om.arb:atlassian-api-token:3132
+# False positive (approved): "kg {available} ni jira" ("jira" = "is") followed by the 24-letter key
+# cropFormPriceHighWarning matches the same rule (persona sim PR #447, its commit only).
+a8caabe091e5a0f0849c497e06ee5c360f2f5e92:mobile/lib/shared/l10n/app_om.arb:atlassian-api-token:2507

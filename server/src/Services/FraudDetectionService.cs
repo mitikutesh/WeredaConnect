@@ -22,9 +22,65 @@ public sealed class FraudDetectionService : IFraudDetectionService
     internal const int PaymentVelocityTtlSeconds = 3600;       // 1 hour
     internal const double DuplicateListingWindowHours = 1.0;
     internal const double PriceTolerancePercent = 0.05;        // ±5%
+
+    // Rule 1, the duplicate lot: an active listing of the same farmer, crop type, quantity and place is
+    // the same stock listed again, whatever its price and age.
+
+    /// <summary>Two listing points of one woreda at most this far apart are one place.</summary>
+    internal const double DuplicateLotRadiusKm = 1.0;
+
+    /// <summary>The newest listings of the farmer and crop type the duplicate lot check reads (one BatchGetItem).</summary>
+    internal const int DuplicateLotMaxListings = 100;
+
+    /// <summary>Pages of the farmer index, and of the trucker index (Rule 6), one check follows.</summary>
+    internal const int OwnerIndexMaxPages = 3;
+
+    /// <summary>Rule 6: a trip of the same trucker on the same departure day, on another route or with another vehicle.</summary>
+    internal const string TripSameDaySignal = "TRIP_SAME_DAY";
+
+    /// <summary>
+    /// Rule 1, the duplicate lot: a listing create refused because the farmer already lists that lot. The
+    /// refusal keeps the wire code <c>FRAUD_DUPLICATE_LISTING</c>; its signal is this type, which never
+    /// scores, because honest farmers meet the rule too (the same harvest size listed again while an old
+    /// listing is still active). The price band keeps writing <c>FRAUD_DUPLICATE_LISTING</c> (20).
+    /// </summary>
+    internal const string DuplicateLotSignal = "DUPLICATE_LOT";
+
+    /// <summary>
+    /// Rule 6: a trip create refused as a duplicate (same route, day and vehicle). Never scores, for the
+    /// same reason: a second Save after a lost response on web, or a second run of a short route, meets it.
+    /// </summary>
+    internal const string DuplicateTripSignal = "DUPLICATE_TRIP";
+
+    // Rule 7 (persona simulation 2026-11-19): review-only flags of things honest users also do. Each is
+    // weight 0 and soft, written on the user whose own request it observes, and refuses nothing.
+
+    /// <summary>A trucker's pickup confirmed without a GPS fix (FUP-448); the delivery is the entity.</summary>
+    internal const string PickupNoFixSignal = "PICKUP_NO_FIX";
+
+    /// <summary>A buyer's order on a trip that does not start where the listing is; the order is the entity.</summary>
+    internal const string OrderRouteMismatchSignal = "ORDER_ROUTE_MISMATCH";
+
+    /// <summary>A phone number in an order or delivery chat before the order was delivered; the order is the entity.</summary>
+    internal const string ChatContactBeforeDeliverySignal = "CHAT_CONTACT_BEFORE_DELIVERY";
     internal const int PriceAnomalyMinSamples = 5;
     internal const int PriceAnomalySampleSize = 50;
-    internal const double PriceAnomalyStdDevMultiplier = 3.0;
+
+    // Rule 2 (FUP-135): robust bounds, so a few test or absurd listings in the sample cannot widen them.
+    // A price is unusual when it lies more than PriceAnomalySpreadMultiplier spreads from the sample median.
+
+    /// <summary>Spreads from the median that flag a price (the old rule's 3 standard deviations).</summary>
+    internal const decimal PriceAnomalySpreadMultiplier = 3.0m;
+
+    /// <summary>1.4826 times the median absolute deviation estimates the standard deviation of normal prices.</summary>
+    internal const decimal MadToStdDev = 1.4826m;
+
+    /// <summary>
+    /// The spread is at least this share of the median, so a sample where most farmers ask the same price (a
+    /// median absolute deviation of 0) flags only prices more than 30% away from it, not every other price.
+    /// </summary>
+    internal const decimal PriceAnomalyMinSpreadOfMedian = 0.10m;
+
     internal const double GpsSpoofingThresholdKm = 1.0;
     internal const int SignalTtlDays = 30;
 
@@ -39,6 +95,7 @@ public sealed class FraudDetectionService : IFraudDetectionService
     internal const int DefaultRiskMaxPages = 2;
     internal const int RiskMaxPagesCap = 10;
     internal const int DefaultRiskRejectTypeCap = 50;
+    internal const int DefaultRiskPatternTypeCap = 50;
 
     /// <summary>AI reviewer output (FRD-19): capped, and left out of the enforcement score.</summary>
     internal const string AdvisorySignalType = "AI_ADVISORY";
@@ -64,6 +121,12 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// <summary>Log alarm token: rows with an unknown <c>recordType</c> were read and counted as signals.</summary>
     public const string RiskScoreUnknownRecordToken = "RISK_SCORE_UNKNOWN_RECORD";
 
+    /// <summary>
+    /// FRD-16 log token: one signal row was written (section 23.1). Its line is JSON so a metric filter can
+    /// take the type as a dimension; the token is also a plain term for the total-volume filter.
+    /// </summary>
+    public const string FraudSignalRecordedToken = "FRAUD_SIGNAL_RECORDED";
+
     public FraudDetectionService(
         IAmazonDynamoDB dynamoDb,
         string cropsTable,
@@ -77,16 +140,22 @@ public sealed class FraudDetectionService : IFraudDetectionService
     }
 
     /// <summary>
-    /// Sink for the risk score alarm lines. Defaults to stdout, which Lambda ships to the
+    /// Sink for the risk score alarm lines and the FRD-16 signal line. Defaults to stdout, which Lambda ships to the
     /// function's CloudWatch log group. Tests replace it to capture the lines.
     /// </summary>
     public Action<string> AlarmLog { get; init; } = Console.WriteLine;
 
+    /// <summary>
+    /// The trips table, for Rule 6 (<see cref="CheckTripCreationAsync"/>). Only the sync Lambda sets it;
+    /// empty, the check allows every trip.
+    /// </summary>
+    public string TripsTable { get; init; } = "";
+
     // ── CheckListingCreationAsync ──────────────────────────
-    // Runs checks in order: velocity → duplicate → price anomaly
+    // Runs checks in order: velocity → duplicate (price band, then lot) → price anomaly
     // Returns on first rejection; flags accumulate.
     public async Task<FraudCheckResult> CheckListingCreationAsync(
-        string farmerId, string cropType, decimal pricePerKg)
+        string farmerId, string cropType, decimal pricePerKg, ListingLot? lot = null)
     {
         // 1. Velocity check (cheapest — single DynamoDB GetItem)
         var hourBucket = DateTime.UtcNow.ToString("yyyy-MM-ddTHH");
@@ -130,24 +199,286 @@ public sealed class FraudDetectionService : IFraudDetectionService
             }
         }
 
+        // 2b. Duplicate lot: the price band above lets the same stock through at a price more than 5%
+        // away, or an hour later. The same quantity of the same crop at the same place is one lot.
+        if (lot != null && await HasActiveListingOfLotAsync(farmerId, cropType, lot))
+        {
+            return DuplicateRefusal(
+                "A similar listing already exists. Please update your existing listing instead.", DuplicateLotSignal);
+        }
+
         // 3. Price anomaly (GSI query + computation — most expensive)
         var recentPrices = await QueryRecentPricesByCropTypeAsync(cropType, PriceAnomalySampleSize);
 
-        if (recentPrices.Count >= PriceAnomalyMinSamples)
+        if (PriceBand.Of(recentPrices) is { } band && band.IsUnusual(pricePerKg))
         {
-            var mean = recentPrices.Average();
-            var variance = recentPrices.Sum(p => (p - mean) * (p - mean)) / (recentPrices.Count - 1);
-            var stdDev = (decimal)Math.Sqrt((double)variance);
-
-            if (stdDev > 0 && Math.Abs(pricePerKg - mean) > (decimal)PriceAnomalyStdDevMultiplier * stdDev)
-            {
-                return FraudCheckResult.Flagged(
-                    "PRICE_ANOMALY",
-                    $"Price {pricePerKg} ETB/kg is unusual for {cropType} (avg: {mean:F2}, stddev: {stdDev:F2}).");
-            }
+            return FraudCheckResult.Flagged(
+                "PRICE_ANOMALY",
+                string.Create(CultureInfo.InvariantCulture,
+                    $"Price {pricePerKg} ETB/kg is unusual for {cropType} (median: {band.Median:F2}, MAD: {band.Mad:F2})."));
         }
 
         return FraudCheckResult.Allowed();
+    }
+
+    /// <summary>
+    /// Rule 2 (FUP-135): the robust band of a crop type's recent prices. The centre is the median and the spread
+    /// <see cref="MadToStdDev"/> times the median absolute deviation (MAD), at least
+    /// <see cref="PriceAnomalyMinSpreadOfMedian"/> of the median. Unlike the mean and the standard deviation it
+    /// replaced, neither moves much when up to half the sample is extreme: the dev teff sample (listings up to
+    /// 1,000 ETB/kg, mean 216.6, deviation 322.0) gave a band so wide that 999 ETB/kg passed.
+    /// </summary>
+    internal sealed record PriceBand(decimal Median, decimal Mad, decimal Spread)
+    {
+        /// <summary>The band of a sample, or null when it has fewer than <see cref="PriceAnomalyMinSamples"/> prices or no spread.</summary>
+        public static PriceBand? Of(IReadOnlyList<decimal> prices)
+        {
+            if (prices.Count < PriceAnomalyMinSamples)
+            {
+                return null;
+            }
+
+            var median = MedianOf(prices);
+            var mad = MedianOf(prices.Select(p => Math.Abs(p - median)).ToList());
+            var spread = Math.Max(MadToStdDev * mad, PriceAnomalyMinSpreadOfMedian * Math.Abs(median));
+            return spread > 0 ? new PriceBand(median, mad, spread) : null;
+        }
+
+        public bool IsUnusual(decimal price) => Math.Abs(price - Median) > PriceAnomalySpreadMultiplier * Spread;
+
+        private static decimal MedianOf(IReadOnlyList<decimal> values)
+        {
+            var sorted = values.OrderBy(v => v).ToList();
+            var middle = sorted.Count / 2;
+            return sorted.Count % 2 == 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+        }
+    }
+
+    /// <summary>
+    /// Rule 1, the duplicate lot: whether the farmer has an active listing (<c>available</c> or
+    /// <c>reserved</c>, not deleted) of this crop type with the same quantity at the same place, other than
+    /// the listing being created. The farmer index projects neither quantity, place nor status, so its keys
+    /// (the newest <see cref="DuplicateLotMaxListings"/> of the crop type) are read from the table in one
+    /// strongly consistent BatchGetItem.
+    /// </summary>
+    private async Task<bool> HasActiveListingOfLotAsync(string farmerId, string cropType, ListingLot lot)
+    {
+        var keys = await QueryFarmerListingKeysAsync(farmerId, cropType, lot.CropId);
+        if (keys.Count == 0)
+        {
+            return false;
+        }
+
+        var pending = new KeysAndAttributes
+        {
+            Keys = keys,
+            ConsistentRead = true,
+            ProjectionExpression = "cropId, quantity, woreda, latitude, longitude, #s, deletedAt",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#s", "status" } }
+        };
+
+        // Unprocessed keys (throttling) are asked again a few times, then left: the check is best effort.
+        for (var attempt = 0; attempt < OwnerIndexMaxPages && pending is { Keys.Count: > 0 }; attempt++)
+        {
+            var response = await _dynamoDb.BatchGetItemAsync(new BatchGetItemRequest
+            {
+                RequestItems = new Dictionary<string, KeysAndAttributes> { { _cropsTable, pending } }
+            });
+
+            if (response.Responses != null
+                && response.Responses.TryGetValue(_cropsTable, out var rows)
+                && rows.Any(row => IsSameLot(row, lot)))
+            {
+                return true;
+            }
+
+            pending = response.UnprocessedKeys != null && response.UnprocessedKeys.TryGetValue(_cropsTable, out var left)
+                ? left
+                : null;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether a stored listing is the lot being created: active, the same quantity, the same woreda, and,
+    /// when both carry a point, the points at most <see cref="DuplicateLotRadiusKm"/> apart. A listing
+    /// without a point is placed by its woreda alone. The price is not compared.
+    /// </summary>
+    internal static bool IsSameLot(Dictionary<string, AttributeValue> row, ListingLot lot)
+    {
+        if (row.TryGetValue("cropId", out var id) && id.S == lot.CropId)
+        {
+            return false;
+        }
+
+        if (row.TryGetValue("deletedAt", out var deleted) && !string.IsNullOrEmpty(deleted.S))
+        {
+            return false;
+        }
+
+        // A row without a status is as old as the field and still on the market.
+        if (row.TryGetValue("status", out var status) && status.S is { Length: > 0 } and not ("available" or "reserved"))
+        {
+            return false;
+        }
+
+        if (ReadNumber(row, "quantity") is not { } quantity || quantity != lot.Quantity)
+        {
+            return false;
+        }
+
+        if (!row.TryGetValue("woreda", out var woreda) || !SameName(woreda.S, lot.Woreda))
+        {
+            return false;
+        }
+
+        return lot.Latitude is not { } lat || lot.Longitude is not { } lng
+            || ReadNumber(row, "latitude") is not { } rowLat || ReadNumber(row, "longitude") is not { } rowLng
+            || HaversineDistanceKm(lat, lng, (double)rowLat, (double)rowLng) <= DuplicateLotRadiusKm;
+    }
+
+    /// <summary>A number attribute, also in the string form old rows hold; null when missing or not a number.</summary>
+    private static decimal? ReadNumber(Dictionary<string, AttributeValue> row, string name) =>
+        row.TryGetValue(name, out var value)
+        && decimal.TryParse(value.N ?? value.S, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+            ? number
+            : null;
+
+    /// <summary>Two place or route names compared as people type them: outer spaces and case ignored.</summary>
+    private static bool SameName(string? a, string? b) =>
+        !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b)
+        && string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    // ── CheckTripCreationAsync ─────────────────────────────
+    // Rule 6: one truck makes one trip on a route per day. Reads the trucker's open and matched trips.
+    public async Task<FraudCheckResult> CheckTripCreationAsync(TripPlan plan)
+    {
+        if (string.IsNullOrEmpty(TripsTable) || string.IsNullOrEmpty(plan.TruckerId))
+        {
+            return FraudCheckResult.Allowed();
+        }
+
+        Dictionary<string, AttributeValue>? otherSameDay = null;
+        foreach (var indexed in await QueryTruckerActiveTripsAsync(plan.TruckerId))
+        {
+            var trip = indexed;
+            var overlap = TripOverlapOf(trip, plan);
+            if (overlap == TripOverlap.Duplicate)
+            {
+                // The index is eventually consistent, and a refusal is final for the client: a phone that
+                // syncs "create A, cancel A, create B" in one batch must not lose B to the index's copy
+                // of A. So the trip row itself is read, strongly consistent, and judged again.
+                trip = await ReadTripConsistentAsync(trip);
+                overlap = trip == null ? TripOverlap.None : TripOverlapOf(trip, plan);
+                if (overlap == TripOverlap.Duplicate)
+                {
+                    return DuplicateRefusal(
+                        "You already have a trip on this route on that day. Please update your existing trip instead.",
+                        DuplicateTripSignal);
+                }
+            }
+
+            if (overlap == TripOverlap.SameDay)
+            {
+                otherSameDay ??= trip;
+            }
+        }
+
+        if (otherSameDay == null)
+        {
+            return FraudCheckResult.Allowed();
+        }
+
+        var otherFrom = otherSameDay.TryGetValue("fromWoreda", out var f) ? f.S : null;
+        var otherTo = otherSameDay.TryGetValue("toWoreda", out var t) ? t.S : null;
+        return FraudCheckResult.Flagged(
+            TripSameDaySignal,
+            $"Trip {plan.FromWoreda} to {plan.ToWoreda} departs the same day as another open trip of this trucker ({otherFrom} to {otherTo}).");
+    }
+
+    /// <summary>
+    /// A refusal of the two rules honest users also meet (the duplicate lot, the duplicate trip): the wire
+    /// code clients know, and in <see cref="FraudCheckResult.FlagReason"/> the signal type to record in
+    /// its place, one that never scores.
+    /// </summary>
+    private static FraudCheckResult DuplicateRefusal(string message, string signalType) =>
+        FraudCheckResult.Rejected("FRAUD_DUPLICATE_LISTING", message) with { FlagReason = signalType };
+
+    /// <summary>How a stored trip of the trucker stands to a trip being created (Rule 6).</summary>
+    internal enum TripOverlap
+    {
+        /// <summary>Not in the way: the trip itself, not open or matched, deleted, or another departure day.</summary>
+        None,
+
+        /// <summary>An open or matched trip of the same Ethiopia day, on another route or with another vehicle.</summary>
+        SameDay,
+
+        /// <summary>An open or matched trip of the same Ethiopia day, route and vehicle.</summary>
+        Duplicate
+    }
+
+    /// <summary>
+    /// Rule 6 for one stored trip. The status and <c>deletedAt</c> are judged here as well as in the index
+    /// filter, so a row read again from the table is judged by the same rule.
+    /// </summary>
+    internal static TripOverlap TripOverlapOf(Dictionary<string, AttributeValue> trip, TripPlan plan)
+    {
+        if ((trip.TryGetValue("tripId", out var id) && id.S == plan.TripId)
+            || (trip.TryGetValue("status", out var status) && status.S is not ("open" or "matched"))
+            || (trip.TryGetValue("deletedAt", out var deleted) && !string.IsNullOrEmpty(deleted.S))
+            || !trip.TryGetValue("departureDate", out var departure)
+            || !DateTime.TryParse(departure.S, CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var departureUtc)
+            || TripDeparture.StartOfEthiopiaDayUtc(departureUtc) != TripDeparture.StartOfEthiopiaDayUtc(plan.DepartureUtc))
+        {
+            return TripOverlap.None;
+        }
+
+        var sameRoute = trip.TryGetValue("fromWoreda", out var from) && SameName(from.S, plan.FromWoreda)
+            && trip.TryGetValue("toWoreda", out var to) && SameName(to.S, plan.ToWoreda);
+        return sameRoute && SameVehicle(trip.TryGetValue("vehiclePlate", out var plate) ? plate.S : null, plan.VehiclePlate)
+            ? TripOverlap.Duplicate
+            : TripOverlap.SameDay;
+    }
+
+    /// <summary>
+    /// The trip row of an index row, read from the table strongly consistent (the table's key is the trip id
+    /// and <c>createdAt</c>, so it is a Query of the id's partition). Null when the row is gone or the index
+    /// row carries no id.
+    /// </summary>
+    private async Task<Dictionary<string, AttributeValue>?> ReadTripConsistentAsync(Dictionary<string, AttributeValue> indexed)
+    {
+        if (!indexed.TryGetValue("tripId", out var id) || string.IsNullOrEmpty(id.S))
+        {
+            return null;
+        }
+
+        var response = await _dynamoDb.QueryAsync(new QueryRequest
+        {
+            TableName = TripsTable,
+            KeyConditionExpression = "tripId = :id",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", new AttributeValue { S = id.S } } },
+            ProjectionExpression = "tripId, fromWoreda, toWoreda, departureDate, vehiclePlate, #s, deletedAt",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#s", "status" } },
+            ConsistentRead = true,
+            Limit = 1
+        });
+        return response.Items is { Count: > 0 } rows ? rows[0] : null;
+    }
+
+    /// <summary>
+    /// Whether two trips are driven by one vehicle as far as the plates tell: the same plate (spaces, dashes
+    /// and case ignored), or a plate missing on either side. Two different plates are two trucks.
+    /// </summary>
+    internal static bool SameVehicle(string? plateA, string? plateB)
+    {
+        var a = PlateKey(plateA);
+        var b = PlateKey(plateB);
+        return a.Length == 0 || b.Length == 0 || a == b;
+
+        static string PlateKey(string? plate) =>
+            new string((plate ?? "").Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
     }
 
     // ── CheckPaymentVelocityAsync ──────────────────────────
@@ -170,6 +501,16 @@ public sealed class FraudDetectionService : IFraudDetectionService
     // ── CheckGpsConsistency ────────────────────────────────
     // Pure computation — no async DB calls.
     public FraudCheckResult CheckGpsConsistency(
+        double? pickupLat, double? pickupLng,
+        double? dropoffLat, double? dropoffLng,
+        string fromWoreda, string toWoreda)
+        => GpsConsistency(pickupLat, pickupLng, dropoffLat, dropoffLng, fromWoreda, toWoreda);
+
+    /// <summary>
+    /// Rule 4 itself (fraud-detection-architecture.md section 2). FUP-203: the trucker's <c>GPS_ANOMALY</c> row
+    /// applies the same thresholds to the trucker's own check-in (<see cref="TruckerGpsEvidence"/>).
+    /// </summary>
+    internal static FraudCheckResult GpsConsistency(
         double? pickupLat, double? pickupLng,
         double? dropoffLat, double? dropoffLng,
         string fromWoreda, string toWoreda)
@@ -216,9 +557,22 @@ public sealed class FraudDetectionService : IFraudDetectionService
         string userId, string signalType, string? entityId,
         string entityType, string? description)
     {
+        await PutSignalAsync(userId, signalType, entityId, entityType, description, sourceUserId: null);
+    }
+
+    /// <summary>
+    /// The one writer of signal rows. Returns whether a row was written: false for an unconfigured table,
+    /// an empty user id, or the FRD-08 write limit (a row of this user, type and hour exists).
+    /// <paramref name="sourceUserId"/> (ESC-33) is stored only on a row written onto a user other than the
+    /// one whose request caused it, so the attribution guard can count rows per source.
+    /// </summary>
+    private async Task<bool> PutSignalAsync(
+        string userId, string signalType, string? entityId,
+        string entityType, string? description, string? sourceUserId)
+    {
         if (string.IsNullOrEmpty(_fraudSignalsTable) || string.IsNullOrEmpty(userId))
         {
-            return;
+            return false;
         }
 
         var now = DateTime.UtcNow;
@@ -236,6 +590,8 @@ public sealed class FraudDetectionService : IFraudDetectionService
         {
             { "userId", new AttributeValue { S = userId } },
             { "signalKey", new AttributeValue { S = signalKey } },
+            // FUP-103: the row kind of section 20. Rows written before carry none and still read as signals.
+            { "recordType", new AttributeValue { S = RecordTypeSignal } },
             { "signalId", new AttributeValue { S = BuildSignalId(userId, signalKey) } },
             { "signalType", new AttributeValue { S = signalType } },
             { "severity", new AttributeValue { S = SignalSeverity(weight) } },
@@ -252,6 +608,11 @@ public sealed class FraudDetectionService : IFraudDetectionService
             item["entityId"] = new AttributeValue { S = entityId };
         }
 
+        if (!string.IsNullOrEmpty(sourceUserId))
+        {
+            item[SourceUserIdAttribute] = new AttributeValue { S = sourceUserId };
+        }
+
         try
         {
             await _dynamoDb.PutItemAsync(new PutItemRequest
@@ -260,12 +621,277 @@ public sealed class FraudDetectionService : IFraudDetectionService
                 Item = item,
                 ConditionExpression = "attribute_not_exists(signalKey)"
             });
+            // FRD-16: one line per row written, so the signal metrics count the rows Fraud Review shows.
+            AlarmLog(SignalRecordedLine(signalType, entityType));
+            return true;
         }
         catch (ConditionalCheckFailedException)
         {
             // This user already has a row of this type in this hour: the write limit, not a failure.
+            return false;
         }
     }
+
+    // ── RecordAttributedSignalAsync ────────────────────────
+    // ESC-33 (section 14.3): the guard of a signal written onto a user other than the caller.
+
+    /// <summary>The signal row attribute naming the user whose request caused a row on another user (ESC-33).</summary>
+    internal const string SourceUserIdAttribute = "sourceUserId";
+
+    /// <summary>
+    /// ESC-33: rows of one type one source may put on one target within the table's 30 day life. One
+    /// confirming buyer adds at most one <c>GPS_ANOMALY</c> (25, LOW on its own) to one trucker.
+    /// </summary>
+    internal const int AttributedPerSourceCap = 1;
+
+    /// <summary>
+    /// ESC-33: rows of one type all sources together may put on one target within the table's 30 day life.
+    /// Two <c>GPS_ANOMALY</c> rows are 50, MEDIUM: other users' requests alone never take a target to HIGH
+    /// or CRITICAL, and never near the page cap of the score read (a truncated read is CRITICAL).
+    /// </summary>
+    internal const int AttributedPerTargetCap = 2;
+
+    /// <summary>
+    /// ESC-33: sort key prefix of the guard's slot rows in the target's partition. <c>!</c> sorts before
+    /// every ISO timestamp, so no read with the key condition <c>signalKey &gt;= since</c> (the score, the
+    /// existence check, the clean-delivery check, the advisory read) ever returns one; a slot row has no
+    /// <c>status</c>, so it is not on the Fraud Review index either.
+    /// </summary>
+    internal const string AttributionSlotPrefix = "!attr#";
+
+    /// <summary>The <c>recordType</c> of a slot row.</summary>
+    internal const string RecordTypeAttributionSlot = "attribution_slot";
+
+    /// <summary>Log line of an attributed signal the guard did not write (not alarmed; ids never logged).</summary>
+    internal const string AttributedSignalSkippedToken = "FRAUD_ATTRIBUTED_SIGNAL_SKIPPED";
+
+    public async Task<AttributedSignalOutcome> RecordAttributedSignalAsync(
+        string targetUserId, string sourceUserId, string signalType, string entityId,
+        string entityType, string? description)
+    {
+        if (string.IsNullOrEmpty(_fraudSignalsTable))
+        {
+            return AttributedSignalOutcome.NotConfigured;
+        }
+
+        if (string.IsNullOrEmpty(targetUserId) || string.IsNullOrEmpty(sourceUserId) || string.IsNullOrEmpty(entityId))
+        {
+            return AttributedSignalOutcome.Invalid;
+        }
+
+        // One consistent Query of the target's partition over the table's life, the type as a filter, at most
+        // DefaultRiskMaxPages pages. Rows left unread: the caps cannot be shown to hold, so nothing is written
+        // (such a partition reads as truncated, CRITICAL, anyway).
+        var since = DateTime.UtcNow.AddDays(-SignalTtlDays).ToString("o", CultureInfo.InvariantCulture);
+        var request = new QueryRequest
+        {
+            TableName = _fraudSignalsTable,
+            KeyConditionExpression = "#u = :uid AND #k >= :since",
+            FilterExpression = "#t = :type",
+            ProjectionExpression = "#k, #e, #s",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#u", "userId" },
+                { "#k", "signalKey" },
+                { "#t", "signalType" },
+                { "#e", "entityId" },
+                { "#s", SourceUserIdAttribute }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":uid", new AttributeValue { S = targetUserId } },
+                { ":since", new AttributeValue { S = since } },
+                { ":type", new AttributeValue { S = signalType } }
+            },
+            ConsistentRead = true
+        };
+
+        var rows = 0;
+        var fromSource = 0;
+        var pages = 0;
+        Dictionary<string, AttributeValue>? startKey = null;
+        do
+        {
+            if (startKey != null)
+            {
+                request.ExclusiveStartKey = startKey;
+            }
+
+            var response = await _dynamoDb.QueryAsync(request);
+            pages++;
+            foreach (var row in response.Items ?? new List<Dictionary<string, AttributeValue>>())
+            {
+                if (row.TryGetValue("entityId", out var entity) && entity.S == entityId)
+                {
+                    return Skipped(AttributedSignalOutcome.AlreadyRecorded);
+                }
+
+                rows++;
+                if (row.TryGetValue(SourceUserIdAttribute, out var source) && source.S == sourceUserId)
+                {
+                    fromSource++;
+                }
+            }
+
+            startKey = response.LastEvaluatedKey is { Count: > 0 } next ? next : null;
+        }
+        while (startKey != null && pages < DefaultRiskMaxPages);
+
+        if (startKey != null && await RowsRemainAsync(targetUserId, since, startKey, newestFirst: false, consistentRead: true))
+        {
+            return Skipped(AttributedSignalOutcome.TargetUnread);
+        }
+
+        if (fromSource >= AttributedPerSourceCap)
+        {
+            return Skipped(AttributedSignalOutcome.SourceCapped);
+        }
+
+        if (rows >= AttributedPerTargetCap)
+        {
+            return Skipped(AttributedSignalOutcome.TargetCapped);
+        }
+
+        // The counts above are a read, and two confirms that both read "one below the cap" (in two hour
+        // buckets, so the hour key does not stop the second) could both write. The caps are therefore
+        // enforced by conditional puts of slot rows: one slot per source, AttributedPerTargetCap slots per
+        // target, each held for the 30 days its signal row can count. Only a request that holds both
+        // writes the signal, so the caps hold whatever the interleaving.
+        var now = DateTime.UtcNow;
+        if (!await TryClaimSlotAsync(targetUserId, $"{AttributionSlotPrefix}{signalType}#source#{sourceUserId}", now))
+        {
+            return Skipped(AttributedSignalOutcome.SourceCapped);
+        }
+
+        var slot = 0;
+        for (var n = 1; n <= AttributedPerTargetCap && slot == 0; n++)
+        {
+            if (await TryClaimSlotAsync(targetUserId, $"{AttributionSlotPrefix}{signalType}#slot#{n}", now))
+            {
+                slot = n;
+            }
+        }
+
+        if (slot == 0)
+        {
+            return Skipped(AttributedSignalOutcome.TargetCapped);
+        }
+
+        return await PutSignalAsync(targetUserId, signalType, entityId, entityType, description, sourceUserId)
+            ? AttributedSignalOutcome.Written
+            : Skipped(AttributedSignalOutcome.HourLimited);
+
+        AttributedSignalOutcome Skipped(AttributedSignalOutcome outcome)
+        {
+            AlarmLog($"{AttributedSignalSkippedToken} signalType={MoneyAlarmLog.Safe(signalType)} reason={outcome}");
+            return outcome;
+        }
+    }
+
+    // ── HasSignalAsync ─────────────────────────────────────
+    // FRD-15: the scan sees an order again in every hourly run of its lookback, and the writer's key only
+    // stops a second row within one hour. One Query of the user's partition over the table's 30 day life,
+    // consistent, the type and the entity as a filter, at most DefaultRiskMaxPages pages.
+    public async Task<bool> HasSignalAsync(string userId, string signalType, string entityId)
+    {
+        if (string.IsNullOrEmpty(_fraudSignalsTable) || string.IsNullOrEmpty(userId))
+        {
+            return false;
+        }
+
+        var since = DateTime.UtcNow.AddDays(-SignalTtlDays).ToString("o", CultureInfo.InvariantCulture);
+        var request = new QueryRequest
+        {
+            TableName = _fraudSignalsTable,
+            KeyConditionExpression = "#u = :uid AND #k >= :since",
+            // Any status and resolution: an approved (false positive) row also means "already seen".
+            FilterExpression = "#t = :type AND #e = :entity",
+            ProjectionExpression = "#k",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#u", "userId" },
+                { "#k", "signalKey" },
+                { "#t", "signalType" },
+                { "#e", "entityId" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":uid", new AttributeValue { S = userId } },
+                { ":since", new AttributeValue { S = since } },
+                { ":type", new AttributeValue { S = signalType } },
+                { ":entity", new AttributeValue { S = entityId } }
+            },
+            ConsistentRead = true
+        };
+
+        var pages = 0;
+        Dictionary<string, AttributeValue>? startKey = null;
+        do
+        {
+            if (startKey != null)
+            {
+                request.ExclusiveStartKey = startKey;
+            }
+
+            var response = await _dynamoDb.QueryAsync(request);
+            pages++;
+            if (response.Items is { Count: > 0 })
+            {
+                return true;
+            }
+
+            startKey = response.LastEvaluatedKey is { Count: > 0 } next ? next : null;
+        }
+        while (startKey != null && pages < DefaultRiskMaxPages);
+
+        // FUP-62: a last page that merely ends at the cap is not rows left unread. Rows left: absence cannot
+        // be shown, so nothing more is written, and such a partition reads as truncated, CRITICAL (section
+        // 14.3). A failed probe reaches the caller like a failed page, which writes nothing either.
+        return startKey != null
+            && await RowsRemainAsync(userId, since, startKey, newestFirst: false, consistentRead: true);
+    }
+
+    /// <summary>
+    /// FUP-62 (section 14.3): whether a read of a user's partition that stopped at its page cap left any row.
+    /// DynamoDB can end a page exactly at the last row and still return a <c>LastEvaluatedKey</c>, so the key
+    /// alone does not show that rows remain. One more Query from that key with the same key condition and
+    /// order, no filter, the key only, <c>Limit</c> 1: a row, or another key, means rows remain.
+    /// </summary>
+    private async Task<bool> RowsRemainAsync(
+        string userId, string sinceKey, Dictionary<string, AttributeValue> startKey, bool newestFirst, bool consistentRead)
+    {
+        var response = await _dynamoDb.QueryAsync(new QueryRequest
+        {
+            TableName = _fraudSignalsTable,
+            KeyConditionExpression = "#u = :uid AND #k >= :since",
+            ProjectionExpression = "#k",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#u", "userId" },
+                { "#k", "signalKey" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":uid", new AttributeValue { S = userId } },
+                { ":since", new AttributeValue { S = sinceKey } }
+            },
+            ExclusiveStartKey = startKey,
+            ScanIndexForward = !newestFirst,
+            ConsistentRead = consistentRead,
+            Limit = 1
+        });
+        return response.Items is { Count: > 0 } || response.LastEvaluatedKey is { Count: > 0 };
+    }
+
+    /// <summary>
+    /// FRD-16 (section 23.1): the line of a signal row written,
+    /// <c>{"event":"FRAUD_SIGNAL_RECORDED","signalType":"&lt;type&gt;","entityType":"&lt;kind&gt;"}</c>. Server
+    /// values only, no user or entity id. Both fields keep <c>[A-Za-z0-9-_.:]</c> and are cut at 64
+    /// characters (empty is <c>-</c>), so the line is always valid JSON and the type, a metric dimension,
+    /// cannot carry free text.
+    /// </summary>
+    internal static string SignalRecordedLine(string? signalType, string? entityType) =>
+        $"{{\"event\":\"{FraudSignalRecordedToken}\",\"signalType\":\"{MoneyAlarmLog.Safe(signalType)}\",\"entityType\":\"{MoneyAlarmLog.Safe(entityType)}\"}}";
 
     // FRD-08 signal types (fraud-detection-architecture.md section 15). Each is written on the
     // caller of the refused operation; the webhook's payer mismatch on the buyer our own row names.
@@ -297,6 +923,104 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// <summary>A suspended profile's refresh token was refused. The app does this on its own: never scores.</summary>
     internal const string SuspendedTokenUseSignal = "SUSPENDED_TOKEN_USE";
 
+    // LT-07 check-in signals (live-trip.md section 6.3), written on the trip's trucker with the trip
+    // as the entity. Flag-only: the trail is supporting evidence, the QR scans prove the handoffs.
+
+    /// <summary>Two consecutive check-ins of a trip more than 1 km apart at over 130 km/h. A GPS glitch can do it too.</summary>
+    internal const string GpsJumpSignal = "GPS_JUMP";
+
+    /// <summary>A check-in the phone flagged as a mock location (a location-faking app is in use).</summary>
+    internal const string GpsMockedSignal = "GPS_MOCKED";
+
+    // FRD-09 transaction pattern signals (section 15.1). Flag-only: each observes a write that already
+    // succeeded and refuses nothing; the risk score and its tier gates are the only enforcement.
+
+    /// <summary>A buyer's payment above the mean plus 3 standard deviations of the buyer's own paid orders.</summary>
+    internal const string AmountAnomalySignal = "AMOUNT_ANOMALY";
+
+    /// <summary>A buyer's payment of a large amount from an account under 7 days old.</summary>
+    internal const string NewAccountLargeAmountSignal = "NEW_ACCOUNT_LARGE_AMOUNT";
+
+    /// <summary>Repeated payments just under the 10,000 ETB Fayda threshold (structuring around the KYC rule).</summary>
+    internal const string KycThresholdStructuringSignal = "KYC_THRESHOLD_STRUCTURING";
+
+    /// <summary>A farmer or trucker who cancels too large a share of the funded orders they took on.</summary>
+    internal const string CancelAfterFundRateSignal = "CANCEL_AFTER_FUND_RATE";
+
+    /// <summary>A buyer who disputes too large a share of the escrows they funded.</summary>
+    internal const string DisputeRateSignal = "DISPUTE_RATE";
+
+    /// <summary>A delivery confirmed sooner after its pickup than the distance between the two scans allows.</summary>
+    internal const string ImpossibleDeliveryTimeSignal = "IMPOSSIBLE_DELIVERY_TIME";
+
+    // FRD-15 relationship signals (section 15.2), written by the hourly order-cron scan on both the buyer and
+    // the farmer of a funded order. Flag-only: the trade already happened; the score and its gates enforce.
+
+    /// <summary>The buyer and the farmer of a funded order are one identity: the same user id, phone or Fayda ID.</summary>
+    internal const string SelfTradeSignal = "SELF_TRADE";
+
+    /// <summary>The buyer's and the farmer's accounts of a funded order have signed in on the same install (X-Device-Id).</summary>
+    internal const string SharedDeviceTradeSignal = "SHARED_DEVICE_TRADE";
+
+    /// <summary>A buyer and a farmer with several funded orders between them in a few days (a regular customer can do it too).</summary>
+    internal const string RepeatedPairSignal = "REPEATED_PAIR";
+
+    /// <summary>
+    /// ESC-33: claim one slot row of the attribution guard, atomically. The put succeeds when the slot does
+    /// not exist or its earlier claim has run out (<c>claimedUntil</c> at or before now); a slot is held for
+    /// <see cref="SignalTtlDays"/> days, as long as the signal row it stands for can count in a score, and
+    /// the table's TTL removes it a day later. A slot stays claimed when the signal write after it is then
+    /// held back (the hour limit) or fails: fewer rows, never more.
+    /// </summary>
+    private async Task<bool> TryClaimSlotAsync(string targetUserId, string slotKey, DateTime nowUtc)
+    {
+        try
+        {
+            await _dynamoDb.PutItemAsync(new PutItemRequest
+            {
+                TableName = _fraudSignalsTable,
+                Item = new Dictionary<string, AttributeValue>
+                {
+                    { "userId", new AttributeValue { S = targetUserId } },
+                    { "signalKey", new AttributeValue { S = slotKey } },
+                    { "recordType", new AttributeValue { S = RecordTypeAttributionSlot } },
+                    { "claimedUntil", new AttributeValue { S = nowUtc.AddDays(SignalTtlDays).ToString("o", CultureInfo.InvariantCulture) } },
+                    { "expiresAt", new AttributeValue { N = new DateTimeOffset(nowUtc).AddDays(SignalTtlDays + 1).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture) } }
+                },
+                ConditionExpression = "attribute_not_exists(#k) OR #c <= :now",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#k", "signalKey" },
+                    { "#c", "claimedUntil" }
+                },
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":now", new AttributeValue { S = nowUtc.ToString("o", CultureInfo.InvariantCulture) } }
+                }
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    // ESC-33 (section 15.3): the reputation hooks. Written by ReputationService when the event itself is
+    // recorded, so only while reputationPenalties is on.
+
+    /// <summary>Rule 4 (GPS consistency). ESC-33: on the delivery's trucker, through the attribution guard.</summary>
+    internal const string GpsAnomalySignal = "GPS_ANOMALY";
+
+    /// <summary>A farmer or trucker judged a no-show at pickup (the reputation event <c>NO_SHOW</c> with points).</summary>
+    internal const string NoShowSignal = "NO_SHOW";
+
+    /// <summary>A trucker whose delivery ran past its deadline (the reputation event <c>DELIVERY_OVERDUE</c> with points).</summary>
+    internal const string DeliveryOverdueSignal = "DELIVERY_OVERDUE";
+
+    /// <summary>A buyer whose paid orders farmers and truckers declined or let expire several times in a few weeks.</summary>
+    internal const string BuyerDeclinePatternSignal = "BUYER_DECLINE_PATTERN";
+
     // Weights per fraud-detection-architecture.md §2 Rule 5 and section 15.
     internal static int SignalWeight(string signalType) => signalType switch
     {
@@ -312,18 +1036,85 @@ public sealed class FraudDetectionService : IFraudDetectionService
         TelebirrPayerRefusedSignal => 5,
         StaleVersionBurstSignal => 0,
         SuspendedTokenUseSignal => 0,
+        GpsJumpSignal => 10,
+        GpsMockedSignal => 25,
+        AmountAnomalySignal => 10,
+        NewAccountLargeAmountSignal => 10,
+        KycThresholdStructuringSignal => 20,
+        CancelAfterFundRateSignal => 15,
+        DisputeRateSignal => 10,
+        ImpossibleDeliveryTimeSignal => 15,
+        SelfTradeSignal => 40,
+        SharedDeviceTradeSignal => 25,
+        RepeatedPairSignal => 5,
+        NoShowSignal => 15,
+        DeliveryOverdueSignal => 25,
+        BuyerDeclinePatternSignal => 10,
+        TripSameDaySignal => 0,
+        DuplicateLotSignal => 0,
+        DuplicateTripSignal => 0,
+        PickupNoFixSignal => 0,
+        OrderRouteMismatchSignal => 0,
+        ChatContactBeforeDeliverySignal => 0,
         _ => 10
     };
 
     /// <summary>
     /// Soft class of the signal catalogue (section 15): flag-only rules whose weight an active
     /// whitelist skips. Every other type is hard and always counts. FRD-08 adds the rejects an
-    /// honest client can also produce.
+    /// honest client can also produce; LT-07 the check-in signals, which refuse nothing; FRD-09 its
+    /// pattern rules except the structuring one, which is about dodging the Fayda rule and so a money
+    /// signal a whitelist does not silence. FRD-15: the shared device (a family or cooperative phone) and
+    /// the repeated pair (a regular customer); <c>SELF_TRADE</c> is hard, since those identities are unique.
     /// </summary>
     internal static bool IsSoftSignal(string signalType) =>
         signalType is "GPS_ANOMALY" or "PRICE_ANOMALY"
             or QrHandoffFailureSignal or TelebirrPayerMismatchSignal or TelebirrPayerRefusedSignal
-            or StaleVersionBurstSignal or SuspendedTokenUseSignal;
+            or StaleVersionBurstSignal or SuspendedTokenUseSignal
+            or GpsJumpSignal or GpsMockedSignal
+            or AmountAnomalySignal or NewAccountLargeAmountSignal or CancelAfterFundRateSignal
+            or DisputeRateSignal or ImpossibleDeliveryTimeSignal
+            or SharedDeviceTradeSignal or RepeatedPairSignal
+            or BuyerDeclinePatternSignal
+            or TripSameDaySignal or DuplicateLotSignal or DuplicateTripSignal
+            or PickupNoFixSignal or OrderRouteMismatchSignal or ChatContactBeforeDeliverySignal;
+
+    /// <summary>
+    /// FRD-09: the transaction pattern types. Each is written with the order, escrow, delivery or trip
+    /// it observed as the entity, counts once per entity (a retried payment of the same order is one
+    /// observation) and is capped per type at <c>RISK_PATTERN_TYPE_CAP</c>, so no pattern alone takes a
+    /// user past MEDIUM. ESC-33 adds the buyer decline pattern (the order as the entity), which other
+    /// users' declines write onto the buyer: the same count and cap keep it at MEDIUM on its own.
+    /// </summary>
+    internal static bool IsPatternSignal(string signalType) =>
+        signalType is AmountAnomalySignal or NewAccountLargeAmountSignal or KycThresholdStructuringSignal
+            or CancelAfterFundRateSignal or DisputeRateSignal or ImpossibleDeliveryTimeSignal
+            or BuyerDeclinePatternSignal;
+
+    /// <summary>
+    /// ESC-33: the two signals a reputation event writes, with the order as the entity. Each counts once per
+    /// order, and the two share one cap of <c>RISK_PATTERN_TYPE_CAP</c> (<see cref="RiskScoreSettings.CapKeyOf"/>),
+    /// so missed pickups and late deliveries alone stop at MEDIUM: reliability is reputation's business
+    /// (points, the tier, the restriction), and the risk score only takes it as one input.
+    /// </summary>
+    internal static bool IsReliabilitySignal(string signalType) =>
+        signalType is NoShowSignal or DeliveryOverdueSignal;
+
+    /// <summary>
+    /// FRD-15: the relationship types. Each is written on both parties with the funded order as the entity,
+    /// so it counts once per order, and an order it names gets no clean-delivery credit (section 20).
+    /// </summary>
+    internal static bool IsRelationshipSignal(string signalType) =>
+        signalType is SelfTradeSignal or SharedDeviceTradeSignal or RepeatedPairSignal;
+
+    /// <summary>
+    /// FRD-15: the relationship types honest users can also produce (a shared phone, a regular customer),
+    /// capped together, as one group, at <c>RISK_PATTERN_TYPE_CAP</c> (<see cref="RiskScoreSettings.CapKeyOf"/>),
+    /// so the two alone stop at MEDIUM. <c>SELF_TRADE</c> is not capped: one user id, phone or Fayda ID on both
+    /// sides is not an honest trade.
+    /// </summary>
+    internal static bool IsCappedRelationshipType(string signalType) =>
+        signalType is SharedDeviceTradeSignal or RepeatedPairSignal;
 
     /// <summary>
     /// FRD-08 types the scorer counts once per (type, entityId) over the whole window, not once per
@@ -332,11 +1123,19 @@ public sealed class FraudDetectionService : IFraudDetectionService
     /// still add up, and an approved row clears its entity. A row without an entityId falls back to
     /// the hourly bucket. <c>IDOR_CREATE_CONFLICT</c> is not one of them: a conflict is final for the
     /// client (marked synced) and web makes a new id per create, so no honest retry repeats it.
+    /// LT-07: the check-in signals count once per trip, since a trip with a mock-location app on (or
+    /// a phone with a bad GPS) writes a row in every hour it drives. FRD-09: the pattern types count
+    /// once per observed order, escrow, delivery or trip (<see cref="IsPatternSignal"/>). FRD-15: the
+    /// relationship types once per order (<see cref="IsRelationshipSignal"/>).
     /// </summary>
     internal static bool CountsOncePerEntity(string signalType) =>
         signalType is RoleForbiddenSignal or ImmutableFieldChangeSignal
             or QrHandoffFailureSignal or TelebirrPayerMismatchSignal or TelebirrPayerRefusedSignal
-            or StaleVersionBurstSignal or SuspendedTokenUseSignal;
+            or StaleVersionBurstSignal or SuspendedTokenUseSignal
+            or GpsJumpSignal or GpsMockedSignal
+            || IsPatternSignal(signalType)
+            || IsRelationshipSignal(signalType)
+            || IsReliabilitySignal(signalType);
 
     /// <summary>
     /// FRD-08 types whose counted weight is capped per type over the window (<c>RISK_REJECT_TYPE_CAP</c>):
@@ -435,15 +1234,36 @@ public sealed class FraudDetectionService : IFraudDetectionService
             }
             while (startKey != null && pages < settings.MaxPages);
 
-            if (startKey != null)
+            if (startKey == null)
             {
-                // Fail closed: newest-first, a burst in the current hour (deduplicated to one)
-                // could otherwise push older weight out of the read.
-                AlarmLog($"{RiskScoreTruncatedToken} userId={MoneyAlarmLog.LogId(userId)} pages={pages}");
-                return Finish(truncated: true);
+                return Finish(truncated: false);
             }
 
-            return Finish(truncated: false);
+            // FUP-62: the last page can end exactly at the last row and still carry a key, so a one-row
+            // probe tells "nothing left" from rows left unread. A probe that fails counts as rows left: it
+            // must not turn a CRITICAL read into an Unavailable one, which a gate scores LOW.
+            string? probeError = null;
+            bool rowsLeft;
+            try
+            {
+                rowsLeft = await RowsRemainAsync(userId, calculator.SinceKey, startKey, newestFirst: true, consistentRead: false);
+            }
+            catch (Exception ex)
+            {
+                rowsLeft = true;
+                probeError = ex.GetType().Name;
+            }
+
+            if (!rowsLeft)
+            {
+                return Finish(truncated: false);
+            }
+
+            // Fail closed: newest-first, a burst in the current hour (deduplicated to one)
+            // could otherwise push older weight out of the read.
+            AlarmLog($"{RiskScoreTruncatedToken} userId={MoneyAlarmLog.LogId(userId)} pages={pages}"
+                + (probeError == null ? "" : $" probe={MoneyAlarmLog.LogId(probeError)}"));
+            return Finish(truncated: true);
         }
         catch (Exception ex)
         {
@@ -462,6 +1282,50 @@ public sealed class FraudDetectionService : IFraudDetectionService
 
             return calculator.Result(truncated);
         }
+    }
+
+    /// <summary>
+    /// FRD-20 P1 (section 20.1): the counted units of the user's window for a fraud label's feature snapshot.
+    /// The same Query, key condition and page cap as the score read (section 14.3), but over the whole
+    /// window: the score read stops once CRITICAL is certain and would undercount. A read that stops at the
+    /// page cap with rows left (or whose probe fails) is marked truncated. Throws when a page fails; the
+    /// caller leaves the label without a snapshot. Writes no alarm line: this is not a score.
+    /// </summary>
+    internal async Task<RiskFeatureUnits> ReadFeatureUnitsAsync(
+        string userId, DateTime nowUtc, RiskScoreSettings settings)
+    {
+        var calculator = new RiskScoreCalculator(settings, nowUtc);
+        var pages = 0;
+        Dictionary<string, AttributeValue>? startKey = null;
+        do
+        {
+            var response = await _dynamoDb.QueryAsync(BuildRiskQuery(userId, calculator.SinceKey, startKey));
+            pages++;
+            foreach (var row in response.Items ?? new List<Dictionary<string, AttributeValue>>())
+            {
+                calculator.Add(row);
+            }
+
+            startKey = response.LastEvaluatedKey is { Count: > 0 } next ? next : null;
+        }
+        while (startKey != null && pages < settings.MaxPages);
+
+        if (startKey == null)
+        {
+            return calculator.FeatureUnits(truncated: false);
+        }
+
+        bool rowsLeft;
+        try
+        {
+            rowsLeft = await RowsRemainAsync(userId, calculator.SinceKey, startKey, newestFirst: true, consistentRead: false);
+        }
+        catch (Exception)
+        {
+            rowsLeft = true;
+        }
+
+        return calculator.FeatureUnits(rowsLeft);
     }
 
     private QueryRequest BuildRiskQuery(
@@ -537,6 +1401,100 @@ public sealed class FraudDetectionService : IFraudDetectionService
 
         var response = await _dynamoDb.QueryAsync(request);
         return response.Items;
+    }
+
+    /// <summary>
+    /// Table keys of the farmer's listings of one crop type that are not deleted, newest first, without the
+    /// listing being created: at most <see cref="DuplicateLotMaxListings"/>, from at most
+    /// <see cref="OwnerIndexMaxPages"/> pages of the farmer index.
+    /// </summary>
+    private async Task<List<Dictionary<string, AttributeValue>>> QueryFarmerListingKeysAsync(
+        string farmerId, string cropType, string exceptCropId)
+    {
+        var request = new QueryRequest
+        {
+            TableName = _cropsTable,
+            IndexName = "FarmerIdCreatedAtIndex",
+            KeyConditionExpression = "farmerId = :fid",
+            FilterExpression = "cropType = :ct AND attribute_not_exists(deletedAt)",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":fid", new AttributeValue { S = farmerId } },
+                { ":ct", new AttributeValue { S = cropType } }
+            },
+            ProjectionExpression = "cropId, createdAt",
+            ScanIndexForward = false // newest first
+        };
+
+        var keys = new List<Dictionary<string, AttributeValue>>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var page = 0; page < OwnerIndexMaxPages && keys.Count < DuplicateLotMaxListings; page++)
+        {
+            var response = await _dynamoDb.QueryAsync(request);
+            foreach (var item in response.Items ?? new List<Dictionary<string, AttributeValue>>())
+            {
+                if (keys.Count < DuplicateLotMaxListings
+                    && item.TryGetValue("cropId", out var cropId) && !string.IsNullOrEmpty(cropId.S)
+                    && item.TryGetValue("createdAt", out var createdAt) && !string.IsNullOrEmpty(createdAt.S)
+                    && cropId.S != exceptCropId
+                    && seen.Add(cropId.S))
+                {
+                    keys.Add(new Dictionary<string, AttributeValue>
+                    {
+                        { "cropId", new AttributeValue { S = cropId.S } },
+                        { "createdAt", new AttributeValue { S = createdAt.S } }
+                    });
+                }
+            }
+
+            if (response.LastEvaluatedKey is not { Count: > 0 } next)
+            {
+                break;
+            }
+
+            request.ExclusiveStartKey = next;
+        }
+
+        return keys;
+    }
+
+    /// <summary>
+    /// Rule 6: the trucker's trips that are <c>open</c> or <c>matched</c> and not deleted, newest first, from
+    /// at most <see cref="OwnerIndexMaxPages"/> pages of the trucker index (which projects every attribute).
+    /// </summary>
+    private async Task<List<Dictionary<string, AttributeValue>>> QueryTruckerActiveTripsAsync(string truckerId)
+    {
+        var request = new QueryRequest
+        {
+            TableName = TripsTable,
+            IndexName = "TruckerIdCreatedAtIndex",
+            KeyConditionExpression = "truckerId = :tid",
+            FilterExpression = "#s IN (:open, :matched) AND attribute_not_exists(deletedAt)",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#s", "status" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":tid", new AttributeValue { S = truckerId } },
+                { ":open", new AttributeValue { S = "open" } },
+                { ":matched", new AttributeValue { S = "matched" } }
+            },
+            ProjectionExpression = "tripId, fromWoreda, toWoreda, departureDate, vehiclePlate, #s",
+            ScanIndexForward = false // newest first
+        };
+
+        var trips = new List<Dictionary<string, AttributeValue>>();
+        for (var page = 0; page < OwnerIndexMaxPages; page++)
+        {
+            var response = await _dynamoDb.QueryAsync(request);
+            trips.AddRange(response.Items ?? new List<Dictionary<string, AttributeValue>>());
+            if (response.LastEvaluatedKey is not { Count: > 0 } next)
+            {
+                break;
+            }
+
+            request.ExclusiveStartKey = next;
+        }
+
+        return trips;
     }
 
     private async Task<List<decimal>> QueryRecentPricesByCropTypeAsync(

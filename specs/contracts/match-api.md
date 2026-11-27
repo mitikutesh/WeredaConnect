@@ -1,7 +1,7 @@
 # Buyer Match API Contract
 
 ## Version
-1.1.0
+1.5.1
 
 ## Parties
 - **Mobile** (client) — buyers matching their purchase intents against crop listings
@@ -134,13 +134,14 @@ GET /match?cropType=wheat&maxPricePerKg=120&quantityNeeded=10&deliveryWoreda=Ada
 | `longitude` | number | No | Crop GPS longitude |
 | `score` | number | Yes | Relevance score in `[0, 1]` (higher = better match) |
 | `isSubstitute` | boolean | Yes | `true` when matched via a substitute crop type, not the exact ask |
-| `farmerReliability` | number | No | Farmer's listing-conversion track record in `[0, 1]`; absent when the server has no history (clients default to the neutral 0.7 in scoring) |
+| `farmerReliability` | number | No | Deprecated (1.4.0, ESC-30): the old listing-conversion value in `[0, 1]`. No longer written and not part of the score; returned only for a listing that still stores one |
+| `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct`, `ownerReputationAt` | string, number, number, number, string | No | 1.3.0 (ESC-29): the farmer's public reputation as copied onto the listing (`crop-listing-api.md` 1.11.0, `reputation-api.md` section 7); returned only while `reputationPublicTags` is on. Since 1.4.0 `ownerReliabilityPct` is the score's reliability input (see the scoring model) |
 
 ---
 
 ## Scoring Model
 
-The relevance score is a transparent weighted sum of five normalised signals
+The relevance score is a transparent weighted sum of six normalised signals
 (NOT a learned model). **Weights, bands, and the substitute map must stay
 identical between `MatchScoring` (server) and `MatchScorer` (mobile).**
 
@@ -151,7 +152,34 @@ identical between `MatchScoring` (server) and `MatchScorer` (mobile).**
 | Geo | 0.18 | Haversine distance decay `1 / (1 + km/50)` when delivery coords + crop GPS are available; else woreda-string proxy on normalised names (same = 1.0, whole-word overlap = 0.6, otherwise 0.3) |
 | Quantity | 0.12 | `min(listingQuantity / quantityNeeded, 1)`; partial fills score lower |
 | Freshness | 0.10 | 1.0 for listings ≤ 7 days old, decaying to a 0.3 floor by 30 days |
-| Reliability | 0.10 | Farmer's listing-conversion track record in [0,1] (server-injected `farmerReliability` on the crop); unknown farmers use the neutral default 0.7 |
+| Reliability | 0.10 | 1.4.0 (ESC-30): the farmer's `ownerReliabilityPct / 100`, clamped to [0, 1] (`reputation-api.md` 1.4 and section 7); a listing whose reader gets no `ownerReliabilityPct` uses the neutral 0.7 |
+
+**Reliability input (1.4.0, ESC-30).** `ownerReliabilityPct` is the farmer's completed orders
+over completed, fault-cancelled and no-show orders in 90 days, in whole percent, copied onto the
+listing by the server. The score uses exactly the value the caller is given for the row, on both
+sides: the server scores `GET /match` with the field as it returns it, the apps score from the
+field as they stored it (the Isar row on the phone, the `GET /crops` row on web).
+
+- **Absent means neutral (0.7).** The field is absent while `reputationPublicTags` is off, for a
+  farmer with fewer than 3 orders in the window, and on a row that has no copy yet. All three
+  score as 0.7, so with the flag off every listing has the same reliability term and the ranking
+  is the one the other five signals give. 0.7 is kept because it is what nearly every listing
+  scored with before (the old `farmerReliability` was null, or 1.0 in rare cases, see below), so
+  turning the flag on only adds signal: 70 and above moves a listing up by at most 0.03, below
+  70 moves it down by at most 0.07.
+- **`farmerReliability` is retired.** It was sold / (sold + expired) over the farmer's listings
+  at create time; `expired` never happens, so it was absent or 1.0. The server no longer computes
+  or stores it (a client value is dropped), and neither scorer reads it. The one ranking change
+  with the flags off: a listing that still stores `farmerReliability` 1.0 loses the 0.03 it had
+  over a listing without the field.
+- **Push alerts** (`CropMatchStreamFunction`, 1.5.1, FUP-185) score a new listing with the same
+  reliability rule as `GET /match`: with `reputationPublicTags` on, the `ownerReliabilityPct` the
+  sync create stamped on the row (it is in the stream's `NEW_IMAGE`, so no extra read); off, or on
+  a row without the value, the neutral 0.7. The alert threshold therefore applies to the score
+  `GET /match` gives the new listing. Before 1.5.1 the alert used the neutral value whatever the
+  flags.
+- **Role visibility.** Only buyers and admins get scores. A farmer's or trucker's phone holds only
+  their own rows, so no other party's reliability reaches them.
 
 **Candidate eligibility** (before scoring): crop type ∈ {requested type +
 substitutes}, price ≤ budget × 1.15, and quantity ≥ 50% of `quantityNeeded`.
@@ -180,6 +208,79 @@ side, = neutral (0.3). Whole-word overlap replaces the raw substring rule,
 which scored `Ambo` as a partial match of `Gambo`. Mobile applies the same
 rule when it pairs matched crops with trucker trips, so a trip typed as
 `Adama, Oromia` is suggested for a crop picked as `Ādama`.
+
+### Trips paired with the matches (1.2.0)
+
+`/match` ranks crops only and reads no trips. The apps pair each matched crop with trucker
+trips themselves: the mobile matcher (`MatchingService.findTripsForListing`, on the Isar cache)
+and the web matcher (`WebMatchingService`, on `GET /trips?status=open`) keep only `open` trips
+departing today or later in Ethiopia (Africa/Addis_Ababa), the day rule of FUP-85, with room
+for the quantity. Since `trip-listing-api.md` 2.2.0 the server's open-trips browse uses the
+same cutoff, so the trips the phone caches and the ones the web reads agree, and a trip that
+left is never suggested. No wire change.
+
+**Order of the suggested trips (1.4.0, ESC-30).** Cheapest `pricePerQuintal` first, as before.
+Among trips at the same price the trucker with the higher `ownerReliabilityPct` (`trip-listing-api.md`
+2.6.0) comes first; a trip without the field counts as the neutral 70. The first suggestion is
+therefore still a cheapest trip (the estimated total uses it). Since 1.5.0 the route score comes
+between the two, and ties no longer keep their input order (below).
+
+### Trip pairing by distance (1.5.0, MATCH-01)
+
+The route used to be a hard woreda-name filter: a trip from a neighbouring woreda was never
+suggested. One shared, pure function now decides which trips to suggest and in what order:
+`MatchScorer.suggestTrips` on the phone (over the Isar cache) and on web (over
+`GET /trips?status=open`), mirrored in the server's `MatchScoring.SuggestTrips` for parity (the
+server has no caller yet; `/match` still reads no trips). No model, no new field, no network call:
+the phone uses its cached trips and the centroid table it ships (`WoredaCentroids`).
+
+**Eligibility (a trip outside it is dropped, not scored down):**
+
+| Rule | Detail |
+|------|--------|
+| Status | `open` |
+| Departure day | today or later in Ethiopia (FUP-85, the `GET /trips` cutoff) |
+| Order lead | departs at least `orderLeadHours` after now when the server sends a lead (FUP-122) |
+| Room left | `remainingQuintals`, else `capacity`, at least the intent's quantity minus 0.01 quintal (the order create's tolerance); a full trip never appears. With no positive quantity the trip needs 1 quintal of room |
+| Deadline | departs on or before the buyer's `neededByDate` when set (departure, not arrival: trips carry no transit time) |
+
+**Route.** Each end of the trip is scored against the place it should serve: the trip's
+`fromWoreda` against the crop's woreda (`locationName`), its `toWoreda` against the intent's
+`deliveryWoreda`. An end scores the best of these, whether or not the centroids are known:
+
+- 1.0 when the two names are the same place after the shared woreda normalisation;
+- `1 / (1 + km / 50)` (the crop geo decay) when both woredas have a centroid and they are at most
+  **40 km** apart, the distance being the haversine between centroids (radius 6371000 m, divided
+  by 1000) rounded half away from zero to 0.1 km (so every platform gets the same number);
+- 0.6 for a whole-word name match. For a woreda without a centroid (as `Hawassa Zuria`) only the
+  name rules can apply.
+
+An end that scores none of these (no centroid and no name match, or more than 40 km away), or a
+blank name, drops the trip. The route score is the mean of the two ends; 1.0 is the exact route.
+
+**Direction.** When the crop's and the delivery woredas are close, a trip running the other way
+can have each end within 40 km of a wanted place (crop in Adama going to Bishoftu, trip Bishoftu
+to Adama: both ends 39.5 km off). The route is therefore also scored with the crop's and the
+delivery woreda swapped, and the trip is dropped when the swapped score is higher than the
+forward one. Equal scores stay (the crop and the delivery in one woreda, or a trip that stays in
+one place).
+The crop's woreda centroid is used, not its GPS fix, because `GET /crops` may omit the fix and
+both apps must see the same input. Examples: Shashemene to Hawassa is 22.0 km (end 0.694, route
+0.847 with an exact destination); Adama to Bishoftu 39.5 km (kept); Addis Ababa to Bishoftu
+40.8 km (dropped); `Addis Abeba` and `Addis Ababa` share one centroid (0 km, scored 1.0). A trip
+that only passes through the crop's woreda on its way is not suggested (follow-up).
+
+**Order.** Cheapest `pricePerQuintal` first (the estimated total still uses the first trip);
+then the higher route score, so the exact route ranks above a neighbouring woreda at the same
+price; then the more reliable trucker (ESC-30); then the earlier departure; then `tripId`
+(ordinal). The order therefore never depends on the order the trips came in, so the phone's
+cache and the web's API pages give the same list.
+
+**Parity.** `match_scorer_test.dart` ("trip pairing (MATCH-01)") and `MatchScoringTests.cs`
+(`TripEndScore_GoldenVectors`, `SuggestTrips_GoldenOrder_IsStableAcrossPlatforms`,
+`TripRouteScore_Reverse`, `SuggestTrips_Reverse` and the tests next to them) carry the same literal coordinates and the same trip set, and assert the same
+distances, scores and order. The two matching services run the same scenario
+(`MATCH-01: trips by centroid distance`).
 
 ---
 
@@ -247,9 +348,15 @@ rule when it pairs matched crops with trucker trips, so a trip typed as
 |---------|------|--------|
 | 1.0.0 | 2026-06-19 | Initial contract: GET /match endpoint, MatchDto, shared scoring model, candidate-generation and invariants. |
 | 1.1.0 | 2026-10-06 | Woreda-string geo proxy compares normalised names (region suffix cut, diacritics folded, whole-word partial) on both server and mobile (SIM-52). No wire change. |
+| 1.2.0 | 2026-11-04 | Trips paired with the matches (L-7): the app-side pairing keeps only open trips departing today or later in Ethiopia, the same cutoff `GET /trips` applies since `trip-listing-api.md` 2.2.0. `/match` reads no trips and is unchanged. No wire change. |
+| 1.3.0 | 2026-11-11 | Restricted farmers and owner reputation (ESC-29, `reputation-api.md` 1.2.0 sections 7 and 8.3), off in every environment: with `reputationPenalties` on, a listing whose stored owner tier is `restricted` is no candidate for a buyer; with `reputationPublicTags` on, each match carries `ownerTier`, `ownerEffectiveRating`, `ownerRatingCount`, `ownerReliabilityPct` and `ownerReputationAt`. The score is unchanged. |
+
+| 1.4.0 | 2026-11-12 | Reliability from reputation (ESC-30, `reputation-api.md` 1.3.0 section 7): the score's reliability input is the listing's `ownerReliabilityPct / 100` as the caller is given it, the neutral 0.7 when absent (flag off, under 3 orders, no copy), identical in `MatchScoring` and `MatchScorer`; `farmerReliability` is no longer written or scored (deprecated in `MatchDto`); the app-side trip suggestions order equal prices by the trucker's `ownerReliabilityPct`. No new field on the wire. |
+| 1.5.0 | 2026-11-12 | Trip pairing by distance (MATCH-01): a trip is suggested when each end is the same woreda, within 40 km of it by centroid distance (rounded to 0.1 km), or a whole-word name match (the best of the three counts), and it does not run the other way (the route with crop and delivery swapped must not score higher); room left must cover the quantity less 0.01 quintal (now also on web), 1 quintal when no quantity; order is price, route score (exact above a neighbouring woreda), trucker reliability, earlier departure, `tripId`, so ties no longer depend on input order. One pure rule, `MatchScorer.suggestTrips`, on phone and web, mirrored in `MatchScoring.SuggestTrips` with shared golden vectors. `/match` unchanged. No wire change. |
+| 1.5.1 | 2026-11-17 | Push alert reliability (FUP-185): `CropMatchStreamFunction` gets `REPUTATION_PUBLIC_TAGS_ENABLED` from the same config as the match Lambda and scores a new listing's reliability through the rule `GET /match` uses (`OwnerReputationView`): the stamped `ownerReliabilityPct` with the flag on, the neutral 0.7 off or without the value. Flag off (every environment today) the alert score is unchanged. `/match` unchanged. No wire change. |
 
 ---
 
-**Last Updated**: 2026-10-06
-**Version**: 1.1.0
+**Last Updated**: 2026-11-17
+**Version**: 1.5.1
 **Status**: Draft

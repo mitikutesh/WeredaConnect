@@ -1,0 +1,818 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/ethiopian_clock.dart';
+import 'package:wereda_connect/core/utils/kg_entry.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/live_trip/domain/check_in_engine.dart';
+import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
+import 'package:wereda_connect/features/live_trip/domain/repositories/base_track_repository.dart';
+import 'package:wereda_connect/features/live_trip/domain/trip_plan.dart';
+import 'package:wereda_connect/features/live_trip/presentation/check_in_engine_of.dart';
+import 'package:wereda_connect/features/live_trip/presentation/live_trip_data.dart';
+import 'package:wereda_connect/features/live_trip/presentation/live_trip_text.dart';
+import 'package:wereda_connect/features/live_trip/presentation/screens/trip_mode_screen.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_detail_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/clock_text.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/home_cards.dart';
+
+/// The trip card the trucker's Home leads with (Trucker home board, design
+/// canvas page M): the sharing state while the phone shares the trip's
+/// location (LT-09) and the black Open pill, the route, how full the truck
+/// is in kilograms (quintals after, small), and the next stop or the trip's
+/// price. One raised paper card for every state: a trip on the road, a
+/// booked one, an open one, the last delivered one, or no trip at all (a
+/// quiet line and the recent routes; Post Trip is in the bar).
+///
+/// Reads the trucker's own trip through the trip repository (Isar on mobile,
+/// painted first and read again when a pull of the trucker's own trips
+/// changed them, FUP-374 and FUP-385; the API on web) and,
+/// for the next stop, the trucker's deliveries through
+/// the delivery repository (the same read the Action needed card makes, so
+/// the web folds them), only once the trip is on the road, shared, or its
+/// departure day came. A tap opens trip mode while the phone shares the
+/// trip, a load is on board (picked up or in transit) or a pickup is due
+/// (T-2: departure day today or past), else the trip. A trip that cannot be
+/// read shows an error with Retry, never "No active trip" (T-6).
+class TruckerHeroCard extends StatefulWidget {
+  final String userId;
+  final VoidCallback? onRefresh;
+
+  /// Defaults to the app's check-in engine; null when there is none.
+  final CheckInEngine? engine;
+
+  /// The towns for the next stop's name; the bundled list when null.
+  final List<Place>? places;
+
+  const TruckerHeroCard({
+    required this.userId,
+    super.key,
+    this.onRefresh,
+    this.engine,
+    this.places,
+  });
+
+  @override
+  State<TruckerHeroCard> createState() => _TruckerHeroCardState();
+}
+
+class _TruckerHeroCardState extends State<TruckerHeroCard> {
+  Trip? _trip;
+  TripStop? _next;
+
+  /// The next drop-off's track (its town and the server's arrival window),
+  /// read only when the next stop is a drop-off; null offline.
+  DeliveryTrack? _nextTrack;
+  List<Place> _places = const [];
+  List<({String from, String to})> _recentRoutes = [];
+  bool _loading = true;
+
+  /// The trip could not be read (T-6): Retry, not "No active trip".
+  bool _loadFailed = false;
+
+  /// A delivery of the trip is picked up or in transit (T-2).
+  bool _onRoad = false;
+
+  /// A pickup of the trip waits and its departure day has come (T-2).
+  bool _pickupDue = false;
+  CheckInEngine? _engine;
+  CheckInStatus _status = const CheckInStatus();
+  StreamSubscription<CheckInStatus>? _statusSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _engine = widget.engine ?? checkInEngineOf(context);
+    _status = _engine?.status ?? const CheckInStatus();
+    _statusSub = _engine?.statusStream.listen((status) {
+      if (!mounted) return;
+      final tripChanged = status.tripId != _status.tripId;
+      setState(() => _status = status);
+      if (tripChanged) _loadData();
+    });
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _statusSub?.cancel();
+    super.dispose();
+  }
+
+  /// The phone shares (or scans) [trip] now: the engine's trip is this one
+  /// and sharing has not ended.
+  bool _sharing(Trip trip) =>
+      _status.tripId == trip.tripId &&
+      switch (_status.mode) {
+        SharingMode.live || SharingMode.paused || SharingMode.declined => true,
+        SharingMode.off || SharingMode.ended => false,
+      };
+
+  /// FUP-385: the stored trips paint at once; the own-trip pull runs after
+  /// them (on flaky 3G it can wait for a timeout) and the card reads them
+  /// again only when the pull brought a change. While the card has painted
+  /// nothing yet and the store holds no trip of the trucker (a fresh login),
+  /// the spinner stays until the pull is done: "No active trip" would invite
+  /// a duplicate post.
+  Future<void> _loadData() async {
+    final shown = await _readData(
+      holdNoTrip: _loading && _ownTripSync() != null,
+    );
+    if (!mounted) return;
+    final changed = await _pullOwnTrips();
+    if ((changed || !shown) && mounted) await _readData();
+  }
+
+  /// Reads the card's trip and paints it; false, painting nothing, when
+  /// [holdNoTrip] and there is no trip to show.
+  Future<bool> _readData({bool holdNoTrip = false}) async {
+    try {
+      final repo = context.read<TripListingBloc>().repository;
+      // The trip the phone shares comes first: the most relevant trip may be
+      // a newer open one while another is still on the road.
+      Trip? trip;
+      final sharedTripId = _status.tripId;
+      if (sharedTripId != null && _status.mode != SharingMode.ended) {
+        try {
+          trip = await repo.getTripById(sharedTripId);
+        } on Object {
+          trip = null;
+        }
+        if (trip != null && trip.truckerId != widget.userId) trip = null;
+      }
+      trip ??= await repo.getMostRelevantTrip(widget.userId);
+      if (trip == null && holdNoTrip) return false;
+      final routes = await repo.getRecentRoutes(widget.userId);
+      if (!mounted) return true;
+      // The deliveries and orders are read only when they can matter (two
+      // requests on web): the trip is on the road or shared, or its
+      // departure day came. A trip days away opens its page anyway.
+      final plan = trip == null ||
+              !(trip.status == TripStatus.inTransit ||
+                  _sharing(trip) ||
+                  _departureCame(trip))
+          ? null
+          : await _readPlan(trip);
+      if (!mounted) return true;
+      final onRoad = plan != null &&
+          plan.stops.any(
+            (s) =>
+                s.delivery.status == DeliveryStatus.pickedUp ||
+                s.delivery.status == DeliveryStatus.inTransit,
+          );
+      final pickupDue = plan != null &&
+          trip != null &&
+          _departureCame(trip) &&
+          plan.stops.any(
+            (s) =>
+                s.kind == TripStopKind.pickup &&
+                s.delivery.status == DeliveryStatus.pending,
+          );
+      // The next stop shows once the trip is under way.
+      final next = trip != null &&
+              (trip.status == TripStatus.inTransit ||
+                  _sharing(trip) ||
+                  onRoad ||
+                  pickupDue)
+          ? plan?.next
+          : null;
+      final nextTrack = next?.kind == TripStopKind.dropoff
+          ? await _trackOf(next!.delivery.deliveryId)
+          : null;
+      final places = widget.places ??
+          (next == null || _places.isNotEmpty ? _places : await loadPlaces());
+      if (!mounted) return true;
+      setState(() {
+        _trip = trip;
+        _next = next;
+        _nextTrack = nextTrack;
+        _places = places;
+        _recentRoutes = routes;
+        _onRoad = onRoad;
+        _pickupDue = pickupDue;
+        _loading = false;
+        _loadFailed = false;
+      });
+      return true;
+    } on Object catch (e) {
+      debugPrint('[TruckerHeroCard] trip unreadable: $e');
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadFailed = true;
+        });
+      }
+      return true;
+    }
+  }
+
+  /// FUP-374: mobile only (web has no MarketplaceSync and reads the server
+  /// anyway). The status the server set on the trucker's trips (matched, or
+  /// open or matched again after a no-show re-open) reaches the phone; true
+  /// when it changed a stored trip, so the card reads them again. Offline
+  /// the stored trips stay.
+  Future<bool> _pullOwnTrips() async {
+    try {
+      return await _ownTripSync()?.pullOwnTrips(truckerId: widget.userId) ??
+          false;
+    } on Object {
+      // Offline: the stored trips show.
+      return false;
+    }
+  }
+
+  /// The own-trip pull; null on web and without a sync above this widget.
+  MarketplaceSync? _ownTripSync() {
+    try {
+      return context.read<MarketplaceSync?>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+  }
+
+  void _retry() {
+    setState(() {
+      _loading = true;
+      _loadFailed = false;
+    });
+    _loadData();
+  }
+
+  /// The trip's departure day (in Ethiopia) is today or past.
+  static bool _departureCame(Trip trip) {
+    final departure = DateUtils.dateOnly(dayInEthiopia(trip.departureDate));
+    final today = DateUtils.dateOnly(dayInEthiopia(DateTime.now().toUtc()));
+    return !departure.isAfter(today);
+  }
+
+  /// [trip]'s stops from the trucker's deliveries; null when they cannot be
+  /// read.
+  Future<TripPlan?> _readPlan(Trip trip) async {
+    final DeliveryBloc bloc;
+    try {
+      bloc = context.read<DeliveryBloc>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+    // The orders give a drop-off its own place (order-lifecycle 2.2.0) when
+    // the track has no point for it; best effort.
+    OrderBloc? orderBloc;
+    try {
+      orderBloc = context.read<OrderBloc>();
+    } on ProviderNotFoundException {
+      orderBloc = null;
+    }
+    try {
+      final deliveries = await bloc.repository.getDeliveriesByUser(
+        widget.userId,
+        role: 'trucker',
+      );
+      var orders = const <String, Order>{};
+      if (orderBloc != null) {
+        try {
+          final list = await orderBloc.repository
+              .getOrdersByUser(widget.userId, role: 'trucker');
+          orders = {for (final o in list) o.orderId: o};
+        } on Object catch (e) {
+          debugPrint('[TruckerHeroCard] orders unreadable: $e');
+        }
+      }
+      return TripPlan.build(
+        trip: trip,
+        deliveries: [
+          for (final d in deliveries)
+            if (d.tripId == trip.tripId && d.truckerId == widget.userId) d,
+        ],
+        orders: orders,
+      );
+    } on Object catch (e) {
+      debugPrint('[TruckerHeroCard] deliveries unreadable: $e');
+      return null;
+    }
+  }
+
+  /// "Next: drop-off in Dukem, about 12:35" (Trucker · Home board): the
+  /// stop's town, from the listing's place for a pickup and the drop-off's
+  /// track (else the order's own drop-off place) for a drop-off, with the
+  /// server's arrival when it has one; the party's name when no town is
+  /// known.
+  String _nextLine(
+    BuildContext context,
+    AppLocalizations l10n,
+    ClockFormat clock,
+    TripStop next,
+  ) {
+    switch (next.kind) {
+      case TripStopKind.pickup:
+        final place = next.delivery.pickupPlace?.trim() ?? '';
+        return place.isNotEmpty
+            ? l10n.homeNextPickupIn(place)
+            : l10n.homeNextPickup(
+                partyDisplayName(next.delivery.farmerName, l10n),
+              );
+      case TripStopKind.dropoff:
+        final track = _nextTrack;
+        final dropoffPlace = next.order?.dropoffPlace?.trim() ?? '';
+        final place = placeNameNear(
+              _places,
+              track?.dropoff,
+              Localizations.localeOf(context).languageCode,
+            ) ??
+            (dropoffPlace.isEmpty ? null : dropoffPlace);
+        final eta = track?.eta;
+        if (place == null) {
+          return l10n.homeNextDropoff(
+            partyDisplayName(next.delivery.buyerName, l10n),
+          );
+        }
+        return eta == null
+            ? l10n.homeNextDropoffIn(place)
+            : l10n.homeNextDropoffAbout(place, clock.time(eta.from));
+    }
+  }
+
+  /// The track of the trucker's own delivery [deliveryId] (the server
+  /// answers its trucker too); null without a repository or a stored answer.
+  Future<DeliveryTrack?> _trackOf(String deliveryId) async {
+    final BaseTrackRepository repository;
+    try {
+      repository = context.read<BaseTrackRepository>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+    final result =
+        await repository.fetchTrack(deliveryId, userId: widget.userId);
+    return result.track;
+  }
+
+  Future<void> _open(Widget screen) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => screen),
+    );
+    if (!mounted) return;
+    widget.onRefresh?.call();
+    _loadData();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const _HeroCard(
+        child: SizedBox(
+          height: 56,
+          child: Center(
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppTheme.slate,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_loadFailed) return _LoadFailedCard(onRetry: _retry);
+
+    final trip = _trip;
+    if (trip == null || trip.status == TripStatus.cancelled) {
+      return _NoTripCard(
+        recentRoutes: _recentRoutes,
+        onOpen: _open,
+      );
+    }
+
+    final l10n = AppLocalizations.of(context)!;
+    final clock = clockFormatOf(context);
+    final sharing = _sharing(trip);
+
+    // The pill: the sharing state while the phone shares, else the trip's
+    // state (its day while it is open).
+    final Widget slot;
+    if (sharing) {
+      slot = switch (_status.mode) {
+        SharingMode.live => _SlotPill(l10n.tripModeSharingLive, dot: true),
+        SharingMode.paused => _SlotPill(
+            '${l10n.liveTripPaused} · ${clock.time(_status.pausedUntil!)}',
+            quiet: true,
+          ),
+        _ => _SlotPill(l10n.tripModeScansOnlyTitle, quiet: true),
+      };
+    } else {
+      slot = switch (trip.status) {
+        TripStatus.open => _SlotPill(_departureDay(l10n, trip), quiet: true),
+        TripStatus.delivered => _SlotPill(tripStatusLabel(trip.status, l10n)),
+        _ => _SlotPill(tripStatusLabel(trip.status, l10n), quiet: true),
+      };
+    }
+
+    final next = _next;
+    final price = l10n.tripPricePerQuintalValue(
+      trip.pricePerQuintal.toStringAsFixed(0),
+    );
+    final String line;
+    if (trip.status == TripStatus.delivered) {
+      line = l10n.postNextTrip;
+    } else if (next != null) {
+      line = _nextLine(context, l10n, clock, next);
+    } else if (trip.status == TripStatus.matched) {
+      line = l10n.homeTripMatchedLine;
+    } else {
+      line = price;
+    }
+
+    final Widget destination = sharing || _onRoad || _pickupDue
+        ? TripModeScreen(tripId: trip.tripId)
+        : trip.status == TripStatus.delivered
+            ? CreateTripScreen.fromTrip(trip)
+            : TripDetailScreen(trip: trip);
+
+    return _HeroCard(
+      onTap: () => _open(destination),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              // The state keeps what the Open pill leaves: the departure
+              // day carries the Ethiopian date in Amharic and Afaan Oromoo
+              // (FUP-545) and wraps instead of pushing Open off the card.
+              Expanded(
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: slot,
+                ),
+              ),
+              const SizedBox(width: 10),
+              HomeOpenMark(label: l10n.homeOpen),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '${trip.fromWoreda} → ${trip.toWoreda}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.6,
+              height: 1.1,
+              color: AppTheme.ink,
+            ),
+          ),
+          if (trip.capacity > 0) ...[
+            const SizedBox(height: 12),
+            _TripLoadBar(trip: trip),
+          ],
+          const SizedBox(height: 12),
+          Text(
+            line,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 14, color: AppTheme.slate),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// "Today", or the trip's departure day ("Oct 30", "ጥቅምት 20 (ኦክቶ 30)").
+  static String _departureDay(AppLocalizations l10n, Trip trip) {
+    final departure = dayInEthiopia(trip.departureDate);
+    final today = dayInEthiopia(DateTime.now().toUtc());
+    if (DateUtils.isSameDay(departure, today)) return l10n.homeToday;
+    final day = formatMonthDay(departure);
+    // The slot wraps before the Gregorian date in brackets, never inside
+    // them (FUP-545).
+    final bracket = day.indexOf(' (');
+    return bracket < 0
+        ? day
+        : '${day.substring(0, bracket)} '
+            '${day.substring(bracket + 1).replaceAll(' ', '\u00A0')}';
+  }
+}
+
+/// The trip could not be read (T-6): say so with Retry, never "No active
+/// trip" (which offers to post a trip the trucker may already have).
+class _LoadFailedCard extends StatelessWidget {
+  final VoidCallback onRetry;
+
+  const _LoadFailedCard({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return _HeroCard(
+      // Retry takes half the row at most, so a long label (Afaan Oromo,
+      // large text) wraps instead of pushing the row off the card.
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          key: const Key('trucker_hero_load_failed'),
+          children: [
+            const Icon(Icons.cloud_off, size: 24, color: AppTheme.slate),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                l10n.homeTripLoadFailed,
+                style: const TextStyle(fontSize: 14, color: AppTheme.ink),
+              ),
+            ),
+            const SizedBox(width: 8),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth / 2),
+              child: TextButton(
+                key: const Key('trucker_hero_retry'),
+                onPressed: onRetry,
+                child: Text(l10n.retry, textAlign: TextAlign.center),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The card the trucker's Home leads with (Trucker home board, design
+/// canvas page M): raised paper, radius 28, black ink.
+class _HeroCard extends StatelessWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+
+  const _HeroCard({required this.child, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return FwCard(
+      raised: true,
+      padding: EdgeInsets.zero,
+      child: InkWell(
+        key: const Key('trucker_hero_card'),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// The trip's state as the pill at the card's top left: the role's tint
+/// with a live dot while the phone shares its location, grey for a state
+/// that asks nothing ([quiet]).
+class _SlotPill extends StatelessWidget {
+  final String text;
+  final bool dot;
+  final bool quiet;
+
+  const _SlotPill(this.text, {this.dot = false, this.quiet = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final role = context.roleColors;
+    final foreground = quiet ? AppTheme.inkSoft : role.primary;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 26),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(
+        color: quiet ? AppTheme.segmentTrack : role.tint,
+        borderRadius: BorderRadius.circular(13),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (dot) ...[
+            Container(
+              width: 7,
+              height: 7,
+              decoration:
+                  BoxDecoration(color: foreground, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+          ],
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: foreground,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// How full the truck is (the board's "Space on today's trip"): booked
+/// kilograms out of the capacity in the role's colour, a 6 px bar, then
+/// the same share in quintals, small and muted (kilograms lead, design
+/// canvas page M). The trip itself is stored in quintals.
+class _TripLoadBar extends StatelessWidget {
+  final Trip trip;
+
+  const _TripLoadBar({required this.trip});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final capacity = trip.capacity;
+    final loaded = (capacity - tripRoomLeft(trip)).clamp(0, capacity);
+    final kg = l10n.homeTripLoadedKg(
+      kgNumberText(loaded * kgPerQuintal),
+      kgNumberText(capacity * kgPerQuintal),
+    );
+    final quintals = quintalsOfInParensText(loaded, capacity, l10n);
+
+    return Semantics(
+      label: '${l10n.tripSpaceTitle}: $kg $quintals',
+      excludeSemantics: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // The words wrap under each other when they do not fit a line.
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 10,
+            children: [
+              Text(
+                l10n.tripSpaceTitle,
+                style: const TextStyle(fontSize: 13, color: AppTheme.slate),
+              ),
+              Text(
+                kg,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: context.roleColors.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: loaded / capacity,
+              minHeight: 6,
+              backgroundColor: AppTheme.track,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                context.roleColors.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            quintals,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.slate,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// No trip posted (or the last one cancelled): a quiet line and the recent
+/// routes as pills that prefill a new trip. The card itself opens Create
+/// trip too.
+class _NoTripCard extends StatelessWidget {
+  final List<({String from, String to})> recentRoutes;
+  final Future<void> Function(Widget screen) onOpen;
+
+  const _NoTripCard({required this.recentRoutes, required this.onOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
+    return _HeroCard(
+      onTap: () => onOpen(const CreateTripScreen()),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.local_shipping_outlined,
+                size: 28,
+                color: AppTheme.slate,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.noActiveTrip,
+                      style: const TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.4,
+                        color: AppTheme.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      l10n.homeTripNoneHint,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppTheme.slate,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (recentRoutes.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              l10n.recentRoutes,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.slate,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final route in recentRoutes)
+                  // An outlined pill, 44 tall: a route to post again.
+                  Material(
+                    color: Colors.transparent,
+                    shape: const StadiumBorder(
+                      side: BorderSide(color: AppTheme.fieldBorder),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => onOpen(
+                        CreateTripScreen(
+                          fromWoreda: route.from,
+                          toWoreda: route.to,
+                        ),
+                      ),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 44),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 6,
+                          ),
+                          child: Align(
+                            widthFactor: 1,
+                            heightFactor: 1,
+                            child: Text(
+                              '${route.from} → ${route.to}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.inkSoft,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}

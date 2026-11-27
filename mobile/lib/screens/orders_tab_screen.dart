@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -12,18 +13,35 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_bloc.dart'
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/features/order/presentation/screens/order_detail_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/action_needed_list.dart';
 import 'package:wereda_connect/features/order/presentation/widgets/order_card.dart';
-import 'package:wereda_connect/screens/profile_screen.dart';
+import 'package:wereda_connect/features/order/presentation/widgets/order_commitment_section.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
-import 'package:wereda_connect/shared/theme/app_theme.dart';
 import 'package:wereda_connect/shared/layout/breakpoints.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
-/// Orders tab screen — shows incoming/outgoing orders with status filter chips.
+/// Orders tab (design canvas page M; no board of its own, a sibling of
+/// the Market and My Crops boards). Page header (person · place, the 42 px
+/// "Orders" with the role's sketch, bell and account), the status filter as
+/// the Market's pills, then one [OrderCard] per order with the first one
+/// raised, in the phone-width column at every window size.
 ///
-/// Uses GreenHeader for visual consistency with other tabs.
-/// Reads from OrderBloc (provided at app root) via LoadUserOrders.
+/// The buyer has no Home tab: what waits for the buyer (pay now, pay
+/// again, decide on transport, check in at the farm, confirm a delivery)
+/// leads the list here as Action needed cards ([ActionNeededList]), most
+/// urgent first. The farmer and the trucker read theirs on Home.
+///
+/// Reads from OrderBloc (provided at app root) via LoadUserOrders; the
+/// server scopes the list to the caller (buyer, farmer or trucker).
+/// A filter Home asks the Orders tab to open on (the Pending Orders tile
+/// asks for [ordersFilterYourTurn]). The tab takes it once and clears it.
+final ValueNotifier<String?> ordersFilterRequest = ValueNotifier<String?>(null);
+
 class OrdersTabScreen extends StatefulWidget {
   /// Shows a back button in the header when pushed as a standalone screen
   /// (roles whose tab bar doesn't include Orders reach it that way).
@@ -48,6 +66,22 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
   /// Only the newest read may change the list.
   int _heldRead = 0;
 
+  /// E-6: an Accept or Reject from a card is under way, from the tap until
+  /// the list is loaded again. The list stays on screen meanwhile and when
+  /// the answer fails (a snackbar says why), instead of the loading and
+  /// error views of a reload.
+  bool _cardAction = false;
+
+  /// The list last loaded, shown during [_cardAction].
+  OrdersLoaded? _lastLoaded;
+
+  /// Counts the order reloads: the buyer's Action needed cards read again
+  /// with the list.
+  int _reloads = 0;
+
+  /// How many Action needed cards the buyer's list leads with.
+  static const int _buyerActionCards = 3;
+
   @override
   void initState() {
     super.initState();
@@ -55,13 +89,41 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     if (authState is AuthAuthenticated) {
       _userRole = authState.role.name;
     }
-    _loadOrders();
+    final requested = ordersFilterRequest.value;
+    if (requested != null) {
+      ordersFilterRequest.value = null;
+      _selectedStatus = requested;
+      _filterOrders(requested);
+      _loadHeldOrders();
+    } else {
+      _loadOrders();
+    }
+    ordersFilterRequest.addListener(_onFilterRequest);
+  }
+
+  @override
+  void dispose() {
+    ordersFilterRequest.removeListener(_onFilterRequest);
+    super.dispose();
+  }
+
+  /// Home asked again while this tab was kept alive (the phone's bar).
+  void _onFilterRequest() {
+    final requested = ordersFilterRequest.value;
+    if (requested == null || !mounted) return;
+    ordersFilterRequest.value = null;
+    _applyFilter(requested);
   }
 
   String? _getUserId() {
     final authState = context.read<AuthBloc>().state;
     if (authState is AuthAuthenticated) return authState.userId;
     return null;
+  }
+
+  UserRole? _role() {
+    final authState = context.read<AuthBloc>().state;
+    return authState is AuthAuthenticated ? authState.role : null;
   }
 
   bool _isFarmer() {
@@ -76,6 +138,14 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     final authState = context.read<AuthBloc>().state;
     if (authState is AuthAuthenticated) {
       return authState.role == UserRole.buyer;
+    }
+    return false;
+  }
+
+  bool _isTrucker() {
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthAuthenticated) {
+      return authState.role == UserRole.trucker;
     }
     return false;
   }
@@ -115,7 +185,14 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
   }
 
   void _applyFilter(String? status) {
-    setState(() => _selectedStatus = status);
+    setState(() {
+      _selectedStatus = status;
+      _cardAction = false;
+    });
+    _filterOrders(status);
+  }
+
+  void _filterOrders(String? status) {
     final userId = _getUserId();
     if (userId == null) return;
     context.read<OrderBloc>().add(
@@ -151,306 +228,267 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
     // resetting to "All".
     _applyFilter(_selectedStatus);
     _loadHeldOrders();
+    setState(() => _reloads++);
+  }
+
+  Widget _buildHeader(AppLocalizations l10n) {
+    final authState = context.read<AuthBloc>().state;
+    final header = FwPageHeader(
+      padding: EdgeInsets.zero,
+      eyebrow: fwPersonPlaceEyebrow(
+        authState,
+        _isBuyer() ? l10n.trackYourOrders : l10n.manageOrders,
+      ),
+      title: l10n.orders,
+      sketchRole: authState is AuthAuthenticated ? authState.role : null,
+      trailing: const HeaderActions(),
+    );
+    // A tab child draws under the status bar; a pushed screen has SafeArea.
+    final top = widget.showBackButton ? 0.0 : MediaQuery.paddingOf(context).top;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 16 + top, 20, 12),
+      child: widget.showBackButton
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FwSquareButton(
+                  onTap: () => Navigator.of(context).maybePop(),
+                  semanticLabel:
+                      MaterialLocalizations.of(context).backButtonTooltip,
+                  child: const Icon(
+                    Icons.arrow_back,
+                    size: 20,
+                    color: AppTheme.ink,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: header),
+              ],
+            )
+          : header,
+    );
+  }
+
+  Widget _buildFilters(AppLocalizations l10n) {
+    return FwFilterPillRow<String?>(
+      options: [
+        FwFilterOption(value: null, label: l10n.deliveryFilterAll),
+        // What Home's Pending Orders tile counts: the farmer's answer is
+        // owed. "Pending" below is the order status (not paid yet).
+        if (_isFarmer())
+          FwFilterOption(
+            value: ordersFilterYourTurn,
+            label: l10n.ordersFilterWaitingForYou,
+          ),
+        FwFilterOption(value: 'created', label: l10n.orderPending),
+        FwFilterOption(value: 'accepted', label: l10n.orderAccepted),
+        FwFilterOption(value: 'funded', label: l10n.orderFunded),
+        FwFilterOption(value: 'inTransit', label: l10n.deliveryFilterInTransit),
+        FwFilterOption(value: 'delivered', label: l10n.deliveryFilterDelivered),
+        // ESC-09: paid-out orders move on from delivered with their money.
+        FwFilterOption(value: 'disbursing', label: l10n.statusDisbursing),
+        FwFilterOption(value: 'settled', label: l10n.statusSettled),
+        FwFilterOption(value: 'cancelled', label: l10n.orderCancelled),
+      ],
+      selected: _selectedStatus,
+      onSelected: _applyFilter,
+    );
+  }
+
+  Widget _buildEmpty(AppLocalizations l10n) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // The one large drawing an empty state may carry.
+          if (_role() case final role?) RoleSketch.emptyState(role: role),
+          const SizedBox(height: 16),
+          Text(l10n.noOrders, style: FwText.cardTitle),
+          const SizedBox(height: 4),
+          Text(l10n.ordersWillAppear, style: FwText.body),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildList(
+    BuildContext context,
+    AppLocalizations l10n,
+    OrderState state,
+  ) {
+    if (state is OrdersLoaded) _lastLoaded = state;
+    final loaded =
+        state is OrdersLoaded ? state : (_cardAction ? _lastLoaded : null);
+
+    if (loaded == null && state is OrderLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (loaded == null && state is OrderError) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.error_outline,
+                size: 56,
+                color: AppTheme.statusError,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                localizeErrorCode(state.code, l10n),
+                style: FwText.cardTitle,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: 200,
+                child: FilledButton(
+                  // Retry preserves the currently selected status filter.
+                  onPressed: () => _applyFilter(_selectedStatus),
+                  child: Text(l10n.retry),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (loaded == null || loaded.orders.isEmpty) return _buildEmpty(l10n);
+
+    final isFarmer = _isFarmer();
+    final isTrucker = _isTrucker();
+    // The buyer's Action needed cards lead the unfiltered list (the buyer
+    // has no Home tab to read them on).
+    final userId = _getUserId() ?? '';
+    final lead =
+        _isBuyer() && _selectedStatus == null && userId.isNotEmpty ? 1 : 0;
+    return RefreshIndicator(
+      // Preserve the active status tab (not reset to "All"), and hold
+      // the refresh spinner until the reload actually finishes.
+      onRefresh: () async {
+        _applyFilter(_selectedStatus);
+        _loadHeldOrders();
+        setState(() => _reloads++);
+        await context.read<OrderBloc>().stream.firstWhere(
+              (s) => s is OrdersLoaded || s is OrderError,
+            );
+      },
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(
+          20,
+          12,
+          20,
+          Breakpoints.fabClearance,
+        ),
+        itemCount: loaded.orders.length + lead,
+        // No gap under the lead when nothing waits (it draws nothing).
+        separatorBuilder: (_, index) => SizedBox(height: index < lead ? 0 : 12),
+        itemBuilder: (context, index) {
+          if (index < lead) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ActionNeededList(
+                key: ValueKey('orders_action_needed_$_reloads'),
+                userId: userId,
+                role: UserRole.buyer,
+                maxItems: _buyerActionCards,
+                // The buyer may have paid or confirmed: read the list again.
+                onRefresh: () {
+                  _applyFilter(_selectedStatus);
+                  _loadHeldOrders();
+                },
+              ),
+            );
+          }
+          final order = loaded.orders[index - lead];
+          return OrderCard(
+            order: order,
+            // The list leads with its first order, unless the buyer's
+            // Action needed cards already do.
+            raised: index == 0,
+            isFarmerView: isFarmer,
+            isTruckerView: isTrucker,
+            // A cached `held` row is stale once the order moved on.
+            underReview: _heldOrderIds.contains(order.orderId) &&
+                orderHoldableStatuses.contains(order.status),
+            acceptEnabled: _heldChecked,
+            // Neither answer while one from a card runs.
+            actionsEnabled: state is! OrderLoading,
+            onTap: () => _openOrderDetail(order.orderId),
+            onAccept: isFarmer
+                ? () {
+                    _cardAction = true;
+                    context.read<OrderBloc>().add(
+                          AcceptOrder(
+                            orderId: order.orderId,
+                            farmerId: userId,
+                          ),
+                        );
+                  }
+                : null,
+            onReject: isFarmer
+                ? () async {
+                    // The farmer says why; the buyer is refunded.
+                    final bloc = context.read<OrderBloc>();
+                    final reason = await showDeclineReasonSheet(
+                      context,
+                      warning: l10n.farmerRejectRefundNote,
+                      reasons: farmerDeclineReasons,
+                    );
+                    if (reason == null || !context.mounted) return;
+                    // FarmerRejectConfirmM: nothing is rejected before
+                    // the farmer confirms.
+                    final confirmed = await showRejectOrderConfirmSheet(
+                      context,
+                      reason: declineReasonLabel(l10n, reason),
+                    );
+                    if (!confirmed || bloc.isClosed) return;
+                    _cardAction = true;
+                    bloc.add(
+                      RejectOrder(
+                        orderId: order.orderId,
+                        farmerId: userId,
+                        declineReason: reason,
+                      ),
+                    );
+                  }
+                : null,
+          );
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final isFarmer = _isFarmer();
 
-    final isMobile = Breakpoints.isMobile(context);
-    final isDesktop = Breakpoints.isDesktop(context);
-    final hPad = isDesktop ? 32.0 : 24.0;
-    final listHPad = isMobile ? 20.0 : 24.0;
-
-    // ── Profile avatar (shared between mobile and desktop headers) ──
-    final profileAvatar = GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          builder: (_) => const ProfileScreen(),
-        ),
-      ),
-      child: CircleAvatar(
-        radius: 18,
-        backgroundColor:
-            isMobile ? Colors.white24 : AppTheme.textMuted.withAlpha(40),
-        child: Icon(
-          Icons.person,
-          size: 20,
-          color: isMobile ? Colors.white : AppTheme.textDark,
-        ),
-      ),
-    );
-
-    // ── Filter chips row ──────────────────────────────────────────
-    final Widget filterChips;
-    if (isMobile) {
-      filterChips = SizedBox(
-        height: 50,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: EdgeInsets.symmetric(horizontal: listHPad, vertical: 8),
-          children: [
-            _buildChip(null, l10n.deliveryFilterAll),
-            _buildChip('created', l10n.orderPending),
-            _buildChip('accepted', l10n.orderAccepted),
-            _buildChip('funded', l10n.orderFunded),
-            _buildChip('inTransit', l10n.deliveryFilterInTransit),
-            _buildChip('delivered', l10n.deliveryFilterDelivered),
-            // ESC-09: paid-out orders move on from delivered with their money.
-            _buildChip('disbursing', l10n.statusDisbursing),
-            _buildChip('settled', l10n.statusSettled),
-            _buildChip('cancelled', l10n.orderCancelled),
-          ],
-        ),
-      );
-    } else {
-      filterChips = Padding(
-        padding: EdgeInsets.symmetric(horizontal: listHPad, vertical: 8),
-        child: Wrap(
-          spacing: 10,
-          runSpacing: 8,
-          children: [
-            _buildChip(null, l10n.deliveryFilterAll),
-            _buildChip('created', l10n.orderPending),
-            _buildChip('accepted', l10n.orderAccepted),
-            _buildChip('funded', l10n.orderFunded),
-            _buildChip('inTransit', l10n.deliveryFilterInTransit),
-            _buildChip('delivered', l10n.deliveryFilterDelivered),
-            // ESC-09: paid-out orders move on from delivered with their money.
-            _buildChip('disbursing', l10n.statusDisbursing),
-            _buildChip('settled', l10n.statusSettled),
-            _buildChip('cancelled', l10n.orderCancelled),
-          ],
-        ),
-      );
-    }
-
-    // ── Order list ────────────────────────────────────────────────
-    final orderList = Expanded(
-      child: BlocBuilder<OrderBloc, OrderState>(
-        builder: (context, state) {
-          if (state is OrderLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (state is OrderError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.error_outline,
-                      size: 56,
-                      color: AppTheme.statusError,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      localizeErrorCode(state.code, l10n),
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textDark,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: 200,
-                      child: FilledButton(
-                        // Retry preserves the currently selected status filter.
-                        onPressed: () => _applyFilter(_selectedStatus),
-                        child: Text(l10n.retry),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
-
-          if (state is OrdersLoaded) {
-            if (state.orders.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.receipt_long_outlined,
-                      size: 64,
-                      color: AppTheme.textMuted,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      l10n.noOrders,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: AppTheme.textMuted,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      l10n.ordersWillAppear,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.textMuted,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            return RefreshIndicator(
-              // Preserve the active status tab (not reset to "All"), and hold
-              // the refresh spinner until the reload actually finishes.
-              onRefresh: () async {
-                _applyFilter(_selectedStatus);
-                _loadHeldOrders();
-                await context.read<OrderBloc>().stream.firstWhere(
-                      (s) => s is OrdersLoaded || s is OrderError,
-                    );
-              },
-              child: ListView.separated(
-                padding: EdgeInsets.symmetric(
-                  horizontal: listHPad,
-                  vertical: 12,
-                ),
-                itemCount: state.orders.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final order = state.orders[index];
-                  final userId = _getUserId() ?? '';
-                  return OrderCard(
-                    order: order,
-                    isFarmerView: isFarmer,
-                    // A cached `held` row is stale once the order moved on.
-                    underReview: _heldOrderIds.contains(order.orderId) &&
-                        orderHoldableStatuses.contains(order.status),
-                    acceptEnabled: _heldChecked,
-                    onTap: () => _openOrderDetail(order.orderId),
-                    onAccept: isFarmer
-                        ? () {
-                            context.read<OrderBloc>().add(
-                                  AcceptOrder(
-                                    orderId: order.orderId,
-                                    farmerId: userId,
-                                  ),
-                                );
-                          }
-                        : null,
-                    onReject: isFarmer
-                        ? () {
-                            context.read<OrderBloc>().add(
-                                  RejectOrder(
-                                    orderId: order.orderId,
-                                    farmerId: userId,
-                                  ),
-                                );
-                          }
-                        : null,
-                  );
-                },
-              ),
-            );
-          }
-
-          // Initial state
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.receipt_long_outlined,
-                  size: 64,
-                  color: AppTheme.textMuted,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  l10n.noOrders,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: AppTheme.textMuted,
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-
-    // ── Mobile layout (unchanged) ─────────────────────────────────
-    if (isMobile) {
-      return BlocListener<OrderBloc, OrderState>(
-        listener: (context, state) {
-          if (state is OrderAccepted ||
-              state is OrderRejected ||
-              state is OrderCreated ||
-              state is PaymentSubmitted ||
-              state is OrderCancelled) {
-            _loadOrders();
-          }
-        },
-        child: Column(
-          children: [
-            GreenHeader(
-              height: 120,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      if (widget.showBackButton)
-                        IconButton(
-                          icon: const Icon(
-                            Icons.arrow_back,
-                            color: Colors.white,
-                          ),
-                          tooltip: MaterialLocalizations.of(context)
-                              .backButtonTooltip,
-                          onPressed: () => Navigator.of(context).maybePop(),
-                        ),
-                      Expanded(
-                        child: Text(
-                          l10n.orders,
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                      profileAvatar,
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _isBuyer() ? l10n.trackYourOrders : l10n.manageOrders,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white.withAlpha(180),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const OfflineBanner(),
-            filterChips,
-            orderList,
-          ],
-        ),
-      );
-    }
-
-    // ── Desktop / Tablet layout ───────────────────────────────────
     return BlocListener<OrderBloc, OrderState>(
       listener: (context, state) {
+        if (state is OrdersLoaded) _cardAction = false;
+        if (_cardAction && state is OrderError) {
+          // E-6: the answer failed; the list stays, this says why.
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                localizeErrorCode(state.code, l10n, message: state.message),
+              ),
+            ),
+          );
+        }
+        if (_cardAction && (state is OrderAccepted || state is OrderRejected)) {
+          // E-5: sent, or saved on the phone to send later.
+          showSavedOrSent(
+            context,
+            sent: state is OrderAccepted
+                ? l10n.orderAcceptedSent
+                : l10n.orderRejectedSent,
+          ).ignore();
+        }
         if (state is OrderAccepted ||
             state is OrderRejected ||
             state is OrderCreated ||
@@ -459,66 +497,20 @@ class _OrdersTabScreenState extends State<OrdersTabScreen> {
           _loadOrders();
         }
       },
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 900),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Flat page header ──────────────────────────────────
-              Padding(
-                padding: EdgeInsets.fromLTRB(hPad, 28, hPad, 20),
-                child: Column(
-                  children: [
-                    Text(
-                      l10n.orders,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textDark,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _isBuyer() ? l10n.trackYourOrders : l10n.manageOrders,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: AppTheme.textMuted,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
+      child: FwContentWidth(
+        child: Column(
+          children: [
+            _buildHeader(l10n),
+            const OfflineBanner(),
+            _buildFilters(l10n),
+            Expanded(
+              child: BlocBuilder<OrderBloc, OrderState>(
+                builder: (context, state) => _buildList(context, l10n, state),
               ),
-              filterChips,
-              orderList,
-            ],
-          ),
+            ),
+          ],
         ),
       ),
-    );
-  }
-
-  Widget _buildChip(String? status, String label, {bool expand = false}) {
-    final isSelected = _selectedStatus == status;
-    final chip = FilterChip(
-      label: expand
-          ? SizedBox(
-              width: double.infinity,
-              child: Text(label, textAlign: TextAlign.center),
-            )
-          : Text(label),
-      selected: isSelected,
-      labelStyle: TextStyle(
-        color: isSelected ? Colors.white : AppTheme.textDark,
-      ),
-      onSelected: (_) => _applyFilter(status),
-    );
-    if (expand) return chip;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: chip,
     );
   }
 }

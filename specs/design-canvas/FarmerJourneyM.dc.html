@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Farmer order on the road</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&amp;family=Noto+Sans+Ethiopic:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#9A45A0}a:hover{color:#6B2A69}
+</style>
+</helmet>
+<div style="width: 390px; height: 884px; box-sizing: border-box; background: #FFFFFF; color: #1A1516; font-family: 'Bricolage Grotesque', 'Noto Sans Ethiopic', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+  <header style="padding: 22px 20px 0; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <a href="#" aria-label="Back to orders" style="width: 44px; height: 44px; border-radius: 999px; background: #F5F3F1; color: #1A1516; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></a>
+      <span style="display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: 999px; background: #E4D5C7; color: #4A4340; font-size: 12px; font-weight: 800"><svg width="12" height="12" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20v-8"></path><path d="M12 12c0-4 3-7 8-7 0 5-3 8-8 7z"></path><path d="M12 14c0-3-2.5-5.5-7-5.5 0 4 2.5 6 7 5.5z"></path></svg>Farmer</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 3px">
+      <h1 style="margin: 0; font-size: 28px; line-height: 1.05; font-weight: 800; letter-spacing: -0.035em">Your wheat is on the road</h1>
+      <span style="display: flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 500; color: #5C5450"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M12 21V3"></path><path d="M12 9c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 9c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path><path d="M12 15c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 15c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path></svg>2,000 kg to Selam Traders, Merkato</span>
+    </div>
+  </header>
+
+  <div style="padding: 14px 20px 0; display: flex; flex-direction: column; gap: 14px">
+    <section aria-label="Where the truck is" style="border-radius: 28px; background: #F5F3F1; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 14px 30px rgba(26,21,22,0.14); border: 1px solid #DDD5CE">
+      <div style="position: relative; height: 160px">
+        <svg width="350" height="160" sc-camel-view-box="0 0 350 170" sc-camel-preserve-aspect-ratio="xMidYMid slice" role="img" aria-label="Map: the truck has passed Bishoftu, about two thirds of the way from your farm to Merkato" style="display: block">
+          <rect width="350" height="170" fill="#DCD5C9"></rect>
+          <path d="M160 96 C 200 110, 260 120, 360 124" stroke="#EFEBE4" stroke-width="8" fill="none"></path>
+          <path d="M318 30 C 270 26, 200 20, -10 18" stroke="#EFEBE4" stroke-width="8" fill="none"></path>
+          <path d="M-10 166 C 6 158, 18 154, 30 150 C 46 142, 64 135, 80 128 C 94 122, 108 117, 120 112 C 134 106, 148 101, 160 96 C 174 90, 188 85, 200 80 C 214 74, 228 69, 240 64 C 266 53, 292 41, 318 30 C 330 25, 344 18, 360 10" stroke="#EFEBE4" stroke-width="12" fill="none" stroke-linecap="round"></path>
+          <path d="M30 150 C 46 142, 64 135, 80 128 C 94 122, 108 117, 120 112 C 134 106, 148 101, 160 96 C 174 90, 188 85, 200 80" stroke="#9A45A0" stroke-width="4" fill="none" stroke-linecap="round"></path>
+          <path d="M200 80 C 214 74, 228 69, 240 64 C 266 53, 292 41, 318 30" stroke="#1A1516" stroke-opacity="0.55" stroke-width="2.5" fill="none" stroke-dasharray="5 5"></path>
+          <circle cx="200" cy="80" r="36" fill="#F0873A" fill-opacity="0.08"></circle>
+          <circle cx="200" cy="80" r="26" fill="#F0873A" fill-opacity="0.16" stroke="#A85518" stroke-width="2" stroke-dasharray="3 4"></circle>
+          <circle cx="80" cy="128" r="5" fill="#FFFFFF" stroke="#9A45A0" stroke-width="3"></circle>
+          <circle cx="120" cy="112" r="5" fill="#FFFFFF" stroke="#8F8780" stroke-width="3"></circle>
+          <circle cx="160" cy="96" r="5" fill="#FFFFFF" stroke="#9A45A0" stroke-width="3"></circle>
+          <circle cx="240" cy="64" r="5" fill="#FFFFFF" stroke="#8F8780" stroke-width="3"></circle>
+          <circle cx="30" cy="150" r="7" fill="#FFFFFF" stroke="#9A45A0" stroke-width="3.5"></circle>
+          <circle cx="318" cy="30" r="7" fill="#FFFFFF" stroke="#5C5450" stroke-width="3.5"></circle>
+          <rect x="182" y="62" width="36" height="36" rx="11" fill="#1A1516"></rect>
+          <g transform="translate(190 70) scale(0.84)" fill="none" stroke="#F0873A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h11v9H3z"></path><path d="M14 10h4l3 3v3h-7"></path><circle cx="7" cy="17.5" r="1.8"></circle><circle cx="17" cy="17.5" r="1.8"></circle></g>
+          <g font-family="'Bricolage Grotesque', sans-serif" font-size="13" font-weight="700" fill="#1A1516" stroke="#DCD5C9" stroke-width="3" paint-order="stroke">
+            <text x="44" y="160">Your farm · 08:05</text>
+            <text x="282" y="56">Merkato</text>
+          </g>
+        </svg>
+        <span style="position: absolute; left: 12px; top: 12px; display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border-radius: 999px; background: #FFFFFF; font-size: 13px; font-weight: 700; white-space: nowrap"><span style="width: 8px; height: 8px; border-radius: 999px; background: #1A1516" aria-hidden="true"></span>11:42 · Bishoftu · 28 min ago</span>
+      </div>
+      <div style="padding: 12px 16px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px">
+        <span style="font-size: 13px; line-height: 1.35; color: #5C5450">Grey rings are other stops on this truck. They are never named.</span>
+        <span style="font-size: 13px; font-weight: 800; color: #9A45A0; white-space: nowrap; flex-shrink: 0">Arrives 13:20-14:00</span>
+      </div>
+    </section>
+
+    <section aria-label="Your payment" style="padding: 14px 16px 16px; border-radius: 24px; background: #E4D5C7; display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px"><h2 style="margin: 0; font-size: 15px; font-weight: 800; letter-spacing: -0.01em">Your payment</h2><span style="font-size: 19px; font-weight: 800; letter-spacing: -0.02em; color: #9A45A0">84,000 ETB</span></div>
+      <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+        <li style="display: flex; align-items: center; gap: 10px; font-size: 13px"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 999px; background: #1A1516; flex-shrink: 0"></span><span style="flex-grow: 1">Buyer paid, held in escrow</span><span style="font-size: 13px; color: #4A4340; white-space: nowrap">Mon 11:20</span></li>
+        <li style="display: flex; align-items: center; gap: 10px; font-size: 13px"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 999px; background: #1A1516; flex-shrink: 0"></span><span style="flex-grow: 1">You handed over, QR scanned</span><span style="font-size: 13px; color: #4A4340; white-space: nowrap">Today 08:05</span></li>
+        <li aria-current="step" style="display: flex; align-items: center; gap: 10px; font-size: 13px"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 999px; background: #F0873A; flex-shrink: 0; border: 1.5px solid #1A1516; box-sizing: border-box"></span><span style="flex-grow: 1; font-weight: 800">Buyer confirms delivery</span><span style="height: 26px; padding: 0 10px; border-radius: 999px; background: #F0873A; color: #1A1516; font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; white-space: nowrap; border: 1.5px solid #1A1516; box-sizing: border-box">expected today</span></li>
+        <li style="display: flex; align-items: center; gap: 10px; font-size: 13px"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 999px; border: 1.5px dashed #5C5450; box-sizing: border-box; flex-shrink: 0"></span><span style="flex-grow: 1; color: #4A4340">48 h check window, then paid out</span><span style="font-size: 13px; color: #4A4340; white-space: nowrap">Thu</span></li>
+      </ol>
+      <p style="margin: 0; padding-top: 10px; border-top: 1px solid #C9BDB5; font-size: 14px; line-height: 1.4; color: #1A1516">Nothing for you to do now. Selam Traders must confirm delivery. Then the 48 h check window runs and the money is paid out to you.</p>
+    </section>
+
+    <section aria-label="Contact" style="padding: 4px 16px; border-radius: 28px; background: #F5F3F1; box-shadow: 0 14px 30px rgba(26,21,22,0.14); display: flex; flex-direction: column; border: 1px solid #DDD5CE">
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 66px; border-bottom: 1px solid #C9BDB5">
+        <span aria-hidden="true" style="width: 38px; height: 38px; border-radius: 14px; background: #E4D5C7; color: #1A1516; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; flex-shrink: 0">ST</span>
+        <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 15px; font-weight: 800; letter-spacing: -0.01em">Selam Traders</span><span style="font-size: 14px; color: #5C5450">Buyer</span></span>
+        <button type="button" aria-label="Message Selam Traders" style="width: 66px; height: 50px; padding: 0; border-radius: 16px; border: 1px solid #8E857E; background: transparent; color: #1A1516; font: 700 13px 'Bricolage Grotesque', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; flex-shrink: 0"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"></path></svg>Message</button>
+        <button type="button" aria-label="Call Selam Traders" style="width: 52px; height: 50px; padding: 0; border-radius: 16px; border: none; background: #1A1516; color: #FFFFFF; font: 700 13px 'Bricolage Grotesque', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; flex-shrink: 0"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"></path></svg>Call</button>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px; min-height: 66px">
+        <span aria-hidden="true" style="width: 38px; height: 38px; border-radius: 14px; background: #1A1516; color: #F0873A; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; flex-shrink: 0">DT</span>
+        <span style="flex-grow: 1; display: flex; flex-direction: column; gap: 1px"><span style="font-size: 15px; font-weight: 800; letter-spacing: -0.01em">Dawit Tesfaye</span><span style="font-size: 14px; color: #5C5450">Trucker</span></span>
+        <button type="button" aria-label="Message Dawit" style="width: 66px; height: 50px; padding: 0; border-radius: 16px; border: 1px solid #8E857E; background: transparent; color: #1A1516; font: 700 13px 'Bricolage Grotesque', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; flex-shrink: 0"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"></path></svg>Message</button>
+        <button type="button" aria-label="Call Dawit" style="width: 52px; height: 50px; padding: 0; border-radius: 16px; border: none; background: #1A1516; color: #FFFFFF; font: 700 13px 'Bricolage Grotesque', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; flex-shrink: 0"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"></path></svg>Call</button>
+      </div>
+    </section>
+
+    <a href="#" style="display: flex; align-items: center; justify-content: space-between; height: 52px; padding: 0 18px 0 20px; box-sizing: border-box; border-radius: 999px; border: 1px solid #8E857E; background: transparent; color: #1A1516; text-decoration: none; font-size: 14px; font-weight: 800">Order details, price and timeline<svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"></path></svg></a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:884}}">
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+
+
+</body></html>

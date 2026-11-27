@@ -1,8 +1,20 @@
+import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_delivery_location.dart';
+import 'package:wereda_connect/core/models/order_dropoff_check_in.dart';
+import 'package:wereda_connect/core/models/order_dropoff_note.dart';
+import 'package:wereda_connect/core/models/order_pricing.dart';
 import 'package:wereda_connect/core/models/order_status_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/security/security_events.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
+import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 
 /// Web-only order repository.
@@ -12,7 +24,12 @@ class WebOrderRepository extends BaseOrderRepository {
   static const _uuid = Uuid();
   final ApiClient _api;
 
-  WebOrderRepository({required ApiClient api}) : _api = api;
+  /// The "update the app" flag's owner (FUP-75); the app's by default.
+  final SecurityEvents? _securityEvents;
+
+  WebOrderRepository({required ApiClient api, SecurityEvents? securityEvents})
+      : _api = api,
+        _securityEvents = securityEvents;
 
   @override
   Future<List<Order>> getOrdersByFarmer(
@@ -101,6 +118,16 @@ class WebOrderRepository extends BaseOrderRepository {
   Future<Order?> getOrderById(String orderId) async {
     try {
       return await fetchOrder(orderId);
+    } on NetworkException {
+      // BUG-19: no connection is not "no such order". The caller shows the
+      // no-connection text and the user can try again.
+      rethrow;
+    } on TimeoutException {
+      rethrow;
+    } on AuthException {
+      // BUG-30: 403 is someone else's order, 401 an ended session. Each has
+      // its own text.
+      rethrow;
     } on Exception {
       return null;
     }
@@ -110,7 +137,9 @@ class WebOrderRepository extends BaseOrderRepository {
   /// [getOrderById]. The order checkout (ESC-44) must tell "offline" from
   /// "no such order".
   Future<Order?> fetchOrder(String orderId) async {
-    final data = await _api.get<Map<String, dynamic>>('/orders/$orderId');
+    final data = await _api.get<Map<String, dynamic>>(
+      '/orders/${Uri.encodeComponent(orderId)}',
+    );
     // GET /orders/{id} returns {"order": {...}} (GetOrderResponse, camelCase).
     // Accept the `item` envelope and a bare object too, so a response-shape
     // change never silently degrades into a spurious "order not found" that
@@ -136,11 +165,21 @@ class WebOrderRepository extends BaseOrderRepository {
     String? truckerName,
     double? transportCost,
     double? commissionRate,
+    String? dropoffNote,
+    DeliveryPoint? deliveryPoint,
   }) async {
     // UUID like the mobile repositories: the server rejects other id
     // shapes (for example a delivery's tripId must be a UUID).
     final orderId = _uuid.v4();
     final now = DateTime.now().toUtc().toIso8601String();
+    final note = normalizeDropoffNote(dropoffNote);
+    final point = deliveryPoint != null &&
+            isInDeliveryLocationBox(
+              deliveryPoint.latitude,
+              deliveryPoint.longitude,
+            )
+        ? deliveryPoint
+        : null;
 
     final payload = <String, dynamic>{
       'listingId': listingId,
@@ -156,6 +195,11 @@ class WebOrderRepository extends BaseOrderRepository {
       if (truckerId != null) 'truckerId': truckerId,
       if (truckerName != null) 'truckerName': truckerName,
       if (transportCost != null) 'transportCost': transportCost,
+      if (note != null) 'dropoffNote': note,
+      if (point != null) ...{
+        'deliveryLatitude': point.latitude,
+        'deliveryLongitude': point.longitude,
+      },
     };
 
     final response = await _api.post<Map<String, dynamic>>(
@@ -178,11 +222,15 @@ class WebOrderRepository extends BaseOrderRepository {
     );
     // Surface server-side rejections instead of silently reporting success
     // for an order that was never persisted.
-    ensureSyncSucceeded(response);
+    _ensureOrderAccepted(response);
 
-    final cropCost = quantity * pricePerUnit;
     final rate = commissionRate ?? 0.05;
-    final commissionAmount = cropCost * rate;
+    // SIM-30: the server's money, each leg to the santim.
+    final pricing = OrderPricing(
+      cropCost: quantity * pricePerUnit,
+      transportCost: transportCost ?? 0,
+      commissionRate: rate,
+    );
 
     return Order()
       ..orderId = orderId
@@ -194,30 +242,80 @@ class WebOrderRepository extends BaseOrderRepository {
       ..cropType = cropType
       ..quantity = quantity
       ..pricePerUnit = pricePerUnit
-      ..totalPrice = cropCost + (transportCost ?? 0) + commissionAmount
+      ..totalPrice = pricing.orderTotal
       ..status = OrderStatus.created
       ..createdAt = DateTime.now().toUtc()
       ..version = 1
       ..tripId = tripId
       ..truckerId = truckerId
       ..truckerName = truckerName
-      ..cropCost = cropCost
-      ..transportCost = transportCost
+      ..cropCost = pricing.cropCostEtb
+      ..transportCost = transportCost == null ? null : pricing.transportCostEtb
       ..commissionRate = rate
-      ..commissionAmount = commissionAmount
-      ..orderTotal = cropCost + (transportCost ?? 0) + commissionAmount;
+      ..commissionAmount = pricing.commissionAmount
+      ..orderTotal = pricing.orderTotal
+      ..dropoffNote = note
+      ..deliveryLatitude = point?.latitude
+      ..deliveryLongitude = point?.longitude;
   }
 
   /// The server applies an order update only when the payload's `version`
   /// matches the version it holds; a versionless order update is rejected
   /// (sync-protocol.md 1.3.0, SIM-08). Web keeps no local copy, so read the
   /// current version first, exactly like the trip repository does.
-  Future<int> _currentOrderVersion(String orderId) async {
+  Future<int> _currentOrderVersion(String orderId) async =>
+      (await _currentOrder(orderId)).version;
+
+  Future<Order> _currentOrder(String orderId) async {
     final order = await getOrderById(orderId);
     if (order == null) {
       throw NotFoundException('Order $orderId not found.');
     }
-    return order.version;
+    return order;
+  }
+
+  /// [ensureSyncSucceeded] for an order batch. An accepted order also clears
+  /// the "update the app" flag (FUP-75): the server's minimum-version gate
+  /// runs first on every order operation, so this build passes it.
+  void _ensureOrderAccepted(Map<String, dynamic> response) {
+    ensureSyncSucceeded(response, events: _securityEvents);
+    final results = response['results'];
+    if (results is List &&
+        results.any(
+          (r) =>
+              r is Map &&
+              (r['status'] == 'success' || r['status'] == 'duplicate'),
+        )) {
+      (_securityEvents ?? SecurityEvents.instance).clearAppUpdateRequired();
+    }
+  }
+
+  /// One order `update` through `/sync`, refused results surfaced.
+  Future<void> _sendOrderUpdate(
+    String orderId,
+    String kind,
+    Map<String, dynamic> data,
+  ) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final response = await _api.post<Map<String, dynamic>>(
+      '/sync',
+      data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
+        'operations': [
+          {
+            'operationId': _uuid.v4(),
+            'entityType': 'order',
+            'action': 'update',
+            'entityId': orderId,
+            'timestamp': now,
+            'idempotencyKey': 'web_${kind}_${orderId}_$now',
+            'data': data,
+          },
+        ],
+      },
+    );
+    _ensureOrderAccepted(response);
   }
 
   @override
@@ -231,8 +329,13 @@ class WebOrderRepository extends BaseOrderRepository {
       throw NotFoundException('Order $orderId not found.');
     }
     // Already submitted: nothing to send again (mobile does the same). The
-    // checkout screen takes it from here.
-    if (order.status == OrderStatus.paymentSubmitted) return;
+    // checkout screen takes it from here. Already funded: an earlier submit
+    // reached the server although its answer was lost (BUG-19), so a retry
+    // sends no second payment.
+    if (order.status == OrderStatus.paymentSubmitted ||
+        order.status == OrderStatus.funded) {
+      return;
+    }
     final version = order.version;
     final now = DateTime.now().toUtc().toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(
@@ -261,7 +364,7 @@ class WebOrderRepository extends BaseOrderRepository {
     );
     // Surface server-side rejections instead of silently reporting success
     // for a payment that was never recorded.
-    ensureSyncSucceeded(response);
+    _ensureOrderAccepted(response);
   }
 
   @override
@@ -270,7 +373,12 @@ class WebOrderRepository extends BaseOrderRepository {
     String userId, {
     String? reason,
   }) async {
-    final version = await _currentOrderVersion(orderId);
+    final order = await _currentOrder(orderId);
+    if (order.status == OrderStatus.cancelled) return;
+    // ESC-15: the same cancel rules as mobile (a funded order waits for the
+    // farmer and the trucker).
+    checkOrderCancelAllowed(order, userId, DateTime.now().toUtc());
+    final version = order.version;
     final now = DateTime.now().toUtc().toIso8601String();
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
@@ -297,37 +405,19 @@ class WebOrderRepository extends BaseOrderRepository {
     // Surface server-side rejections (e.g. ORDER_UNAUTHORIZED, invalid
     // status transition) instead of reporting a cancellation that never
     // happened on the server.
-    ensureSyncSucceeded(response);
+    _ensureOrderAccepted(response);
   }
 
+  /// ESC-15: the farmer command; the server answers a repeat with success.
   @override
   Future<void> acceptOrder(String orderId, String farmerId) async {
     final version = await _currentOrderVersion(orderId);
-    final now = DateTime.now().toUtc().toIso8601String();
-    final response = await _api.post<Map<String, dynamic>>(
-      '/sync',
-      data: {
-        'syncBatchId': _uuid.v4(),
-        'clientId': 'web',
-        'operations': [
-          {
-            'operationId': _uuid.v4(),
-            'entityType': 'order',
-            'action': 'update',
-            'entityId': orderId,
-            'timestamp': now,
-            'idempotencyKey': 'web_accept_${orderId}_$now',
-            'data': {
-              'status': orderStatusToWire(OrderStatus.accepted.name),
-              'version': version,
-            },
-          },
-        ],
-      },
-    );
     // /sync returns HTTP 200 with a per-operation result — surface server-side
     // rejections instead of reporting an accept that never happened.
-    ensureSyncSucceeded(response);
+    await _sendOrderUpdate(orderId, 'accept', {
+      'farmerResponse': CommitmentCommand.accept,
+      'version': version,
+    });
   }
 
   @override
@@ -335,9 +425,158 @@ class WebOrderRepository extends BaseOrderRepository {
     String orderId,
     String farmerId, {
     String? reason,
+    String? declineReason,
   }) async {
     final version = await _currentOrderVersion(orderId);
-    final now = DateTime.now().toUtc().toIso8601String();
+    // Surface server-side rejections instead of reporting a reject that never happened.
+    await _sendOrderUpdate(orderId, 'reject', {
+      'farmerResponse': CommitmentCommand.decline,
+      if (reason != null) 'rejectionReason': reason,
+      if (declineReason != null) 'declineReason': declineReason,
+      'version': version,
+    });
+  }
+
+  /// ESC-15: the trucker command, with the mobile guards. The server's
+  /// `AUTH_040` on a drop-out surfaces as a step-up error.
+  @override
+  Future<void> respondAsTrucker(
+    String orderId,
+    String truckerId, {
+    required bool accept,
+    String? declineReason,
+  }) async {
+    final order = await _currentOrder(orderId);
+    if (truckerId.isEmpty || order.truckerId != truckerId) {
+      throw const OrderActionNotAllowedException(
+        'Only the trucker of this order can answer its transport request.',
+      );
+    }
+    if (accept && truckerResponseOf(order) == CommitmentResponse.accepted) {
+      return;
+    }
+    if (!canTruckerRespond(order, truckerId) &&
+        !(!accept && canTruckerDropOut(order, truckerId))) {
+      throw const OrderActionNotAllowedException(
+        'This transport request is not open: the farmer has not accepted '
+        'yet, or it was already answered.',
+      );
+    }
+    await _sendOrderUpdate(orderId, accept ? 'truck_accept' : 'truck_decline', {
+      'truckerResponse':
+          accept ? CommitmentCommand.accept : CommitmentCommand.decline,
+      if (!accept && declineReason != null) 'declineReason': declineReason,
+      'version': order.version,
+    });
+  }
+
+  /// LT-12: the buyer's drop-off landmark, with the mobile guards, sent at
+  /// once with the order's current version (web keeps no local copy). A
+  /// refusal (`ORDER_DROPOFF_NOTE_LOCKED`, `ORDER_CONTACT_IN_TEXT`) surfaces
+  /// as a sync rejection.
+  @override
+  Future<void> updateDropoffNote(
+    String orderId,
+    String buyerId,
+    String? dropoffNote,
+  ) async {
+    final order = await _currentOrder(orderId);
+    if (!canEditDropoffNote(order, buyerId)) {
+      throw const OrderActionNotAllowedException(
+        'Only the buyer of a trucked order can change its drop-off note, '
+        'and only before pickup.',
+      );
+    }
+    final note = normalizeDropoffNote(dropoffNote);
+    if (note == normalizeDropoffNote(order.dropoffNote)) return;
+    await _sendOrderUpdate(orderId, 'dropoff_note', {
+      // An empty note clears it on the server.
+      'dropoffNote': note ?? '',
+      'version': order.version,
+    });
+  }
+
+  /// LT-14: the order's own drop-off point, with the mobile guards, sent at
+  /// once with the order's current version (web keeps no local copy). A
+  /// refusal (`ORDER_DELIVERY_LOCATION_LOCKED`) surfaces as a sync rejection.
+  @override
+  Future<void> updateDeliveryLocation(
+    String orderId,
+    String buyerId,
+    DeliveryPoint point,
+  ) async {
+    final order = await _currentOrder(orderId);
+    if (!canEditDeliveryLocation(order, buyerId)) {
+      throw const OrderActionNotAllowedException(
+        'Only the buyer of a trucked order can change its drop-off place, '
+        'and only before pickup.',
+      );
+    }
+    if (!isInDeliveryLocationBox(point.latitude, point.longitude)) {
+      throw const OrderActionNotAllowedException(
+        'The drop-off place must be in Ethiopia.',
+      );
+    }
+    if (point == orderDeliveryPoint(order)) return;
+    await _sendOrderUpdate(orderId, 'delivery_location', {
+      'deliveryLatitude': point.latitude,
+      'deliveryLongitude': point.longitude,
+      'version': order.version,
+    });
+  }
+
+  /// ESC-34 (FUP-285): the arrival check-in, with the mobile guards on the
+  /// server's current order, sent at once (web keeps no queue). A refusal
+  /// surfaces as a [SyncRejectedException] with its `CHECKIN_*` code, or
+  /// the unsupported-entity answer of a server with `pickupClassification`
+  /// off.
+  @override
+  Future<bool> checkIn(
+    String orderId,
+    String userId, {
+    required String kind,
+    HandoffCheckInFix? fix,
+  }) async {
+    final order = await _currentOrder(orderId);
+    final now = DateTime.now().toUtc();
+    if (!checkCheckInAllowed(order, userId, kind, fix, now)) return false;
+    await _sendCheckIn(orderId, kind, now, fix);
+    return true;
+  }
+
+  /// ESC-36 (FUP-336): the trucker's drop-off check-in, with the mobile
+  /// guards on the server's current order. A new [arrivalPhotoRef] (the key
+  /// the browser uploaded when the photo was taken) is attached first, then
+  /// the check-in is sent. The attach is best effort: whatever it answers,
+  /// the check-in goes and the server decides (`CHECKIN_PHOTO_REQUIRED` when
+  /// the delivery still has no arrival photo); only a failed request stops
+  /// it. A refusal surfaces as a [SyncRejectedException] with its `CHECKIN_*`
+  /// code.
+  @override
+  Future<bool> checkInAtDropoff(
+    String orderId,
+    String userId, {
+    required String deliveryId,
+    required HandoffCheckInFix? fix,
+    String? arrivalPhotoRef,
+  }) async {
+    final order = await _currentOrder(orderId);
+    final now = DateTime.now().toUtc();
+    if (!checkDropoffCheckInAllowed(order, userId, fix, now)) return false;
+    final photo = arrivalPhotoRef;
+    if (photo != null &&
+        DeliveryConstants.isServerPhotoRef(photo, deliveryId)) {
+      await _attachArrivalPhoto(deliveryId, photo);
+    }
+    await _sendCheckIn(orderId, CheckInKind.arrivedDropoff, now, fix);
+    return true;
+  }
+
+  /// `delivery_photo` `{deliveryId}#arrival` with the uploaded key. A refusal
+  /// or deferral is left to the check-in that follows (an earlier attempt's
+  /// photo may be attached already: `DELIVERY_PHOTO_EXISTS`).
+  Future<void> _attachArrivalPhoto(String deliveryId, String photoRef) async {
+    final entityId = deliveryPhotoEntityId(deliveryId, arrivalPhotoType);
     final response = await _api.post<Map<String, dynamic>>(
       '/sync',
       data: {
@@ -346,22 +585,56 @@ class WebOrderRepository extends BaseOrderRepository {
         'operations': [
           {
             'operationId': _uuid.v4(),
-            'entityType': 'order',
-            'action': 'update',
-            'entityId': orderId,
-            'timestamp': now,
-            'idempotencyKey': 'web_reject_${orderId}_$now',
-            'data': {
-              'status': orderStatusToWire(OrderStatus.rejected.name),
-              if (reason != null) 'rejectionReason': reason,
-              'version': version,
-            },
+            'entityType': deliveryPhotoEntityType,
+            'action': 'create',
+            'entityId': entityId,
+            'timestamp': DateTime.now().toUtc().toIso8601String(),
+            'idempotencyKey': 'web_photo_${entityId}_$photoRef',
+            'data': {deliveryPhotoRefKey: photoRef},
           },
         ],
       },
     );
-    // Surface server-side rejections instead of reporting a reject that never happened.
-    ensureSyncSucceeded(response);
+    try {
+      ensureSyncSucceeded(response, events: _securityEvents);
+    } on SyncRejectedException catch (e) {
+      // A refusal, a deferral or a conflict alike.
+      debugPrint('[WebOrderRepository] arrival photo not attached: $e');
+    }
+  }
+
+  /// Sends one check-in of [kind] at once (`handoff_check_in`).
+  Future<void> _sendCheckIn(
+    String orderId,
+    String kind,
+    DateTime now,
+    HandoffCheckInFix? fix,
+  ) async {
+    final at = now.toIso8601String();
+    final response = await _api.post<Map<String, dynamic>>(
+      '/sync',
+      data: {
+        'syncBatchId': _uuid.v4(),
+        'clientId': 'web',
+        'operations': [
+          {
+            'operationId': _uuid.v4(),
+            'entityType': handoffCheckInEntityType,
+            'action': 'create',
+            'entityId': handoffCheckInEntityId(orderId, kind),
+            'timestamp': at,
+            'idempotencyKey': 'web_checkin_${orderId}_${kind}_$at',
+            'data': handoffCheckInData(
+              orderId: orderId,
+              kind: kind,
+              capturedAt: now,
+              fix: fix,
+            ),
+          },
+        ],
+      },
+    );
+    ensureSyncSucceeded(response, events: _securityEvents);
   }
 
   List<Order> _parseOrders(Map<String, dynamic> data) {
@@ -374,7 +647,7 @@ class WebOrderRepository extends BaseOrderRepository {
   }
 
   Order _parseOrderMap(Map<String, dynamic> m) {
-    return Order()
+    final order = Order()
       ..orderId = m['orderId'] as String? ?? ''
       ..listingId = m['listingId'] as String? ?? ''
       ..buyerId = m['buyerId'] as String? ?? ''
@@ -413,14 +686,18 @@ class WebOrderRepository extends BaseOrderRepository {
       ..buyerPhone = m['buyerPhone'] as String?
       ..farmerPhone = m['farmerPhone'] as String?
       ..truckerPhone = m['truckerPhone'] as String?;
+    // ESC-15: who has answered and until when.
+    applyOrderCommitmentFields(order, m);
+    return order;
   }
 
   OrderStatus _parseOrderStatus(String? s) {
     // Server sends order status in snake_case; map it back to the camelCase enum.
+    // A status this build does not know is `unknown` (shown as "Updating").
     final name = s == null ? null : orderStatusFromWire(s);
     return OrderStatus.values.firstWhere(
       (e) => e.name == name,
-      orElse: () => OrderStatus.created,
+      orElse: () => OrderStatus.unknown,
     );
   }
 }

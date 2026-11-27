@@ -17,7 +17,17 @@ class CropListing {
   String? placeId;
   late String description;
   double? farmerReliability;
+
+  /// ESC-30: the farmer's reliability in whole percent (see the Isar schema).
+  int? ownerReliabilityPct;
+
+  /// ESC-31: the owner's public reputation copy (see the Isar schema).
+  String? ownerTier;
+  double? ownerEffectiveRating;
+  int? ownerRatingCount;
+  DateTime? ownerReputationAt;
   String? audioNoteRef;
+  List<CropPhoto> photos = [];
   late ListingStatus status;
   late DateTime createdAt;
   late DateTime updatedAt;
@@ -28,6 +38,17 @@ class CropListing {
 class LatLng {
   late double latitude;
   late double longitude;
+}
+
+/// One photo of a crop listing (see the Isar schema for the field docs).
+class CropPhoto {
+  String photoId = '';
+  String? thumbUrl;
+  String? fullUrl;
+  String? localPath;
+  String contentType = 'image/jpeg';
+  int sizeBytes = 0;
+  bool uploaded = false;
 }
 
 /// Status of a crop listing in its lifecycle.

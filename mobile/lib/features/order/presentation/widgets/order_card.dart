@@ -1,25 +1,37 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_status_sets.dart';
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/crop_listing/domain/models/crop_type.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
-/// Card displaying a single order in a list.
+/// One order in a list, laid out like the order boards' summary: crop and
+/// quantity as the title, the other party under it, the amount on the right
+/// with the order day, then the status pill. A farmer's unanswered funded
+/// order ends with Reject and Accept, the boards' two-button row.
 ///
-/// Shows crop type, quantity, buyer/farmer name, total price,
-/// status badge, and timestamp.
+/// The amount is the viewer's own (F-1): the buyer's total with the
+/// transport line, the farmer's crop money as "You receive", the trucker's
+/// transport pay. A farmer never sees the buyer's total next to Accept.
 class OrderCard extends StatelessWidget {
   final Order order;
   final VoidCallback? onTap;
   final VoidCallback? onAccept;
   final VoidCallback? onReject;
   final bool isFarmerView;
+
+  /// The trucker of the order looks at it: the amount is the transport pay.
+  final bool isTruckerView;
 
   /// The order's escrow is held for review (FRD-06): an "Under Review" chip,
   /// and no Accept, which the server refuses while it is held (Reject stays).
@@ -29,6 +41,13 @@ class OrderCard extends StatelessWidget {
   /// review: Accept shows disabled until then.
   final bool acceptEnabled;
 
+  /// False while an answer from a card runs: Reject and Accept both show
+  /// disabled, so no second, opposite answer can be sent meanwhile.
+  final bool actionsEnabled;
+
+  /// The card the list leads with: raised on its soft shadow.
+  final bool raised;
+
   const OrderCard({
     required this.order,
     super.key,
@@ -36,120 +55,177 @@ class OrderCard extends StatelessWidget {
     this.onAccept,
     this.onReject,
     this.isFarmerView = false,
+    this.isTruckerView = false,
     this.underReview = false,
     this.acceptEnabled = true,
+    this.actionsEnabled = true,
+    this.raised = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
-    final dateFormat = DateFormat.yMMMd();
+    final day = formatDate(dayInEthiopia(order.createdAt));
+    // A legacy order without cropCost: the crop subtotal, never the total.
+    // A trucker order without a transport cost shows no amount, not 0.
+    final (double? value, String? amountLabel) = isFarmerView
+        ? (
+            farmerEscrowShare(
+              subtotal: order.quantity * order.pricePerUnit,
+              cropCost: order.cropCost,
+            ),
+            l10n.orderYouReceive,
+          )
+        : isTruckerView
+            ? (order.transportCost, l10n.orderYourTransportPay)
+            : (order.orderTotal ?? order.totalPrice, null);
+    // SIM-33: an amount, a quantity or a name that cannot be real (a
+    // negative total, 0 kg, an id for a name) reads as a dash.
+    final amount = value == null ? null : etbAmountText(value, l10n);
+    final party = partyDisplayName(
+      isFarmerView ? order.buyerName : order.farmerName,
+      l10n,
+    );
+    // Only the buyer pays the transport on top of the crops.
+    final transport =
+        isFarmerView || isTruckerView ? null : order.transportCost;
+    // Show accept/reject buttons only once the order is funded (buyer
+    // has paid into escrow). This matches the order detail screen, the
+    // repositories, and the server's funded→accepted transition: at
+    // `created` the farmer can't act yet, so the action would no-op
+    // (mobile) or be rejected by the server (web). ESC-15: a trip
+    // order stays funded after the farmer's accept while the trucker
+    // is asked, so the buttons go once the farmer answered.
+    final showActions = isFarmerView &&
+        order.status == OrderStatus.funded &&
+        farmerResponseOf(order) == CommitmentResponse.pending &&
+        (onAccept != null || onReject != null);
 
-    return Card(
-      margin: EdgeInsets.zero,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
+    final quintals = quintalsInParensText(order.quantity, l10n);
+    const muted = TextStyle(fontSize: 13, color: AppTheme.slate);
+
+    return FwCard(
+      raised: raised,
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${CropType.labelFor(order.cropType, l10n)} · ${order.quantity.toStringAsFixed(0)} kg',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          isFarmerView
-                              ? '${l10n.buyer}: ${partyDisplayName(order.buyerName, l10n)}'
-                              : '${l10n.farmer}: ${partyDisplayName(order.farmerName, l10n)}',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${(order.orderTotal ?? order.totalPrice).toStringAsFixed(0)} ETB · ${dateFormat.format(order.createdAt)}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.6),
-                          ),
-                        ),
-                        if (order.transportCost != null &&
-                            order.transportCost! > 0)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Text(
-                              '${l10n.transportCost}: ${order.transportCost!.toStringAsFixed(0)} ETB',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurface
-                                    .withValues(alpha: 0.5),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Kilograms lead; the quintals follow small and muted.
+                    Text.rich(
+                      TextSpan(
+                        text: '${CropType.labelFor(order.cropType, l10n)} · '
+                            '${kgQuantityText(order.quantity, l10n)}',
+                        children: [
+                          if (quintals.isNotEmpty)
+                            TextSpan(
+                              text: ' ${quintals.replaceAll(' ', '\u00A0')}',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0,
+                                color: AppTheme.slate,
                               ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
+                      style: FwText.cardTitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      _OrderStatusChip(status: order.status, l10n: l10n),
-                      if (underReview) ...[
-                        const SizedBox(height: 4),
-                        const EscrowStatusBadge(status: PaymentStatus.held),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-              // Show accept/reject buttons only once the order is funded (buyer
-              // has paid into escrow). This matches the order detail screen, the
-              // repositories, and the server's funded→accepted transition — at
-              // `created` the farmer can't act yet, so the action would no-op
-              // (mobile) or be rejected by the server (web).
-              if (isFarmerView &&
-                  order.status == OrderStatus.funded &&
-                  (onAccept != null || onReject != null)) ...[
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    if (onReject != null)
-                      Flexible(
-                        child: OutlinedButton(
-                          onPressed: onReject,
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.onStatusErrorContainer,
-                            side: const BorderSide(
-                              color: AppTheme.onStatusErrorContainer,
-                            ),
-                          ),
-                          child: Text(l10n.rejectOrder),
-                        ),
-                      ),
-                    if (onAccept != null && !underReview) ...[
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: FilledButton(
-                          onPressed: acceptEnabled ? onAccept : null,
-                          child: Text(l10n.acceptOrder),
-                        ),
-                      ),
-                    ],
+                    const SizedBox(height: 3),
+                    Text(
+                      '${isFarmerView ? l10n.buyer : l10n.farmer}: '
+                      '${party.isEmpty ? noValueMark : party}',
+                      style: muted.copyWith(fontSize: 14),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ),
-              ],
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (amount != null) ...[
+                    if (amountLabel != null) Text(amountLabel, style: muted),
+                    // The viewer's money, in the role colour.
+                    Text(
+                      amount,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.17,
+                        color: context.roleColors.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                  ],
+                  Text(day, style: muted),
+                ],
+              ),
             ],
           ),
-        ),
+          if (transport != null && transport > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+              '${l10n.transportCost}: ${etbAmountText(transport, l10n)}',
+              style: muted,
+            ),
+          ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              StatusChip(
+                label: orderStatusLabel(order.status, l10n),
+                kind: orderStatusKind(order.status),
+                icon: orderStatusIcon(order.status),
+              ),
+              if (underReview)
+                const EscrowStatusBadge(status: PaymentStatus.held),
+            ],
+          ),
+          if (showActions) ...[
+            const SizedBox(height: 12),
+            // The orange Accept with the outlined Reject before it.
+            Row(
+              children: [
+                if (onReject != null)
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: actionsEnabled ? onReject : null,
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                      ),
+                      child: Text(l10n.rejectOrder),
+                    ),
+                  ),
+                if (onAccept != null && !underReview) ...[
+                  if (onReject != null) const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed:
+                          acceptEnabled && actionsEnabled ? onAccept : null,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                      ),
+                      child: Text(l10n.acceptOrder),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -173,6 +249,19 @@ StatusKind orderStatusKind(OrderStatus status) {
     OrderStatus.paymentFailed => StatusKind.error,
     OrderStatus.disputed => StatusKind.error,
     OrderStatus.disputeResolved => StatusKind.neutral,
+    OrderStatus.awaitingTransport => StatusKind.warning,
+    OrderStatus.unknown => StatusKind.neutral,
+  };
+}
+
+/// The chip icon of an order status whose kind's default glyph would not
+/// tell it apart (BUG-L5): a new order and a cancelled one are both neutral
+/// and shared the empty circle. Null keeps the kind's default.
+IconData? orderStatusIcon(OrderStatus status) {
+  return switch (status) {
+    OrderStatus.created => Icons.receipt_long_outlined,
+    OrderStatus.cancelled => Icons.block,
+    _ => null,
   };
 }
 
@@ -195,20 +284,7 @@ String orderStatusLabel(OrderStatus status, AppLocalizations l10n) {
     OrderStatus.paymentFailed => l10n.statusPaymentFailed,
     OrderStatus.disputed => l10n.statusDisputed,
     OrderStatus.disputeResolved => l10n.statusDisputeResolved,
+    OrderStatus.awaitingTransport => l10n.statusAwaitingTransport,
+    OrderStatus.unknown => l10n.orderStatusUpdating,
   };
-}
-
-class _OrderStatusChip extends StatelessWidget {
-  final OrderStatus status;
-  final AppLocalizations l10n;
-
-  const _OrderStatusChip({required this.status, required this.l10n});
-
-  @override
-  Widget build(BuildContext context) {
-    return StatusChip(
-      label: orderStatusLabel(status, l10n),
-      kind: orderStatusKind(status),
-    );
-  }
 }

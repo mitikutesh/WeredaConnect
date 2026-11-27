@@ -22,17 +22,39 @@ carry a **notability signal**: an administrative seat, a recorded population, or
 any alternate/wiki name. ~7,500 unnamed micro-hamlets were excluded as typeahead
 noise — off-list places are still enterable as **free text** in the selector.
 
-Each item: `{ id, en, am?, om?, alts?, region?, lat?, lng?, population? }`
+Each item: `{ id, en, display?, am?, om?, alts?, region?, lat?, lng?, population? }`
 (empty/default keys are omitted to save space; the consumer defaults them).
-`id` is the stable GeoNames id, prefixed `gn-`.
+`id` is the stable GeoNames id, prefixed `gn-`. `id` and `en` are never
+changed: entities store the id, and legacy free-text fields (and the server's
+woreda matching and the centroid lookup) compare against `en`.
+
+## Display names and overrides (LT-02, 2026-10-28)
+
+- **Display names.** GeoNames writes ejectives and the glottal stop with
+  apostrophe marks and long vowels with macrons ("Mek’ī", "‘Alem T’ēna"). The
+  app never shows `en` directly: `Place.displayName(languageCode)` drops the
+  marks and folds the diacritics at runtime ("Meki", "Alem Tena"), and shows
+  the Amharic (Ge'ez) or Oromo name when the app runs in that language.
+  Search matches the cleaned and the old spellings alike.
+- **Overrides.** `ethiopia_woredas.overrides.json` (next to this file, not
+  bundled) holds curated fixes keyed by `id`: a `display` English name where
+  the current official name differs from GeoNames (Adama for Nazrēt, Batu for
+  Ziway, Hawassa, Gondar, Mekelle, Shashemene), search aliases (Debre Zeyit
+  and Debre Zeit for Bishoftu), and Amharic / Oromo names for the main towns.
+  `scripts/build_ethiopia_places.py` merges them into every build. A replaced
+  GeoNames `am` / `om` value and the display name are kept in `alts`, so old
+  spellings stay searchable. Every entry with an `am` or `om` name carries
+  `"review": true` until a native speaker has checked it.
+- **18 rows** differ from the 2026-06-20 GeoNames build, only in `display`,
+  `am`, `om` and `alts`. Coverage is now `am` on 49 rows and `om` on 16.
 
 ## Known limitations (by design / data availability)
 
 - **Zone (admin-2) is not populated.** GeoNames does not code admin-2 for
   Ethiopia, so `zone` is empty. `region` (admin-1) is present for 3,804 rows and
   is used for disambiguating duplicate names in the selector.
-- **Amharic/Oromo names are sparse** (`am` on 37 rows, `om` on 4) — GeoNames has
-  few translated names for ET. The selector fully supports am/om display and
+- **Amharic/Oromo names are sparse** (`am` on 49 rows, `om` on 16, after the
+  overrides) because GeoNames has few translated names for ET. The selector fully supports am/om display and
   search; this is a *data-coverage* gap, not an architectural one. Latin/English
   search is comprehensive. Some `am` values are romanized (e.g. "Ādīs Ābeba")
   rather than Ge'ez — the normalizer folds these for Latin matching.
@@ -46,5 +68,13 @@ Each item: `{ id, en, am?, om?, alts?, region?, lat?, lng?, population? }`
 ## Regenerate
 
 ```bash
+# Full rebuild from a fresh GeoNames download (the data drifts over time):
 python3 scripts/build_ethiopia_places.py mobile/assets/data/ethiopia_woredas.json
+
+# After editing the overrides only: re-apply them to the committed asset,
+# no download, so nothing else changes.
+python3 -I scripts/build_ethiopia_places.py --apply-overrides mobile/assets/data/ethiopia_woredas.json
+
+# Tests for the name cleaning and the overrides merge:
+python3 -I scripts/test_build_ethiopia_places.py
 ```

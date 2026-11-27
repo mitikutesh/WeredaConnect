@@ -15,13 +15,19 @@ namespace WeredaConnect.Server.Helpers;
 /// <code>
 /// ESCROW_SETTLEMENT_FAILED escrowId=&lt;id&gt; action=&lt;action&gt; outcome=&lt;failed|unknown&gt; code=&lt;code&gt;
 /// MANUAL_PAYOUT_OVERDUE escrowId=&lt;id&gt; ref=&lt;ref&gt; ageHours=&lt;n&gt;
+/// MANUAL_PAYOUT_NEWLY_OVERDUE escrowId=&lt;id&gt; ref=&lt;ref&gt; ageHours=&lt;n&gt;
 /// ADMIN_QUEUE_OVERDUE orderId=&lt;id&gt; reason=&lt;code&gt; ageHours=&lt;n&gt; [escrowId=&lt;id&gt;]
 /// DISPUTE_VERDICT_ORDER_MISMATCH escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// DISPUTE_VERDICT_SETTLEMENT_BLOCKED escrowId=&lt;id&gt; op=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// TRUCKER_PAYOUT_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
+/// TRUCKER_PAYOUT_NEWLY_OVERDUE escrowId=&lt;id&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
+/// RELEASE_BLOCKED_OVERDUE escrowId=&lt;id&gt; leg=&lt;farmer|trucker&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
+/// RELEASE_BLOCKED_NEWLY_OVERDUE escrowId=&lt;id&gt; leg=&lt;farmer|trucker&gt; reason=&lt;reason&gt; ageHours=&lt;n&gt;
+/// LEDGER_ROW_OVERDUE escrowId=&lt;id&gt; ref=&lt;ref&gt; status=&lt;pending|sent|failed&gt; ageHours=&lt;n&gt;
+/// LEDGER_ROW_NEWLY_OVERDUE escrowId=&lt;id&gt; ref=&lt;ref&gt; status=&lt;pending|sent|failed&gt; ageHours=&lt;n&gt;
 /// DISPUTE_NO_ESCROW orderId=&lt;id&gt; deliveryId=&lt;id&gt;
 /// ORDER_MONEY_MISMATCH orderId=&lt;id&gt; escrowId=&lt;id&gt; orderStatus=&lt;s&gt; escrowStatus=&lt;s&gt; reason=&lt;reason&gt;
-/// RISK_SETTLEMENT_SKIPPED escrowId=&lt;id&gt; sweep=&lt;auto-release|auto-refund|dispute&gt; reason=&lt;flag_off|user_read_failed|score_unavailable&gt; holdReason=&lt;reason&gt;
+/// RISK_SETTLEMENT_SKIPPED escrowId=&lt;id&gt; sweep=&lt;auto-release|auto-refund|dispute|payout-farmer|payout-trucker&gt; reason=&lt;flag_off|user_read_failed|score_unavailable|payee_flagged&gt; holdReason=&lt;reason&gt;
 /// RISK_TABLE_UNCONFIGURED action=&lt;action&gt;
 /// RISK_HOLD_ORDER_MISMATCH escrowId=&lt;id&gt; heldFor=&lt;release|refund&gt; legs=&lt;legs&gt;
 /// DISPUTE_PROPAGATION_FAILED escrowId=&lt;id&gt; orderId=&lt;id&gt; deliveryId=&lt;id&gt; legs=&lt;legs&gt;
@@ -32,7 +38,9 @@ namespace WeredaConnect.Server.Helpers;
 /// <c>RISK_SETTLEMENT_SKIPPED</c> each run a settlement sweep leaves an escrow unsettled because of the
 /// risk gate: a trigger while <c>FRAUD_HOLD_ENABLED</c> is off, a party row it could not read, or (FRD-04)
 /// a party risk score it could not read; the <c>risk-settlement-skipped</c> alarm counts it from the FRD-03
-/// deploy. The escrow Lambda logs <c>RISK_HOLD_ORDER_MISMATCH</c> each time an admin refund of a held
+/// deploy. FUP-29: the escrow service logs the same line (<c>sweep=payout-&lt;leg&gt;</c>) each time the payout
+/// gate leaves a leg unpaid because its payee is suspended or CRITICAL (<c>payee_flagged</c>) or could not
+/// be scored. The escrow Lambda logs <c>RISK_HOLD_ORDER_MISMATCH</c> each time an admin refund of a held
 /// escrow is refused because its order cannot follow the refund; FRD-16 adds its alarm. FRD-04:
 /// escrow-cron logs <c>RISK_TABLE_UNCONFIGURED</c> once per settlement run while its gate reads no risk
 /// tier (no <c>FRAUD_SIGNALS_TABLE</c>), flag on or off, so a CRITICAL party is neither held nor skipped
@@ -64,6 +72,15 @@ namespace WeredaConnect.Server.Helpers;
 /// the retry did not pay (<c>gateway_refused</c>, <c>queue_failed</c>, <c>in_flight</c>, ...).
 /// </para>
 /// <para>
+/// The release-blocked line (FUP-41) is logged by the escrow service, from escrow-cron only (the only Lambda
+/// that settles as the system), each time an hourly sweep's release meets the payout identity gate again with
+/// the reason the escrow already stores (<c>settlementBlockReason</c> <c>release:payout:&lt;reason&gt;</c> for the
+/// farmer, <c>release:trucker:&lt;reason&gt;</c> for the trucker of a split verdict) and that reason was first
+/// stored at least <see cref="QueueAlarmAfter"/> ago (<c>ageHours</c> counts from <c>settlementBlockReasonAt</c>).
+/// A reason that changes starts the clock again. A risk block (FUP-29) is never stored, so it never logs this
+/// line; <c>RISK_SETTLEMENT_SKIPPED</c> covers it.
+/// </para>
+/// <para>
 /// The mismatch line (ESC-03) is logged by the escrow service each time it refuses to settle a
 /// dispute verdict whose order or delivery cannot follow it: from escrow-cron on the hourly
 /// dispute sweep and from the escrow Lambda on an admin release or refund. <c>legs</c> is the
@@ -90,6 +107,25 @@ namespace WeredaConnect.Server.Helpers;
 /// <c>orderId=- reason=no_order</c> and a trailing <c>escrowId=</c> for an /escrow/initiate escrow with no
 /// order held to its cap. Contract: <c>specs/contracts/escrow-protocol.md</c>, "Additions in 1.8.1",
 /// "Additions in 1.13.0" and "Additions in 1.15.0".
+/// </para>
+/// <para>
+/// FUP-06: <c>MANUAL_PAYOUT_OVERDUE</c> repeats every run, so its alarm stays in ALARM while any leg is
+/// overdue and a leg that becomes overdue meanwhile changed nothing. <c>MANUAL_PAYOUT_NEWLY_OVERDUE</c>, with the
+/// same fields, is logged next to it once per manual payout: by the hourly report for a 1.x queue entry (the escrow
+/// row's <c>manualPayoutOverdueLoggedFor</c>, keyed on <c>manualPayoutQueuedAt</c>) and by the ledger sweep for a
+/// ledger row in <c>manual</c> (the row's <c>manualOverdueLoggedFor</c>, keyed on its <c>dueAt</c>), each marker
+/// written by a conditional write before the line. A marker that could not be written logs the line anyway, so
+/// the next run may repeat it. Its alarm counts single lines and clears within minutes (escrow-protocol 2.24.0).
+/// </para>
+/// <para>
+/// FUP-436: the same edge twin for three more level lines, with the fields of each, logged right after it once per
+/// item and since-time: <c>TRUCKER_PAYOUT_NEWLY_OVERDUE</c> by the hourly trucker retry (the escrow row's
+/// <c>truckerPayoutOverdueLoggedFor</c>, keyed on <c>truckerPayoutPendingSince</c> for a 1.x leg and on
+/// <c>releasedAt</c> for a ledger escrow's transport leg), <c>RELEASE_BLOCKED_NEWLY_OVERDUE</c> by the escrow
+/// service for the system's release (<c>settlementBlockOverdueLoggedFor</c>, keyed on
+/// <c>settlementBlockReasonAt</c>) and <c>LEDGER_ROW_NEWLY_OVERDUE</c> by the ledger sweep for a row open in
+/// <c>pending</c>, <c>sent</c> or <c>failed</c> (the row's <c>overdueLoggedFor</c>, keyed on its
+/// <c>createdAt</c>), with the FUP-06 rules (escrow-protocol 2.25.0).
 /// </para>
 /// <para>
 /// ESC-10 adds <c>ESCROW_SETTLEMENT_FAILED</c> actions from escrow-cron: <c>sweep_truncated</c> for a paged
@@ -120,10 +156,23 @@ public static class MoneyAlarmLog
 {
     public const string SettlementFailedToken = "ESCROW_SETTLEMENT_FAILED";
     public const string ManualPayoutOverdueToken = "MANUAL_PAYOUT_OVERDUE";
+
+    /// <summary>FUP-06: a manual payout leg past <see cref="QueueAlarmAfter"/> for the first time, logged once per payout.</summary>
+    public const string ManualPayoutNewlyOverdueToken = "MANUAL_PAYOUT_NEWLY_OVERDUE";
     public const string AdminQueueOverdueToken = "ADMIN_QUEUE_OVERDUE";
     public const string DisputeVerdictOrderMismatchToken = "DISPUTE_VERDICT_ORDER_MISMATCH";
     public const string DisputeVerdictSettlementBlockedToken = "DISPUTE_VERDICT_SETTLEMENT_BLOCKED";
+    public const string DisputeVerdictWaitOverdueToken = "DISPUTE_VERDICT_WAIT_OVERDUE";
     public const string TruckerPayoutOverdueToken = "TRUCKER_PAYOUT_OVERDUE";
+
+    /// <summary>FUP-436: a trucker leg owed past <see cref="QueueAlarmAfter"/> for the first time, logged once per leg.</summary>
+    public const string TruckerPayoutNewlyOverdueToken = "TRUCKER_PAYOUT_NEWLY_OVERDUE";
+
+    /// <summary>FUP-41: a release the payout identity gate blocks has waited more than <see cref="QueueAlarmAfter"/>.</summary>
+    public const string ReleaseBlockedOverdueToken = "RELEASE_BLOCKED_OVERDUE";
+
+    /// <summary>FUP-436: a release block past <see cref="QueueAlarmAfter"/> for the first time, logged once per stored block.</summary>
+    public const string ReleaseBlockedNewlyOverdueToken = "RELEASE_BLOCKED_NEWLY_OVERDUE";
     public const string DisputeNoEscrowToken = "DISPUTE_NO_ESCROW";
     public const string OrderMoneyMismatchToken = "ORDER_MONEY_MISMATCH";
     public const string RiskSettlementSkippedToken = "RISK_SETTLEMENT_SKIPPED";
@@ -131,6 +180,23 @@ public static class MoneyAlarmLog
     public const string RiskHoldOrderMismatchToken = "RISK_HOLD_ORDER_MISMATCH";
     public const string DisputePropagationFailedToken = "DISPUTE_PROPAGATION_FAILED";
     public const string DeliveryDisputeFrozenToken = "DELIVERY_DISPUTE_FROZEN";
+
+    /// <summary>
+    /// ESC-16: a confirmed delivery whose escrow could not be stamped <c>deliveryConfirmedAt</c> (the
+    /// sync's inline stamp, or the escrow cron's repair of it). Until the stamp lands the auto-release
+    /// never pays the farmer, and with the commitments on the escrow next comes back to the refund
+    /// sweep only at its 21 day cap; the hourly order-money sweep retries the stamp.
+    /// </summary>
+    public const string EscrowDeliveryStampFailedToken = "ESCROW_DELIVERY_STAMP_FAILED";
+
+    /// <summary>ESC-20: a ledger write that would break I1 to I4 was not sent (any occurrence alarms).</summary>
+    public const string LedgerInvariantToken = "ESCROW_LEDGER_INVARIANT";
+
+    /// <summary>ESC-20: a ledger row has been open (pending, sent or failed) for more than 24 hours.</summary>
+    public const string LedgerRowOverdueToken = "LEDGER_ROW_OVERDUE";
+
+    /// <summary>FUP-436: a ledger row open past <see cref="QueueAlarmAfter"/> for the first time, logged once per row.</summary>
+    public const string LedgerRowNewlyOverdueToken = "LEDGER_ROW_NEWLY_OVERDUE";
 
     /// <summary>The gateway definitely refused the settlement; no money moved.</summary>
     public const string OutcomeFailed = "failed";
@@ -182,6 +248,25 @@ public static class MoneyAlarmLog
     public static string ManualPayoutOverdue(string? escrowId, string? reference, int ageHours)
         => $"{ManualPayoutOverdueToken} escrowId={LogId(escrowId)} ref={Safe(reference)} ageHours={Math.Max(0, ageHours)}";
 
+    /// <summary>FUP-06: the first <see cref="ManualPayoutOverdue"/> report of a leg, with the same fields.</summary>
+    public static string ManualPayoutNewlyOverdue(string? escrowId, string? reference, int ageHours)
+        => $"{ManualPayoutNewlyOverdueToken} escrowId={LogId(escrowId)} ref={Safe(reference)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>ESC-20: the invariant <paramref name="check"/> (I1 to I4) fails for a ledger write or on a sweep re-check.</summary>
+    public static string LedgerInvariant(string? escrowId, string? reference, string? check)
+        => $"{LedgerInvariantToken} escrowId={LogId(escrowId)} ref={LogRef(reference)} check={Safe(check)}";
+
+    /// <summary>ESC-20: a ledger row open longer than <see cref="QueueAlarmAfter"/>, logged on every sweep that sees it.</summary>
+    public static string LedgerRowOverdue(string? escrowId, string? reference, string? status, int ageHours)
+        => $"{LedgerRowOverdueToken} escrowId={LogId(escrowId)} ref={LogRef(reference)} status={Safe(status)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>FUP-436: the first <see cref="LedgerRowOverdue"/> report of a row, with the same fields.</summary>
+    public static string LedgerRowNewlyOverdue(string? escrowId, string? reference, string? status, int ageHours)
+        => $"{LedgerRowNewlyOverdueToken} escrowId={LogId(escrowId)} ref={LogRef(reference)} status={Safe(status)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>ESC-20: a ledger ref for a log line: <c>#</c> becomes <c>.</c>, then as <see cref="LogId"/> (a ref can embed a user id).</summary>
+    public static string LogRef(string? reference) => LogId(reference?.Replace('#', '.'));
+
     public static string AdminQueueOverdue(string? orderId, string? reason, int ageHours, string? escrowId = null)
         => $"{AdminQueueOverdueToken} orderId={LogId(orderId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}"
            + (escrowId == null ? "" : $" escrowId={LogId(escrowId)}");
@@ -189,6 +274,22 @@ public static class MoneyAlarmLog
     /// <summary>ESC-04: a released escrow's trucker leg is still owed (and not queued) after <see cref="QueueAlarmAfter"/>.</summary>
     public static string TruckerPayoutOverdue(string? escrowId, string? reason, int ageHours)
         => $"{TruckerPayoutOverdueToken} escrowId={LogId(escrowId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>FUP-436: the first <see cref="TruckerPayoutOverdue"/> report of a leg, with the same fields.</summary>
+    public static string TruckerPayoutNewlyOverdue(string? escrowId, string? reason, int ageHours)
+        => $"{TruckerPayoutNewlyOverdueToken} escrowId={LogId(escrowId)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>
+    /// FUP-41: an hourly sweep's release of this escrow was blocked again by the payout identity gate for
+    /// <paramref name="leg"/> (<c>farmer</c>, or <c>trucker</c> for a split verdict) with the same
+    /// <paramref name="reason"/> for at least <see cref="QueueAlarmAfter"/>.
+    /// </summary>
+    public static string ReleaseBlockedOverdue(string? escrowId, string? leg, string? reason, int ageHours)
+        => $"{ReleaseBlockedOverdueToken} escrowId={LogId(escrowId)} leg={Safe(leg)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
+
+    /// <summary>FUP-436: the first <see cref="ReleaseBlockedOverdue"/> report of a stored block, with the same fields.</summary>
+    public static string ReleaseBlockedNewlyOverdue(string? escrowId, string? leg, string? reason, int ageHours)
+        => $"{ReleaseBlockedNewlyOverdueToken} escrowId={LogId(escrowId)} leg={Safe(leg)} reason={Safe(reason)} ageHours={Math.Max(0, ageHours)}";
 
     /// <summary>FRD-03: a settlement sweep left an escrow unsettled for this run because of the risk gate.</summary>
     public static string RiskSettlementSkipped(string? escrowId, string? sweep, string? reason, string? holdReason)
@@ -209,6 +310,16 @@ public static class MoneyAlarmLog
     /// <summary>ESC-03: a dispute verdict's settlement failed closed (unreadable order, or a cancel or restock that did not land).</summary>
     public static string DisputeVerdictSettlementBlocked(string? escrowId, string? op, string? legs)
         => $"{DisputeVerdictSettlementBlockedToken} escrowId={LogId(escrowId)} op={Safe(op)} legs={LogId(legs?.Replace(',', '.'))}";
+
+    /// <summary>
+    /// FUP-64: a <c>farmer_wins</c> verdict whose admin chose <c>wait_for_delivery</c> still waits for its delivery a
+    /// week later, logged on every sweep that sees it. <c>ageDays</c> is whole days since the choice, <c>unknown</c>
+    /// when its time cannot be read.
+    /// </summary>
+    public static string DisputeVerdictWaitOverdue(string? escrowId, string? op, TimeSpan? waited, string? legs)
+        => $"{DisputeVerdictWaitOverdueToken} escrowId={LogId(escrowId)} op={Safe(op)} "
+           + $"ageDays={(waited is { } age ? Math.Max(0, (int)age.TotalDays).ToString(System.Globalization.CultureInfo.InvariantCulture) : "unknown")} "
+           + $"legs={LogId(legs?.Replace(',', '.'))}";
 
     /// <summary>
     /// ESC-07: a delivery of a funded order was disputed but no escrow holds its money, so the
@@ -283,9 +394,10 @@ public static class MoneyAlarmLog
     /// Keep <c>[A-Za-z0-9-_.:]</c>, cut at 64 characters, empty becomes <c>-</c>. A field can
     /// never hold a space or a newline, so it cannot add a second field or break the line.
     /// Only for server values (actions, codes, references); client-influenced ids use <see cref="LogId"/>.
-    /// <paramref name="maxLength"/> is longer only for <see cref="LogLegs"/>.
+    /// <paramref name="maxLength"/> is longer only for <see cref="LogLegs"/>. Internal for the FRD-16
+    /// signal line (<c>FraudDetectionService.SignalRecordedLine</c>), whose fields are server values too.
     /// </summary>
-    private static string Safe(string? value, int maxLength = MaxFieldLength)
+    internal static string Safe(string? value, int maxLength = MaxFieldLength)
     {
         if (string.IsNullOrEmpty(value))
         {

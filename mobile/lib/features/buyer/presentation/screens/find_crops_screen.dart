@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/buyer_intent.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_bloc.dart';
@@ -10,17 +11,25 @@ import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_eve
 import 'package:wereda_connect/features/buyer/presentation/bloc/buyer_intent_state.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/create_intent_screen.dart';
 import 'package:wereda_connect/features/buyer/presentation/screens/match_results_screen.dart';
+import 'package:wereda_connect/features/buyer/presentation/widgets/deliver_to_line.dart';
 import 'package:wereda_connect/features/buyer/presentation/widgets/intent_card.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/screens/browse_listings_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
-/// Combined "Find Crops" screen for buyers with two tabs: Browse and My Requests.
+/// The buyer's Find Crops screen (design canvas page M: MarketM.dc.html):
+/// the "Deliver to" eyebrow with its pin, the 42 px title with the buyer
+/// sketch, the bell, then the Browse / My Requests pill switch.
 ///
-/// The **Browse** tab embeds [BrowseListingsScreen] to show all active
-/// marketplace listings. The **My Requests** tab shows the buyer's active
-/// intents and allows creating new ones.
+/// **Browse** embeds [BrowseListingsScreen] over every farmer's active
+/// listing; its search box and price range stay out of the default view,
+/// behind the search button at the end of the switch row, as the board
+/// shows the list bare.
+/// **My Requests** lists the buyer's active intents and creates new ones.
 ///
 /// When [embedded] is true the screen omits its own Scaffold and back arrow
 /// so it can live inside the adaptive shell as a tab child.
@@ -36,21 +45,17 @@ class FindCropsScreen extends StatefulWidget {
   State<FindCropsScreen> createState() => _FindCropsScreenState();
 }
 
-class _FindCropsScreenState extends State<FindCropsScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+class _FindCropsScreenState extends State<FindCropsScreen> {
+  /// 0 = Browse, 1 = My Requests.
+  int _segment = 0;
+
+  /// Whether Browse shows its search box and price range.
+  bool _filtersOpen = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
     _loadIntents();
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
   }
 
   String? _getUserId() {
@@ -84,79 +89,121 @@ class _FindCropsScreenState extends State<FindCropsScreen>
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    // "My Requests · 1": the buyer's active intents, when any.
+    final intentState = context.watch<BuyerIntentBloc>().state;
+    final intentCount =
+        intentState is ActiveIntentsLoaded ? intentState.intents.length : 0;
 
     final content = BlocListener<BuyerIntentBloc, BuyerIntentState>(
       listenWhen: (previous, current) => current is BuyerIntentCreated,
       listener: (context, state) => _loadIntents(),
-      child: Column(
-        children: [
-          // ── Header ──────────────────────────────────────────────────
-          GreenHeader(
-            height: widget.embedded ? 100 : 130,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (!widget.embedded)
-                  GestureDetector(
-                    onTap: () => Navigator.of(context).pop(),
-                    child: const Padding(
-                      padding: EdgeInsets.only(top: 4, bottom: 4),
-                      child: Icon(
-                        Icons.arrow_back,
-                        color: Colors.white,
-                        size: 24,
+      child: FwContentWidth(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SafeArea(
+              bottom: false,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!widget.embedded)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+                      child: IconButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        tooltip: l10n.back,
+                        icon: const Icon(
+                          Icons.arrow_back,
+                          color: AppTheme.ink,
+                        ),
                       ),
                     ),
+                  // MarketM board: where the crops go, then the title
+                  // with the buyer sketch on its line. The bell and the
+                  // account button fill the room the board's single bell
+                  // leaves the sketch, so it sits under them; a long title
+                  // or large text drops it.
+                  FwPageHeader(
+                    eyebrowWidget: const DeliverToLine(),
+                    title: l10n.findCrops,
+                    sketchRole: UserRole.buyer,
+                    sketchBelowTrailing: true,
+                    trailing: const HeaderActions(),
                   ),
-                Text(
-                  l10n.findCrops,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
+                ],
+              ),
+            ),
+
+            // ── The board's pill switch, with the search button (not on
+            // the board) at the row's end while Browse shows ─────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 2, 20, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: FwSegmented<int>(
+                      segments: [
+                        FwSegment(value: 0, label: l10n.browseAll),
+                        FwSegment(
+                          value: 1,
+                          label: l10n.myRequests,
+                          count: intentCount > 0 ? intentCount : null,
+                        ),
+                      ],
+                      selected: _segment,
+                      onChanged: (segment) =>
+                          setState(() => _segment = segment),
+                    ),
                   ),
-                ),
-              ],
+                  if (_segment == 0) ...[
+                    const SizedBox(width: 8),
+                    FwSquareButton(
+                      semanticLabel: l10n.marketSearchToggle,
+                      background: _filtersOpen ? AppTheme.ink : AppTheme.paper,
+                      onTap: () => setState(() => _filtersOpen = !_filtersOpen),
+                      child: Icon(
+                        Icons.search,
+                        size: 20,
+                        color: _filtersOpen ? Colors.white : AppTheme.ink,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
-          ),
 
-          // ── Tab bar ─────────────────────────────────────────────────
-          Material(
-            color: AppTheme.surfaceWhite,
-            child: TabBar(
-              controller: _tabController,
-              indicatorColor: AppTheme.primaryGreen,
-              labelColor: AppTheme.primaryGreen,
-              unselectedLabelColor: AppTheme.textMuted,
-              tabs: [
-                Tab(text: l10n.browseAll),
-                Tab(text: l10n.myRequests),
-              ],
+            // ── Segment bodies (both kept alive: the list keeps its scroll,
+            // filters and reads while the buyer looks at their requests;
+            // the hidden one is off stage with its animations stopped) ──
+            Expanded(
+              child: Stack(
+                children: [
+                  for (final (index, body) in [
+                    // Browse: the marketplace list without its own header;
+                    // the search box and price range follow the header
+                    // button.
+                    BrowseListingsScreen(
+                      embedded: true,
+                      showHeader: false,
+                      showFilters: _filtersOpen,
+                    ),
+                    _MyRequestsTab(
+                      onRefresh: _loadIntents,
+                      onRefreshMatches: _refreshMatches,
+                    ),
+                  ].indexed)
+                    Offstage(
+                      offstage: _segment != index,
+                      child: TickerMode(
+                        enabled: _segment == index,
+                        child: body,
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
-
-          // ── Tab views ───────────────────────────────────────────────
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              // Disable swipe-to-change-tab: the horizontal filter chips
-              // inside the Browse tab would otherwise cause accidental tab
-              // switches when the user scrolls the chip row.
-              physics: const NeverScrollableScrollPhysics(),
-              children: [
-                // Browse tab — reuse the marketplace listings screen.
-                // showHeader: false because FindCropsScreen owns the header.
-                const BrowseListingsScreen(embedded: true, showHeader: false),
-
-                // My Requests tab
-                _MyRequestsTab(
-                  onRefresh: _loadIntents,
-                  onRefreshMatches: _refreshMatches,
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
 
@@ -164,7 +211,7 @@ class _FindCropsScreenState extends State<FindCropsScreen>
   }
 }
 
-/// The "My Requests" tab content showing the buyer's active intents.
+/// The "My Requests" segment showing the buyer's active intents.
 class _MyRequestsTab extends StatelessWidget {
   final VoidCallback onRefresh;
 
@@ -204,6 +251,9 @@ class _MyRequestsTab extends StatelessWidget {
             child: Text(l10n.cancel),
           ),
           FilledButton(
+            // Beside Cancel, not stacked under it: the theme's button is
+            // full width.
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
             onPressed: () => Navigator.pop(dialogContext, true),
             child: Text(l10n.delete),
           ),
@@ -232,7 +282,7 @@ class _MyRequestsTab extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // Error with retry — a real failure must look like a failure, not
+        // Error with retry: a real failure must look like a failure, not
         // like an empty "no matches yet" state, or buyers never retry.
         if (state is BuyerIntentError) {
           return Center(
@@ -242,7 +292,7 @@ class _MyRequestsTab extends StatelessWidget {
                 Icon(
                   Icons.error_outline,
                   size: 56,
-                  color: AppTheme.textMuted.withAlpha(150),
+                  color: AppTheme.slate.withAlpha(150),
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -250,7 +300,7 @@ class _MyRequestsTab extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
-                    color: AppTheme.textDark,
+                    color: AppTheme.ink,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -258,7 +308,7 @@ class _MyRequestsTab extends StatelessWidget {
                   localizeErrorCode(state.code, l10n),
                   style: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.textMuted,
+                    color: AppTheme.slate,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -280,30 +330,34 @@ class _MyRequestsTab extends StatelessWidget {
 
           return Column(
             children: [
-              // Offline-first: warn when the marketplace refresh failed and these
-              // counts/matches were computed against cached data (C1).
+              // Offline-first: warn when the marketplace refresh failed and
+              // these counts/matches were computed against cached data (C1).
               if (state.isStale)
                 Container(
-                  width: double.infinity,
-                  color: AppTheme.statusWarningContainer,
+                  margin: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                  decoration: BoxDecoration(
+                    color: AppTheme.orangeTint,
+                    borderRadius: BorderRadius.circular(24),
+                  ),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 8,
+                    horizontal: 16,
+                    vertical: 10,
                   ),
                   child: Row(
                     children: [
                       const Icon(
                         Icons.cloud_off,
                         size: 16,
-                        color: AppTheme.textDark,
+                        color: AppTheme.orangeInk,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           l10n.showingCachedResults,
                           style: const TextStyle(
-                            fontSize: 12,
-                            color: AppTheme.textDark,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.orangeInk,
                           ),
                         ),
                       ),
@@ -314,14 +368,34 @@ class _MyRequestsTab extends StatelessWidget {
                 child: RefreshIndicator(
                   onRefresh: onRefreshMatches,
                   child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
+                    padding: const EdgeInsets.fromLTRB(
+                      20,
+                      12,
+                      20,
+                      Breakpoints.fabClearance,
                     ),
                     physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: state.intents.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    // The requests, then the link to add another.
+                    itemCount: state.intents.length + 1,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
+                      if (index == state.intents.length) {
+                        return Center(
+                          child: TextButton.icon(
+                            onPressed: () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const CreateIntentScreen(),
+                                ),
+                              );
+                              onRefresh();
+                            },
+                            icon: const Icon(Icons.add, size: 16),
+                            label: Text(l10n.newBuyingIntent),
+                          ),
+                        );
+                      }
                       final intent = state.intents[index];
                       return IntentCard(
                         intent: intent,
@@ -344,23 +418,6 @@ class _MyRequestsTab extends StatelessWidget {
                   ),
                 ),
               ),
-              // New Request button at the bottom
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: TextButton.icon(
-                  onPressed: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute<void>(
-                        builder: (_) => const CreateIntentScreen(),
-                      ),
-                    );
-                    onRefresh();
-                  },
-                  icon: const Icon(Icons.add, size: 16),
-                  label: Text(l10n.newBuyingIntent),
-                ),
-              ),
             ],
           );
         }
@@ -372,7 +429,8 @@ class _MyRequestsTab extends StatelessWidget {
   }
 }
 
-/// Empty state for the My Requests tab when the buyer has no active intents.
+/// Empty state for the My Requests segment when the buyer has no active
+/// intents.
 class _EmptyRequestsState extends StatelessWidget {
   final VoidCallback onRefresh;
 
@@ -388,31 +446,28 @@ class _EmptyRequestsState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.search_off,
-              size: 64,
-              color: AppTheme.textMuted,
-            ),
+            // The one large drawing an empty state may carry.
+            const RoleSketch.emptyState(role: UserRole.buyer),
             const SizedBox(height: 16),
             Text(
               l10n.noMatchesYet,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.textMuted,
-              ),
+              textAlign: TextAlign.center,
+              style: FwText.cardTitle,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
               l10n.whatDoYouNeedSubtitle,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppTheme.textMuted,
-              ),
+              style: FwText.body,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
+            // Black, not orange: the bar's "Buy" is the screen's one orange
+            // action.
             FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.ink,
+                foregroundColor: Colors.white,
+              ),
               onPressed: () async {
                 await Navigator.push(
                   context,

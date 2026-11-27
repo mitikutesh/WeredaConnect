@@ -24,11 +24,27 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
         return _inner.UpdateStatusAsync(escrowId, createdAt, newStatus, expectedCurrentStatus, additionalFields);
     }
 
+    public Task<EscrowLinkedWriteOutcome> TryUpdateStatusWithAsync(string escrowId, string createdAt, string newStatus,
+        string expectedCurrentStatus, Dictionary<string, object>? additionalFields, IReadOnlyList<TransactWriteItem> linkedItems)
+    {
+        OnUpdateStatus?.Invoke(escrowId, newStatus);
+        return _inner.TryUpdateStatusWithAsync(escrowId, createdAt, newStatus, expectedCurrentStatus, additionalFields, linkedItems);
+    }
+
+    public TransactWriteItem BuildStatusCheck(string escrowId, string createdAt, string status)
+        => _inner.BuildStatusCheck(escrowId, createdAt, status);
+
     public Task<bool> TryExtendExpiryAsync(string escrowId, string createdAt, string expiresAt)
         => _inner.TryExtendExpiryAsync(escrowId, createdAt, expiresAt);
 
-    public TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt)
-        => _inner.BuildRefundArm(escrowId, createdAt, reason, scheduledAt);
+    /// <summary>FUP-53: called with the escrowId when a refund arm is built, right before the transaction that carries it.</summary>
+    public Action<string>? OnBuildRefundArm { get; init; }
+
+    public TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt, bool allowConfirmedDelivery = false)
+    {
+        OnBuildRefundArm?.Invoke(escrowId);
+        return _inner.BuildRefundArm(escrowId, createdAt, reason, scheduledAt, allowConfirmedDelivery);
+    }
 
     /// <summary>Called with the escrowId before each trucker leg record write; may throw.</summary>
     public Action<string>? OnRecordTruckerPayout { get; init; }
@@ -60,8 +76,14 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
     public Task CreateAsync(Dictionary<string, object> escrow) => _inner.CreateAsync(escrow);
     public Task<Dictionary<string, object>?> GetByIdAsync(string escrowId) => _inner.GetByIdAsync(escrowId);
     public Task<Dictionary<string, object>?> GetByIdAsync(string escrowId, bool consistentRead) => _inner.GetByIdAsync(escrowId, consistentRead);
+    /// <summary>FUP-53: called with the escrowId before each settlement lock attempt (a writer racing the settlement).</summary>
+    public Action<string>? OnAcquireSettlementLock { get; init; }
+
     public Task<bool> TryAcquireSettlementLockAsync(string escrowId, string createdAt, string op, string expectedStatus, bool allowHeld = false)
-        => _inner.TryAcquireSettlementLockAsync(escrowId, createdAt, op, expectedStatus, allowHeld);
+    {
+        OnAcquireSettlementLock?.Invoke(escrowId);
+        return _inner.TryAcquireSettlementLockAsync(escrowId, createdAt, op, expectedStatus, allowHeld);
+    }
     /// <summary>FRD-03: called with the escrowId before each hold write; may change another row first (an accept racing the hold).</summary>
     public Func<string, Task>? OnHold { get; init; }
 
@@ -81,16 +103,21 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
         IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string? lockId, string parkId)
         => _inner.TryQueueStaleSettlementAsync(escrowId, createdAt, op, fromStatus, legs, queuedAt, lockId, parkId);
     public Task<bool> TryQueueManualPayoutAsync(string escrowId, string createdAt, string op, string reason, string fromStatus,
-        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt)
-        => _inner.TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, queuedAt);
+        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string? releaseOrigin = null)
+        => _inner.TryQueueManualPayoutAsync(escrowId, createdAt, op, reason, fromStatus, legs, queuedAt, releaseOrigin);
     public Task<bool> TryMarkManualLegPaidAsync(string escrowId, string createdAt, string op, string leg, string externalRef,
-        string paidBy, string paidAt, string? otherLegMustBePending)
-        => _inner.TryMarkManualLegPaidAsync(escrowId, createdAt, op, leg, externalRef, paidBy, paidAt, otherLegMustBePending);
+        string paidBy, string paidAt, string? otherLegMustBePending, PayoutReferenceRecord? reference = null)
+        => _inner.TryMarkManualLegPaidAsync(escrowId, createdAt, op, leg, externalRef, paidBy, paidAt, otherLegMustBePending, reference);
     public Task<bool> TryCloseManualPayoutAsync(string escrowId, string createdAt, string op, string leg, string externalRef,
-        string paidBy, string paidAt, IReadOnlyList<string> otherLegsMustBePaid, string newStatus, Dictionary<string, object> settlementFields)
-        => _inner.TryCloseManualPayoutAsync(escrowId, createdAt, op, leg, externalRef, paidBy, paidAt, otherLegsMustBePaid, newStatus, settlementFields);
+        string paidBy, string paidAt, IReadOnlyList<string> otherLegsMustBePaid, string newStatus, Dictionary<string, object> settlementFields,
+        PayoutReferenceRecord? reference = null)
+        => _inner.TryCloseManualPayoutAsync(escrowId, createdAt, op, leg, externalRef, paidBy, paidAt, otherLegsMustBePaid, newStatus, settlementFields, reference);
     public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryOpenManualPayoutsAsync(
         int limit, Dictionary<string, AttributeValue>? exclusiveStartKey) => _inner.QueryOpenManualPayoutsAsync(limit, exclusiveStartKey);
+    public Task<bool> TryMarkManualPayoutOverdueLoggedAsync(string escrowId, string createdAt, string queuedAt)
+        => _inner.TryMarkManualPayoutOverdueLoggedAsync(escrowId, createdAt, queuedAt);
+    public Task<bool> TryMarkTruckerPayoutOverdueLoggedAsync(string escrowId, string createdAt, string pendingSince)
+        => _inner.TryMarkTruckerPayoutOverdueLoggedAsync(escrowId, createdAt, pendingSince);
     public Task<Dictionary<string, object>?> GetByDeliveryIdAsync(string deliveryId) => _inner.GetByDeliveryIdAsync(deliveryId);
     public Task<List<Dictionary<string, object>>> QueryByOrderIdAsync(string orderId, int limit = 5) => _inner.QueryByOrderIdAsync(orderId, limit);
     public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByBuyerAsync(
@@ -111,4 +138,9 @@ internal sealed class FaultyEscrowRepository : IEscrowRepository
         => _inner.TrySetSettlementBlockReasonAsync(escrowId, createdAt, expectedStatus, reason, reasonAt);
     public Task<bool> TryClearSettlementBlockReasonAsync(string escrowId, string createdAt, string storedReason)
         => _inner.TryClearSettlementBlockReasonAsync(escrowId, createdAt, storedReason);
+    public Task<bool> TryMarkSettlementBlockOverdueLoggedAsync(string escrowId, string createdAt, string reason, string reasonAt)
+        => _inner.TryMarkSettlementBlockOverdueLoggedAsync(escrowId, createdAt, reason, reasonAt);
+    public Task<bool> TryRecordDoubleEscrowRefundAsync(
+        string escrowId, string createdAt, string orderId, string by, string reason, string at, string orderEscrowStatus)
+        => _inner.TryRecordDoubleEscrowRefundAsync(escrowId, createdAt, orderId, by, reason, at, orderEscrowStatus);
 }

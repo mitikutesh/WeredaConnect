@@ -77,6 +77,38 @@ void main() {
   });
 
   group('syncRejectionErrorCode', () {
+    test(
+        'a duplicate trip has its own text; the same code on a crop '
+        'listing does not take it', () {
+      const message =
+          'FRAUD_DUPLICATE_LISTING: You already have a trip on this route on '
+          'that day. Please update your existing trip instead.';
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'trip',
+          action: 'create',
+          message: message,
+        ),
+        AppErrorCode.duplicateTrip,
+      );
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'crop_listing',
+          action: 'create',
+          message: 'FRAUD_DUPLICATE_LISTING: A similar listing already exists.',
+        ),
+        AppErrorCode.changeNotSaved,
+      );
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = lookupAppLocalizations(Locale(locale));
+        expect(
+          localizeErrorCode(AppErrorCode.duplicateTrip, l10n),
+          l10n.errorDuplicateTrip,
+        );
+        expect(l10n.errorDuplicateTrip, isNot(l10n.fraudDuplicateListing));
+      }
+    });
+
     test('a refused order create removed the order', () {
       expect(
         syncRejectionErrorCode(
@@ -119,6 +151,49 @@ void main() {
         ),
         AppErrorCode.orderCancelNotAllowed,
       );
+    });
+
+    // FUP-77: a dispute froze the money (or it is being settled), so the
+    // pickup rule is the wrong explanation.
+    test('an order cancel refused for its payment names the payment', () {
+      const message =
+          'ORDER_CANCEL_NOT_ALLOWED: The payment is being settled or reviewed.';
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'order',
+          action: 'update',
+          message: message,
+        ),
+        AppErrorCode.orderCancelPaymentBusy,
+      );
+      // Web: /sync answers the screen directly.
+      expect(
+        mapErrorToCode(const SyncRejectedException(message)),
+        AppErrorCode.orderCancelPaymentBusy,
+      );
+      // Still a permanent order refusal: the queue reverts the local cancel.
+      expect(isRevertableRejectionMessage(message), isTrue);
+      expect(isOrderCancelNotAllowedMessage(message), isTrue);
+      // Only a cancel refusal reads this way.
+      expect(
+        isOrderCancelPaymentBusyMessage(
+          'ORDER_REFUSED: The payment is being settled or reviewed.',
+        ),
+        isFalse,
+      );
+      expect(isOrderCancelPaymentBusyMessage(null), isFalse);
+    });
+
+    test('the payment refusal has its own text in en, am and om', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final text =
+            localizeErrorCode(AppErrorCode.orderCancelPaymentBusy, l10n);
+        expect(text, l10n.errorOrderCancelPaymentBusy, reason: locale);
+        expect(text.trim(), isNotEmpty, reason: locale);
+        expect(text, isNot(l10n.errorOrderCancelNotAllowed), reason: locale);
+        expect(text, isNot(l10n.errorOccurred), reason: locale);
+      }
     });
 
     // ESC-08: the local cancel was undone, so say why, not "not saved".
@@ -173,6 +248,156 @@ void main() {
       );
     });
 
+    // T-1: a typed code refused for good undid the local pickup or delivery.
+    test('a refused typed code has its own reason, mobile and web', () {
+      for (final (message, code) in [
+        (
+          'DELIVERY_CODE_MISMATCH: The typed code does not match.',
+          AppErrorCode.deliveryCodeMismatch,
+        ),
+        (
+          'DELIVERY_CODE_LOCKED: Too many wrong codes.',
+          AppErrorCode.deliveryCodeLocked,
+        ),
+        (
+          'DELIVERY_CODE_LOCKED_DROPOFF: Too many wrong codes for this '
+              'drop-off.',
+          AppErrorCode.deliveryCodeLockedDropoff,
+        ),
+        (
+          'DELIVERY_CODE_GPS_REQUIRED: Location is required.',
+          AppErrorCode.deliveryCodeGpsRequired,
+        ),
+      ]) {
+        expect(
+          syncRejectionErrorCode(
+            entityType: 'delivery',
+            action: 'update',
+            message: message,
+          ),
+          code,
+          reason: message,
+        );
+        expect(mapErrorToCode(SyncRejectedException(message)), code);
+      }
+    });
+
+    // FUP-439: a handoff refused for its GPS undid the local pickup or
+    // delivery; the reason token, never the text, picks what is said.
+    group('a handoff refused for its GPS', () {
+      const gpsRefusals = [
+        (
+          'DELIVERY_GPS_PROXIMITY: pickup_far: Pickup GPS is 11.1km from '
+              'listing location (max 5km).',
+          DeliveryGpsRefusal.pickupFar,
+          AppErrorCode.deliveryGpsPickupFar,
+        ),
+        (
+          'DELIVERY_GPS_PROXIMITY: self_pickup_no_fix: Location is required '
+              'to confirm self-pickup at the farm.',
+          DeliveryGpsRefusal.selfPickupNoFix,
+          AppErrorCode.deliveryGpsSelfPickupNoFix,
+        ),
+        (
+          'DELIVERY_GPS_PROXIMITY: self_pickup_no_farm_point: This listing '
+              'has no registered location, so self-pickup cannot be verified.',
+          DeliveryGpsRefusal.selfPickupNoFarmPoint,
+          AppErrorCode.deliveryGpsSelfPickupNoFarmPoint,
+        ),
+        (
+          'DELIVERY_GPS_PROXIMITY: self_pickup_far: You are 11.1km from the '
+              'farm location (max 5km).',
+          DeliveryGpsRefusal.selfPickupFar,
+          AppErrorCode.deliveryGpsSelfPickupFar,
+        ),
+        (
+          'DELIVERY_GPS_PROXIMITY: dropoff_far: Dropoff GPS is 16.2km from '
+              'the drop-off point (max 5km).',
+          DeliveryGpsRefusal.dropoffFar,
+          AppErrorCode.deliveryGpsDropoffFar,
+        ),
+      ];
+
+      test('each reason has its own code, mobile and web', () {
+        for (final (message, reason, code) in gpsRefusals) {
+          expect(DeliveryGpsRefusal.fromMessage(message), reason);
+          expect(isDeliveryGpsProximityMessage(message), isTrue);
+          // Permanent, and the local delivery goes back to the server's.
+          expect(isRevertableDeliveryRejectionMessage(message), isTrue);
+          expect(
+            syncRejectionErrorCode(
+              entityType: 'delivery',
+              action: 'update',
+              message: message,
+            ),
+            code,
+            reason: message,
+          );
+          expect(mapErrorToCode(SyncRejectedException(message)), code);
+        }
+      });
+
+      test('the reason is read, not the text', () {
+        // The same wording under another reason reads as that reason.
+        expect(
+          DeliveryGpsRefusal.fromMessage(
+            'DELIVERY_GPS_PROXIMITY: dropoff_far: You are 11.1km from the '
+            'farm location (max 5km).',
+          ),
+          DeliveryGpsRefusal.dropoffFar,
+        );
+      });
+
+      test('a server without the reason, or a later reason, is not saved', () {
+        for (final message in [
+          'DELIVERY_GPS_PROXIMITY: Pickup GPS is 11.1km from listing location '
+              '(max 5km).',
+          'DELIVERY_GPS_PROXIMITY: Location is required to confirm '
+              'self-pickup at the farm.',
+          'DELIVERY_GPS_PROXIMITY: farm_moved: A later reason.',
+          'DELIVERY_GPS_PROXIMITY',
+        ]) {
+          expect(
+            DeliveryGpsRefusal.fromMessage(message),
+            DeliveryGpsRefusal.unknown,
+            reason: message,
+          );
+          // Still permanent and reverted.
+          expect(isRevertableDeliveryRejectionMessage(message), isTrue);
+          expect(
+            syncRejectionErrorCode(
+              entityType: 'delivery',
+              action: 'update',
+              message: message,
+            ),
+            AppErrorCode.changeNotSaved,
+            reason: message,
+          );
+        }
+        expect(isDeliveryGpsProximityMessage(null), isFalse);
+        expect(
+          isDeliveryGpsProximityMessage('DELIVERY_VALIDATION: gpsPickup x'),
+          isFalse,
+        );
+      });
+
+      test('each reason has its own text in en, am and om', () async {
+        for (final locale in ['en', 'am', 'om']) {
+          final l10n = await AppLocalizations.delegate.load(Locale(locale));
+          final texts = {
+            for (final (_, _, code) in gpsRefusals)
+              localizeErrorCode(code, l10n),
+          };
+          expect(texts, hasLength(gpsRefusals.length), reason: locale);
+          for (final text in texts) {
+            expect(text.trim(), isNotEmpty, reason: locale);
+            expect(text, isNot(l10n.errorChangeNotSaved), reason: locale);
+            expect(text, isNot(l10n.errorOccurred), reason: locale);
+          }
+        }
+      });
+    });
+
     test('any other refused change was not saved', () {
       for (final (entityType, message) in [
         ('crop_listing', 'FRAUD_VELOCITY_EXCEEDED: slow down'),
@@ -189,6 +414,187 @@ void main() {
           AppErrorCode.changeNotSaved,
           reason: entityType,
         );
+      }
+    });
+  });
+
+  // FUP-67: a refused listing report says it was not sent, or names the
+  // daily limit; a held account still reads as held.
+  group('listing reports', () {
+    String? limitText;
+
+    test('a refused report was not sent', () {
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'listing_report',
+          action: 'create',
+          message: 'SYNC_VALIDATION: The reported listing does not exist.',
+        ),
+        AppErrorCode.reportNotSent,
+      );
+    });
+
+    test('the daily limit has its own code, on the queue and on web', () {
+      const message = 'SYNC_VALIDATION: report limit reached. A buyer can '
+          'send at most 10 reports a day.';
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'listing_report',
+          action: 'create',
+          message: message,
+        ),
+        AppErrorCode.reportLimitReached,
+      );
+      expect(
+        mapErrorToCode(const SyncRejectedException(message)),
+        AppErrorCode.reportLimitReached,
+      );
+    });
+
+    test('a held account reads as held', () {
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'listing_report',
+          action: 'create',
+          message: 'FRAUD_ACCOUNT_HELD: held',
+        ),
+        AppErrorCode.accountHeld,
+      );
+    });
+
+    test('both texts read in en, am and om with the limit in them', () async {
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        expect(
+          localizeErrorCode(AppErrorCode.reportNotSent, l10n),
+          l10n.errorReportNotSent,
+        );
+        limitText = localizeErrorCode(AppErrorCode.reportLimitReached, l10n);
+        expect(limitText, contains('10'), reason: locale);
+        expect(limitText, isNot(l10n.errorOccurred), reason: locale);
+      }
+    });
+  });
+
+  // BUG-L9: "This change could not be saved on the server." told a farmer
+  // nothing about a listing the server would not take.
+  group('a listing or trip refused for its details', () {
+    test('says which details to check', () {
+      for (final (entityType, action, message, code) in [
+        (
+          'crop_listing',
+          'create',
+          'CROP_VALIDATION: pricePerKg must be between 0.01 and 1000.',
+          AppErrorCode.listingDetailsNotAccepted,
+        ),
+        (
+          'crop_listing',
+          'update',
+          'CROP_VALIDATION: Invalid cropType.',
+          AppErrorCode.listingDetailsNotAccepted,
+        ),
+        (
+          'trip',
+          'create',
+          'TRIP_VALIDATION: capacity must be between 0.1 and 1000.',
+          AppErrorCode.tripDetailsNotAccepted,
+        ),
+        (
+          'trip',
+          'update',
+          'TRIP_VALIDATION: departureDate must be in the future.',
+          AppErrorCode.tripDetailsNotAccepted,
+        ),
+      ]) {
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: action,
+            message: message,
+          ),
+          code,
+          reason: message,
+        );
+      }
+    });
+
+    test('not a refusal no correction on the form can pass', () {
+      for (final (entityType, message) in [
+        // A field the app never lets the user change.
+        (
+          'crop_listing',
+          'CROP_VALIDATION: farmerId is immutable and cannot be changed on '
+              'update.',
+        ),
+        (
+          'trip',
+          'TRIP_VALIDATION: truckerPhone is immutable and cannot be changed '
+              'on update.',
+        ),
+        // The server could not read the profile.
+        (
+          'crop_listing',
+          'CROP_VALIDATION: The farmer profile could not be read. Please try '
+              'again later.',
+        ),
+        (
+          'trip',
+          'TRIP_VALIDATION: Your profile could not be read. Please try again '
+              'later.',
+        ),
+        // Another entity's validation keeps the generic text.
+        ('delivery', 'DELIVERY_VALIDATION: Invalid gpsPickup.'),
+      ]) {
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: 'update',
+            message: message,
+          ),
+          AppErrorCode.changeNotSaved,
+          reason: message,
+        );
+      }
+    });
+
+    test('a phone number in the text keeps its own reason', () {
+      expect(
+        syncRejectionErrorCode(
+          entityType: 'crop_listing',
+          action: 'create',
+          message: 'CROP_CONTACT_IN_TEXT: x',
+        ),
+        AppErrorCode.contactInText,
+      );
+    });
+
+    test('reads in en, am and om, without the word server', () async {
+      const serverWords = ['server', 'sarvar', 'አገልጋ', 'ሰርቨ'];
+      for (final locale in ['en', 'am', 'om']) {
+        final l10n = await AppLocalizations.delegate.load(Locale(locale));
+        final listing = localizeErrorCode(
+          AppErrorCode.listingDetailsNotAccepted,
+          l10n,
+        );
+        final trip = localizeErrorCode(
+          AppErrorCode.tripDetailsNotAccepted,
+          l10n,
+        );
+        final generic = localizeErrorCode(AppErrorCode.changeNotSaved, l10n);
+        expect(listing, l10n.errorListingDetailsNotAccepted);
+        expect(trip, l10n.errorTripDetailsNotAccepted);
+        expect(listing, isNot(trip), reason: locale);
+        expect(listing, isNot(generic), reason: locale);
+        expect(listing, isNot(l10n.errorOccurred), reason: locale);
+        for (final text in [listing, trip, generic]) {
+          for (final word in serverWords) {
+            expect(
+              text.toLowerCase(),
+              isNot(contains(word)),
+              reason: '$locale: $text',
+            );
+          }
+        }
       }
     });
   });
@@ -270,8 +676,11 @@ void main() {
   });
 
   group('live Telebirr total refusal (ESC-44)', () {
-    const message = 'ORDER_VALIDATION: This order total (50.00 ETB) is '
-        'outside what one Telebirr payment can take (100 to 500000 ETB).';
+    // The code since sync-protocol.md 1.24.0 (FUP-22); the old
+    // ORDER_VALIDATION text is no longer matched (FUP-84).
+    const message = 'ORDER_PAYMENT_TOTAL_OUT_OF_RANGE: This order total '
+        '(50.00 ETB) is outside what one Telebirr payment can take (100 to '
+        '500000 ETB).';
 
     test('web: the inline error has its own code', () {
       expect(
@@ -411,7 +820,17 @@ void main() {
         ('CROP_HAS_ACTIVE_ORDERS: open', AppErrorCode.cropHasActiveOrders),
         ('APP_UPDATE_REQUIRED: 1.0.0', AppErrorCode.appUpdateRequired),
         ('ORDER_DEADLINE_PASSED: late', AppErrorCode.deadlinePassed),
+        (
+          'ORDER_RESPONSE_NOT_PENDING: not yet',
+          AppErrorCode.responseNotPending,
+        ),
         ('ORDER_TRIP_NOT_ELIGIBLE: route', AppErrorCode.tripNotEligible),
+        // L-7: the server's refusal of an order on a truck that left.
+        (
+          'ORDER_TRIP_NOT_ELIGIBLE: This trip has already left; '
+              'choose another trip.',
+          AppErrorCode.tripNotEligible,
+        ),
         (
           'ORDER_TRANSPORT_ATTEMPTS_EXCEEDED: 3',
           AppErrorCode.transportAttemptsExceeded,
@@ -499,6 +918,12 @@ void main() {
         ),
         (
           'order',
+          'update',
+          'ORDER_RESPONSE_NOT_PENDING: x',
+          AppErrorCode.responseNotPending,
+        ),
+        (
+          'order',
           'create',
           'ORDER_TRIP_NOT_ELIGIBLE: x',
           AppErrorCode.tripNotEligible,
@@ -571,18 +996,32 @@ void main() {
       for (final message in [
         'REPUTATION_RESTRICTED: x',
         'CROP_HAS_ACTIVE_ORDERS: x',
+        // FUP-51
+        'CROP_CONTACT_IN_TEXT: x',
+        'FRAUD_ACCOUNT_HELD: x',
       ]) {
         expect(isRevertableListingRejectionMessage(message), isTrue);
       }
       for (final message in [
         'REPUTATION_RESTRICTED: x',
         'TRIP_HAS_BOOKINGS: x',
+        // FUP-51
+        'TRIP_CONTACT_IN_TEXT: x',
+        'FRAUD_ACCOUNT_HELD: x',
+        // trip-listing-api 2.10.0: a duplicate of a trip the trucker has.
+        'FRAUD_DUPLICATE_LISTING: You already have a trip on this route.',
       ]) {
         expect(isRevertableTripRejectionMessage(message), isTrue);
       }
-      // CROP_VALIDATION and TRIP_VALIDATION also wrap a failed profile read
-      // on the server, so a prefix alone is not deterministic, and the same
-      // payload goes through once the app is updated.
+      // The same code on a crop listing keeps the local listing, as before.
+      expect(
+        isRevertableListingRejectionMessage('FRAUD_DUPLICATE_LISTING: dup'),
+        isFalse,
+      );
+      // CROP_VALIDATION and TRIP_VALIDATION say nothing the server holds
+      // (permanent, not undone, since 1.72.0) and an older server's carry a
+      // failed profile read, and the same payload goes through once the app
+      // is updated.
       for (final message in [
         null,
         '',
@@ -591,8 +1030,9 @@ void main() {
         'CROP_UNAUTHORIZED: not yours',
         'TRIP_VALIDATION: bad',
         'TRIP_UNAUTHORIZED: not yours',
-        'FRAUD_DUPLICATE_LISTING: dup',
+        'FRAUD_VELOCITY_EXCEEDED: x',
         'TRIP_CAPACITY_EXCEEDED: x',
+        'ORDER_CONTACT_IN_TEXT: x',
       ]) {
         expect(
           isRevertableListingRejectionMessage(message),
@@ -613,6 +1053,206 @@ void main() {
         isRevertableTripRejectionMessage('CROP_HAS_ACTIVE_ORDERS: x'),
         isFalse,
       );
+      // A code meant for the other entity does not undo the change.
+      expect(
+        isRevertableListingRejectionMessage('TRIP_CONTACT_IN_TEXT: x'),
+        isFalse,
+      );
+      expect(
+        isRevertableTripRejectionMessage('CROP_CONTACT_IN_TEXT: x'),
+        isFalse,
+      );
+    });
+
+    // FUP-110 and FUP-138: refusals no retry can pass.
+    test('the FRD-08 refusals no retry can pass are matched exactly', () {
+      for (final message in [
+        'CROP_UNAUTHORIZED: farmerId must match authenticated user.',
+        'TRIP_UNAUTHORIZED: You can only update your own trips.',
+        'DELIVERY_UNAUTHORIZED: Only participants can dispute a delivery.',
+        'INTENT_UNAUTHORIZED: buyerId must match authenticated user.',
+        'RATING_UNAUTHORIZED: raterId must match authenticated user.',
+        'MESSAGE_UNAUTHORIZED: senderId must match authenticated user.',
+        'MATCH_EVENT_UNAUTHORIZED: buyerId must match authenticated user.',
+        'USER_PROFILE_UNAUTHORIZED: A user can only update their own profile.',
+        'ORDER_UNAUTHORIZED: buyerId must match authenticated user.',
+        'DELIVERY_UNAUTHORIZED',
+        'RATING_FORBIDDEN: You can only rate your own orders.',
+        'CROP_VALIDATION: farmerPhone is immutable and cannot be changed on '
+            'update.',
+        'TRIP_VALIDATION: truckerId is immutable and cannot be changed on '
+            'update.',
+        'DELIVERY_VALIDATION: buyerId is immutable and cannot be changed on '
+            'update.',
+      ]) {
+        expect(
+          isUnretryableFraudSignalMessage(message),
+          isTrue,
+          reason: message,
+        );
+      }
+      for (final message in [
+        null,
+        '',
+        'RATING_FORBIDDEN: You can only rate a delivered order (delivered, '
+            'disbursing or settled).',
+        'CROP_VALIDATION: The farmer profile could not be read.',
+        'TRIP_VALIDATION: capacity is required.',
+        'DELIVERY_VALIDATION: Invalid gpsPickup.',
+        'MESSAGE_VALIDATION: farmerId is immutable and cannot be changed on '
+            'update.',
+        'DELIVERY_NONCE_MISMATCH: no match',
+        'DELIVERY_NONCE_REPLAY: used',
+        'Not UNAUTHORIZED: plain text',
+        // Role gates: a token without the role claim gets them too.
+        'CROP_UNAUTHORIZED: Only farmers can create crop listings.',
+        'TRIP_UNAUTHORIZED: Only truckers can create trip listings.',
+        'INTENT_UNAUTHORIZED: Only buyers can create purchase intents.',
+        'RATING_UNAUTHORIZED: Only buyers can rate counterparties.',
+        'MATCH_EVENT_UNAUTHORIZED: Only buyers can log match events.',
+        // (permanent anyway under the ORDER_* rule)
+        'ORDER_UNAUTHORIZED: Only buyers can create orders.',
+        'unauthorized',
+        'AUTH_040: Confirm it is you',
+      ]) {
+        expect(
+          isUnretryableFraudSignalMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+      }
+    });
+
+    // FUP-74 (sync-protocol.md 1.72.0): the profile refusals left
+    // CROP_VALIDATION and TRIP_VALIDATION; an older server's still keep
+    // retrying.
+    test('CROP_VALIDATION and TRIP_VALIDATION but the profile texts', () {
+      for (final message in [
+        'CROP_VALIDATION: Invalid cropType.',
+        'CROP_VALIDATION: Unknown fields: photos',
+        'CROP_VALIDATION: farmerId is immutable and cannot be changed on '
+            'update.',
+        'TRIP_VALIDATION: capacity is required and must be a number.',
+        "TRIP_VALIDATION: 'matched' is set by the server when the trip is "
+            'fully booked.',
+      ]) {
+        expect(isListingValidationMessage(message), isTrue, reason: message);
+      }
+      for (final message in [
+        null,
+        '',
+        'CROP_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+        'CROP_VALIDATION: The farmer profile could not be read.',
+        'CROP_VALIDATION: Add your name to your profile before creating a '
+            'listing.',
+        'TRIP_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+        'TRIP_VALIDATION: Add your name to your profile before creating a '
+            'listing.',
+        'CROP_PROFILE_UNAVAILABLE: Your profile could not be read. Please '
+            'try again later.',
+        'TRIP_PROFILE_INCOMPLETE: Add your name to your profile before '
+            'creating a listing.',
+        'DELIVERY_VALIDATION: Invalid gpsPickup.',
+        'ORDER_VALIDATION: x',
+        'CROP_VALIDATION',
+      ]) {
+        expect(
+          isListingValidationMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+      }
+    });
+
+    // FUP-315 (sync-protocol.md 1.72.0).
+    test('a profile edit refused for its values', () {
+      for (final message in [
+        'USER_PROFILE_VALIDATION: displayName must not be empty.',
+        'AUTH_027: Remove the phone number from woreda. Contact opens after '
+            'payment is held in escrow.',
+      ]) {
+        expect(isProfileEditRefusalMessage(message), isTrue, reason: message);
+      }
+      for (final message in [
+        null,
+        '',
+        'USER_PROFILE_CONFLICT: try again.',
+        'USER_PROFILE_UNAVAILABLE: try again.',
+        'USER_PROFILE_NOT_FOUND: x',
+        'USER_PROFILE_UNAUTHORIZED: A user can only update their own profile.',
+        'AUTH_025: suspended',
+      ]) {
+        expect(
+          isProfileEditRefusalMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+      }
+    });
+
+    // FUP-128: a party behind the cancel gets a conflict; the error is left
+    // for a change sent at the stored version, and no retry can pass it.
+    test('a cancelled delivery or a finished trip undoes the change', () {
+      const delivery =
+          'DELIVERY_ALREADY_CANCELLED: Cannot update a cancelled delivery.';
+      expect(isDeliveryAlreadyCancelledMessage(delivery), isTrue);
+      expect(isRevertableDeliveryRejectionMessage(delivery), isTrue);
+      expect(isRevertableTripRejectionMessage(delivery), isFalse);
+      for (final message in [
+        'TRIP_TERMINAL_STATE: Cannot update a terminal-state trip.',
+        'TRIP_TERMINAL_STATE: Cannot delete a terminal-state trip.',
+        'TRIP_ALREADY_CANCELLED: Cannot update a deleted trip.',
+        'TRIP_ALREADY_CANCELLED: Trip is already deleted.',
+      ]) {
+        expect(isTripOverMessage(message), isTrue, reason: message);
+        expect(
+          isRevertableTripRejectionMessage(message),
+          isTrue,
+          reason: message,
+        );
+        expect(isRevertableListingRejectionMessage(message), isFalse);
+        expect(isRevertableDeliveryRejectionMessage(message), isFalse);
+        // No text of its own: the generic one.
+        expect(
+          syncRejectionErrorCode(
+            entityType: 'trip',
+            action: 'update',
+            message: message,
+          ),
+          AppErrorCode.changeNotSaved,
+        );
+      }
+      for (final message in [
+        'TRIP_INVALID_TRANSITION: Cannot transition',
+        'DELIVERY_INVALID_TRANSITION: Cannot transition',
+        null,
+      ]) {
+        expect(isTripOverMessage(message), isFalse);
+        expect(isDeliveryAlreadyCancelledMessage(message), isFalse);
+      }
+    });
+
+    test('DELIVERY_NONCE_MISSING undoes the delivery, the others do not', () {
+      for (final message in [
+        'DELIVERY_NONCE_MISSING: QR nonce verification required for this '
+            'transition.',
+        "DELIVERY_NONCE_MISSING: The farmer's QR code never reached the "
+            'server for this pickup. Contact support.',
+      ]) {
+        expect(isDeliveryNonceMissingMessage(message), isTrue);
+        expect(isRevertableDeliveryRejectionMessage(message), isTrue);
+      }
+      for (final message in [
+        'DELIVERY_NONCE_PENDING: Waiting for the farmer',
+        'DELIVERY_NONCE_MISMATCH: no match',
+        'DELIVERY_NONCE_EXPIRED: old',
+        null,
+      ]) {
+        expect(isDeliveryNonceMissingMessage(message), isFalse);
+        expect(isRevertableDeliveryRejectionMessage(message), isFalse);
+      }
     });
 
     test('each code reads its own text in en, am and om', () async {
@@ -620,6 +1260,7 @@ void main() {
         final l10n = await AppLocalizations.delegate.load(Locale(locale));
         final expected = {
           AppErrorCode.deadlinePassed: l10n.errorDeadlinePassed,
+          AppErrorCode.responseNotPending: l10n.errorResponseNotPending,
           AppErrorCode.tripNotEligible: l10n.errorTripNotEligible,
           AppErrorCode.transportAttemptsExceeded:
               l10n.errorTransportAttemptsExceeded,

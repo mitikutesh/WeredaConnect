@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,7 +8,10 @@ import 'package:provider/provider.dart';
 
 import 'package:wereda_connect/core/auth/models/auth_tokens.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
+import 'package:wereda_connect/core/models/place.dart';
+import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
+import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_event.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -17,9 +22,22 @@ import 'package:wereda_connect/features/buyer/presentation/screens/find_crops_sc
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_bloc.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_event.dart';
 import 'package:wereda_connect/features/crop_listing/presentation/bloc/crop_listing_state.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_bloc.dart';
+import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
+import 'package:wereda_connect/features/escrow_payment/presentation/screens/payment_history_screen.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_bloc.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_event.dart';
+import 'package:wereda_connect/features/messaging/presentation/bloc/inbox_state.dart';
+import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
+import 'package:wereda_connect/screens/deliveries_tab_screen.dart';
 import 'package:wereda_connect/screens/home_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
 
 class MockAuthBloc extends Mock implements AuthBloc {}
 
@@ -27,9 +45,20 @@ class MockBuyerIntentBloc extends Mock implements BuyerIntentBloc {}
 
 class MockCropListingBloc extends Mock implements CropListingBloc {}
 
+class MockDeliveryBloc extends Mock implements DeliveryBloc {}
+
+class MockEscrowBloc extends Mock implements EscrowBloc {}
+
+class MockInboxBloc extends Mock implements InboxBloc {}
+
 class MockSyncExecutor extends Mock implements SyncExecutor {}
 
+class MockSyncQueue extends Mock implements SyncQueue {}
+
 class MockTripListingBloc extends Mock implements TripListingBloc {}
+
+class MockTripListingRepository extends Mock
+    implements BaseTripListingRepository {}
 
 class FakeAuthEvent extends Fake implements AuthEvent {}
 
@@ -39,9 +68,15 @@ class FakeBuyerIntentEvent extends Fake implements BuyerIntentEvent {}
 
 class FakeBuyerIntentState extends Fake implements BuyerIntentState {}
 
+class _MockMarketplaceSync extends Mock implements MarketplaceSync {}
+
 class FakeCropListingEvent extends Fake implements CropListingEvent {}
 
 class FakeCropListingState extends Fake implements CropListingState {}
+
+class FakeInboxEvent extends Fake implements InboxEvent {}
+
+class FakeInboxState extends Fake implements InboxState {}
 
 const _testTokens = AuthTokens(
   accessToken: 'fake-access-token',
@@ -53,6 +88,9 @@ void main() {
   late MockAuthBloc authBloc;
   late MockBuyerIntentBloc buyerIntentBloc;
   late MockCropListingBloc cropListingBloc;
+  late MockDeliveryBloc deliveryBloc;
+  late MockEscrowBloc escrowBloc;
+  late MockInboxBloc inboxBloc;
   late MockSyncExecutor syncExecutor;
   late MockTripListingBloc tripListingBloc;
 
@@ -63,12 +101,17 @@ void main() {
     registerFallbackValue(FakeBuyerIntentState());
     registerFallbackValue(FakeCropListingEvent());
     registerFallbackValue(FakeCropListingState());
+    registerFallbackValue(FakeInboxEvent());
+    registerFallbackValue(FakeInboxState());
   });
 
   setUp(() {
     authBloc = MockAuthBloc();
     buyerIntentBloc = MockBuyerIntentBloc();
     cropListingBloc = MockCropListingBloc();
+    deliveryBloc = MockDeliveryBloc();
+    escrowBloc = MockEscrowBloc();
+    inboxBloc = MockInboxBloc();
     syncExecutor = MockSyncExecutor();
     tripListingBloc = MockTripListingBloc();
 
@@ -81,16 +124,41 @@ void main() {
     when(() => cropListingBloc.stream).thenAnswer(
       (_) => Stream.value(const CropListingsLoaded(listings: [])),
     );
+    // The pages a tile pushes when its destination is not a bar tab: the
+    // farmer's Deliveries, the trucker's payments.
+    when(() => deliveryBloc.state)
+        .thenReturn(const DeliveriesLoaded(deliveries: []));
+    when(() => deliveryBloc.stream).thenAnswer((_) => const Stream.empty());
+    when(() => escrowBloc.state).thenReturn(const EscrowInitial());
+    when(() => escrowBloc.stream).thenAnswer((_) => const Stream.empty());
+    // The header's Messages button loads the inbox for its badge.
+    when(() => inboxBloc.state).thenReturn(const InboxInitial());
+    when(() => inboxBloc.stream).thenAnswer((_) => const Stream.empty());
     when(() => syncExecutor.onSyncResult).thenAnswer(
       (_) => const Stream.empty(),
     );
     when(() => syncExecutor.isSyncing).thenReturn(false);
+    // Find Crops reads the open trips for its cards' transport line.
+    when(() => tripListingBloc.state).thenReturn(const TripListingInitial());
+    when(() => tripListingBloc.stream).thenAnswer((_) => const Stream.empty());
+    // The trucker's trip card: no trip yet (a read that fails is an error
+    // card with Retry since T-6, not "No active trip").
+    final tripRepository = MockTripListingRepository();
+    when(() => tripListingBloc.repository).thenReturn(tripRepository);
+    when(() => tripRepository.getMostRelevantTrip(any()))
+        .thenAnswer((_) async => null);
+    when(() => tripRepository.getRecentRoutes(any()))
+        .thenAnswer((_) async => []);
   });
 
   /// Tab indexes the dashboard asked the shell to switch to.
   late List<int> tabRequests;
 
-  Widget buildHomeScreen(UserRole role) {
+  Widget buildHomeScreen(
+    UserRole role, {
+    bool isOnline = false,
+    SyncQueue? syncQueue,
+  }) {
     tabRequests = [];
     when(() => authBloc.state).thenReturn(
       AuthAuthenticated(
@@ -99,43 +167,108 @@ void main() {
         role: role,
       ),
     );
-    return Provider<SyncExecutor>.value(
+    final home = Provider<SyncExecutor>.value(
       value: syncExecutor,
       child: MultiBlocProvider(
         providers: [
           BlocProvider<AuthBloc>.value(value: authBloc),
           BlocProvider<BuyerIntentBloc>.value(value: buyerIntentBloc),
           BlocProvider<CropListingBloc>.value(value: cropListingBloc),
+          BlocProvider<DeliveryBloc>.value(value: deliveryBloc),
+          BlocProvider<EscrowBloc>.value(value: escrowBloc),
+          BlocProvider<InboxBloc>.value(value: inboxBloc),
           BlocProvider<TripListingBloc>.value(value: tripListingBloc),
         ],
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
-            body: HomeScreen(isOnline: false, onNavigateToTab: tabRequests.add),
+            body: HomeScreen(
+              isOnline: isOnline,
+              onNavigateToTab: tabRequests.add,
+            ),
           ),
         ),
       ),
     );
+    return syncQueue == null
+        ? home
+        : Provider<SyncQueue>.value(value: syncQueue, child: home);
   }
 
-  /// Tall tablet surface (3-column grid) so every tile is on screen. The
-  /// phone layout's header needs the messaging providers, so it's skipped.
-  void useTallSurface(WidgetTester tester) {
-    tester.view.physicalSize = const Size(800, 2000);
+  /// A tall surface so every tile is on screen; 800 wide renders the same
+  /// board column centred by FwContentWidth, 390 the phone board.
+  void useTallSurface(WidgetTester tester, {double width = 800}) {
+    tester.view.physicalSize = Size(width, 2000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
   }
 
-  testWidgets('one At a Glance section replaces Overview + Quick Actions',
+  testWidgets('the page ends clear of the floating create button (LT-01)',
       (tester) async {
     useTallSurface(tester);
     await tester.pumpWidget(buildHomeScreen(UserRole.farmer));
     await tester.pumpAndSettle();
 
-    expect(find.text('At a Glance'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is SizedBox && w.height == Breakpoints.fabClearance,
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('one AT A GLANCE section label replaces Overview + Quick Actions',
+      (tester) async {
+    useTallSurface(tester);
+    await tester.pumpWidget(buildHomeScreen(UserRole.farmer));
+    await tester.pumpAndSettle();
+
+    expect(find.text('AT A GLANCE'), findsOneWidget);
     expect(find.text('Overview'), findsNothing);
     expect(find.text('Quick Actions'), findsNothing);
+  });
+
+  testWidgets('the phone board renders the same column (header, tiles)',
+      (tester) async {
+    useTallSurface(tester, width: 390);
+    await tester.pumpWidget(buildHomeScreen(UserRole.farmer));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Welcome back, '), findsOneWidget);
+    expect(find.text('All sent'), findsNothing);
+    expect(find.text('No network'), findsOneWidget);
+    expect(find.byIcon(Icons.notifications_outlined), findsOneWidget);
+    expect(find.text('AT A GLANCE'), findsOneWidget);
+    expect(find.text('My Crops'), findsOneWidget);
+  });
+
+  group('home place line', () {
+    const places = [
+      Place(
+        id: 'gn-1',
+        en: 'Mek’ī',
+        display: 'Meki',
+        am: 'መቂ',
+        region: 'Oromia',
+        alts: ['Meki', 'Meqi'],
+      ),
+      Place(id: 'gn-2', en: 'Adama'),
+      Place(id: 'gn-3', en: 'Dire Dawa', region: 'Dire Dawa'),
+    ];
+
+    test('the woreda with its region when the place list knows it', () {
+      expect(homePlaceLine('Meki', places, 'en'), 'Meki · Oromia');
+      expect(homePlaceLine('Meki, Oromia', places, 'en'), 'Meki · Oromia');
+      expect(homePlaceLine('Meqi', places, 'am'), 'መቂ · Oromia');
+    });
+
+    test('the woreda as stored when unknown or without a region', () {
+      expect(homePlaceLine('Adama', places, 'en'), 'Adama');
+      expect(homePlaceLine('Dire Dawa', places, 'en'), 'Dire Dawa');
+      expect(homePlaceLine('Somewhere', places, 'en'), 'Somewhere');
+      expect(homePlaceLine('', places, 'en'), '');
+    });
   });
 
   group('HomeScreen dashboard: buyer role', () {
@@ -177,8 +310,10 @@ void main() {
       await tester.tap(find.text('Deliveries'));
       await tester.pump();
 
-      // Buyer bar: Home · Market · Orders · Deliveries
-      expect(tabRequests, [2, 3]);
+      // Buyer bar: Deliveries, Market, Orders. (A buyer has no Home tab
+      // since canvas page M; where this board is still mounted its tiles
+      // must resolve through the same bar.)
+      expect(tabRequests, [2, 0]);
     });
   });
 
@@ -188,8 +323,9 @@ void main() {
       await tester.pumpWidget(buildHomeScreen(UserRole.farmer));
       await tester.pumpAndSettle();
 
+      // Farmer · Home board: four tiles, My Crops first; selling is the
+      // floating button, not a tile or a banner.
       for (final label in [
-        'Sell Crops',
         'My Crops',
         'Pending Orders',
         'Escrow',
@@ -197,6 +333,7 @@ void main() {
       ]) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
+      expect(find.text('Sell Crops'), findsNothing);
       expect(find.text('Find Crops'), findsNothing);
       expect(find.text('Find Trips'), findsNothing);
     });
@@ -207,11 +344,33 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Pending Orders'));
-      await tester.tap(find.text('Deliveries'));
       await tester.pump();
 
-      // Farmer bar: Home · My Crops · Orders · Deliveries
-      expect(tabRequests, [2, 3]);
+      // Farmer bar: Home, My Crops, Orders.
+      expect(tabRequests, [2]);
+      expect(find.byType(DeliveriesPage), findsNothing);
+    });
+
+    // Deliveries left the farmer's bar (canvas page M): Home's tile still
+    // opens it, as a pushed page with a way back.
+    testWidgets('the Deliveries tile pushes the deliveries page',
+        (tester) async {
+      useTallSurface(tester);
+      await tester.pumpWidget(buildHomeScreen(UserRole.farmer));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Deliveries'));
+      await tester.pumpAndSettle();
+
+      expect(tabRequests, isEmpty);
+      expect(find.byType(DeliveriesPage), findsOneWidget);
+      expect(find.byType(DeliveriesTabScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.byType(DeliveriesPage), findsNothing);
+      expect(find.text('AT A GLANCE'), findsOneWidget);
     });
   });
 
@@ -221,18 +380,22 @@ void main() {
       await tester.pumpWidget(buildHomeScreen(UserRole.trucker));
       await tester.pumpAndSettle();
 
-      for (final label in [
-        'My Trips',
-        'In Transit',
-        'Matched',
-        'Deliveries',
-        'My Orders',
-        'My Payments',
-      ]) {
+      // Trucker · Home board: three tiles, the trip card in the header.
+      for (final label in ['My Trips', 'Matched', 'Escrow']) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
+      expect(find.text('In Transit'), findsNothing);
+      expect(find.text('My Orders'), findsNothing);
+      expect(find.text('My Payments'), findsNothing);
       expect(find.text('Find Crops'), findsNothing);
       expect(find.text('Sell Crops'), findsNothing);
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('No active trip'), findsOneWidget);
+      // The board's dark header has no icons: the bell, with Messages and
+      // Profile in its sheet, is on the trucker's other tabs.
+      expect(find.byIcon(Icons.notifications_outlined), findsNothing);
+      expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+      expect(find.byIcon(Icons.person_outline), findsNothing);
     });
 
     testWidgets('tab tiles open their tabs', (tester) async {
@@ -240,12 +403,247 @@ void main() {
       await tester.pumpWidget(buildHomeScreen(UserRole.trucker));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Deliveries'));
-      await tester.tap(find.text('My Payments'));
+      await tester.tap(find.text('My Trips'));
       await tester.pump();
 
-      // Trucker bar: Home · My Trips · Deliveries · Payments
-      expect(tabRequests, [2, 3]);
+      // Trucker bar: Home, My Trips, Deliveries.
+      expect(tabRequests, [1]);
+      expect(find.byType(PaymentHistoryScreen), findsNothing);
     });
+
+    // Payments left the trucker's bar (canvas page M): the Escrow tile
+    // pushes the payment history instead of asking for a tab.
+    testWidgets('the Escrow tile pushes the payment history', (tester) async {
+      useTallSurface(tester);
+      await tester.pumpWidget(buildHomeScreen(UserRole.trucker));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Escrow'));
+      // The history spins until its first read lands: no settling.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(tabRequests, isEmpty);
+      expect(find.byType(PaymentHistoryScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  // E-5: "Synced" only when online with nothing waiting; the chip follows
+  // the queue through its watch stream.
+  group('the sync chip', () {
+    late StreamController<({int pending, int failed})> counts;
+    late MockSyncQueue queue;
+
+    setUp(() {
+      counts = StreamController<({int pending, int failed})>.broadcast();
+      queue = MockSyncQueue();
+      when(() => queue.watchCounts()).thenAnswer((_) => counts.stream);
+    });
+
+    tearDown(() => counts.close());
+
+    String chipLabel(WidgetTester tester) => tester
+        .widget<Text>(find.byKey(const Key('home_sync_chip_label')))
+        .data!;
+
+    for (final role in UserRole.values) {
+      testWidgets('${role.name}: waiting, synced, failed and offline',
+          (tester) async {
+        useTallSurface(tester, width: 390);
+        await tester.pumpWidget(
+          buildHomeScreen(role, isOnline: true, syncQueue: queue),
+        );
+        await tester.pump();
+
+        counts.add((pending: 3, failed: 0));
+        await tester.pump();
+        await tester.pump();
+        expect(chipLabel(tester), '3 waiting to be sent');
+
+        counts.add((pending: 0, failed: 0));
+        await tester.pump();
+        await tester.pump();
+        expect(chipLabel(tester), 'All sent');
+
+        counts.add((pending: 0, failed: 2));
+        await tester.pump();
+        await tester.pump();
+        expect(chipLabel(tester), 'Not sent');
+      });
+    }
+
+    testWidgets('offline with changes waiting says how many wait',
+        (tester) async {
+      useTallSurface(tester, width: 390);
+      await tester.pumpWidget(
+        buildHomeScreen(UserRole.farmer, syncQueue: queue),
+      );
+      await tester.pump();
+      expect(chipLabel(tester), 'No network');
+
+      counts.add((pending: 2, failed: 0));
+      await tester.pump();
+      await tester.pump();
+      expect(chipLabel(tester), '2 waiting to be sent');
+    });
+
+    // The chip grows with the text and is a 48 by 48 dp button named by
+    // its state.
+    for (final role in UserRole.values) {
+      testWidgets('${role.name}: 48 dp tap area and room for 2x text',
+          (tester) async {
+        useTallSurface(tester, width: 390);
+        tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final semantics = tester.ensureSemantics();
+        await tester.pumpWidget(
+          buildHomeScreen(role, isOnline: true, syncQueue: queue),
+        );
+        await tester.pump();
+        counts.add((pending: 3, failed: 0));
+        await tester.pump();
+        await tester.pump();
+
+        // No overflow anywhere in the header at 2x.
+        expect(tester.takeException(), isNull);
+        final tap = tester.getSize(find.byKey(const Key('home_sync_chip')));
+        expect(tap.width, greaterThanOrEqualTo(48));
+        expect(tap.height, greaterThanOrEqualTo(48));
+        final label = find.byKey(const Key('home_sync_chip_label'));
+        // The text is not clipped by a fixed chip height.
+        expect(tester.getSize(label).height, greaterThan(24));
+        expect(find.bySemanticsLabel('3 waiting to be sent'), findsOneWidget);
+        semantics.dispose();
+      });
+    }
+
+    testWidgets('trucker: the chip stays at the right, by the account button',
+        (tester) async {
+      useTallSurface(tester, width: 390);
+      await tester.pumpWidget(
+        buildHomeScreen(UserRole.trucker, isOnline: true, syncQueue: queue),
+      );
+      await tester.pump();
+
+      final chip = tester.getRect(find.byKey(const Key('home_sync_chip')));
+      final account = tester.getRect(find.byType(AccountButton));
+      expect(chip.right, closeTo(account.left - 10, 1));
+    });
+  });
+
+  // BUG-37: the tiles were read once, before the user's orders had been
+  // pulled, and stayed at 0 next to an Orders tab that listed them. (No Isar
+  // in this test, so it covers what the tiles ask the server for; the read
+  // that follows is the same stats read the other tests cover.)
+  group('BUG-37: the tiles pull the user\'s own data, then read again', () {
+    late _MockMarketplaceSync sync;
+
+    setUp(() {
+      sync = _MockMarketplaceSync();
+      when(
+        () => sync.pullOrders(
+          userId: any(named: 'userId'),
+          role: any(named: 'role'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => sync.pullOwnCrops(farmerId: any(named: 'farmerId')))
+          .thenAnswer((_) async => false);
+      when(() => sync.pullOwnTrips(truckerId: any(named: 'truckerId')))
+          .thenAnswer((_) async => false);
+    });
+
+    Widget withSync(UserRole role) => Provider<MarketplaceSync?>.value(
+          value: sync,
+          child: buildHomeScreen(role),
+        );
+
+    for (final role in UserRole.values) {
+      testWidgets('${role.name}: the own orders, scoped by role',
+          (tester) async {
+        useTallSurface(tester);
+        await tester.pumpWidget(withSync(role));
+        await tester.pumpAndSettle();
+
+        verify(
+          () => sync.pullOrders(userId: '${role.name}-001', role: role.name),
+        ).called(greaterThanOrEqualTo(1));
+      });
+    }
+
+    testWidgets('a farmer also gets the own listings, nobody else\'s',
+        (tester) async {
+      useTallSurface(tester);
+      await tester.pumpWidget(withSync(UserRole.farmer));
+      await tester.pumpAndSettle();
+
+      verify(() => sync.pullOwnCrops(farmerId: 'farmer-001')).called(1);
+      verifyNever(() => sync.pullCrops());
+      verifyNever(() => sync.pullTrips());
+    });
+
+    for (final role in [UserRole.buyer, UserRole.trucker]) {
+      testWidgets('${role.name}: no own-listing pull', (tester) async {
+        useTallSurface(tester);
+        await tester.pumpWidget(withSync(role));
+        await tester.pumpAndSettle();
+
+        verifyNever(() => sync.pullOwnCrops(farmerId: any(named: 'farmerId')));
+      });
+    }
+
+    testWidgets('a pull that fails (offline) leaves the tiles as they were',
+        (tester) async {
+      when(
+        () => sync.pullOrders(
+          userId: any(named: 'userId'),
+          role: any(named: 'role'),
+        ),
+      ).thenAnswer((_) async => throw Exception('offline'));
+      when(() => sync.pullOwnCrops(farmerId: any(named: 'farmerId')))
+          .thenAnswer((_) async => throw Exception('offline'));
+      useTallSurface(tester);
+
+      await tester.pumpWidget(withSync(UserRole.farmer));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('My Crops'), findsOneWidget);
+    });
+  });
+
+  // E-6: the tiles never show a 0 they did not read.
+  group('the At a glance tiles', () {
+    for (final role in UserRole.values) {
+      testWidgets('${role.name}: a placeholder while loading, then the error',
+          (tester) async {
+        useTallSurface(tester);
+        // No Isar in this test: the stats read fails.
+        await tester.pumpWidget(buildHomeScreen(role));
+        expect(find.text('\u2026'), findsWidgets);
+        expect(find.text('0'), findsNothing);
+
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('home_tiles_load_failed')),
+          findsOneWidget,
+        );
+        expect(find.text('These numbers could not be loaded.'), findsOneWidget);
+        expect(find.text('0'), findsNothing);
+        expect(find.text('0 ETB'), findsNothing);
+        expect(find.text('-'), findsWidgets);
+
+        await tester.tap(
+          find.descendant(
+            of: find.byKey(const Key('home_tiles_load_failed')),
+            matching: find.text('Retry'),
+          ),
+        );
+        await tester.pump();
+        // Retry reads again: the placeholder is back while it does.
+        expect(find.text('\u2026'), findsWidgets);
+        await tester.pumpAndSettle();
+      });
+    }
   });
 }

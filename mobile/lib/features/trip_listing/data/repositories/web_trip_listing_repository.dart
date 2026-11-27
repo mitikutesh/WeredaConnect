@@ -1,7 +1,11 @@
 import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
+import 'package:wereda_connect/core/models/owner_reputation_wire.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/features/trip_listing/data/trip_destination.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 
 /// Web-only trip listing repository.
@@ -11,7 +15,14 @@ class WebTripListingRepository extends BaseTripListingRepository {
   static const _uuid = Uuid();
   final ApiClient _api;
 
-  WebTripListingRepository({required ApiClient api}) : _api = api;
+  /// The clock for the open-trips cutoff (L-7); the device clock by default.
+  final DateTime Function() _clock;
+
+  WebTripListingRepository({
+    required ApiClient api,
+    DateTime Function()? clock,
+  })  : _api = api,
+        _clock = clock ?? DateTime.now;
 
   @override
   Future<Trip> createTrip({
@@ -45,6 +56,7 @@ class WebTripListingRepository extends BaseTripListingRepository {
       'status': 'open',
       if (vehiclePlate != null) 'vehiclePlate': vehiclePlate,
       if (vehicleDescription != null) 'vehicleDescription': vehicleDescription,
+      ...tripDestinationFields(toPlaceId),
     };
 
     final response = await _api.post<Map<String, dynamic>>(
@@ -92,14 +104,14 @@ class WebTripListingRepository extends BaseTripListingRepository {
   }
 
   @override
-  Future<List<Trip>> getTripsByTrucker(String truckerId) async {
-    final data = await _api.get<Map<String, dynamic>>(
-      '/trips',
-      queryParameters: {'truckerId': truckerId},
-    );
-    return _parseTrips(data);
-  }
+  Future<List<Trip>> getTripsByTrucker(String truckerId) =>
+      _allPages({'truckerId': truckerId});
 
+  /// L-7: the server lists open trips from the start of today in Ethiopia
+  /// (trip-listing-api.md 2.2.0); the same cutoff is applied here so an
+  /// older deployment, or a page read just before Ethiopia midnight, never
+  /// offers a truck that already left. A trucker's own trips and a trip read
+  /// by id keep every departure.
   @override
   Future<List<Trip>> getOpenTrips({
     String? fromWoreda,
@@ -108,18 +120,44 @@ class WebTripListingRepository extends BaseTripListingRepository {
     final params = <String, dynamic>{'status': 'open'};
     if (fromWoreda != null) params['fromWoreda'] = fromWoreda;
     if (toWoreda != null) params['toWoreda'] = toWoreda;
-    final data = await _api.get<Map<String, dynamic>>(
-      '/trips',
-      queryParameters: params,
-    );
-    return _parseTrips(data);
+    final now = _clock();
+    return [
+      for (final trip in await _allPages(params))
+        if (!tripHasLeft(trip, now)) trip,
+    ];
   }
+
+  /// Every page of `GET /trips` for [params]: the server answers 20 trips a
+  /// page with a `nextToken`, and a buyer must see ALL trips (role rule),
+  /// a trucker all of their own. Stops after [_maxPages] as a guard.
+  Future<List<Trip>> _allPages(Map<String, dynamic> params) async {
+    final trips = <Trip>[];
+    String? nextToken;
+    var pages = 0;
+    do {
+      final data = await _api.get<Map<String, dynamic>>(
+        '/trips',
+        queryParameters: {
+          ...params,
+          if (nextToken != null) 'nextToken': nextToken,
+        },
+      );
+      trips.addAll(_parseTrips(data));
+      nextToken = data['nextToken'] as String?;
+      pages++;
+    } while (nextToken != null && nextToken.isNotEmpty && pages < _maxPages);
+    return trips;
+  }
+
+  static const int _maxPages = 50;
 
   @override
   Future<void> cancelTrip({
     required String tripId,
     required String truckerId,
   }) async {
+    // ESC-17 (trip-listing-api.md 2.4.0): the one cancel path, an update to
+    // `cancelled`; mobile queues the same operation.
     // The server applies a status transition only when the payload's `version`
     // matches the version it currently holds (optimistic concurrency,
     // sync-protocol.md). Web keeps no local copy, so read the current version
@@ -245,7 +283,10 @@ class WebTripListingRepository extends BaseTripListingRepository {
       '/trips',
       queryParameters: {'truckerId': truckerId, 'limit': '50'},
     );
-    final trips = _parseTrips(data);
+    // Newest first, as on mobile: Create trip offers the first route as
+    // "Repeat Last Trip".
+    final trips = _parseTrips(data)
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     final seen = <String>{};
     final routes = <({String from, String to})>[];
     for (final trip in trips) {
@@ -341,6 +382,9 @@ class WebTripListingRepository extends BaseTripListingRepository {
               DateTime.now()
       ..capacity = (m['capacity'] as num?)?.toDouble() ?? 0
       ..pricePerQuintal = (m['pricePerQuintal'] as num?)?.toDouble() ?? 0
+      ..bookedQuintals = quintalsFromWire(m['bookedQuintals'])
+      ..remainingQuintals = quintalsFromWire(m['remainingQuintals'])
+      ..readOwnerReputation(m)
       ..status = _parseTripStatus(m['status'] as String?)
       ..matchedListings = (m['matchedListings'] as List<dynamic>?)
               ?.map((e) => e as String)

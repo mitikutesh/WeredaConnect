@@ -39,19 +39,36 @@ closed-app delivery). See the decision discussion in the Step 5 plan.
 | `intents` table | DynamoDB | Server copy of buyer intents (synced via `/sync`). PK `buyerId`, SK `intentId`; GSI `CropTypeStatusIndex` (PK `cropType`) for match-on-insert lookup. |
 | `device-tokens` table | DynamoDB | `userId → endpointArn` (+ platform, token, timestamps). PK `userId`, SK `endpointArn`. |
 | crops table **Stream** | DynamoDB Streams | `NEW_IMAGE`; emits a record per crop write. |
-| `DeviceTokenFunction` | Lambda (`POST /device-tokens`) | Registers a device: `SNS CreatePlatformEndpoint(token)` → store `endpointArn`. Buyer/Admin only. |
+| `DeviceTokenFunction` | Lambda (`POST /device-tokens`) | Registers a device: `SNS CreatePlatformEndpoint(token)` → store `endpointArn`. On a shared phone it takes over the endpoint from its previous user (FUP-121, section 4). Any role. |
 | `CropMatchStreamFunction` | Lambda (stream consumer) | On `INSERT` of an available crop: find candidate intents, score with `MatchScoring`, publish to each matching buyer's endpoint. |
 | SNS Platform Application | SNS (`wereda-connect-{env}-fcm`) | Holds FCM v1 credential; relays publishes to FCM. |
 | `SyncFunction` (extended) | Lambda | New `buyer_intent` entityType handler (create/update/delete) writing to `intents`. |
+| orders, deliveries, escrows table **Streams** | DynamoDB Streams | `NEW_AND_OLD_IMAGES` (ESC-21): the rules compare both images to tell what changed. Event-source filters: orders `MODIFY`, deliveries `INSERT`, escrows `MODIFY`. |
+| `notifications` table | DynamoDB | The inbox (ESC-21). PK `userId`, SK `{createdAt}#{type}#{entityId}`, TTL `expiresAt` (90 days). The conditional put on that key is the pipeline's idempotency record. |
+| `OrderNotifyStreamFunction` | Lambda (stream consumer, ESC-21) | One function on the three streams: `NotificationRules` derives one event per party (`notifications-api.md` section 3), the inbox row is put, the push text is rendered in the recipient's language and published to each of their endpoints. |
+| `NotificationFunction` | Lambda (`GET /notifications`, ESC-21) | The caller's inbox page, newest first, `since` and `nextToken` paging. Any role; scoped to the caller. |
+| `{prefix}-notify-dlq` | SQS (ESC-21) | Dead-letter queue of the three event-source mappings (section 6). |
 
 ## 4. Data flow
 
 **Registration**
 ```
 device → POST /device-tokens {token, platform}
-  → DeviceTokenFunction: SNS.CreatePlatformEndpoint(PlatformApplicationArn, token)
+  → DeviceTokenFunction: SNS.CreatePlatformEndpoint(PlatformApplicationArn, token, CustomUserData=userId)
+      (refused "already exists with the same Token, but different attributes" → use the ARN it names)
+  → SNS.GetEndpointAttributes(endpointArn)            # NotFound → create once more
+  → owner (CustomUserData) is another user?  delete device-tokens { owner, endpointArn } first
+  → not the caller's, disabled or another token?  SNS.SetEndpointAttributes(CustomUserData=userId, Token, Enabled=true)
   → put device-tokens { userId, endpointArn, platform, token, createdAt }
 ```
+
+FUP-121: a shared phone has one FCM token, so one endpoint. When a user's logout `DELETE
+/device-tokens` was skipped offline, the next user's registration finds the endpoint still
+naming them. The table has no index by token or endpoint, so `CustomUserData` is the only
+link back to the previous user's row; that is why the row is deleted before the endpoint is
+rebound. If that delete fails the call returns `500`, leaves `CustomUserData` alone (the next
+registration retries the claim) and disables the endpoint, so the previous user's pushes stop
+and their publishers prune the row (`push-alerts-api.md` 1.4.0, section 1).
 
 **Intent sync**
 ```
@@ -74,6 +91,28 @@ farmer lists crop → POST /sync → crops table PutItem
            look up buyer's endpointArns (device-tokens)
            SNS.Publish(endpointArn, {title, body, data:{intentId, cropId}})
 ```
+
+**Order, delivery and money notifications (ESC-21)**
+```
+sync / cron / webhook / admin writes an order, delivery or escrow row
+  → DynamoDB Stream (NEW_AND_OLD_IMAGES; orders MODIFY, deliveries INSERT, escrows MODIFY)
+  → OrderNotifyStreamFunction(record):
+       events = NotificationRules.Derive(OLD image, NEW image)   # 0..3, one per party, never the actor
+       for each event:
+         put notifications { userId, sortKey = createdAt#type#entityId, ... }   # conditional, once
+         if event.Push:
+           read the recipient's preferredLanguage and endpoints (users, device-tokens)
+           title/body = PushText.Render(type, params, language)
+           SNS.Publish(endpointArn, {notification:{title, body, tag:order-<orderId>},
+                                     data:{type:order, event, orderId, entityId, entity, notificationId}},
+                       AWS.SNS.MOBILE.FCM.TTL = seconds to the deadline (min 60) | 86400)
+
+device → GET /notifications?since=<cursor of the last pull>   # on open, resume and push
+  → NotificationFunction → query WrittenAtIndex PK = caller, writtenAt > since - 2 min,
+    newest write first (client dedupes by notificationId); response carries the next cursor
+```
+The inbox is the source of truth and web reads it alone (no push). Contract:
+`specs/contracts/notifications-api.md`.
 
 > **Numeric filtering caveat** (from research): DynamoDB stream event-source filters cannot
 > match numeric ranges (values are stringified). So the mapping filters only on
@@ -101,11 +140,24 @@ which this crop is an accepted substitute. The substitute map is symmetric in pr
 - The stream Lambda is idempotent-friendly: a failed publish to a stale endpoint disables
   that endpoint (SNS) and is logged; other endpoints/buyers are unaffected.
 - Stream retries are bounded by the event-source mapping; a poison record is sent to a DLQ
-  (to be configured) rather than blocking the shard.
+  rather than blocking the shard. For the ESC-21 mappings the DLQ is configured:
+  `{prefix}-notify-dlq` (SQS-managed encryption, 14 day retention). It receives the record's
+  shard and sequence metadata, not the images, so the runbook is to re-derive the event from
+  the current table state within the stream's 24 hour retention. The mappings retry three
+  times, bisect a failing batch on error and drop records older than one day (max record age).
+- The order notification pipeline is idempotent by construction: the inbox put is conditional
+  on `{createdAt}#{type}#{entityId}` (the stream record's time, stable across retries), and a
+  repeated push is collapsed on the device by its `tag`.
+- Three alarms on the monitoring topic: `NotifyDlqMessages` (anything in the queue),
+  `NotifyStreamIteratorAge` (the function is falling behind) and `NotifyStreamErrors`
+  (Lambda errors). The crop match and message mappings keep their earlier retry-only setup.
 
 ## 7. Security / privacy
 
-- `POST /device-tokens` requires JWT; the endpoint is created under the authenticated user.
+- `POST /device-tokens` requires JWT; the endpoint is created under the authenticated user,
+  and an endpoint still bound to a previous user of a shared phone is taken over (their row
+  deleted first, FUP-121). The device-token Lambda may read and set attributes on the
+  `{prefix}-fcm` endpoints only.
 - Intent rows are owned by `buyerId == sub`; the sync handler rejects mismatches (mirrors the
   crop/trip handlers).
 - Notification payload carries only `intentId` + `cropId` (no PII); the app fetches details
@@ -121,4 +173,4 @@ which this crop is an accepted substitute. The substitute map is symmetric in pr
 
 ---
 
-**Last Updated**: 2026-06-19
+**Last Updated**: 2026-11-06 (FUP-121 shared-phone endpoint takeover in sections 3, 4 and 7)

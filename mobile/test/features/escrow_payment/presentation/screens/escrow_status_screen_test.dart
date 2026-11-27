@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:wereda_connect/core/database/schemas/payment.dart';
+import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_bloc.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_event.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/bloc/escrow_state.dart';
@@ -11,6 +12,8 @@ import 'package:wereda_connect/features/escrow_payment/presentation/screens/escr
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_status_badge.dart';
 import 'package:wereda_connect/features/escrow_payment/presentation/widgets/escrow_timeline.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
 
 class MockEscrowBloc extends Mock implements EscrowBloc {}
 
@@ -64,13 +67,16 @@ void main() {
     escrowBloc = MockEscrowBloc();
   });
 
-  Widget buildScreen({String escrowId = 'esc-001'}) {
+  Widget buildScreen({
+    String escrowId = 'esc-001',
+    Locale locale = const Locale('en'),
+  }) {
     return BlocProvider<EscrowBloc>.value(
       value: escrowBloc,
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('en'),
+        locale: locale,
         home: EscrowStatusScreen(escrowId: escrowId),
       ),
     );
@@ -126,6 +132,52 @@ void main() {
       expect(find.byType(EscrowTimeline), findsOneWidget);
     });
 
+    for (final role in UserRole.values) {
+      testWidgets(
+          '${role.name}: the summary is the raised card, the amount in the '
+          'role colour, a 32 px title and no app bar', (tester) async {
+        when(() => escrowBloc.state)
+            .thenReturn(EscrowDetailLoaded(payment: _makePayment()));
+        when(() => escrowBloc.stream)
+            .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+        await tester.pumpWidget(
+          BlocProvider<EscrowBloc>.value(
+            value: escrowBloc,
+            child: MaterialApp(
+              theme: AppTheme.light(role: role),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: const EscrowStatusScreen(escrowId: 'esc-001'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AppBar), findsNothing);
+        expect(
+          tester.widget<Text>(find.text('Payment Status')).style?.fontSize,
+          32,
+        );
+        final card = tester.widget<FwCard>(
+          find.byKey(const Key('escrow_summary_card')),
+        );
+        expect(card.raised, isTrue);
+        final amount = tester.widget<Text>(
+          find.byKey(const Key('escrow_summary_amount')),
+        );
+        expect(amount.style?.color, RoleColors.forRole(role).primary);
+        // The status pill sits inside the summary card.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('escrow_summary_card')),
+            matching: find.byType(EscrowStatusBadge),
+          ),
+          findsOneWidget,
+        );
+      });
+    }
+
     testWidgets('shows amount breakdown', (WidgetTester tester) async {
       final payment = _makePayment();
       when(() => escrowBloc.state)
@@ -136,9 +188,32 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('15,000.00'), findsWidgets);
-      expect(find.textContaining('375.00'), findsOneWidget);
-      expect(find.textContaining('14,625.00'), findsOneWidget);
+      expect(find.textContaining('15,000 ETB'), findsWidgets);
+      expect(find.textContaining('375 ETB'), findsOneWidget);
+      expect(find.textContaining('14,625 ETB'), findsOneWidget);
+    });
+
+    testWidgets('the commission label carries no hard-coded rate (SIM-30)',
+        (WidgetTester tester) async {
+      // An order escrow: 5 % of a 3228.30 crop cost on top, plus transport.
+      final payment = _makePayment(
+        amount: 3824.16,
+        commission: 161.42,
+        farmerPayout: 3228.30,
+        truckerPayout: 434.44,
+      );
+      when(() => escrowBloc.state)
+          .thenReturn(EscrowDetailLoaded(payment: payment));
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Platform Commission'), findsOneWidget);
+      expect(find.textContaining('161.42 ETB'), findsOneWidget);
+      expect(find.textContaining('2.5'), findsNothing);
+      expect(find.textContaining('%)'), findsNothing);
     });
 
     testWidgets('shows the trucker leg when the order had a trucker split',
@@ -154,8 +229,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Trucker Receives'), findsOneWidget);
-      expect(find.textContaining('1,000.00'), findsOneWidget);
-      expect(find.textContaining('14,625.00'), findsOneWidget);
+      expect(find.textContaining('1,000 ETB'), findsOneWidget);
+      expect(find.textContaining('14,625 ETB'), findsOneWidget);
     });
 
     testWidgets('hides the trucker leg without a trucker split',
@@ -291,6 +366,40 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('TLB-REF-123456'), findsOneWidget);
+    });
+
+    // LT-03: the payment expiry is a deadline. 10:20 UTC is 13:20 in
+    // Ethiopia, 7:20 in the day on the Ethiopian clock.
+    testWidgets(
+        'Amharic shows the expiry on the Ethiopian clock, 24-hour small',
+        (WidgetTester tester) async {
+      final payment = _makePayment()
+        ..expiresAt = DateTime.utc(2026, 10, 28, 10, 20);
+      when(() => escrowBloc.state)
+          .thenReturn(EscrowDetailLoaded(payment: payment));
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen(locale: const Locale('am')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('ከቀኑ 7:20 (13:20)'), findsOneWidget);
+    });
+
+    testWidgets('English shows the expiry on the 24-hour clock, no companion',
+        (WidgetTester tester) async {
+      final payment = _makePayment()
+        ..expiresAt = DateTime.utc(2026, 10, 28, 10, 20);
+      when(() => escrowBloc.state)
+          .thenReturn(EscrowDetailLoaded(payment: payment));
+      when(() => escrowBloc.stream)
+          .thenAnswer((_) => const Stream<EscrowState>.empty());
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Oct 28, 2026 13:20'), findsOneWidget);
+      expect(find.textContaining('(13:20)'), findsNothing);
     });
 
     testWidgets('dispatches LoadEscrowDetail on init',

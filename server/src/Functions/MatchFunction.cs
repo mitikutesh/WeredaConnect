@@ -34,11 +34,29 @@ namespace WeredaConnect.Server.Functions;
 /// - 403: MATCH_FORBIDDEN — caller is not a buyer or admin
 /// - 500: MATCH_SERVER_ERROR — unexpected server failure
 ///
+/// SIM-56: the same Lambda answers GET /intents, the buyer's own requests
+/// (MatchFunction.Intents.cs, push-alerts-api.md 1.5.0).
+///
 /// See: specs/contracts/match-api.md
 /// </summary>
-public class MatchFunction
+public partial class MatchFunction
 {
     private readonly ICropRepository _cropRepo;
+
+    /// <summary>
+    /// SIM-56: the intents table for GET /intents. Null when <c>INTENTS_TABLE</c> is not set
+    /// (the route then answers 503 INTENT_UNAVAILABLE); matching never reads it.
+    /// </summary>
+    private readonly IIntentRepository? _intentRepo;
+
+    /// <summary>
+    /// ESC-29 (reputation-api.md 8.3), <c>reputationPenalties</c>: a buyer's read leaves out rows
+    /// whose owner is restricted. Off by default.
+    /// </summary>
+    internal bool HideRestrictedOwners { get; init; } = ReputationFlags.PenaltiesEnabled;
+
+    /// <summary>ESC-29 (reputation-api.md section 7), <c>reputationPublicTags</c>: the owner fields are returned. Off by default.</summary>
+    internal bool ReputationPublicTags { get; init; } = ReputationFlags.PublicTagsEnabled;
 
     /// <summary>Candidates fetched per page from each crop type before scoring.</summary>
     private const int CandidateLimitPerType = 100;
@@ -61,12 +79,16 @@ public class MatchFunction
 
         var dynamoDb = new AmazonDynamoDBClient();
         _cropRepo = new CropRepository(dynamoDb, cropsTable);
+
+        var intentsTable = Environment.GetEnvironmentVariable("INTENTS_TABLE");
+        _intentRepo = string.IsNullOrEmpty(intentsTable) ? null : new IntentRepository(dynamoDb, intentsTable);
     }
 
-    /// <summary>Constructor for testing with a mocked repository.</summary>
-    public MatchFunction(ICropRepository cropRepo)
+    /// <summary>Constructor for testing with mocked repositories.</summary>
+    public MatchFunction(ICropRepository cropRepo, IIntentRepository? intentRepo = null)
     {
         _cropRepo = cropRepo ?? throw new ArgumentNullException(nameof(cropRepo));
+        _intentRepo = intentRepo;
     }
 
     public async Task<APIGatewayProxyResponse> FunctionHandler(
@@ -74,6 +96,13 @@ public class MatchFunction
         ILambdaContext context)
     {
         context.Logger.LogInformation($"MatchFunction invoked: {request.HttpMethod} {request.Path}");
+
+        if (IsIntentsRoute(request))
+        {
+            return request.HttpMethod == "GET"
+                ? await HandleListIntentsAsync(request, context)
+                : LambdaResponse.Error(405, "INTENT_VALIDATION", "Method not allowed.");
+        }
 
         return request.HttpMethod switch
         {
@@ -141,6 +170,7 @@ public class MatchFunction
             // substitutes). De-dupe by cropId across types.
             var seen = new HashSet<string>();
             var scored = new List<MatchDto>();
+            var hideRestricted = HideRestrictedOwners && string.Equals(role, "buyer", StringComparison.OrdinalIgnoreCase);
 
             // Push the price ceiling (budget + near-miss band) into the GSI
             // query: over-budget crops are skipped before the full-item fetch
@@ -177,7 +207,14 @@ public class MatchFunction
                             continue;
                         }
 
-                        var candidate = ToCandidate(item, criteria.NowUtc);
+                        // ESC-29 (reputation-api.md 8.3): a restricted farmer's listing is no
+                        // candidate for a buyer.
+                        if (hideRestricted && OwnerReputationView.IsRestrictedOwner(item))
+                        {
+                            continue;
+                        }
+
+                        var candidate = ToCandidate(item, criteria.NowUtc, ReputationPublicTags);
                         if (!MatchScoring.IsCandidate(criteria, candidate))
                         {
                             continue;
@@ -185,7 +222,7 @@ public class MatchFunction
 
                         var score = MatchScoring.ScoreListing(criteria, candidate);
                         scored.Add(ToMatchDto(item, candidate, score,
-                            MatchScoring.IsSubstitute(cropType, candidate.CropType)));
+                            MatchScoring.IsSubstitute(cropType, candidate.CropType), ReputationPublicTags));
                     }
 
                     startKey = lastKey;
@@ -228,7 +265,12 @@ public class MatchFunction
         }
     }
 
-    private static CropCandidate ToCandidate(Dictionary<string, object> item, DateTime nowUtc)
+    /// <summary>
+    /// ESC-30: the reliability the score uses is the one the caller is shown (the owner fields
+    /// through <see cref="OwnerReputationView"/>), so with <c>reputationPublicTags</c> off the
+    /// score is the neutral one and the server ranks exactly as the client does from its rows.
+    /// </summary>
+    private static CropCandidate ToCandidate(Dictionary<string, object> item, DateTime nowUtc, bool publicTags)
     {
         return new CropCandidate
         {
@@ -239,15 +281,21 @@ public class MatchFunction
             Latitude = GetDouble(item, "latitude"),
             Longitude = GetDouble(item, "longitude"),
             CreatedAt = ParseDate(GetStringOrNull(item, "createdAt"), nowUtc),
-            FarmerReliability = GetDouble(item, "farmerReliability"),
+            OwnerReliabilityPct = OwnerReputationView.Of(item, publicTags).ReliabilityPct,
         };
     }
 
     private static MatchDto ToMatchDto(
-        Dictionary<string, object> item, CropCandidate candidate, double score, bool isSubstitute)
+        Dictionary<string, object> item, CropCandidate candidate, double score, bool isSubstitute, bool publicTags)
     {
+        var owner = OwnerReputationView.Of(item, publicTags);
         return new MatchDto
         {
+            OwnerTier = owner.Tier,
+            OwnerEffectiveRating = owner.EffectiveRating,
+            OwnerRatingCount = owner.RatingCount,
+            OwnerReliabilityPct = owner.ReliabilityPct,
+            OwnerReputationAt = owner.At,
             CropId = GetString(item, "cropId"),
             FarmerId = GetString(item, "farmerId"),
             FarmerName = GetStringOrNull(item, "farmerName"),
@@ -261,7 +309,7 @@ public class MatchFunction
             Longitude = candidate.Longitude,
             Score = score,
             IsSubstitute = isSubstitute,
-            FarmerReliability = candidate.FarmerReliability,
+            FarmerReliability = GetDouble(item, "farmerReliability"),
         };
     }
 

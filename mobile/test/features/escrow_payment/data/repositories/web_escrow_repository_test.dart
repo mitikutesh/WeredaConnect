@@ -74,6 +74,45 @@ void main() {
       expect(result.isRefundPending, isTrue);
     });
 
+    test(
+        'a confirmed hold past its expiry is not a refund, on the detail and '
+        'on the history rows (FUP-97)', () async {
+      // escrowDto's expiresAt (2026-02-26) has passed.
+      final confirmed = {
+        ...escrowDto(),
+        'deliveryConfirmedAt': '2026-02-25T10:00:00Z',
+        'refundPending': false,
+      };
+      when(
+        () => api.get<Map<String, dynamic>>('/escrow/by-delivery/del-001'),
+      ).thenAnswer((_) async => confirmed);
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/escrow/history',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'escrows': [
+            confirmed,
+            // Unconfirmed and past its expiry: the sweep refunds it.
+            {...escrowDto(), 'escrowId': 'esc-002'},
+          ],
+          'hasMore': false,
+        },
+      );
+
+      final detail = await repo.getEscrowByDelivery('del-001');
+      final rows = await repo.refreshHistory(userId: 'buyer-001');
+
+      expect(detail!.deliveryConfirmedAt, DateTime.utc(2026, 2, 25, 10));
+      expect(detail.isRefundPending, isFalse);
+      expect(rows[0].deliveryConfirmedAt, DateTime.utc(2026, 2, 25, 10));
+      expect(rows[0].isRefundPending, isFalse);
+      expect(rows[1].deliveryConfirmedAt, isNull);
+      expect(rows[1].isRefundPending, isTrue);
+    });
+
     test('derives the farmer leg for history rows from older servers',
         () async {
       final legacy = escrowDto()..remove('farmerPayout');
@@ -101,6 +140,48 @@ void main() {
       expect(rows[0].farmerPayout, 15000.0 - 375.0);
       expect(rows[1].farmerPayout, 15000.0 - 375.0 - 1000.0);
       expect(rows[1].truckerPayout, 1000.0);
+    });
+  });
+
+  group('WebEscrowRepository commissionRate (FUP-129)', () {
+    Map<String, dynamic> orderEscrow() => {
+          ...escrowDto(),
+          // 10,000 crop + 4,500 transport + 500 commission.
+          'orderId': 'ord-1',
+          'commission': 500.0,
+          'farmerPayout': 10000.0,
+          'truckerPayout': 4500.0,
+        };
+
+    test('reads the server rate as sent', () async {
+      when(
+        () => api.get<Map<String, dynamic>>('/escrow/by-delivery/del-001'),
+      ).thenAnswer((_) async => {...orderEscrow(), 'commissionRate': 0.04});
+
+      final result = await repo.getEscrowByDelivery('del-001');
+
+      expect(result!.commissionRate, 0.04);
+    });
+
+    test('without a rate an order row is derived on the crop leg', () async {
+      when(
+        () => api.get<Map<String, dynamic>>('/escrow/by-delivery/del-001'),
+      ).thenAnswer((_) async => orderEscrow());
+
+      final result = await repo.getEscrowByDelivery('del-001');
+
+      expect(result!.commissionRate, 0.05);
+    });
+
+    test('without a rate a legacy delivery row is derived on the amount',
+        () async {
+      when(
+        () => api.get<Map<String, dynamic>>('/escrow/by-delivery/del-001'),
+      ).thenAnswer((_) async => escrowDto());
+
+      final result = await repo.getEscrowByDelivery('del-001');
+
+      expect(result!.commissionRate, 0.025);
     });
   });
 

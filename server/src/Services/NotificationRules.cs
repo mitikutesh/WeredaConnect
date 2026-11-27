@@ -1,0 +1,1047 @@
+using System.Globalization;
+using WeredaConnect.Server.Data;
+using WeredaConnect.Server.Helpers;
+using static WeredaConnect.Server.Services.OrderCommitment;
+
+namespace WeredaConnect.Server.Services;
+
+/// <summary>
+/// ESC-21: which party is told what when an order, delivery or escrow row changes, as pure
+/// decisions on the stream record's old and new images (notifications-api.md section 3 is the
+/// source of truth). The stream function writes the inbox rows and sends the pushes; nothing here
+/// reads a table or the clock, so every row of the event matrix is table-tested.
+///
+/// Rules that hold for every record:
+/// - the party whose own action caused the change is never told (the farmer's decline, the
+///   buyer's cancel, the disputer's own dispute is an inbox-only receipt);
+/// - one event per party per record: the first rule that names a party wins, so a write that moves
+///   several things at once tells each party the strongest one;
+/// - params are plain text and never a phone number: names, crop code, quantity, amounts, ISO
+///   deadlines and server reason codes (a client's free text never becomes a <c>reason</c>).
+/// </summary>
+public static class NotificationRules
+{
+    public const string OrdersTable = "orders";
+    public const string DeliveriesTable = "deliveries";
+    public const string EscrowsTable = "escrows";
+
+    /// <summary>ESC-28: the reputation-events table (penalty and tier rows, reputation-architecture.md section 9).</summary>
+    public const string ReputationTable = "reputation";
+
+    public const string InsertEvent = "INSERT";
+    public const string ModifyEvent = "MODIFY";
+
+    public const string OrderEntity = "order";
+    public const string DeliveryEntity = "delivery";
+    public const string EscrowEntity = "escrow";
+    public const string ReputationEntity = "reputation";
+
+    /// <summary>The buyer's window to report a problem after delivery, before the escrow auto-releases.</summary>
+    public static readonly TimeSpan DisputeWindow = TimeSpan.FromHours(48);
+
+    /// <summary>Order statuses in which the buyer's money is held, so a cancel from one refunds it.</summary>
+    private static readonly HashSet<string> PaidStatuses = new(StringComparer.Ordinal)
+    {
+        "funded", AwaitingTransportStatus, "accepted", "pickup_confirmed", "in_transit"
+    };
+
+    /// <summary>Order statuses before any money moved.</summary>
+    private static readonly HashSet<string> UnpaidStatuses = new(StringComparer.Ordinal)
+    {
+        "created", "pending_payment"
+    };
+
+    /// <summary>The <c>cancelReason</c> the unpaid-order cron writes (as a code, or the legacy sentence below).</summary>
+    public const string UnpaidExpiredReason = "unpaid_expired";
+
+    public const string FarmerResponseExpiredReason = "farmer_response_expired";
+
+    /// <summary>Server cancel codes that name the buyer or the farmer as the one who cancelled.</summary>
+    private static readonly Dictionary<string, string> CancelReasonActors = new(StringComparer.Ordinal)
+    {
+        { PickupDeadline.CancelReason, Party.Buyer },
+        { "buyer_withdrew", Party.Buyer },
+        { "farmer_cancelled", Party.Farmer }
+    };
+
+    private static readonly IReadOnlyList<NotificationEvent> NoEvents = Array.Empty<NotificationEvent>();
+
+    /// <summary>
+    /// The events one stream record produces. <paramref name="table"/> is <c>orders</c>,
+    /// <c>deliveries</c> or <c>escrows</c>; <paramref name="eventName"/> the record's
+    /// <c>INSERT</c>, <c>MODIFY</c> or <c>REMOVE</c>. Orders and escrows speak on <c>MODIFY</c>
+    /// (both images needed), deliveries on <c>INSERT</c> and, for the <c>nearbyNotifiedAt</c> stamp
+    /// (LT-07), on <c>MODIFY</c>; everything else is empty.
+    /// </summary>
+    public static IReadOnlyList<NotificationEvent> Derive(
+        string table, string eventName, StreamImage oldImage, StreamImage newImage, DateTime recordTimeUtc)
+        => Derive(table, eventName, oldImage, newImage, recordTimeUtc, static () => OrderTimings.Current);
+
+    /// <summary>
+    /// <see cref="Derive(string, string, StreamImage, StreamImage, DateTime)"/> with the order timings given: FUP-338's
+    /// T9 (the drop-off check-in's receipt plus <c>silent-buyer-hours</c>) is computed with them, by the same rule the
+    /// order cron judges by (<see cref="DropoffJudgement.SilentBuyerDeadline"/>). They are asked for only when a T9 is
+    /// needed, so a batch without a drop-off event never reads them.
+    /// </summary>
+    public static IReadOnlyList<NotificationEvent> Derive(
+        string table, string eventName, StreamImage oldImage, StreamImage newImage, DateTime recordTimeUtc,
+        Func<OrderTimings> timings)
+    {
+        return table switch
+        {
+            OrdersTable when eventName == ModifyEvent && oldImage.Exists && newImage.Exists
+                => DeriveOrder(oldImage, newImage, recordTimeUtc, timings),
+            DeliveriesTable when eventName == InsertEvent && newImage.Exists
+                => DeriveDelivery(newImage),
+            DeliveriesTable when eventName == ModifyEvent && oldImage.Exists && newImage.Exists
+                => DeriveDeliveryMarkers(oldImage, newImage),
+            EscrowsTable when eventName == ModifyEvent && oldImage.Exists && newImage.Exists
+                => DeriveEscrow(oldImage, newImage),
+            ReputationTable when eventName == InsertEvent && newImage.Exists
+                => DeriveReputation(newImage),
+            _ => NoEvents
+        };
+    }
+
+    // ===== reputation (ESC-28) =====
+
+    /// <summary>
+    /// A reputation-events row was inserted: a penalty with points above 0 tells its party
+    /// <c>penalty_recorded</c>; a <c>TIER_CHANGED</c> row tells them <c>tier_changed</c>. Every other
+    /// row (a zero-point penalty, a completion, a restriction, an override, a heal marker) is silent;
+    /// the stream filter already drops most of them. Only the party is told, never a buyer, and
+    /// there is no order to open: the tap opens My reputation.
+    /// </summary>
+    private static IReadOnlyList<NotificationEvent> DeriveReputation(StreamImage row)
+    {
+        var userId = row.String("userId");
+        var eventId = row.String("eventId");
+        var code = row.String("code");
+        if (userId.Length == 0 || eventId.Length == 0)
+        {
+            return NoEvents;
+        }
+
+        var p = new Dictionary<string, string>();
+        if (Models.ReputationCodes.Penalties.Contains(code))
+        {
+            var points = row.Number("points") ?? 0;
+            if (points <= 0)
+            {
+                return NoEvents;
+            }
+
+            Put(p, NotificationParams.EventId, eventId);
+            Put(p, NotificationParams.Code, code);
+            Put(p, NotificationParams.Points, ((int)points).ToString(CultureInfo.InvariantCulture));
+            if (row.Number("activePointsAfter") is { } active)
+            {
+                Put(p, NotificationParams.ActivePoints, ((int)active).ToString(CultureInfo.InvariantCulture));
+            }
+
+            return new[] { new NotificationEvent(userId, NotificationTypes.PenaltyRecorded, ReputationEntity, eventId, null, p) };
+        }
+
+        if (code == Models.ReputationCodes.TierChanged)
+        {
+            var toTier = row.String("toTier");
+            Put(p, NotificationParams.FromTier, row.String("fromTier"));
+            Put(p, NotificationParams.ToTier, toTier);
+            if (toTier == Models.ReputationTiers.Restricted)
+            {
+                Put(p, NotificationParams.RestrictedUntil, row.String("restrictedUntil"));
+            }
+
+            return new[] { new NotificationEvent(userId, NotificationTypes.TierChanged, ReputationEntity, eventId, null, p) };
+        }
+
+        return NoEvents;
+    }
+
+    // ===== orders =====
+
+    /// <summary>
+    /// An order row changed: one status move (the strongest row of the matrix), the farmer's
+    /// accept that keeps a trip order <c>funded</c> and asks the trucker, the cron's reminder
+    /// and pickup-overdue markers, and the check-ins with their reminders (FUP-286, FUP-338).
+    /// </summary>
+    private static IReadOnlyList<NotificationEvent> DeriveOrder(
+        StreamImage old, StreamImage row, DateTime recordTimeUtc, Func<OrderTimings> timings)
+    {
+        var orderId = row.String("orderId");
+        if (orderId.Length == 0)
+        {
+            return NoEvents;
+        }
+
+        var events = new EventSet(OrderEntity, orderId, orderId, OrderParams(row), PayeeLegs(row));
+        var from = old.String("status");
+        var to = row.String("status");
+
+        if (from != to)
+        {
+            OrderStatusChanged(events, old, row, from, to, recordTimeUtc);
+        }
+        else if (to == "funded")
+        {
+            FarmerAccepted(events, old, row);
+        }
+        else if (UnpaidStatuses.Contains(to))
+        {
+            CommissionChanged(events, old, row);
+        }
+
+        OrderMarkers(events, old, row);
+        PickupCheckIns(events, old, row);
+        DropoffCheckIn(events, old, row, timings);
+        return events.Events;
+    }
+
+    private static void OrderStatusChanged(
+        EventSet events, StreamImage old, StreamImage row, string from, string to, DateTime recordTimeUtc)
+    {
+        var buyer = row.String("buyerId");
+        var farmer = row.String("farmerId");
+        var trucker = row.String("truckerId");
+
+        switch (to)
+        {
+            case "funded":
+                events.Add(buyer, NotificationTypes.PaymentConfirmed);
+                events.AddWithDeadline(farmer, NotificationTypes.OrderRequest, row, FarmerDeadlineAtField);
+                break;
+
+            case "accepted":
+                {
+                    // Everyone committed. The party whose accept completed it is not told: the
+                    // trucker on a trip order, else the farmer (self-pickup, or the farmer-only
+                    // accept with the flag off). The trucker of a trip order hears it once their
+                    // answer is in (a legacy trip row without the field counts as accepted, spec K2).
+                    var actor = BecameValue(old, row, TruckerResponseField, Response.Accepted) ? trucker : farmer;
+                    var pickup = row.String(PickupDateField) is { Length: > 0 } date ? date : row.String("pickupDeadlineAt");
+                    var confirmed = Params((NotificationParams.PickupDate, pickup));
+                    events.Add(buyer, NotificationTypes.OrderConfirmed, confirmed);
+                    if (farmer != actor)
+                    {
+                        events.Add(farmer, NotificationTypes.OrderConfirmed, confirmed);
+                    }
+
+                    if (trucker != actor && TruckerResponse(row, to) == Response.Accepted)
+                    {
+                        events.Add(trucker, NotificationTypes.OrderConfirmed, confirmed);
+                    }
+
+                    break;
+                }
+
+            case "rejected":
+                {
+                    var decline = row.String(DeclineReasonField);
+                    events.Add(buyer, NotificationTypes.OrderRejected,
+                        Params((NotificationParams.Reason, DeclineReasons.Contains(decline) ? decline : null)));
+                    break;
+                }
+
+            case AwaitingTransportStatus:
+                {
+                    var failure = Params((NotificationParams.Reason, row.String(TransportFailureField)));
+                    events.AddWithDeadline(buyer, NotificationTypes.TransportFailed, row, BuyerChoiceDeadlineAtField, failure);
+                    var farmerResponse = row.String(FarmerResponseField);
+                    if (farmerResponse == Response.Accepted)
+                    {
+                        events.Add(farmer, NotificationTypes.TransportFailedKeepCrops, failure);
+                    }
+                    else if (farmerResponse is "" or Response.Pending)
+                    {
+                        // The trip was full or gone right after funding (a second write): the
+                        // farmer's order_request can no longer be answered, so close it.
+                        events.Add(farmer, NotificationTypes.RequestOnHold, failure);
+                    }
+
+                    if (row.String(TruckerResponseField) == Response.Expired)
+                    {
+                        events.Add(trucker, NotificationTypes.RequestExpired, failure);
+                    }
+
+                    break;
+                }
+
+            case "cancelled":
+                OrderCancelled(events, row, from);
+                break;
+
+            case "payment_failed":
+                events.Add(buyer, NotificationTypes.PaymentFailed);
+                break;
+
+            case "pickup_confirmed":
+                events.Add(buyer, NotificationTypes.PickedUp);
+                events.Add(farmer, NotificationTypes.HandoffRecorded);
+                break;
+
+            case "in_transit":
+                events.Add(buyer, NotificationTypes.InTransit);
+                break;
+
+            case "delivered":
+                {
+                    // The one exception to "the actor is never told": the entry opens the buyer's own
+                    // 48 hour window to report a problem. FUP-338: a delivery the order cron confirmed for a
+                    // silent buyer (T9) says so to the buyer and the farmer (reason auto_confirmed).
+                    var autoConfirmed = BecameValue(old, row, DropoffJudgement.Field, DropoffJudgement.Outcome.AutoConfirmed)
+                        ? DropoffJudgement.Outcome.AutoConfirmed
+                        : null;
+                    var windowEnd = recordTimeUtc + DisputeWindow;
+                    events.Add(buyer, NotificationTypes.Delivered,
+                        Params((NotificationParams.DeadlineAt, Iso(windowEnd)), (NotificationParams.Reason, autoConfirmed)),
+                        deadlineUtc: windowEnd);
+                    var farmerLeg = FarmerLeg(row);
+                    farmerLeg[NotificationParams.Reason] = autoConfirmed;
+                    events.Add(farmer, NotificationTypes.DeliveredPayoutPending, farmerLeg);
+                    if (TruckerResponse(row, to) == Response.Accepted)
+                    {
+                        events.Add(trucker, NotificationTypes.DeliveredPayoutPending, TruckerLeg(row));
+                    }
+
+                    break;
+                }
+
+            case "disputed":
+                {
+                    // FUP-338: the order cron's own drop-off dispute (T8 delivery_overdue, T9 silent_buyer, or T8 with
+                    // the trucker's out-of-range attempt) tells all three parties why, in the write that stamps the
+                    // judgement. Its escrow row stays silent (DeriveEscrow); every other dispute is told from the escrow.
+                    var judged = row.String(DropoffJudgement.Field);
+                    if (judged is DropoffJudgement.OverdueReason or DropoffJudgement.SilentBuyerReason or DropoffJudgement.OutOfRangeReason
+                        && old.String(DropoffJudgement.Field) != judged)
+                    {
+                        var why = Params((NotificationParams.Reason, judged));
+                        events.Add(buyer, NotificationTypes.DisputeOpened, why);
+                        events.Add(farmer, NotificationTypes.DisputeOpened, why);
+                        events.Add(trucker, NotificationTypes.DisputeOpened, why);
+                    }
+
+                    break;
+                }
+
+            // disbursing tells nobody, and settled only the buyer: the payees hear from the escrow,
+            // which moves the money (released, completed, the manual queue, a payout block), so one
+            // payout is announced once and never out of order across the two streams.
+            case "settled":
+                events.Add(buyer, NotificationTypes.OrderSettled);
+                break;
+
+                // dispute_resolved, and every dispute but the drop-off judgement's: the escrow row carries
+                // them (DeriveEscrow).
+        }
+    }
+
+    /// <summary>
+    /// The farmer accepted a trip order: the order stays <c>funded</c>, the buyer hears the farmer
+    /// said yes and the trucker is asked. The farmer, who acted, hears nothing.
+    /// </summary>
+    private static void FarmerAccepted(EventSet events, StreamImage old, StreamImage row)
+    {
+        if (!BecameValue(old, row, FarmerResponseField, Response.Accepted))
+        {
+            return;
+        }
+
+        events.Add(row.String("buyerId"), NotificationTypes.FarmerAccepted);
+        if (BecameValue(old, row, TruckerResponseField, Response.Pending))
+        {
+            events.AddWithDeadline(row.String("truckerId"), NotificationTypes.TransportRequest, row, TruckerDeadlineAtField);
+        }
+    }
+
+    /// <summary>
+    /// An order cancelled. The buyer of an unpaid order hears only that the cron closed it; on a
+    /// paid order every party who did not cancel hears it, the farmer who let the request lapse
+    /// that it expired, and the trucker only once asked or committed.
+    /// </summary>
+    private static void OrderCancelled(EventSet events, StreamImage row, string from)
+    {
+        var reason = row.String("cancelReason");
+        var unpaidExpiry = UnpaidStatuses.Contains(from)
+                           && (reason == UnpaidExpiredReason
+                               || reason.StartsWith(LegacyAutoCancelPrefix, StringComparison.Ordinal));
+        var by = CancelledByOf(row, reason, unpaidExpiry);
+        var paid = PaidStatuses.Contains(from);
+        var cancel = Params(
+            (NotificationParams.Reason, unpaidExpiry ? UnpaidExpiredReason : CancelReasonCode(reason)),
+            (NotificationParams.CancelledBy, by));
+
+        var buyer = row.String("buyerId");
+        if (unpaidExpiry)
+        {
+            events.Add(buyer, NotificationTypes.OrderExpiredUnpaid, cancel);
+        }
+        else if (paid && by != Party.Buyer)
+        {
+            events.Add(buyer, NotificationTypes.OrderCancelled, cancel);
+        }
+
+        if (!paid)
+        {
+            return;
+        }
+
+        var farmer = row.String("farmerId");
+        if (reason == FarmerResponseExpiredReason)
+        {
+            events.Add(farmer, NotificationTypes.RequestExpired, cancel);
+        }
+        else if (by != Party.Farmer)
+        {
+            events.Add(farmer, NotificationTypes.OrderCancelled, cancel);
+        }
+
+        if (TruckerResponse(row, from) is Response.Pending or Response.Accepted && by != Party.Trucker)
+        {
+            events.Add(row.String("truckerId"), NotificationTypes.OrderCancelled, cancel);
+        }
+    }
+
+    /// <summary>
+    /// Order-lifecycle 2.26.0: an admin agreed another commission on an unpaid order (the status stays). Only the
+    /// buyer is told, since only the buyer's total moves: the farmer's crop cost and the trucker's transport cost stay.
+    /// The order create writes the rate once and the sync strips it from clients, so a rate that moved on an unpaid
+    /// order is always the admin's change.
+    /// </summary>
+    private static void CommissionChanged(EventSet events, StreamImage old, StreamImage row)
+    {
+        var before = old.Number("commissionRate");
+        var after = row.Number("commissionRate");
+        if (before == null || after == null || before == after)
+        {
+            return;
+        }
+
+        events.Add(row.String("buyerId"), NotificationTypes.OrderCommissionChanged, Params(
+            (NotificationParams.CommissionRate, after.Value >= 0 ? after.Value.ToString("0.####", CultureInfo.InvariantCulture) : null),
+            (NotificationParams.OrderTotal, Money(row.Number("orderTotal"))),
+            (NotificationParams.OrderTotalBefore, Money(old.Number("orderTotal")))));
+    }
+
+    /// <summary>
+    /// The cron's markers: a reminder 6 hours before a party's answer is due, and the pickup that
+    /// did not happen by <c>pickupDeadlineAt</c>. Each fires once, when the attribute appears.
+    /// </summary>
+    private static void OrderMarkers(EventSet events, StreamImage old, StreamImage row)
+    {
+        if (Appeared(old, row, FarmerReminderAtField))
+        {
+            events.AddWithDeadline(row.String("farmerId"), NotificationTypes.RequestReminder, row, FarmerDeadlineAtField);
+        }
+
+        if (Appeared(old, row, TruckerReminderAtField))
+        {
+            events.AddWithDeadline(row.String("truckerId"), NotificationTypes.RequestReminder, row, TruckerDeadlineAtField);
+        }
+
+        if (Appeared(old, row, BuyerChoiceReminderAtField))
+        {
+            events.AddWithDeadline(row.String("buyerId"), NotificationTypes.RequestReminder, row, BuyerChoiceDeadlineAtField);
+        }
+
+        if (Appeared(old, row, PickupOverdueNotifiedAtField))
+        {
+            // FUP-286: the pickup judgement (ESC-34) stamps the notice in the write that records its outcome. A
+            // pickup judged scanned tells nobody (the crops left the farm); any other outcome is the reason, so the
+            // text says what was found. A no-show's status move above already told the parties it names, so here
+            // only the trucker judged absent (pickup_missed) or, for an outcome an admin decides, all three.
+            var judged = JudgedPickupOutcome(old, row);
+            if (judged == PickupJudgement.Outcome.Scanned)
+            {
+                return;
+            }
+
+            var reason = Params((NotificationParams.Reason, judged));
+            events.Add(row.String("buyerId"), NotificationTypes.PickupOverdue, reason);
+            events.Add(row.String("farmerId"), NotificationTypes.PickupMissed, reason);
+            events.Add(row.String("truckerId"), NotificationTypes.PickupMissed, reason);
+        }
+    }
+
+    /// <summary>The pickup judgement's outcome when this write recorded it (not <c>pending</c>), else null.</summary>
+    private static string? JudgedPickupOutcome(StreamImage old, StreamImage row)
+    {
+        var judged = row.String(PickupJudgement.Field);
+        return judged.Length > 0 && judged != PickupJudgement.Outcome.Pending && judged != old.String(PickupJudgement.Field)
+            ? judged
+            : null;
+    }
+
+    // ===== orders: the check-ins (FUP-286, FUP-338) =====
+
+    /// <summary>
+    /// FUP-286 (ESC-34, spec 4.12): the arrival check-ins of the pickup. A check-in received before the deadline
+    /// tells the counterpart: the trucker's (or a self-pickup buyer's) "I have arrived" tells the farmer, the
+    /// farmer's "Crops are ready" tells the one who collects. A late one (evidence only) tells nobody. The cron's
+    /// reminder marker tells each party who has not checked in yet, until <c>pickupDeadlineAt</c>. Each entry and
+    /// the marker are written once (conditionally), so each is told once.
+    /// </summary>
+    private static void PickupCheckIns(EventSet events, StreamImage old, StreamImage row)
+    {
+        var selfPickup = PickupJudgement.IsSelfPickup(row.String(FulfillmentField), row.String("tripId"), row.String("truckerId"));
+        var farmer = row.String("farmerId");
+        var collector = selfPickup ? row.String("buyerId") : row.String("truckerId");
+
+        if (CheckInArrived(old, row, PickupJudgement.Kind.ArrivedPickup))
+        {
+            events.Add(farmer, selfPickup ? NotificationTypes.BuyerArrived : NotificationTypes.TruckerArrived);
+        }
+
+        if (CheckInArrived(old, row, PickupJudgement.Kind.CropsReady))
+        {
+            events.Add(collector, NotificationTypes.CropsReady);
+        }
+
+        // A marker stamped only after the deadline (the cron was down) tells nobody.
+        if (Appeared(old, row, PickupJudgement.ReminderAtField)
+            && TryParseUtc(row.String(PickupJudgement.ReminderAtField), out var remindedAt)
+            && TryParseUtc(row.String(PickupDeadline.Field), out var deadline)
+            && remindedAt < deadline)
+        {
+            var checkIns = row.Map(PickupJudgement.CheckInsField);
+            if (!checkIns.Has(PickupJudgement.Kind.ArrivedPickup))
+            {
+                events.AddWithDeadline(collector, NotificationTypes.PickupReminder, row, PickupDeadline.Field);
+            }
+
+            if (!checkIns.Has(PickupJudgement.Kind.CropsReady))
+            {
+                events.AddWithDeadline(farmer, NotificationTypes.PickupReminder, row, PickupDeadline.Field);
+            }
+        }
+    }
+
+    /// <summary>The check-in of <paramref name="kind"/> was stored by this write and is not late.</summary>
+    private static bool CheckInArrived(StreamImage old, StreamImage row, string kind)
+    {
+        if (old.Map(PickupJudgement.CheckInsField).Has(kind))
+        {
+            return false;
+        }
+
+        var entry = row.Map(PickupJudgement.CheckInsField).Map(kind);
+        return entry.Exists && entry.Bool(PickupJudgement.EntryLate) != true;
+    }
+
+    /// <summary>
+    /// FUP-338 (ESC-36, spec 4.12): the trucker's drop-off check-in, counted (before T8, not late), tells the buyer
+    /// <c>delivery_arrived</c> with T9, when the delivery may be confirmed for them; the cron's reminder marker tells
+    /// them again before T9. Only the buyer: the push names the trucker, never where the check-in was made.
+    /// </summary>
+    private static void DropoffCheckIn(EventSet events, StreamImage old, StreamImage row, Func<OrderTimings> timings)
+    {
+        var arrived = Appeared(old, row, DropoffJudgement.CheckInField);
+        var reminded = Appeared(old, row, DropoffJudgement.ReminderAtField);
+        if ((!arrived && !reminded) || SilentBuyerDeadline(row, timings) is not { } t9)
+        {
+            return;
+        }
+
+        // A reminder stamped only after T9 (the cron was down) tells nobody.
+        if (!arrived && (!TryParseUtc(row.String(DropoffJudgement.ReminderAtField), out var remindedAt) || remindedAt >= t9))
+        {
+            return;
+        }
+
+        events.Add(row.String("buyerId"),
+            arrived ? NotificationTypes.DeliveryArrived : NotificationTypes.DeliveryConfirmReminder,
+            Params((NotificationParams.DeadlineAt, Iso(t9))), deadlineUtc: t9);
+    }
+
+    /// <summary>
+    /// T9 of a pending order from its image, by <see cref="DropoffJudgement.SilentBuyerDeadline"/> (the cron's rule):
+    /// null without a counted check-in. The timings are read only when there is one.
+    /// </summary>
+    private static DateTime? SilentBuyerDeadline(StreamImage row, Func<OrderTimings> timings)
+    {
+        var entry = row.Map(DropoffJudgement.CheckInField);
+        if (!entry.Exists)
+        {
+            return null;
+        }
+
+        var order = new Dictionary<string, object>(StringComparer.Ordinal)
+        {
+            [DropoffJudgement.Field] = row.String(DropoffJudgement.Field),
+            [DropoffJudgement.DeadlineField] = row.String(DropoffJudgement.DeadlineField),
+            [DropoffJudgement.CheckInField] = new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                [PickupJudgement.EntryReceivedAt] = entry.String(PickupJudgement.EntryReceivedAt),
+                [PickupJudgement.EntryLate] = entry.Bool(PickupJudgement.EntryLate) == true
+            }
+        };
+        return DropoffJudgement.IsPending(order) && DropoffJudgement.CountedCheckIn(order) != null
+            ? DropoffJudgement.SilentBuyerDeadline(order, timings())
+            : null;
+    }
+
+    /// <summary>Names, crop, quantity and the order total: what every order event can say.</summary>
+    private static Dictionary<string, string> OrderParams(StreamImage row)
+    {
+        var p = Names(row);
+        Put(p, NotificationParams.CropType, row.String("cropType"));
+        Put(p, NotificationParams.QuantityKg, Quantity(row.Number("quantity")));
+        Put(p, NotificationParams.AmountEtb, Money(row.Number("orderTotal")));
+        return p;
+    }
+
+    /// <summary>The farmer's own leg (<c>cropCost</c>), never the buyer's total; absent means no amount.</summary>
+    private static Dictionary<string, string?> FarmerLeg(StreamImage row)
+        => Params((NotificationParams.AmountEtb, Money(row.Number("cropCost"))));
+
+    /// <summary>The trucker's own leg (<c>transportCost</c>).</summary>
+    private static Dictionary<string, string?> TruckerLeg(StreamImage row)
+        => Params((NotificationParams.AmountEtb, Money(row.Number("transportCost"))));
+
+    /// <summary>
+    /// F-1 (notifications-api.md 1.4.0): every order event tells the farmer and the trucker their
+    /// own leg, never the buyer's total (a farmer read the buyer's total in "Buyer paid ...").
+    /// </summary>
+    private static Dictionary<string, Dictionary<string, string?>> PayeeLegs(StreamImage row)
+        => Legs(row, FarmerLeg(row), TruckerLeg(row));
+
+    /// <summary>The payees' legs by recipient: the farmer's and the trucker's on the row.</summary>
+    private static Dictionary<string, Dictionary<string, string?>> Legs(
+        StreamImage row, Dictionary<string, string?> farmerLeg, Dictionary<string, string?> truckerLeg)
+    {
+        var legs = new Dictionary<string, Dictionary<string, string?>>(StringComparer.Ordinal);
+        var farmer = row.String("farmerId");
+        var trucker = row.String("truckerId");
+        if (farmer.Length > 0)
+        {
+            legs[farmer] = farmerLeg;
+        }
+
+        if (trucker.Length > 0 && trucker != farmer)
+        {
+            legs[trucker] = truckerLeg;
+        }
+
+        return legs;
+    }
+
+    /// <summary>
+    /// The trucker's answer as <see cref="OrderCommitment.TruckerResponseOf"/> reads it: the stored
+    /// value; for a trip row without it, <c>not_asked</c> while the money waits on the farmer
+    /// (<paramref name="status"/> <c>funded</c> or <c>awaiting_transport</c>) and <c>accepted</c> after.
+    /// </summary>
+    private static string TruckerResponse(StreamImage row, string status)
+    {
+        var stored = row.String(TruckerResponseField);
+        if (stored.Length > 0)
+        {
+            return stored;
+        }
+
+        if (row.String("truckerId").Length == 0 && row.String("tripId").Length == 0)
+        {
+            return Response.None;
+        }
+
+        return status is "funded" or AwaitingTransportStatus ? Response.NotAsked : Response.Accepted;
+    }
+
+    /// <summary>
+    /// Who cancelled: the stored <c>cancelledBy</c>, else what the reason code says. A cancel
+    /// without either is the buyer's: before 2.0.0 only the buyer cancelled from the app, and every
+    /// system cancel writes a code (sync keeps clients from writing one, and the unpaid cron's
+    /// sentence counts only on an unpaid order: <paramref name="unpaidExpiry"/>).
+    /// </summary>
+    private static string CancelledByOf(StreamImage row, string reason, bool unpaidExpiry)
+    {
+        var stored = row.String(CancelledByField);
+        if (stored.Length > 0)
+        {
+            return stored;
+        }
+
+        if (CancelReasonActors.TryGetValue(reason, out var actor))
+        {
+            return actor;
+        }
+
+        return unpaidExpiry || ServerCancelReasons.Contains(reason) ? Party.System : Party.Buyer;
+    }
+
+    /// <summary>A server cancel code as the <c>reason</c> param; the buyer's own text is dropped.</summary>
+    private static string? CancelReasonCode(string reason) => ServerCancelReasons.Contains(reason) ? reason : null;
+
+    // ===== deliveries =====
+
+    /// <summary>
+    /// A delivery created. A trucker delivery tells the buyer and the farmer (the trucker made it);
+    /// a self-pickup tells the farmer the buyer is coming (the buyer made it).
+    /// </summary>
+    private static IReadOnlyList<NotificationEvent> DeriveDelivery(StreamImage row)
+    {
+        var deliveryId = row.String("deliveryId");
+        if (deliveryId.Length == 0)
+        {
+            return NoEvents;
+        }
+
+        var p = DeliveryParams(row);
+        Put(p, NotificationParams.PickupDate, row.String(PickupDateField));
+
+        var orderId = row.String("orderId");
+        var events = new EventSet(DeliveryEntity, deliveryId, orderId.Length > 0 ? orderId : null, p);
+        if (row.String("deliveryType") == Fulfillment.SelfPickup)
+        {
+            events.Add(row.String("farmerId"), NotificationTypes.BuyerCollecting);
+        }
+        else
+        {
+            events.Add(row.String("buyerId"), NotificationTypes.DeliveryScheduled);
+            events.Add(row.String("farmerId"), NotificationTypes.DeliveryScheduled);
+        }
+
+        return events.Events;
+    }
+
+    /// <summary>
+    /// LT-07: a delivery changed. Only the <c>nearbyNotifiedAt</c> stamp speaks: a check-in put the
+    /// truck within 5 km of the drop-off, and the buyer hears <c>truck_nearby</c> with the distance and
+    /// the minutes the stamp carries. The stamp is written once (conditionally), so the buyer hears it
+    /// once; a status change says nothing here (the order's mirror tells the parties).
+    /// </summary>
+    private static IReadOnlyList<NotificationEvent> DeriveDeliveryMarkers(StreamImage old, StreamImage row)
+    {
+        var deliveryId = row.String("deliveryId");
+        if (deliveryId.Length == 0 || !Appeared(old, row, CheckInEffects.NearbyNotifiedAtField))
+        {
+            return NoEvents;
+        }
+
+        var orderId = row.String("orderId");
+        var events = new EventSet(DeliveryEntity, deliveryId, orderId.Length > 0 ? orderId : null, DeliveryParams(row));
+        var km = row.Number(CheckInEffects.NearbyDistanceKmField);
+        var minutes = row.Number(CheckInEffects.NearbyMinutesField);
+        events.Add(row.String("buyerId"), NotificationTypes.TruckNearby, Params(
+            (NotificationParams.DistanceKm, km is >= 0 ? CheckInEffects.FormatKm(km.Value) : null),
+            (NotificationParams.Minutes, minutes is >= 1 ? ((long)minutes.Value).ToString(CultureInfo.InvariantCulture) : null)));
+        return events.Events;
+    }
+
+    /// <summary>What every delivery event can say: the names, the crop and the quantity.</summary>
+    private static Dictionary<string, string> DeliveryParams(StreamImage row)
+    {
+        var p = Names(row);
+        Put(p, NotificationParams.CropType, row.String("cropType"));
+        Put(p, NotificationParams.QuantityKg, Quantity(row.Number("quantity")));
+        return p;
+    }
+
+    // ===== escrows =====
+
+    /// <summary>
+    /// An escrow row changed: the money moves (refund, release, completion), a dispute opened or
+    /// decided, a fraud hold, and the markers that a payout waits (a payout check, the manual queue).
+    /// </summary>
+    private static IReadOnlyList<NotificationEvent> DeriveEscrow(StreamImage old, StreamImage row)
+    {
+        var escrowId = row.String("escrowId");
+        if (escrowId.Length == 0)
+        {
+            return NoEvents;
+        }
+
+        var p = Names(row);
+        Put(p, NotificationParams.AmountEtb, Money(row.Number("amount")));
+        var orderId = row.String("orderId");
+        // F-1: a payee reads their own leg (a dispute, a hold), never the buyer's total.
+        var events = new EventSet(EscrowEntity, escrowId, orderId.Length > 0 ? orderId : null, p,
+            Legs(row, EscrowLeg(row, "farmerPayout"), EscrowLeg(row, "truckerPayout")));
+
+        var from = old.String("status");
+        var to = row.String("status");
+        if (from != to)
+        {
+            EscrowStatusChanged(events, row, from, to);
+        }
+
+        EscrowMarkers(events, old, row);
+        return events.Events;
+    }
+
+    private static void EscrowStatusChanged(EventSet events, StreamImage row, string from, string to)
+    {
+        var buyer = row.String("buyerId");
+        var farmer = row.String("farmerId");
+        // The escrow names the trip's trucker from funding on, before the trucker is asked or
+        // could decline; only a delivery (the trucker's own, once committed) ties them to the trade.
+        var trucker = row.String("deliveryId").Length > 0 ? row.String("truckerId") : string.Empty;
+
+        switch (to)
+        {
+            case "refunded":
+                events.Add(buyer, NotificationTypes.RefundSent);
+                break;
+
+            // completed -> released is only the legacy trucker-leg park: the farmer was paid long ago.
+            case "released" when from != "completed":
+                events.Add(farmer, NotificationTypes.PayoutSent, EscrowLeg(row, "farmerPayout"));
+                break;
+
+            case "completed":
+                if (row.Number("truckerPayout") is > 0)
+                {
+                    events.Add(trucker, NotificationTypes.PayoutSent, EscrowLeg(row, "truckerPayout"));
+                }
+
+                break;
+
+            case "disputed":
+                {
+                    var disputer = row.String("disputedBy");
+                    // FUP-338: the order cron's drop-off dispute is told from the order row, with its reason, in the
+                    // write that stamps the judgement (DeriveOrder); not a second time here.
+                    if (disputer == DropoffJudgement.SystemActor
+                        && DropoffJudgement.DisputeReasonOfDescription(row.String("disputeDescription")) != null)
+                    {
+                        break;
+                    }
+
+                    var opened = Params((NotificationParams.Party, RoleOf(row, disputer)));
+                    foreach (var party in new[] { buyer, farmer, trucker })
+                    {
+                        if (party.Length > 0 && party == disputer)
+                        {
+                            events.Add(party, NotificationTypes.DisputeReceived, push: false);
+                        }
+                        else
+                        {
+                            events.Add(party, NotificationTypes.DisputeOpened, opened);
+                        }
+                    }
+
+                    break;
+                }
+
+            case "dispute_resolved":
+                {
+                    var resolved = Params((NotificationParams.Resolution, row.String("disputeResolution")));
+                    events.Add(buyer, NotificationTypes.DisputeResolved, resolved);
+                    events.Add(farmer, NotificationTypes.DisputeResolved, resolved);
+                    events.Add(trucker, NotificationTypes.DisputeResolved, resolved);
+                    break;
+                }
+
+            case EscrowHoldFields.Status:
+                events.Add(buyer, NotificationTypes.UnderReview, push: false);
+                events.Add(farmer, NotificationTypes.UnderReview, push: false);
+                events.Add(trucker, NotificationTypes.UnderReview, push: false);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// A payout that waits on its payee: the farmer's identity or phone check on the release sweep
+    /// (<c>settlementBlockReason</c> = <c>release:payout:&lt;reason&gt;</c>), the trucker's leg held by
+    /// the same checks (<c>truckerPayoutPending</c> with <c>truckerPayoutBlockReason</c>, at the
+    /// release or on the hourly retry), and a release the admin pays by hand (<c>manualPayout</c>).
+    /// A trade block (order or delivery state) or a gateway failure is not the payee's to fix and
+    /// tells nobody.
+    /// </summary>
+    private static void EscrowMarkers(EventSet events, StreamImage old, StreamImage row)
+    {
+        var payoutGate = SettlementBlockFields.Prefix(ManualPayoutFields.OpRelease, SettlementBlockFields.GatePayout);
+        var settlementBlock = row.String(SettlementBlockFields.Reason);
+        if (settlementBlock.StartsWith(payoutGate, StringComparison.Ordinal)
+            && settlementBlock != old.String(SettlementBlockFields.Reason))
+        {
+            var leg = EscrowLeg(row, "farmerPayout");
+            leg[NotificationParams.Reason] = settlementBlock[payoutGate.Length..];
+            events.Add(row.String("farmerId"), NotificationTypes.PayoutBlocked, leg);
+        }
+
+        var truckerBlock = row.String(TruckerPayoutFields.BlockReason);
+        if (row.Bool(TruckerPayoutFields.Pending) == true && truckerBlock.Length > 0
+            && truckerBlock != old.String(TruckerPayoutFields.BlockReason))
+        {
+            var leg = EscrowLeg(row, "truckerPayout");
+            leg[NotificationParams.Reason] = truckerBlock;
+            events.Add(row.String("truckerId"), NotificationTypes.PayoutBlocked, leg);
+        }
+
+        if (BecameValue(old, row, ManualPayoutFields.Marker, ManualPayoutFields.MarkerOpen)
+            && row.String(ManualPayoutFields.Op) is ManualPayoutFields.OpRelease or "")
+        {
+            if (ManualLegPending(row, ManualPayoutFields.LegFarmer, fallback: true))
+            {
+                events.Add(row.String("farmerId"), NotificationTypes.PayoutProcessing, EscrowLeg(row, "farmerPayout"));
+            }
+
+            if (ManualLegPending(row, ManualPayoutFields.LegTrucker, fallback: row.Number("truckerPayout") is > 0))
+            {
+                events.Add(row.String("truckerId"), NotificationTypes.PayoutProcessing, EscrowLeg(row, "truckerPayout"));
+            }
+        }
+    }
+
+    /// <summary>Whether a payee leg of the manual queue still waits; a row without leg fields uses <paramref name="fallback"/>.</summary>
+    private static bool ManualLegPending(StreamImage row, string leg, bool fallback)
+    {
+        var status = row.String(ManualPayoutFields.StatusAttr(leg));
+        return status.Length == 0 ? fallback : status == ManualPayoutFields.LegPending;
+    }
+
+    /// <summary>One payee's amount on the escrow row as the event's <c>amountEtb</c>.</summary>
+    private static Dictionary<string, string?> EscrowLeg(StreamImage row, string field)
+        => Params((NotificationParams.AmountEtb, Money(row.Number(field))));
+
+    /// <summary>The role of a party on the row (<c>buyer</c>, <c>farmer</c>, <c>trucker</c>), or null for anyone else.</summary>
+    private static string? RoleOf(StreamImage row, string userId)
+    {
+        if (userId.Length == 0)
+        {
+            return null;
+        }
+
+        if (userId == row.String("buyerId"))
+        {
+            return Party.Buyer;
+        }
+
+        if (userId == row.String("farmerId"))
+        {
+            return Party.Farmer;
+        }
+
+        return userId == row.String("truckerId") ? Party.Trucker : null;
+    }
+
+    // ===== shared helpers =====
+
+    /// <summary>The display names the row denormalizes, scrubbed of phone numbers before the inbox stores them.</summary>
+    private static Dictionary<string, string> Names(StreamImage row)
+    {
+        var p = new Dictionary<string, string>(StringComparer.Ordinal);
+        Put(p, NotificationParams.BuyerName, PushText.ScrubName(row.String("buyerName")));
+        Put(p, NotificationParams.FarmerName, PushText.ScrubName(row.String("farmerName")));
+        Put(p, NotificationParams.TruckerName, PushText.ScrubName(row.String("truckerName")));
+        return p;
+    }
+
+    /// <summary>The attribute was absent before this write and is present after it.</summary>
+    private static bool Appeared(StreamImage old, StreamImage row, string field) => !old.Has(field) && row.Has(field);
+
+    /// <summary>The string attribute changed to <paramref name="value"/> in this write.</summary>
+    private static bool BecameValue(StreamImage old, StreamImage row, string field, string value)
+        => row.String(field) == value && old.String(field) != value;
+
+    /// <summary>Quantity in kilograms, digits only (<c>500</c>, <c>1250.5</c>).</summary>
+    private static string? Quantity(double? kg)
+        => kg is > 0 ? kg.Value.ToString("0.##", CultureInfo.InvariantCulture) : null;
+
+    /// <summary>An ETB amount with two decimals, digits and a point only (<c>42500.00</c>).</summary>
+    private static string? Money(double? etb)
+        => etb is >= 0 ? etb.Value.ToString("0.00", CultureInfo.InvariantCulture) : null;
+
+    private static void Put(Dictionary<string, string> p, string key, string? value)
+    {
+        if (!string.IsNullOrEmpty(value))
+        {
+            p[key] = value;
+        }
+    }
+
+    /// <summary>Per-event params on top of the row's; a null or empty value removes the key.</summary>
+    private static Dictionary<string, string?> Params(params (string Key, string? Value)[] entries)
+    {
+        var p = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var (key, value) in entries)
+        {
+            p[key] = value;
+        }
+
+        return p;
+    }
+
+    /// <summary>
+    /// The events of one record: one per recipient (the first rule to name a party wins), the
+    /// row's params under the recipient's own (a payee's leg) under each event's own, and a
+    /// deadline only on an action-required type.
+    /// </summary>
+    private sealed class EventSet
+    {
+        private readonly string _entity;
+        private readonly string _entityId;
+        private readonly string? _orderId;
+        private readonly Dictionary<string, string> _rowParams;
+        private readonly Dictionary<string, Dictionary<string, string?>>? _recipientParams;
+        private readonly List<NotificationEvent> _events = new();
+        private readonly HashSet<string> _told = new(StringComparer.Ordinal);
+
+        public EventSet(
+            string entity, string entityId, string? orderId, Dictionary<string, string> rowParams,
+            Dictionary<string, Dictionary<string, string?>>? recipientParams = null)
+        {
+            _entity = entity;
+            _entityId = entityId;
+            _orderId = orderId;
+            _rowParams = rowParams;
+            _recipientParams = recipientParams;
+        }
+
+        public IReadOnlyList<NotificationEvent> Events => _events;
+
+        public void Add(
+            string recipientId, string type, Dictionary<string, string?>? extra = null,
+            bool push = true, DateTime? deadlineUtc = null)
+        {
+            if (recipientId.Length == 0 || !_told.Add(recipientId))
+            {
+                return;
+            }
+
+            var p = new Dictionary<string, string>(_rowParams, StringComparer.Ordinal);
+            if (_recipientParams != null && _recipientParams.TryGetValue(recipientId, out var own))
+            {
+                Apply(p, own);
+            }
+
+            if (extra != null)
+            {
+                Apply(p, extra);
+            }
+
+            _events.Add(new NotificationEvent(
+                recipientId, type, _entity, _entityId, _orderId, p, push,
+                NotificationTypes.ActionRequired.Contains(type) ? deadlineUtc : null));
+        }
+
+        /// <summary>Puts <paramref name="overrides"/> over <paramref name="p"/>; a null or empty value removes the key.</summary>
+        private static void Apply(Dictionary<string, string> p, Dictionary<string, string?> overrides)
+        {
+            foreach (var (key, value) in overrides)
+            {
+                if (string.IsNullOrEmpty(value))
+                {
+                    p.Remove(key);
+                }
+                else
+                {
+                    p[key] = value;
+                }
+            }
+        }
+
+        /// <summary>An event whose deadline (param and push time to live) is the row's ISO <paramref name="deadlineField"/>.</summary>
+        public void AddWithDeadline(
+            string recipientId, string type, StreamImage row, string deadlineField,
+            Dictionary<string, string?>? extra = null)
+        {
+            var raw = row.String(deadlineField);
+            var p = extra == null
+                ? new Dictionary<string, string?>(StringComparer.Ordinal)
+                : new Dictionary<string, string?>(extra, StringComparer.Ordinal);
+            p[NotificationParams.DeadlineAt] = raw;
+            Add(recipientId, type, p, deadlineUtc: TryParseUtc(raw, out var deadline) ? deadline : null);
+        }
+    }
+}

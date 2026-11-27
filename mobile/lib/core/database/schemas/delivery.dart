@@ -64,6 +64,22 @@ class Delivery {
   /// predates the field.
   String? orderId;
 
+  /// The order's crop type key ("wheat"), stamped by the server on create
+  /// (delivery-verification-api 1.21.0) so a list card needs no order read.
+  /// Null on deliveries created before that.
+  String? cropType;
+
+  /// The order's quantity in kilograms, stamped with [cropType].
+  double? quantity;
+
+  /// The listing's place name, where the crop is picked up; stamped with
+  /// [cropType]. Null when the listing has none.
+  String? pickupPlace;
+
+  /// The trip's departure date at create time (UTC); null on a self-pickup
+  /// and on older deliveries.
+  DateTime? pickupPlannedAt;
+
   /// GPS coordinates at pickup location (farmer's location)
   LatLng? gpsPickup;
 
@@ -75,6 +91,14 @@ class Delivery {
 
   /// Reference to dropoff photo evidence file
   String? dropoffPhotoRef;
+
+  /// ESC-36 (FUP-336): the trucker's arrival photo at the drop-off: the
+  /// server's key, or this phone's file while its upload waits in the queue.
+  String? arrivalPhotoRef;
+
+  /// ESC-36: when the order cron confirmed the delivery for a silent buyer
+  /// (UTC, T9). Null when the buyer confirmed. Server-written.
+  DateTime? autoConfirmedAt;
 
   /// Current status of the delivery
   @Index()

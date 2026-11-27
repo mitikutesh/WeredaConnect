@@ -32,6 +32,10 @@ public class PasswordResetFunction
     private const string CodeExpiredCode = "AUTH_023";
     private const string UserNotFoundCode = "AUTH_013";
 
+    // What CognitoAuthService.ConfirmForgotPasswordAsync answers to a password Cognito refuses;
+    // a missing new password gets it too (SIM-27).
+    private const string PasswordRequirementsCode = "AUTH_024";
+
     /// <summary>
     /// Default constructor for Lambda runtime.
     /// </summary>
@@ -95,12 +99,13 @@ public class PasswordResetFunction
             return LambdaResponse.Error(400, "AUTH_007", "Invalid JSON in request body.");
         }
 
-        if (fpRequest == null || string.IsNullOrWhiteSpace(fpRequest.PhoneNumber))
+        if (fpRequest == null)
         {
-            return LambdaResponse.Error(400, "AUTH_007", "Phone number is required.", "phoneNumber");
+            return LambdaResponse.Error(400, "AUTH_007", "Request body is required.", "body");
         }
 
-        // Normalize phone number (accept +251, 00251, or 0 prefix)
+        // Normalize phone number (accept +251, 00251, or 0 prefix). A missing phone is AUTH_001
+        // from the validator below, like a malformed one (SIM-27).
         var normalizedPhone = RequestValidator.NormalizePhoneNumber(fpRequest.PhoneNumber);
         if (normalizedPhone != null)
         {
@@ -127,7 +132,10 @@ public class PasswordResetFunction
 
         var rateLimitResponse = await EnforceOtpRateLimitAsync(
             fpRequest.PhoneNumber, "FORGOT_PASSWORD_RATE_LIMITED", correlationId, sourceIp);
-        if (rateLimitResponse != null) return rateLimitResponse;
+        if (rateLimitResponse != null)
+        {
+            return rateLimitResponse;
+        }
 
         var result = await _authService.ForgotPasswordAsync(fpRequest.PhoneNumber);
 
@@ -189,7 +197,7 @@ public class PasswordResetFunction
 
         if (rpRequest == null)
         {
-            return LambdaResponse.Error(400, "AUTH_007", "Request body is required.");
+            return LambdaResponse.Error(400, "AUTH_007", "Request body is required.", "body");
         }
 
         // Normalize phone number (accept +251, 00251, or 0 prefix)
@@ -206,14 +214,15 @@ public class PasswordResetFunction
             return LambdaResponse.ValidationError(phoneValidation);
         }
 
+        // SIM-27: a missing field answers the code a wrong value of it gets, not AUTH_007.
         if (string.IsNullOrWhiteSpace(rpRequest.ConfirmationCode))
         {
-            return LambdaResponse.Error(400, "AUTH_007", "Confirmation code is required.", "confirmationCode");
+            return LambdaResponse.Error(400, CodeMismatchCode, "Confirmation code is required.", "confirmationCode");
         }
 
         if (string.IsNullOrWhiteSpace(rpRequest.NewPassword))
         {
-            return LambdaResponse.Error(400, "AUTH_007", "New password is required.", "newPassword");
+            return LambdaResponse.Error(400, PasswordRequirementsCode, "New password is required.", "newPassword");
         }
 
         var correlationId = AuditLogger.GetCorrelationId(request);
@@ -230,7 +239,10 @@ public class PasswordResetFunction
         // Rate limit: check before calling Cognito so recorded failures have teeth.
         var rateLimitResponse = await EnforceOtpRateLimitAsync(
             rpRequest.PhoneNumber, "RESET_PASSWORD_RATE_LIMITED", correlationId, sourceIp);
-        if (rateLimitResponse != null) return rateLimitResponse;
+        if (rateLimitResponse != null)
+        {
+            return rateLimitResponse;
+        }
 
         var result = await _authService.ConfirmForgotPasswordAsync(
             rpRequest.PhoneNumber,
@@ -279,7 +291,10 @@ public class PasswordResetFunction
         string phone, string auditAction, string correlationId, string? sourceIp)
     {
         var check = await _rateLimitService.CheckOtpAttemptAllowedAsync(phone);
-        if (check.IsSuccess) return null;
+        if (check.IsSuccess)
+        {
+            return null;
+        }
 
         var error = check.Error!;
         AuditLogger.LogSecurity(auditAction,

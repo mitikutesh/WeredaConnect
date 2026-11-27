@@ -1,0 +1,200 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_card.dart';
+import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+
+/// The trip card in the language of the My Crops board (design canvas page
+/// M): route title, the day under it, the price per 100 kg over the status
+/// pill, the booked load as a bar with kilograms first and the quintals in
+/// parentheses, and Cancel Trip as a plain action for the trucker's open
+/// trips.
+void main() {
+  Trip trip({
+    TripStatus status = TripStatus.open,
+    double capacity = 50,
+    double? booked,
+    double? remaining,
+  }) =>
+      Trip()
+        ..tripId = 'trip-1'
+        ..truckerId = 'trucker-1'
+        ..truckerName = 'Dawit'
+        ..truckerPhone = '+251900100002'
+        ..fromWoreda = 'Meki'
+        ..toWoreda = 'Addis Ababa'
+        ..departureDate = DateTime.utc(2026, 10, 29, 21)
+        ..capacity = capacity
+        ..pricePerQuintal = 150
+        ..bookedQuintals = booked
+        ..remainingQuintals = remaining
+        ..status = status
+        ..matchedListings = <String>[]
+        ..createdAt = DateTime.utc(2026, 10, 20)
+        ..updatedAt = DateTime.utc(2026, 10, 20)
+        ..version = 1;
+
+  Widget wrap(Widget child) => MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('en'),
+        home: Scaffold(body: child),
+      );
+
+  testWidgets('route as the title, day and price under it, status pill',
+      (tester) async {
+    await tester.pumpWidget(wrap(TripCard(trip: trip())));
+
+    expect(find.text('Meki → Addis Ababa'), findsOneWidget);
+    expect(find.text('Fri 30 Oct'), findsOneWidget);
+    expect(find.text('150 ETB/100 kg'), findsOneWidget);
+    expect(find.text('Open'), findsOneWidget);
+  });
+
+  testWidgets('the card a list leads with is raised', (tester) async {
+    await tester.pumpWidget(wrap(TripCard(trip: trip(), lead: true)));
+    expect(tester.widget<FwCard>(find.byType(FwCard)).raised, isTrue);
+
+    await tester.pumpWidget(wrap(TripCard(trip: trip())));
+    expect(tester.widget<FwCard>(find.byType(FwCard)).raised, isFalse);
+  });
+
+  testWidgets('a trip nobody booked shows its capacity and an empty bar',
+      (tester) async {
+    await tester.pumpWidget(wrap(TripCard(trip: trip())));
+
+    expect(find.text('5,000 kg free (50 quintals)'), findsOneWidget);
+    final bar = tester.widget<LinearProgressIndicator>(
+      find.byType(LinearProgressIndicator),
+    );
+    expect(bar.value, 0);
+  });
+
+  testWidgets(
+      'the booked share comes from the room left when the server '
+      'sends only that', (tester) async {
+    await tester.pumpWidget(wrap(TripCard(trip: trip(remaining: 20))));
+
+    expect(
+      find.text('3,000 of 5,000 kg booked (30 of 50 quintals)'),
+      findsOneWidget,
+    );
+    final bar = tester.widget<LinearProgressIndicator>(
+      find.byType(LinearProgressIndicator),
+    );
+    expect(bar.value, closeTo(0.6, 0.001));
+  });
+
+  testWidgets('the server booked count wins over the room left',
+      (tester) async {
+    await tester.pumpWidget(
+      wrap(TripCard(trip: trip(booked: 47, remaining: 3))),
+    );
+
+    expect(
+      find.text('4,700 of 5,000 kg booked (47 of 50 quintals)'),
+      findsOneWidget,
+    );
+  });
+
+  group('Cancel Trip', () {
+    testWidgets('is a plain action in the card for an open trip',
+        (tester) async {
+      var cancelled = 0;
+      await tester.pumpWidget(
+        wrap(TripCard(trip: trip(), onCancel: () => cancelled++)),
+      );
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Cancel Trip'));
+      expect(cancelled, 1);
+      expect(find.byIcon(Icons.cancel_outlined), findsNothing);
+    });
+
+    testWidgets('is absent without a handler (the buyer sees all trips)',
+        (tester) async {
+      await tester.pumpWidget(wrap(TripCard(trip: trip())));
+
+      expect(find.text('Cancel Trip'), findsNothing);
+    });
+
+    for (final status in [
+      TripStatus.inTransit,
+      TripStatus.delivered,
+      TripStatus.cancelled,
+    ]) {
+      testWidgets('is absent once the trip is ${status.name}', (tester) async {
+        await tester.pumpWidget(
+          wrap(TripCard(trip: trip(status: status), onCancel: () {})),
+        );
+
+        expect(find.text('Cancel Trip'), findsNothing);
+      });
+    }
+  });
+
+  // L-7: My Trips marks an open trip whose departure day is over.
+  group('departure day passed', () {
+    for (final status in [TripStatus.open, TripStatus.matched]) {
+      testWidgets('a ${status.name} trip reads Date passed', (tester) async {
+        await tester.pumpWidget(
+          wrap(TripCard(trip: trip(status: status), departureDayPassed: true)),
+        );
+
+        expect(find.text('Date passed'), findsOneWidget);
+        expect(find.text('Open'), findsNothing);
+      });
+    }
+
+    for (final status in [
+      TripStatus.inTransit,
+      TripStatus.delivered,
+      TripStatus.cancelled,
+    ]) {
+      testWidgets('a ${status.name} trip keeps its status', (tester) async {
+        await tester.pumpWidget(
+          wrap(TripCard(trip: trip(status: status), departureDayPassed: true)),
+        );
+
+        expect(find.text('Date passed'), findsNothing);
+      });
+    }
+
+    testWidgets('is off by default', (tester) async {
+      await tester.pumpWidget(wrap(TripCard(trip: trip())));
+
+      expect(find.text('Open'), findsOneWidget);
+      expect(find.text('Date passed'), findsNothing);
+    });
+  });
+
+  group('the trucker name (SIM-33)', () {
+    testWidgets('the buyer browse names the trucker under the route',
+        (tester) async {
+      await tester.pumpWidget(wrap(TripCard(trip: trip(), showTrucker: true)));
+
+      expect(find.text('Trucker: Dawit'), findsOneWidget);
+      expect(find.text('Fri 30 Oct'), findsOneWidget);
+    });
+
+    testWidgets("the trucker's own list leaves their name out", (tester) async {
+      await tester.pumpWidget(wrap(TripCard(trip: trip())));
+
+      expect(find.textContaining('Dawit'), findsNothing);
+    });
+
+    testWidgets('no line for a blank name or a user id', (tester) async {
+      for (final name in ['', '3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b']) {
+        await tester.pumpWidget(
+          wrap(
+            TripCard(trip: trip()..truckerName = name, showTrucker: true),
+          ),
+        );
+
+        expect(find.textContaining('Trucker'), findsNothing, reason: name);
+        expect(find.textContaining('3f2b8c1e'), findsNothing);
+      }
+    });
+  });
+}

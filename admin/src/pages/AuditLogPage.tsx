@@ -6,7 +6,7 @@ import { SearchInput } from "@/components/ui/SearchInput";
 import { useLocale } from "@/hooks/useLocale";
 import { useAuditLog, useEscrowAudit } from "@/hooks/useQuery";
 import { formatDateTime } from "@/lib/i18n";
-import { timelineEntityVariant, timelineActionLabel } from "@/lib/transaction";
+import { stateLabel, timelineEntityVariant, timelineEntityLabel, timelineActionLabel } from "@/lib/transaction";
 
 /** Normalised audit row merged from the unified feed + the escrow audit feed. */
 interface AuditRow {
@@ -59,11 +59,24 @@ export function AuditLogPage() {
     })),
   ].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
+  /** FUP-80: the row's states in words, as the timeline names them; a side the row lacks is left out. */
+  function transition(r: AuditRow): string {
+    if (!r.fromState && !r.toState) return "";
+    return [stateLabel(r.entityType, r.fromState, t), "→", stateLabel(r.entityType, r.toState, t)]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  // FUP-80: a search matches what the table shows (the labels) as well as the raw values.
+  const needle = search.toLowerCase();
   const filtered = search
     ? rows.filter((r) =>
-        Object.values(r).some((v) =>
-          v.toLowerCase().includes(search.toLowerCase()),
-        ),
+        [
+          ...Object.values(r),
+          timelineEntityLabel(r.entityType, t),
+          timelineActionLabel(r.action, t),
+          transition(r),
+        ].some((v) => v.toLowerCase().includes(needle)),
       )
     : rows;
 
@@ -73,7 +86,7 @@ export function AuditLogPage() {
       header: t("audit.type"),
       render: (row: Record<string, unknown>) => (
         <Badge variant={timelineEntityVariant[String(row.entityType)] || "default"}>
-          {String(row.entityType)}
+          {timelineEntityLabel(String(row.entityType), t)}
         </Badge>
       ),
     },
@@ -99,10 +112,7 @@ export function AuditLogPage() {
     {
       key: "details",
       header: t("audit.details"),
-      render: (row: Record<string, unknown>) =>
-        row.fromState || row.toState
-          ? `${String(row.fromState || "—")} → ${String(row.toState || "—")}`
-          : "",
+      render: (row: Record<string, unknown>) => transition(row as unknown as AuditRow),
     },
     {
       key: "timestamp",
@@ -114,7 +124,7 @@ export function AuditLogPage() {
 
   return (
     <div>
-      <h2 className="mb-6 text-xl font-bold">{t("audit.title")}</h2>
+      <h2 className="mb-6 text-[28px] font-extrabold leading-tight tracking-[-0.03em]">{t("audit.title")}</h2>
       <Card>
         <div className="mb-4 max-w-full md:max-w-sm">
           <SearchInput value={search} onChange={setSearch} />

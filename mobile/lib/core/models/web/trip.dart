@@ -15,6 +15,19 @@ class Trip {
   late DateTime departureDate;
   late double capacity;
   late double pricePerQuintal;
+
+  /// ESC-15: booked quintals and the room left (server-written; null = none booked).
+  double? bookedQuintals;
+  double? remainingQuintals;
+
+  /// ESC-30: the trucker's reliability in whole percent (see the Isar schema).
+  int? ownerReliabilityPct;
+
+  /// ESC-31: the owner's public reputation copy (see the Isar schema).
+  String? ownerTier;
+  double? ownerEffectiveRating;
+  int? ownerRatingCount;
+  DateTime? ownerReputationAt;
   late TripStatus status;
   late List<String> matchedListings;
   late DateTime createdAt;

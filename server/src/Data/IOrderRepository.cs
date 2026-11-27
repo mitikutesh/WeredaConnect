@@ -48,6 +48,40 @@ public interface IOrderRepository
         IReadOnlyList<TransactWriteItem> linkedItems);
 
     /// <summary>
+    /// FUP-287: <see cref="TryUpdateWithAsync"/> that also removes attributes and checks string fields a write
+    /// can change without a version bump (the pickup judgement, the admin queue entry). <paramref name="set"/>
+    /// is written (a <c>status</c> in it too) and <paramref name="remove"/> removed, the version checked and
+    /// incremented, a new <c>updatedAt</c>, the next deadline derived from the row as it will be (ESC-16), and
+    /// the update lands only while every field of <paramref name="expectedStrings"/> still holds its value and
+    /// none of <paramref name="expectedAbsent"/> exists; <paramref name="linkedItems"/> go in the same
+    /// transaction. Same outcomes as <see cref="TryUpdateWithAsync"/>.
+    /// </summary>
+    Task<OrderLinkedWriteResult> TryUpdateGuardedAsync(
+        string orderId,
+        Dictionary<string, object> set,
+        IReadOnlyCollection<string> remove,
+        int expectedVersion,
+        IReadOnlyDictionary<string, string> expectedStrings,
+        IReadOnlyCollection<string> expectedAbsent,
+        IReadOnlyList<TransactWriteItem> linkedItems);
+
+    /// <summary>
+    /// FUP-53: a transaction item that lets a write on another table land only while this order exists
+    /// and is not closed (<c>cancelled</c> or <c>rejected</c>): the dispute freeze carries it, so a
+    /// dispute never lands on the money of an order that was closed since it was read. No I/O.
+    /// </summary>
+    TransactWriteItem BuildNotClosedCheck(string orderId, string createdAt);
+
+    /// <summary>
+    /// FUP-334: a transaction item that lets a write on another table land only while the order's admin queue
+    /// entry (<see cref="AdminQueueFields"/>) is still the one read: open, queued at <paramref name="queuedAt"/>,
+    /// and naming <paramref name="escrowId"/> (null for an entry read without <c>adminQueueEscrowId</c>, which must
+    /// still have none). The escrow cron's hold-cap stamp carries it, so a capped escrow never waits on an entry
+    /// removed since the read. No I/O.
+    /// </summary>
+    TransactWriteItem BuildAdminQueueEntryCheck(string orderId, string createdAt, string queuedAt, string? escrowId);
+
+    /// <summary>
     /// FRD-03: <see cref="UpdateAsync"/> in one <c>TransactWriteItems</c> with a <c>ConditionCheck</c> that
     /// the order's escrow (<paramref name="escrow"/>) is not <c>held</c>, so a settlement sweep that holds it
     /// between the caller's read and this write wins. Fails with <c>409</c>
@@ -123,6 +157,14 @@ public interface IOrderRepository
     Task<List<Dictionary<string, object>>> QueryByStatusForCronAsync(string status, string? createdBefore = null);
 
     /// <summary>
+    /// FRD-15: one page of the <paramref name="status"/> partition of <c>StatusCreatedAtIndex</c>, orders created
+    /// at or after <paramref name="createdSince"/> (key condition, so older rows are never read), newest first,
+    /// at most <paramref name="limit"/> rows (1 to 100). The relationship scan pages it with the returned key.
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByStatusCreatedSinceAsync(
+        string status, string createdSince, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
     /// ESC-06: put the order in the admin stuck-order queue (<see cref="AdminQueueFields"/>) while
     /// it is still <paramref name="expectedStatus"/> and not queued yet. Written without bumping
     /// <c>version</c> or <c>updatedAt</c>, like the delivery slot claim. Returns false when the
@@ -164,10 +206,86 @@ public interface IOrderRepository
     /// <summary>
     /// ESC-09: move the order from <paramref name="fromStatus"/> to <paramref name="toStatus"/> in one
     /// write conditioned on the status (not on the caller's version), with <c>ADD version 1</c> and a
-    /// new <c>updatedAt</c>, like <see cref="TryMarkFundedAsync"/>. Returns the updated order, or null
-    /// when the order is missing or no longer <paramref name="fromStatus"/> (never creates a row).
+    /// new <c>updatedAt</c>, like <see cref="TryMarkFundedAsync"/>. ESC-15: <paramref name="extraFields"/>
+    /// are set in the same write (the keys, <c>version</c>, <c>updatedAt</c> and <c>status</c> are
+    /// skipped). Returns the updated order, or null when the order is missing or no longer
+    /// <paramref name="fromStatus"/> (never creates a row).
     /// </summary>
-    Task<Dictionary<string, object>?> TryAdvanceStatusAsync(string orderId, string fromStatus, string toStatus);
+    Task<Dictionary<string, object>?> TryAdvanceStatusAsync(
+        string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields = null);
+
+    /// <summary>
+    /// ESC-18: <see cref="TryAdvanceStatusAsync"/> that also requires <paramref name="unlessField"/>
+    /// to be absent or different from <paramref name="unlessValue"/> in the same condition, so a
+    /// change that landed after the caller's read (a farmer's accept) refuses the move. Null when
+    /// the order is missing, no longer <paramref name="fromStatus"/>, or carries that value.
+    /// </summary>
+    Task<Dictionary<string, object>?> TryAdvanceStatusUnlessAsync(
+        string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields,
+        string unlessField, string unlessValue);
+
+    /// <summary>
+    /// ESC-15: every order of a trip (<c>TripIdIndex</c>, all pages, oldest first), for the trip's
+    /// cancellation and the capacity bookkeeping. Deleted and cancelled orders are included; the
+    /// caller filters by status.
+    /// </summary>
+    Task<List<Dictionary<string, object>>> QueryByTripAsync(string tripId);
+
+    /// <summary>
+    /// ESC-18: every order of a crop listing (<c>ListingIdIndex</c>, all pages, oldest first), for
+    /// the listing guards. Eventually consistent like every index read; the caller filters by
+    /// status.
+    /// </summary>
+    Task<List<Dictionary<string, object>>> QueryByListingAsync(string listingId);
+
+    /// <summary>
+    /// ESC-15: set <paramref name="fields"/> on the order WITHOUT bumping <c>version</c> or touching
+    /// <c>updatedAt</c> (server bookkeeping such as reminder markers must never make a client
+    /// conflict), only while the order exists and each entry of <paramref name="expectedStrings"/>
+    /// still equals the row (string equality; an empty map checks existence only). The keys,
+    /// <c>version</c>, <c>updatedAt</c> and <c>status</c> are skipped from <paramref name="fields"/>.
+    /// Returns false when the order is missing or any expectation failed.
+    /// </summary>
+    Task<bool> TryStampAsync(
+        string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expectedStrings);
+
+    /// <summary>
+    /// ESC-34: store one arrival check-in as <c>checkIns.{kind}</c> WITHOUT bumping <c>version</c> or
+    /// touching <c>updatedAt</c> (a check-in must never make a queued order change conflict), only while
+    /// that kind has no entry yet (the first check-in is kept). With <paramref name="whileOpen"/> also only
+    /// while the order is <c>accepted</c> and its <c>pickupJudgement</c> is still <c>pending</c>, so a
+    /// check-in can never land after the judgement as if it had counted. Returns false when a condition
+    /// failed (the caller reads the row again to say why); other errors throw.
+    /// </summary>
+    Task<bool> TryRecordCheckInAsync(
+        string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen);
+
+    /// <summary>
+    /// ESC-36: store the trucker's drop-off check-in as <c>dropoffCheckIn</c> WITHOUT bumping <c>version</c>
+    /// or touching <c>updatedAt</c> (a check-in must never make a queued order change conflict), only while
+    /// the order has none (the first one is kept). With <paramref name="whileOpen"/> also only while the order
+    /// is <c>pickup_confirmed</c> or <c>in_transit</c> and its <c>dropoffJudgement</c> is still <c>pending</c>,
+    /// so a check-in can never land after the judgement as if it had counted. The same write moves the
+    /// order's next deadline (a counted check-in turns T8 into T9). Returns false when a condition failed
+    /// (the caller reads the row again to say why); other errors throw.
+    /// </summary>
+    Task<bool> TryRecordDropoffCheckInAsync(string orderId, Dictionary<string, object> entry, bool whileOpen);
+
+    /// <summary>
+    /// ESC-36, FUP-204: keep the trucker's first out-of-range drop-off check-in as <c>dropoffAttempt</c>, server-only
+    /// evidence that never counts as a check-in, under the conditions of an open
+    /// <see cref="TryRecordDropoffCheckInAsync"/> (no version bump, the deadline unchanged). False when one is
+    /// stored already or the order is no longer waiting for its drop-off judgement.
+    /// </summary>
+    Task<bool> TryRecordDropoffAttemptAsync(string orderId, Dictionary<string, object> entry);
+
+    /// <summary>
+    /// FUP-373: keep a late out-of-range drop-off check-in (received after T8, <c>late: true</c>) as
+    /// <c>dropoffAttempt</c> when none is stored, whatever the judgement: evidence for the admin only. Received
+    /// after T8, it never counts at T8 (<see cref="Helpers.DropoffJudgement.CountedAttempt"/>), so it changes no
+    /// outcome; no version bump. False when an attempt is stored already.
+    /// </summary>
+    Task<bool> TryRecordLateDropoffAttemptAsync(string orderId, Dictionary<string, object> entry);
 
     /// <summary>
     /// ESC-09: one page of the <c>StatusCreatedAtIndex</c> partition for <paramref name="status"/>,
@@ -183,6 +301,33 @@ public interface IOrderRepository
     /// Returns false when the order is missing or its status moved on.
     /// </summary>
     Task<bool> TryMarkMoneySweepSkipAsync(string orderId, string status, string markedAt);
+
+    /// <summary>
+    /// ESC-16: one page of the orders whose next deadline (<see cref="Helpers.OrderDeadlines"/>) is before
+    /// <paramref name="dueBefore"/> (ISO 8601 UTC), oldest deadline first, from the sparse
+    /// <c>DeadlineIndex</c> (a Query, never a Scan). <paramref name="limit"/> is 1 to 100. The index copy
+    /// is eventually consistent: the caller re-reads a row before acting on it. Only the sweep's
+    /// partition (<see cref="Helpers.OrderDeadlines.Shard"/>) is read.
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDueDeadlinesAsync(
+        string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
+    /// FUP-170: <see cref="QueryDueDeadlinesAsync"/> on the partition <paramref name="shard"/> of
+    /// <c>DeadlineIndex</c>: <see cref="Helpers.OrderDeadlines.Shard"/> (the sweep's) or
+    /// <see cref="Helpers.OrderDeadlines.WatchShard"/> (the entries only the admin lists).
+    /// </summary>
+    Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDeadlinePartitionAsync(
+        string shard, string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
+    /// ESC-16: set the order's next deadline to <paramref name="deadline"/> (remove it when null),
+    /// without bumping <c>version</c> or <c>updatedAt</c>, only while the order is still at
+    /// <paramref name="expectedVersion"/>: a write since then has stamped its own deadline. Used by the
+    /// order cron to correct a row it found due for nothing, to retry a row later, and by its repair
+    /// walk. False when the order is missing or its version moved.
+    /// </summary>
+    Task<bool> TrySetDeadlineAsync(string orderId, string createdAt, int expectedVersion, Helpers.OrderDeadline? deadline);
 }
 
 /// <summary>ESC-45 (D8): the server-only order field that holds an order for a pending payment.</summary>

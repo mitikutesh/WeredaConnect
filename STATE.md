@@ -197,7 +197,7 @@ NEXT: Start Sprint 1 — fix 3 failing tests (S1-01), then hardcoded string (S1-
 - **Batch size 50** — completes in <5s on 3G
 - **HMAC-SHA256 over JWT for QR** — smaller payload, better on cheap cameras, simpler
 - **5km GPS threshold** — accounts for GPS inaccuracy + farm-to-road distance
-- **4 fraud rules**: duplicate detection, price anomaly, velocity limits and GPS consistency write weighted fraud signals. Risk scoring, tiers and holds are designed (fraud-detection-architecture.md v3) but not built (EPIC FRD)
+- **4 fraud rules**: duplicate detection, price anomaly, velocity limits and GPS consistency write weighted fraud signals. The rule-based risk score (FRD-02), its tier gates on payments and creates (FRD-04) and the fraud hold of escrows (FRD-03; `FRAUD_HOLD_ENABLED` on in dev only, staging and prod are FUP-93) are built (fraud-detection-architecture.md); ML risk scoring is decided and deferred (FRD-20)
 - **3-sprint plan** — ship-ready (days) → security (week) → production (weeks)
 
 ---

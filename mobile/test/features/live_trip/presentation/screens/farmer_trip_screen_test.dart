@@ -1,0 +1,197 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import 'package:wereda_connect/core/database/schemas/order.dart';
+import 'package:wereda_connect/core/database/schemas/delivery.dart';
+import 'package:wereda_connect/features/live_trip/domain/models/delivery_track.dart';
+import 'package:wereda_connect/features/live_trip/presentation/screens/farmer_trip_screen.dart';
+import 'package:wereda_connect/features/live_trip/presentation/widgets/track_map.dart';
+
+import '../../live_trip_fixtures.dart';
+import '../../live_trip_harness.dart';
+
+/// LT-11: the farmer's "Your wheat is on the road": only their own order's
+/// delivery, other stops as unnamed grey rings, the payment steps.
+void main() {
+  late LiveTripDeps deps;
+  late FakeTrackRepository tracks;
+
+  setUp(() {
+    deps = LiveTripDeps(order: liveOrder());
+    tracks = FakeTrackRepository(track: withEta(corridorTrack()));
+  });
+
+  Future<void> pumpFarmer(
+    WidgetTester tester, {
+    Delivery? delivery,
+    String userId = farmerId,
+    Locale locale = const Locale('en'),
+  }) async {
+    tester.view.physicalSize = const Size(420, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      liveTripApp(
+        deps: deps,
+        tracks: tracks,
+        locale: locale,
+        home: FarmerTripScreen(
+          delivery: delivery ?? liveDelivery(),
+          currentUserId: userId,
+          places: corridorPlaces,
+          clock: fixedNow,
+        ),
+      ),
+    );
+    await settleReads(tester);
+  }
+
+  testWidgets('the farmer follows their own order from their pickup',
+      (tester) async {
+    await pumpFarmer(tester);
+    expect(find.text('Your Wheat is on the road'), findsOneWidget);
+    expect(find.text('2,000 kg to Selam Traders'), findsOneWidget);
+    expect(find.byType(TrackMap), findsOneWidget);
+    // The board's chip under the map: time, town and age on one line.
+    expect(find.text('11:42 · Mojo · 28 min ago'), findsOneWidget);
+    expect(find.text('Arrives 13:20-14:00'), findsOneWidget);
+    expect(
+      find.text(
+        'Grey rings are other stops on this truck. They are never named.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Your payment'), findsOneWidget);
+    expect(find.text('84,000 ETB'), findsOneWidget);
+    expect(find.text('Buyer paid, held in escrow'), findsOneWidget);
+    expect(find.text('You handed over, QR scanned'), findsOneWidget);
+    expect(find.text('Buyer confirms delivery'), findsOneWidget);
+    expect(find.text('Selam Traders'), findsOneWidget);
+    expect(find.text('Dawit Tesfaye'), findsOneWidget);
+    expect(
+      find.byKey(const Key('farmer_trip_order_link')),
+      findsOneWidget,
+    );
+    expect(tracks.readers, [farmerId]);
+  });
+
+  // The payment card is the farmer's own share: the crop cost, else
+  // quantity x unit price, never what the buyer paid in total.
+  testWidgets('without a crop cost the payment is quantity x unit price',
+      (tester) async {
+    deps = LiveTripDeps(
+      order: liveOrder()
+        ..cropCost = null
+        ..totalPrice = 91200,
+    );
+    await pumpFarmer(tester);
+
+    expect(find.text('84,000 ETB'), findsOneWidget);
+    expect(find.text('91,200 ETB'), findsNothing);
+  });
+
+  testWidgets('an order without any price shows no amount', (tester) async {
+    deps = LiveTripDeps(
+      order: liveOrder()
+        ..cropCost = null
+        ..pricePerUnit = 0
+        ..totalPrice = 91200,
+    );
+    await pumpFarmer(tester);
+
+    expect(find.text('Your payment'), findsOneWidget);
+    expect(find.textContaining('91,200'), findsNothing);
+  });
+
+  testWidgets('another farmer, the buyer and the trucker get nothing here',
+      (tester) async {
+    for (final (delivery, userId) in [
+      (liveDelivery(farmer: 'farmer-002'), farmerId),
+      (liveDelivery(), buyerId),
+      (liveDelivery(), truckerId),
+    ]) {
+      await pumpFarmer(tester, delivery: delivery, userId: userId);
+      expect(find.byType(TrackMap), findsNothing, reason: userId);
+      expect(
+        find.text('You are not authorized to view this order.'),
+        findsOneWidget,
+        reason: userId,
+      );
+    }
+    expect(tracks.fetches, 0);
+  });
+
+  // Design canvas page M, the Farmer journey board.
+  testWidgets('on the road there is nothing for the farmer to do',
+      (tester) async {
+    await pumpFarmer(tester);
+    expect(
+      find.text(
+        'Nothing for you to do now. Selam Traders must confirm delivery. '
+        'Then the 48 h check window runs and the money is paid out to you.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Message and Call for the buyer and for the driver',
+      (tester) async {
+    await pumpFarmer(tester);
+    expect(find.text('Message'), findsNWidgets(2));
+    expect(find.text('Call'), findsNWidgets(2));
+    for (final party in [buyerId, truckerId]) {
+      expect(find.byKey(Key('party_message_$party')), findsOneWidget);
+      expect(find.byKey(Key('party_call_$party')), findsOneWidget);
+    }
+  });
+
+  testWidgets('no Message or Call before the order opens contact',
+      (tester) async {
+    deps.order = liveOrder(status: OrderStatus.pendingPayment);
+    await pumpFarmer(tester);
+    expect(find.text('Selam Traders'), findsOneWidget);
+    expect(find.text('Message'), findsNothing);
+    expect(find.text('Call'), findsNothing);
+  });
+
+  testWidgets('delivered, inside the window: paid when it ends',
+      (tester) async {
+    tracks.track = DeliveryTrack.fromJson(endedTrackJson());
+    await pumpFarmer(
+      tester,
+      delivery: liveDelivery(
+        status: DeliveryStatus.delivered,
+        confirmedAt: asOf.subtract(const Duration(hours: 1)),
+      ),
+    );
+    expect(
+      find.textContaining(
+        'Nothing for you to do. You are paid when the check window ends, ',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Nothing for you to do now.'), findsNothing);
+  });
+
+  testWidgets('after delivery: sharing ended, no map', (tester) async {
+    tracks.track = DeliveryTrack.fromJson(endedTrackJson());
+    await pumpFarmer(
+      tester,
+      delivery: liveDelivery(
+        status: DeliveryStatus.delivered,
+        confirmedAt: at(11, 2),
+      ),
+    );
+    expect(find.text('Delivered at 14:02'), findsOneWidget);
+    expect(find.text('Sharing ended at delivery'), findsOneWidget);
+    expect(find.byType(TrackMap), findsNothing);
+  });
+
+  testWidgets('am: the arrival window on the Ethiopian clock', (tester) async {
+    await pumpFarmer(tester, locale: const Locale('am'));
+    expect(
+      find.text('የሚደርስበት ከቀኑ 7:20-8:00 (13:20-14:00)'),
+      findsOneWidget,
+    );
+  });
+}

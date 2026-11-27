@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/message.dart';
+import 'package:wereda_connect/core/utils/party_name.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/messaging/domain/conversation_context_resolver.dart';
@@ -16,7 +17,7 @@ import 'package:wereda_connect/features/messaging/presentation/widgets/conversat
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
 
-/// The conversation currently on screen — arrivals for it are already visible
+/// The conversation currently on screen: arrivals for it are already visible
 /// in the thread, so the banner suppresses them. Set/cleared by the
 /// conversation screen.
 class ActiveConversation {
@@ -26,7 +27,7 @@ class ActiveConversation {
 }
 
 /// Shows an in-app heads-up banner when a chat message arrives while the app
-/// is open (mobile AND web — background delivery on Android is FCM's job).
+/// is open (mobile AND web: background delivery on Android is FCM's job).
 ///
 /// Wraps the app shell; listens to the message repository's inbound stream
 /// (fed by the inbox poll / pulls). Tapping the banner opens the thread; a
@@ -47,7 +48,7 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener>
   OverlayEntry? _banner;
   Timer? _dismissTimer;
 
-  /// Which user the inbox was last bootstrapped for — guards against
+  /// Which user the inbox was last bootstrapped for: guards against
   /// re-dispatching [LoadInbox] on every auth re-emission (token refresh).
   String? _inboxLoadedFor;
 
@@ -58,7 +59,7 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     // Subscribe only while authenticated: reading InboxBloc forces its lazy
-    // creation, which touches the local store — and signed-out sessions have
+    // creation, which touches the local store: and signed-out sessions have
     // no arrivals to announce anyway.
     final authBloc = context.read<AuthBloc>();
     _syncToAuth(authBloc.state);
@@ -82,7 +83,7 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener>
         context.read<InboxBloc>().add(LoadInbox(state.userId));
       }
     } else {
-      // Only touch InboxBloc when a user WAS signed in (we had subscribed) —
+      // Only touch InboxBloc when a user WAS signed in (we had subscribed):
       // reading it while signed out forces lazy creation and touches the
       // local store for nothing.
       if (_subscription != null) {
@@ -103,7 +104,7 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener>
   /// notification shade) is deliberately ignored.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (_subscription == null) return; // Not signed in — nothing polls.
+    if (_subscription == null) return; // Not signed in: nothing polls.
     final inbox = context.read<InboxBloc>();
     if (state == AppLifecycleState.resumed) {
       inbox.add(const InboxResumed());
@@ -190,6 +191,8 @@ class _MessageArrivalListenerState extends State<MessageArrivalListener>
 }
 
 /// The heads-up card itself: sender, preview, and the linked crop/trip.
+/// Black with white ink, like the floating nav pill, with the orange
+/// "something new" mark; it floats over any screen and stays readable.
 class _ArrivalBanner extends StatelessWidget {
   final List<Message> messages;
   final ConversationContextResolver? contextResolver;
@@ -206,17 +209,20 @@ class _ArrivalBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-
     final single = messages.map((m) => m.conversationId).toSet().length == 1;
     final last = messages.last;
-    final sender = last.senderName?.trim();
+    // Names as the other screens show them: never an id (FUP-130).
+    final sender = partyDisplayName(last.senderName, l10n).trim();
     final title = single
-        ? (sender != null && sender.isNotEmpty ? sender : l10n.newMessage)
+        ? (sender.isNotEmpty ? sender : l10n.newMessage)
         : l10n.newMessagesCount(messages.length);
     final preview = single
         ? last.body
-        : messages.map((m) => m.senderName ?? '').toSet().join(', ');
+        : messages
+            .map((m) => partyDisplayName(m.senderName, l10n).trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .join(', ');
 
     return Positioned(
       top: 0,
@@ -232,24 +238,29 @@ class _ArrivalBanner extends StatelessWidget {
               direction: DismissDirection.up,
               onDismissed: (_) => onDismiss(),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: Material(
-                  elevation: 6,
-                  borderRadius: BorderRadius.circular(14),
-                  color: theme.colorScheme.surface,
+                  elevation: 8,
+                  shadowColor: Theme.of(context).colorScheme.shadow,
+                  borderRadius: BorderRadius.circular(24),
+                  color: AppTheme.ink,
+                  clipBehavior: Clip.antiAlias,
                   child: InkWell(
                     onTap: onTap,
-                    borderRadius: BorderRadius.circular(14),
                     child: Padding(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.fromLTRB(12, 12, 16, 12),
                       child: Row(
                         children: [
-                          const CircleAvatar(
-                            radius: 18,
-                            backgroundColor: AppTheme.primary,
-                            child: Icon(
+                          Container(
+                            width: 40,
+                            height: 40,
+                            decoration: const BoxDecoration(
+                              color: AppTheme.orange,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
                               Icons.chat_bubble_outline,
-                              color: Colors.white,
+                              color: AppTheme.ink,
                               size: 18,
                             ),
                           ),
@@ -262,8 +273,11 @@ class _ArrivalBanner extends StatelessWidget {
                                   title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w700,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.15,
+                                    color: Colors.white,
                                   ),
                                 ),
                                 const SizedBox(height: 2),
@@ -271,7 +285,10 @@ class _ArrivalBanner extends StatelessWidget {
                                   preview,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodySmall,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: AppTheme.inkMuted,
+                                  ),
                                 ),
                                 if (single) ...[
                                   const SizedBox(height: 4),
@@ -279,6 +296,7 @@ class _ArrivalBanner extends StatelessWidget {
                                     contextType: last.contextType,
                                     contextId: last.contextId,
                                     resolver: contextResolver,
+                                    color: AppTheme.inkMuted,
                                   ),
                                 ],
                               ],

@@ -82,6 +82,39 @@ public sealed class CropRepository : ICropRepository
         }
     }
 
+    private const string DeletedStatus = "deleted";
+    private const string SoldStatus = "sold";
+
+    /// <summary>
+    /// FUP-152: the error code of an <see cref="UpdateAsync"/> refused because the listing is
+    /// deleted, and (FUP-494) of a <see cref="DeleteAsync"/> refused for the same reason. Nothing
+    /// was written and the version did not move.
+    /// </summary>
+    public const string AlreadyDeletedCode = "CROP_ALREADY_DELETED";
+
+    /// <summary>
+    /// FUP-495: the error code of an <see cref="UpdateAsync"/> refused because the listing is
+    /// sold. Nothing was written and the version did not move.
+    /// </summary>
+    public const string SoldCode = "CROP_SOLD";
+
+    /// <summary>
+    /// FUP-132: a listing is deleted when it carries <c>deletedAt</c> or its status is
+    /// <c>deleted</c>. Rows deleted by an update before the stamp was written have only the status.
+    /// </summary>
+    public static bool IsDeleted(IReadOnlyDictionary<string, object> crop)
+        => (crop.TryGetValue("deletedAt", out var deletedAt) && !string.IsNullOrEmpty(deletedAt?.ToString()))
+           || (crop.TryGetValue("status", out var status)
+               && string.Equals(status?.ToString(), DeletedStatus, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// FUP-495: a listing is sold when its status is <c>sold</c>. Sold is terminal: no transition
+    /// leaves it and a stock restore does not reopen it.
+    /// </summary>
+    public static bool IsSold(IReadOnlyDictionary<string, object> crop)
+        => crop.TryGetValue("status", out var status)
+           && string.Equals(status?.ToString(), SoldStatus, StringComparison.OrdinalIgnoreCase);
+
     /// <inheritdoc />
     public async Task<AuthResult<Dictionary<string, object>>> UpdateAsync(
         string cropId,
@@ -105,13 +138,17 @@ public sealed class CropRepository : ICropRepository
         var attrNames = new Dictionary<string, string>
         {
             { "#updated", "updatedAt" },
-            { "#v", "version" }
+            { "#v", "version" },
+            { "#deleted", "deletedAt" },
+            { "#st", "status" }
         };
         var attrValues = new Dictionary<string, AttributeValue>
         {
             { ":updated", new AttributeValue { S = now } },
             { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
-            { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString() } }
+            { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString() } },
+            { ":deletedStatus", new AttributeValue { S = DeletedStatus } },
+            { ":soldStatus", new AttributeValue { S = SoldStatus } }
         };
 
         var i = 0;
@@ -130,6 +167,14 @@ public sealed class CropRepository : ICropRepository
             i++;
         }
 
+        // FUP-132: an update to 'deleted' is a delete, so it carries the stamp DeleteAsync
+        // writes. Every list filters on deletedAt; without it the row stayed in the farmer's list.
+        if (data.TryGetValue("status", out var newStatus)
+            && string.Equals(newStatus?.ToString(), DeletedStatus, StringComparison.Ordinal))
+        {
+            updateParts.Add("#deleted = if_not_exists(#deleted, :updated)");
+        }
+
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
@@ -139,10 +184,19 @@ public sealed class CropRepository : ICropRepository
                 { "createdAt", new AttributeValue { S = createdAt } }
             },
             UpdateExpression = "SET " + string.Join(", ", updateParts),
-            ConditionExpression = "#v = :expectedVersion",
+            // FUP-152: never onto a deleted listing (IsDeleted: the stamp or the status), checked in
+            // the write itself, so a delete that lands after the caller's read still wins. The status
+            // test is exact while IsDeleted ignores case: every writer stores "deleted" in lower case,
+            // and the stamp, which every delete writes, is checked first. FUP-495: nor onto a sold
+            // listing, so a "mark sold" that lands after the caller's read wins too. That test is exact
+            // as well: only the /sync transition table writes "sold", in lower case. The stock writes
+            // of the order flow (TryDecrementStockAsync, RestoreStockAsync) have their own conditions.
+            ConditionExpression = "#v = :expectedVersion AND attribute_not_exists(#deleted)"
+                + " AND (attribute_not_exists(#st) OR (#st <> :deletedStatus AND #st <> :soldStatus))",
             ExpressionAttributeNames = attrNames,
             ExpressionAttributeValues = attrValues,
-            ReturnValues = ReturnValue.ALL_NEW
+            ReturnValues = ReturnValue.ALL_NEW,
+            ReturnValuesOnConditionCheckFailure = ReturnValuesOnConditionCheckFailure.ALL_OLD
         };
 
         try
@@ -151,10 +205,23 @@ public sealed class CropRepository : ICropRepository
             var result = FromItem(response.Attributes);
             return AuthResult<Dictionary<string, object>>.Success(result);
         }
-        catch (ConditionalCheckFailedException)
+        catch (ConditionalCheckFailedException ex)
         {
-            // Version mismatch — return server's current data
-            var serverData = FromItem(existing);
+            // The row the condition saw; the read above when DynamoDB does not return it.
+            var stored = ex.Item is { Count: > 0 } ? ex.Item : existing;
+            var storedRow = FromItem(stored);
+            if (IsDeleted(storedRow))
+            {
+                return AuthResult<Dictionary<string, object>>.Failure(
+                    409, AlreadyDeletedCode, "The listing is already deleted.", "status");
+            }
+
+            if (IsSold(storedRow))
+            {
+                return AuthResult<Dictionary<string, object>>.Failure(
+                    409, SoldCode, "The listing is sold.", "status");
+            }
+
             return AuthResult<Dictionary<string, object>>.Failure(
                 new AuthResultError
                 {
@@ -191,7 +258,11 @@ public sealed class CropRepository : ICropRepository
                 { "createdAt", new AttributeValue { S = createdAt } }
             },
             UpdateExpression = "SET #deleted = :deleted, #status = :status, #updated = :updated, #v = :newVersion",
-            ConditionExpression = "#v = :expectedVersion",
+            // FUP-494: never onto a listing already deleted (IsDeleted: the stamp or the status),
+            // checked in the write itself as UpdateAsync does, so the first delete's deletedAt and
+            // version stay and a delete that lands after the caller's read still wins.
+            ConditionExpression = "#v = :expectedVersion AND attribute_not_exists(#deleted)"
+                + " AND (attribute_not_exists(#status) OR #status <> :status)",
             ExpressionAttributeNames = new Dictionary<string, string>
             {
                 { "#deleted", "deletedAt" },
@@ -207,7 +278,8 @@ public sealed class CropRepository : ICropRepository
                 { ":newVersion", new AttributeValue { N = newVersion.ToString() } },
                 { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString() } }
             },
-            ReturnValues = ReturnValue.ALL_NEW
+            ReturnValues = ReturnValue.ALL_NEW,
+            ReturnValuesOnConditionCheckFailure = ReturnValuesOnConditionCheckFailure.ALL_OLD
         };
 
         try
@@ -216,8 +288,16 @@ public sealed class CropRepository : ICropRepository
             var result = FromItem(response.Attributes);
             return AuthResult<Dictionary<string, object>>.Success(result);
         }
-        catch (ConditionalCheckFailedException)
+        catch (ConditionalCheckFailedException ex)
         {
+            // The row the condition saw; the read above when DynamoDB does not return it.
+            var stored = ex.Item is { Count: > 0 } ? ex.Item : existing;
+            if (IsDeleted(FromItem(stored)))
+            {
+                return AuthResult<Dictionary<string, object>>.Failure(
+                    409, AlreadyDeletedCode, "The listing is already deleted.", "status");
+            }
+
             return AuthResult<Dictionary<string, object>>.Failure(
                 409, "SYNC_CONFLICT", "Version conflict on delete.", "version");
         }
@@ -227,6 +307,13 @@ public sealed class CropRepository : ICropRepository
     public async Task<Dictionary<string, object>?> GetByIdAsync(string cropId)
     {
         var item = await GetItemAsync(cropId);
+        return item != null ? FromItem(item) : null;
+    }
+
+    /// <inheritdoc />
+    public async Task<Dictionary<string, object>?> GetByIdConsistentAsync(string cropId)
+    {
+        var item = await GetItemAsync(cropId, consistentRead: true);
         return item != null ? FromItem(item) : null;
     }
 
@@ -288,10 +375,13 @@ public sealed class CropRepository : ICropRepository
     /// <inheritdoc />
     public async Task<StockRestoreResult> RestoreStockAsync(string cropId, string orderId, double quintals)
     {
-        if (quintals <= 0)
+        if (!(quintals > 0) || double.IsInfinity(quintals))
         {
             return StockRestoreResult.Failed;
         }
+
+        // ESC-18: the exact amount the funding took (StockUnits), added back without rounding.
+        var amount = StockUnits(quintals);
 
         for (var attempt = 0; attempt < 3; attempt++)
         {
@@ -308,24 +398,29 @@ public sealed class CropRepository : ICropRepository
                 return StockRestoreResult.AlreadyRestored;
             }
 
-            var current = existing.TryGetValue("quantity", out var q)
-                && double.TryParse(q.N ?? q.S, System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var parsedQuantity)
-                ? parsedQuantity
-                : 0.0;
+            // ESC-18: an order whose funding was refused for lack of stock took nothing, so it has
+            // nothing to give back (unless a later funding attempt for it did take stock).
+            if (HasOrder(existing, StockRefusedForAttribute, orderId)
+                && !HasOrder(existing, StockDecrementedForAttribute, orderId))
+            {
+                return StockRestoreResult.AlreadyRestored;
+            }
+
+            var current = ReadStock(existing);
             var version = existing.TryGetValue("version", out var v)
                 && int.TryParse(v.N, out var parsedVersion) ? parsedVersion : 1;
             var status = existing.TryGetValue("status", out var s) ? s.S : null;
-            var newQuantity = Math.Round(current + quintals, 2);
+            var newQuantity = current + amount;
 
             var attrNames = new Dictionary<string, string>
             {
                 { "#q", "quantity" }, { "#v", "version" }, { "#updated", "updatedAt" },
-                { "#restored", "stockRestoredFor" }
+                { "#restored", "stockRestoredFor" },
+                { "#refused", StockRefusedForAttribute }, { "#decremented", StockDecrementedForAttribute }
             };
             var attrValues = new Dictionary<string, AttributeValue>
             {
-                { ":q", new AttributeValue { N = newQuantity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":q", new AttributeValue { N = FormatStock(newQuantity) } },
                 { ":newVersion", new AttributeValue { N = (version + 1).ToString() } },
                 { ":expectedVersion", new AttributeValue { N = version.ToString() } },
                 { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
@@ -349,7 +444,10 @@ public sealed class CropRepository : ICropRepository
                     { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
                 },
                 UpdateExpression = setExpression + " ADD #restored :orderIdSet",
-                ConditionExpression = "#v = :expectedVersion AND (attribute_not_exists(#restored) OR NOT contains(#restored, :orderId))",
+                // ESC-18: the refusal of a funding does not move the version, so the write itself
+                // also requires that this order was not refused (or did take stock later).
+                ConditionExpression = "#v = :expectedVersion AND (attribute_not_exists(#restored) OR NOT contains(#restored, :orderId))"
+                    + " AND (attribute_not_exists(#refused) OR NOT contains(#refused, :orderId) OR contains(#decremented, :orderId))",
                 ExpressionAttributeNames = attrNames,
                 ExpressionAttributeValues = attrValues
             };
@@ -372,10 +470,14 @@ public sealed class CropRepository : ICropRepository
     /// <inheritdoc />
     public async Task<StockDecrementResult> TryDecrementStockAsync(string cropId, string orderId, double quintals)
     {
-        if (quintals <= 0)
+        if (!(quintals > 0) || double.IsInfinity(quintals))
         {
             return StockDecrementResult.Failed;
         }
+
+        // ESC-18: compared and written as exact decimals, never rounded to whole kilograms: 1.00
+        // quintal covers a 33.6 kg order and then a 66.4 kg one, and 0.30 quintals covers 30 kg.
+        var need = StockUnits(quintals);
 
         for (var attempt = 0; attempt < DecrementAttempts; attempt++)
         {
@@ -394,30 +496,40 @@ public sealed class CropRepository : ICropRepository
                 return StockDecrementResult.ListingNotFound;
             }
 
-            if (existing.TryGetValue("stockDecrementedFor", out var decremented)
-                && decremented.SS != null
-                && decremented.SS.Contains(orderId))
+            if (HasOrder(existing, StockDecrementedForAttribute, orderId))
             {
                 return StockDecrementResult.AlreadyApplied;
             }
 
-            var current = existing.TryGetValue("quantity", out var q)
-                && double.TryParse(q.N ?? q.S, System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var parsedQuantity)
-                ? parsedQuantity
-                : 0.0;
+            existing.TryGetValue("quantity", out var q);
+            var current = ReadStock(existing);
             var version = existing.TryGetValue("version", out var v)
                 && int.TryParse(v.N, out var parsedVersion) ? parsedVersion : 1;
-            var newQuantity = Math.Round(Math.Max(0, current - quintals), 2);
+
+            if (current < need)
+            {
+                // ESC-18: this funding lost the stock (another order took it first, or there never
+                // was enough). Nothing is taken. The refusal is recorded against the version just
+                // read, so it is never decided on a stale copy, and a later restore for this order
+                // gives nothing back.
+                if (await TryRecordRefusalAsync(cropId, existing["createdAt"].S, orderId, version))
+                {
+                    return StockDecrementResult.InsufficientStock;
+                }
+
+                continue;
+            }
+
+            var newQuantity = current - need;
 
             var attrNames = new Dictionary<string, string>
             {
                 { "#q", "quantity" }, { "#v", "version" }, { "#updated", "updatedAt" },
-                { "#decremented", "stockDecrementedFor" }
+                { "#decremented", StockDecrementedForAttribute }
             };
             var attrValues = new Dictionary<string, AttributeValue>
             {
-                { ":q", new AttributeValue { N = newQuantity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) } },
+                { ":q", new AttributeValue { N = FormatStock(newQuantity) } },
                 { ":newVersion", new AttributeValue { N = (version + 1).ToString() } },
                 { ":expectedVersion", new AttributeValue { N = version.ToString() } },
                 { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
@@ -434,6 +546,16 @@ public sealed class CropRepository : ICropRepository
                 setExpression += ", #status = :reserved";
             }
 
+            // ESC-18: the write itself requires the stock (quantity >= q) next to the version, so
+            // no write can take more than the listing holds. A listing whose quantity is still the
+            // old string form relies on the version alone (a number compared with a string fails).
+            var condition = "#v = :expectedVersion AND (attribute_not_exists(#decremented) OR NOT contains(#decremented, :orderId))";
+            if (q?.N != null)
+            {
+                attrValues[":need"] = new AttributeValue { N = FormatStock(need) };
+                condition += " AND #q >= :need";
+            }
+
             var request = new UpdateItemRequest
             {
                 TableName = _tableName,
@@ -443,7 +565,7 @@ public sealed class CropRepository : ICropRepository
                     { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
                 },
                 UpdateExpression = setExpression + " ADD #decremented :orderIdSet",
-                ConditionExpression = "#v = :expectedVersion AND (attribute_not_exists(#decremented) OR NOT contains(#decremented, :orderId))",
+                ConditionExpression = condition,
                 ExpressionAttributeNames = attrNames,
                 ExpressionAttributeValues = attrValues
             };
@@ -455,12 +577,87 @@ public sealed class CropRepository : ICropRepository
             }
             catch (ConditionalCheckFailedException)
             {
-                // Another write moved the version, or this order's decrement landed
-                // concurrently: re-read and decide again.
+                // Another write moved the version (often another funding taking stock), or this
+                // order's decrement landed concurrently: re-read and decide again.
             }
         }
 
         return StockDecrementResult.Failed;
+    }
+
+    /// <summary>The listing's set of orders whose funding took stock (ESC-01).</summary>
+    internal const string StockDecrementedForAttribute = "stockDecrementedFor";
+
+    /// <summary>
+    /// ESC-18: the listing's set of orders whose funding found too little stock and took none. A
+    /// restore for such an order gives nothing back (<see cref="RestoreStockAsync"/>).
+    /// </summary>
+    internal const string StockRefusedForAttribute = "stockRefusedFor";
+
+    private static bool HasOrder(Dictionary<string, AttributeValue> item, string attribute, string orderId)
+        => item.TryGetValue(attribute, out var set) && set.SS != null && set.SS.Contains(orderId);
+
+    /// <summary>
+    /// ESC-18: an order's quintals as an exact decimal. Orders are kilograms with up to 2 decimals,
+    /// so quintals have up to 4; the double they travel in is read back at 6 decimals, which drops
+    /// only binary noise. Decrement and restore use the same value, so they stay symmetric.
+    /// </summary>
+    internal static decimal StockUnits(double quintals) => Math.Round((decimal)quintals, 6);
+
+    /// <summary>
+    /// ESC-18: listing stock as written to the table, exact and culture-free, never rounded: at
+    /// least 2 decimals for reading (<c>55.00</c>), more when the stock has them (<c>0.664</c>).
+    /// </summary>
+    internal static string FormatStock(decimal quintals)
+        => quintals.ToString("0.00##########################", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>The listing's stock as stored (number, or the old string form); 0 when missing or unreadable.</summary>
+    private static decimal ReadStock(Dictionary<string, AttributeValue> item)
+        => item.TryGetValue("quantity", out var q)
+           && decimal.TryParse(q.N ?? q.S, System.Globalization.NumberStyles.Float,
+               System.Globalization.CultureInfo.InvariantCulture, out var stock)
+            ? stock
+            : 0m;
+
+    /// <summary>
+    /// ESC-18: add <paramref name="orderId"/> to <see cref="StockRefusedForAttribute"/> while the
+    /// listing is still at <paramref name="version"/> and the order has taken no stock. The version
+    /// is not bumped and nothing else changes, so concurrent fundings are not disturbed and the
+    /// farmer's copy stays current. False when the listing moved: the caller reads it again.
+    /// </summary>
+    private async Task<bool> TryRecordRefusalAsync(string cropId, string createdAt, string orderId, int version)
+    {
+        var request = new UpdateItemRequest
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "cropId", new AttributeValue { S = cropId } },
+                { "createdAt", new AttributeValue { S = createdAt } }
+            },
+            UpdateExpression = "ADD #refused :orderIdSet",
+            ConditionExpression = "#v = :expectedVersion AND (attribute_not_exists(#decremented) OR NOT contains(#decremented, :orderId))",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#v", "version" }, { "#refused", StockRefusedForAttribute }, { "#decremented", StockDecrementedForAttribute }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":expectedVersion", new AttributeValue { N = version.ToString() } },
+                { ":orderIdSet", new AttributeValue { SS = new List<string> { orderId } } },
+                { ":orderId", new AttributeValue { S = orderId } }
+            }
+        };
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(request);
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
     }
 
     /// <inheritdoc />
@@ -483,23 +680,30 @@ public sealed class CropRepository : ICropRepository
         // Priority: farmerId > status > cropType > fallback SCAN.
         // Each GSI path uses KeyConditionExpression for the partition key
         // and pushes remaining filters into FilterExpression.
+        (List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey) page;
         if (!string.IsNullOrEmpty(farmerId))
         {
-            return await QueryByFarmerIdAsync(farmerId, woreda, cropType, status, limit, exclusiveStartKey);
+            page = await QueryByFarmerIdAsync(farmerId, woreda, cropType, status, limit, exclusiveStartKey);
         }
-
-        if (!string.IsNullOrEmpty(status))
+        else if (!string.IsNullOrEmpty(status))
         {
-            return await QueryByStatusAsync(status, woreda, cropType, limit, exclusiveStartKey);
+            page = await QueryByStatusAsync(status, woreda, cropType, limit, exclusiveStartKey);
         }
-
-        if (!string.IsNullOrEmpty(cropType))
+        else if (!string.IsNullOrEmpty(cropType))
         {
-            return await QueryByCropTypeAsync(cropType, woreda, limit, exclusiveStartKey, maxPricePerKg);
+            page = await QueryByCropTypeAsync(cropType, woreda, limit, exclusiveStartKey, maxPricePerKg);
+        }
+        else
+        {
+            // Fallback: unfiltered browse, a SCAN
+            page = await ScanFallbackAsync(woreda, limit, exclusiveStartKey);
         }
 
-        // Fallback: unfiltered browse — SCAN (unchanged)
-        return await ScanFallbackAsync(woreda, limit, exclusiveStartKey);
+        // FUP-132: each path filters on deletedAt in DynamoDB; a row with status 'deleted' and no
+        // stamp (deleted by an update before the stamp was written) is dropped here, for every
+        // caller: the farmer's own list, the buyer browse and matching.
+        page.Items.RemoveAll(item => IsDeleted(item));
+        return page;
     }
 
     /// <summary>
@@ -573,9 +777,15 @@ public sealed class CropRepository : ICropRepository
             fullItems = fullItems.Where(item =>
             {
                 if (!string.IsNullOrEmpty(woreda) && GetStringOrNull(item, "woreda") != woreda)
+                {
                     return false;
+                }
+
                 if (!string.IsNullOrEmpty(status) && GetStringOrNull(item, "status") != status)
+                {
                     return false;
+                }
+
                 return true;
             }).ToList();
         }

@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'package:wereda_connect/core/location/location_permission.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
 
 /// GPS coordinate capture with Ethiopian bounds validation
@@ -12,59 +14,127 @@ import 'package:wereda_connect/features/delivery_verification/data/delivery_cons
 /// per-delivery for audit and proximity checks. Spoofing detection
 /// is deferred to F-14 (Fraud Detection).
 class GpsCaptureService {
-  /// Capture current GPS position.
+  /// [isWeb] and [timeLimit] are for tests.
+  GpsCaptureService({
+    bool isWeb = kIsWeb,
+    Duration timeLimit = DeliveryConstants.gpsCaptureTimeout,
+  })  : _isWeb = isWeb,
+        _timeLimit = timeLimit;
+
+  final bool _isWeb;
+  final Duration _timeLimit;
+
+  /// Capture current GPS position. Never throws.
   ///
   /// Returns [GpsCaptureResult.success] with coordinates and accuracy,
   /// or [GpsCaptureResult.unavailable] with a descriptive reason.
   ///
   /// Failure modes:
   /// - Location services disabled
-  /// - Permission denied
-  /// - Permission permanently denied
+  /// - Permission denied (on web also a dismissed prompt, or one nobody
+  ///   answers in time: the next capture asks again)
+  /// - Permission permanently denied (on web: the site is blocked)
   /// - Timeout (15 seconds)
+  ///
+  /// Each wait ends within the time limit here in Dart (FUP-441): the fix,
+  /// and on web the permission prompt ([requestLocationPermission]).
+  /// `geolocator_web` hands the browser the limit in microseconds where it
+  /// reads milliseconds (15 seconds become about 4.2 hours), so the plugin's
+  /// own limit does not hold there.
   Future<GpsCaptureResult> captureCurrentPosition() async {
+    try {
+      return await _capture();
+    } on Object catch (e) {
+      debugPrint('[GpsCapture] location failed: $e');
+      return const GpsCaptureResult.unavailable(
+        GpsCaptureResult.noSignalReason,
+      );
+    }
+  }
+
+  Future<GpsCaptureResult> _capture() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       return const GpsCaptureResult.unavailable(
-        'Location services disabled',
+        GpsCaptureResult.locationOffReason,
       );
     }
 
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
+      permission = await requestLocationPermission(
+        isWeb: _isWeb,
+        limit: _timeLimit,
+      );
       if (permission == LocationPermission.denied) {
         return const GpsCaptureResult.unavailable(
-          'Location permission denied',
+          GpsCaptureResult.permissionDeniedReason,
         );
       }
     }
     if (permission == LocationPermission.deniedForever) {
       return const GpsCaptureResult.unavailable(
-        'Location permission permanently denied',
+        GpsCaptureResult.permanentlyDeniedReason,
       );
     }
 
     try {
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
+        locationSettings: LocationSettings(
           accuracy: LocationAccuracy.high,
-          timeLimit: DeliveryConstants.gpsCaptureTimeout,
+          timeLimit: _timeLimit,
         ),
-      );
+      ).timeout(_timeLimit);
       return GpsCaptureResult.success(
         latitude: position.latitude,
         longitude: position.longitude,
         accuracy: position.accuracy,
+        capturedAt: position.timestamp.toUtc(),
+        approximate: await _isApproximate(),
       );
     } on LocationServiceDisabledException {
       return const GpsCaptureResult.unavailable(
-        'Location services disabled',
+        GpsCaptureResult.locationOffReason,
       );
     } on TimeoutException {
-      return const GpsCaptureResult.unavailable('GPS signal not available');
+      return const GpsCaptureResult.unavailable(
+        GpsCaptureResult.noSignalReason,
+      );
     } on Exception {
-      return const GpsCaptureResult.unavailable('GPS signal not available');
+      return const GpsCaptureResult.unavailable(
+        GpsCaptureResult.noSignalReason,
+      );
+    }
+  }
+
+  /// Whether Android granted only approximate location (Android 12 and
+  /// later), so the fix is coarse (FUP-440). Asked on Android only, never
+  /// on web. Never throws: a failed or slow answer reads as precise.
+  Future<bool> _isApproximate() async {
+    if (_isWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return false;
+    }
+    try {
+      final status =
+          await Geolocator.getLocationAccuracy().timeout(_accuracyCheckLimit);
+      return status == LocationAccuracyStatus.reduced;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// How long [_isApproximate] waits for its answer: one plugin call, so a
+  /// fix in hand is never lost to it.
+  static const _accuracyCheckLimit = Duration(seconds: 2);
+
+  /// Open this app's page in the phone's settings, where a location
+  /// permission denied for good can be allowed again (FUP-285). False when
+  /// it did not open (web has none: the browser's site settings hold it).
+  Future<bool> openAppSettings() async {
+    try {
+      return await Geolocator.openAppSettings();
+    } on Object {
+      return false;
     }
   }
 
@@ -129,12 +199,22 @@ class GpsCaptureResult {
 
   /// Accuracy in meters.
   final double? accuracy;
+
+  /// The fix's own time (UTC), as the platform stamped it (FUP-440). Null
+  /// without a fix.
+  final DateTime? capturedAt;
+
+  /// Android granted only approximate location, so the fix is coarse
+  /// (FUP-440). False without a fix and on web.
+  final bool approximate;
   final String? unavailableReason;
 
   const GpsCaptureResult.success({
     required this.latitude,
     required this.longitude,
     required this.accuracy,
+    this.capturedAt,
+    this.approximate = false,
   })  : isAvailable = true,
         unavailableReason = null;
 
@@ -142,7 +222,86 @@ class GpsCaptureResult {
       : isAvailable = false,
         latitude = null,
         longitude = null,
-        accuracy = null;
+        accuracy = null,
+        capturedAt = null,
+        approximate = false;
+
+  /// The [unavailableReason] when the location permission was denied for
+  /// good: only the app settings (the browser's site settings on web) can
+  /// allow it again.
+  static const permanentlyDeniedReason =
+      'Location permission permanently denied';
+
+  /// Whether the permission was denied for good ([permanentlyDeniedReason]).
+  bool get permissionDeniedForever =>
+      unavailableReason == permanentlyDeniedReason;
+
+  /// The [unavailableReason] when location is switched off on the phone.
+  static const locationOffReason = 'Location services disabled';
+
+  /// The [unavailableReason] when the permission was refused this time.
+  static const permissionDeniedReason = 'Location permission denied';
+
+  /// The [unavailableReason] when no fix came in time or the platform
+  /// failed.
+  static const noSignalReason = 'GPS signal not available';
+
+  /// Why there is no fix (FUP-138), or null with one. Any reason not named
+  /// here reads as [GpsUnavailableCause.noSignal].
+  GpsUnavailableCause? get unavailableCause {
+    if (isAvailable) return null;
+    return switch (unavailableReason) {
+      locationOffReason => GpsUnavailableCause.locationOff,
+      permissionDeniedReason => GpsUnavailableCause.permissionDenied,
+      permanentlyDeniedReason => GpsUnavailableCause.deniedForever,
+      _ => GpsUnavailableCause.noSignal,
+    };
+  }
+
+  /// What a handoff confirm sends as `gpsStatus` (FUP-440): `fix` or
+  /// `approximate` with a point, otherwise why there is none
+  /// (`services_off`, `denied`, `denied_forever`, `timeout`).
+  String get gpsStatus {
+    if (isAvailable) return approximate ? 'approximate' : 'fix';
+    return switch (unavailableCause) {
+      GpsUnavailableCause.locationOff => 'services_off',
+      GpsUnavailableCause.permissionDenied => 'denied',
+      GpsUnavailableCause.deniedForever => 'denied_forever',
+      GpsUnavailableCause.noSignal || null => 'timeout',
+    };
+  }
+
+  /// The fix's own time and accuracy, for the handoff's `gpsPickup` or
+  /// `gpsDropoff` map (FUP-440): `capturedAt` (ISO 8601 UTC) and
+  /// `accuracyM` (meters). Empty without a fix; a value the platform did
+  /// not give (an accuracy of 0 or less) is left out.
+  Map<String, Object> get pointEvidence {
+    if (!isAvailable) return const {};
+    final at = capturedAt;
+    final meters = accuracy;
+    return {
+      if (at != null) 'capturedAt': at.toUtc().toIso8601String(),
+      if (meters != null && meters.isFinite && meters > 0) 'accuracyM': meters,
+    };
+  }
+}
+
+/// Why a capture has no fix, for a screen that needs one to say what to do
+/// (FUP-138).
+enum GpsUnavailableCause {
+  /// Location is switched off on the phone. A browser never says so: there
+  /// it reads as [noSignal].
+  locationOff,
+
+  /// The permission was refused this time; the next capture asks again.
+  permissionDenied,
+
+  /// The permission was denied for good: only the app settings (the
+  /// browser's site settings on web) allow it again.
+  deniedForever,
+
+  /// No fix came within the limit, or the platform failed.
+  noSignal,
 }
 
 /// Proximity check result.

@@ -19,6 +19,7 @@ import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_list
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 
 import '../../helpers/wait_for.dart';
+import '../../helpers/crop_photo_fixtures.dart';
 
 /// Counts pull invocations so we can assert which BLoC events trigger a
 /// marketplace pull. This guards the HARD CLAUDE.md role rule: only Buyer
@@ -35,6 +36,24 @@ class _SpyMarketplaceSync implements MarketplaceSync {
 
   @override
   Future<void> pullTrips() async => trips++;
+
+  /// FUP-374: the trucker ids the own-trip pull was asked for.
+  final List<String> ownTrips = [];
+
+  @override
+  Future<bool> pullOwnTrips({required String truckerId}) async {
+    ownTrips.add(truckerId);
+    return false;
+  }
+
+  /// FUP-498: the farmer ids the own-listing pull was asked for.
+  final List<String> ownCrops = [];
+
+  @override
+  Future<bool> pullOwnCrops({required String farmerId}) async {
+    ownCrops.add(farmerId);
+    return false;
+  }
 
   @override
   Future<void> pullDeliveries() async => deliveries++;
@@ -79,6 +98,7 @@ void main() {
   group('CropListingBloc marketplace-pull gating', () {
     CropListingBloc build() => CropListingBloc(
           repository: CropListingRepository(
+            photoFiles: tempCropPhotoFileStore(),
             isar: isar,
             syncQueue: SyncQueue(isar),
           ),
@@ -91,14 +111,22 @@ void main() {
       bloc.add(const LoadActiveListings());
       await waitFor(() => bloc.state is CropListingsLoaded);
       expect(spy.crops, 1);
+      expect(spy.ownCrops, isEmpty);
     });
 
-    test('LoadCropListings (Farmer own listings) does NOT pull', () async {
+    // FUP-498: the farmer's list pulls the farmer's own list (to remove the
+    // listings deleted elsewhere), never the market.
+    test(
+        'LoadCropListings (Farmer own listings) pulls only the farmer\'s own '
+        'list, not the market', () async {
       final bloc = build();
       addTearDown(bloc.close);
       bloc.add(const LoadCropListings(farmerId: 'farmer-1'));
       await waitFor(() => bloc.state is CropListingsLoaded);
+      await waitFor(() => spy.ownCrops.isNotEmpty);
       expect(spy.crops, 0, reason: 'a Farmer must not pull the whole market');
+      expect(spy.all, 0);
+      expect(spy.ownCrops, ['farmer-1']);
     });
   });
 
@@ -117,22 +145,32 @@ void main() {
       bloc.add(const LoadOpenTrips());
       await waitFor(() => bloc.state is TripsLoaded);
       expect(spy.trips, 1);
+      expect(spy.ownTrips, isEmpty);
     });
 
-    test('LoadTrips (Trucker own trips) does NOT pull', () async {
+    // FUP-374: the trucker's list pulls the trucker's own trips (every
+    // status), never the market.
+    test(
+        'LoadTrips (Trucker own trips) pulls only the trucker\'s own trips, '
+        'not the market', () async {
       final bloc = build();
       addTearDown(bloc.close);
       bloc.add(const LoadTrips(truckerId: 'trucker-1'));
       await waitFor(() => bloc.state is TripsLoaded);
       expect(spy.trips, 0, reason: 'a Trucker must not pull the whole market');
+      expect(spy.all, 0);
+      expect(spy.ownTrips, ['trucker-1']);
     });
 
-    test('FilterTrips (Trucker own trips) does NOT pull', () async {
+    test(
+        'FilterTrips (Trucker own trips) pulls only the trucker\'s own trips, '
+        'not the market', () async {
       final bloc = build();
       addTearDown(bloc.close);
       bloc.add(const FilterTrips(truckerId: 'trucker-1', fromWoreda: 'Adama'));
       await waitFor(() => bloc.state is TripsLoaded);
       expect(spy.trips, 0);
+      expect(spy.ownTrips, ['trucker-1']);
     });
   });
 }

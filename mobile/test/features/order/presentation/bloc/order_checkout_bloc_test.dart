@@ -108,6 +108,7 @@ void main() {
     serverReads.add(order(OrderStatus.paymentSubmitted));
     answers([opened()]);
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
@@ -119,18 +120,30 @@ void main() {
     expect(state.toPayUrl, contains('prepay_id=P1'));
     expect(state.payableUntil, deviceNow.add(const Duration(minutes: 130)));
     verify(() => escrow.openOrderCheckout(orderId)).called(1);
-    await b.close();
   });
 
   test('funded on the first read (mock payments): paid, no checkout', () async {
     serverReads.add(order(OrderStatus.funded));
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(b.stream, emits(isA<CheckoutPaid>()));
 
     verifyNever(() => escrow.openOrderCheckout(any()));
-    await b.close();
+  });
+
+  // ESC-15: the trip was full or gone at funding; the money is held.
+  test('awaiting transport on the first read is paid, not "not sent"',
+      () async {
+    serverReads.add(order(OrderStatus.awaitingTransport));
+    final b = bloc();
+    addTearDown(b.close);
+
+    b.add(const CheckoutStarted());
+    await expectLater(b.stream, emits(isA<CheckoutPaid>()));
+
+    verifyNever(() => escrow.openOrderCheckout(any()));
   });
 
   test('ESCROW_031: waits for the automatic funding, then paid', () async {
@@ -141,6 +154,7 @@ void main() {
     ]);
     answers([const OrderCheckoutFailed('ESCROW_031', 409, 'mock')]);
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
@@ -157,7 +171,6 @@ void main() {
     await expectLater(b.stream, emits(isA<CheckoutPaid>()));
 
     verify(() => escrow.openOrderCheckout(orderId)).called(1);
-    await b.close();
   });
 
   test('poll ticks after a network error never request a checkout', () async {
@@ -166,6 +179,7 @@ void main() {
     );
     answers([const OrderCheckoutFailed('ESCROW_OFFLINE', null, 'offline')]);
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
@@ -182,7 +196,6 @@ void main() {
 
     expect(b.state, const CheckoutProblem(CheckoutIssue.offline));
     verify(() => escrow.openOrderCheckout(orderId)).called(1);
-    await b.close();
   });
 
   test('the network coming back retries once', () async {
@@ -194,6 +207,7 @@ void main() {
       opened(),
     ]);
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
@@ -212,7 +226,6 @@ void main() {
     await pumpEventQueue();
 
     verify(() => escrow.openOrderCheckout(orderId)).called(2);
-    await b.close();
   });
 
   test('a retry tap after a network error requests again', () async {
@@ -224,6 +237,7 @@ void main() {
       opened(),
     ]);
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
@@ -238,7 +252,6 @@ void main() {
       b.stream,
       emitsInOrder([isA<CheckoutOpening>(), awaiting()]),
     );
-    await b.close();
   });
 
   group('ESCROW_030 is told apart by the order', () {
@@ -249,6 +262,7 @@ void main() {
       ]);
       answers([const OrderCheckoutFailed('ESCROW_030', 409, 'ran out')]);
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -258,7 +272,6 @@ void main() {
           const CheckoutStopped(CheckoutIssue.timeRanOut),
         ]),
       );
-      await b.close();
     });
 
     test('now payment_failed: the buyer can pay again', () async {
@@ -268,6 +281,7 @@ void main() {
       ]);
       answers([const OrderCheckoutFailed('ESCROW_030', 409, 'not waiting')]);
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -277,13 +291,13 @@ void main() {
           const CheckoutStopped(CheckoutIssue.paymentFailed),
         ]),
       );
-      await b.close();
     });
 
     test('422: cannot be paid online', () async {
       serverReads.add(order(OrderStatus.paymentSubmitted));
       answers([const OrderCheckoutFailed('ESCROW_030', 422, 'no farmer')]);
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -293,7 +307,6 @@ void main() {
           const CheckoutStopped(CheckoutIssue.notPayableOnline),
         ]),
       );
-      await b.close();
     });
   });
 
@@ -301,6 +314,7 @@ void main() {
     serverReads.add(order(OrderStatus.paymentSubmitted));
     answers([const OrderCheckoutFailed('ESCROW_001', 400, 'amount')]);
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
@@ -310,7 +324,6 @@ void main() {
         const CheckoutStopped(CheckoutIssue.totalOutOfRange),
       ]),
     );
-    await b.close();
   });
 
   test('ESCROW_032: keeps reading the order and is paid when it lands',
@@ -322,6 +335,7 @@ void main() {
     ]);
     answers([const OrderCheckoutFailed('ESCROW_032', 409, 'busy')]);
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
@@ -339,20 +353,19 @@ void main() {
     await expectLater(b.stream, emits(isA<CheckoutPaid>()));
 
     verify(() => escrow.openOrderCheckout(orderId)).called(1);
-    await b.close();
   });
 
   test('ESCROW_024: already funded is paid', () async {
     serverReads.add(order(OrderStatus.paymentSubmitted));
     answers([const OrderCheckoutFailed('ESCROW_024', 409, 'funded')]);
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
       b.stream,
       emitsInOrder([isA<CheckoutOpening>(), isA<CheckoutPaid>()]),
     );
-    await b.close();
   });
 
   test('ESCROW_013, then a retry opens the page', () async {
@@ -365,6 +378,7 @@ void main() {
       opened(),
     ]);
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
@@ -380,13 +394,13 @@ void main() {
       b.stream,
       emitsInOrder([isA<CheckoutOpening>(), awaiting()]),
     );
-    await b.close();
   });
 
   test('ESCROW_011 offers no retry', () async {
     serverReads.add(order(OrderStatus.paymentSubmitted));
     answers([const OrderCheckoutFailed('ESCROW_011', 429, 'slow down')]);
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
@@ -397,7 +411,6 @@ void main() {
       ]),
     );
     expect((b.state as CheckoutProblem).canRetry, isFalse);
-    await b.close();
   });
 
   test('a page in hand is reused: reads request nothing', () async {
@@ -406,6 +419,7 @@ void main() {
     );
     answers([opened()]);
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
@@ -420,7 +434,6 @@ void main() {
     );
 
     verify(() => escrow.openOrderCheckout(orderId)).called(1);
-    await b.close();
   });
 
   group('the page expires', () {
@@ -433,6 +446,7 @@ void main() {
       ]);
       answers([opened()]);
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -446,7 +460,6 @@ void main() {
       await expectLater(b.stream, emits(isA<CheckoutPaid>()));
 
       verify(() => escrow.openOrderCheckout(orderId)).called(1);
-      await b.close();
     });
 
     test('a new payment when the order still waits opens a new page', () async {
@@ -455,6 +468,7 @@ void main() {
       );
       answers([opened(), opened(url: 'https://pay.example/second')]);
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -473,7 +487,6 @@ void main() {
         (b.state as CheckoutAwaitingPayment).toPayUrl,
         'https://pay.example/second',
       );
-      await b.close();
     });
   });
 
@@ -488,6 +501,7 @@ void main() {
         ),
       ]);
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -501,7 +515,6 @@ void main() {
         (b.state as CheckoutAwaitingPayment).payableUntil,
         deviceNow.add(const Duration(minutes: 30)),
       );
-      await b.close();
     });
 
     test(
@@ -518,13 +531,13 @@ void main() {
         ),
       ]);
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
         b.stream,
         emitsInOrder([isA<CheckoutOpening>(), awaiting()]),
       );
-      await b.close();
     });
   });
 
@@ -534,6 +547,7 @@ void main() {
       localReads.add(order(OrderStatus.paymentSubmitted));
       answers([opened()]);
       final b = bloc(mobile: true);
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(b.stream, emits(const CheckoutWaitingToSend()));
@@ -543,7 +557,6 @@ void main() {
         b.stream,
         emitsInOrder([isA<CheckoutOpening>(), awaiting()]),
       );
-      await b.close();
     });
 
     test('a step-up nobody confirmed is offered (Fayda)', () async {
@@ -553,6 +566,7 @@ void main() {
       serverReads.add(null);
       localReads.add(order(OrderStatus.paymentSubmitted));
       final b = bloc(mobile: true);
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -564,13 +578,29 @@ void main() {
           ),
         ),
       );
-      await b.close();
+    });
+
+    test('no step-up is offered once its held payment left the queue (FUP-24)',
+        () async {
+      events
+        ..holdStepUp('sync:op-other', withFayda: false)
+        ..emit(const StepUpRequired())
+        ..stepUpDeclined()
+        ..releaseStepUpHolds(['sync:op-other']);
+      serverReads.add(null);
+      localReads.add(order(OrderStatus.paymentSubmitted));
+      final b = bloc(mobile: true);
+      addTearDown(b.close);
+
+      b.add(const CheckoutStarted());
+      await expectLater(b.stream, emits(const CheckoutWaitingToSend()));
     });
 
     test('refused and put back (ESC-12, KYC): not sent', () async {
       serverReads.add(order(OrderStatus.created));
       localReads.add(order(OrderStatus.created));
       final b = bloc(mobile: true);
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -578,7 +608,6 @@ void main() {
         emits(const CheckoutStopped(CheckoutIssue.notSent)),
       );
       verifyNever(() => escrow.openOrderCheckout(any()));
-      await b.close();
     });
 
     test('a KYC resubmit after "not sent" still opens the page', () async {
@@ -593,6 +622,7 @@ void main() {
       ]);
       answers([opened()]);
       final b = bloc(mobile: true);
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -606,7 +636,6 @@ void main() {
         b.stream,
         emitsInOrder([isA<CheckoutOpening>(), awaiting()]),
       );
-      await b.close();
     });
   });
 
@@ -618,6 +647,7 @@ void main() {
       ]);
       answers([opened()]);
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(b.stream, emits(const CheckoutWaitingToSend()));
@@ -626,12 +656,12 @@ void main() {
         b.stream,
         emitsInOrder([isA<CheckoutOpening>(), awaiting()]),
       );
-      await b.close();
     });
 
     test('still not submitted after the grace reads: not sent', () async {
       serverReads.addAll(List.filled(4, order(OrderStatus.created)));
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(b.stream, emits(const CheckoutWaitingToSend()));
@@ -642,13 +672,13 @@ void main() {
 
       expect(b.state, const CheckoutStopped(CheckoutIssue.notSent));
       verifyNever(() => escrow.openOrderCheckout(any()));
-      await b.close();
     });
   });
 
   test('cancelled: stops without a checkout', () async {
     serverReads.add(order(OrderStatus.cancelled));
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
@@ -656,19 +686,18 @@ void main() {
       emits(const CheckoutStopped(CheckoutIssue.notWaiting)),
     );
     verifyNever(() => escrow.openOrderCheckout(any()));
-    await b.close();
   });
 
   test('no such order on the server: not found', () async {
     serverReads.add(const NotFoundException());
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
       b.stream,
       emits(const CheckoutStopped(CheckoutIssue.notFound)),
     );
-    await b.close();
   });
 
   test('a failed read keeps the page in hand and flags offline', () async {
@@ -678,6 +707,7 @@ void main() {
     ]);
     answers([opened()]);
     final b = bloc();
+    addTearDown(b.close);
 
     b.add(const CheckoutStarted());
     await expectLater(
@@ -692,7 +722,6 @@ void main() {
             .having((s) => s.offline, 'offline', isTrue),
       ),
     );
-    await b.close();
   });
 
   test('refreshes that arrive while a request runs are dropped', () async {
@@ -703,6 +732,7 @@ void main() {
     when(() => escrow.openOrderCheckout(orderId))
         .thenAnswer((_) => gate.future);
     final b = bloc();
+    addTearDown(b.close);
 
     b
       ..add(const CheckoutStarted())
@@ -715,7 +745,6 @@ void main() {
     expect(b.state, awaiting());
     // Only the start read the order; both refreshes were dropped.
     expect(serverReads, hasLength(4));
-    await b.close();
   });
 
   group('review fixes (PR #123)', () {
@@ -735,6 +764,7 @@ void main() {
         now: () => deviceNow,
         monotonic: () => monotonic,
       );
+      addTearDown(b.close);
       answers([opened()]);
 
       b.add(const CheckoutStarted());
@@ -747,7 +777,6 @@ void main() {
 
       expect(reads, 2);
       verify(() => escrow.openOrderCheckout(orderId)).called(1);
-      await b.close();
     });
 
     test(
@@ -764,6 +793,7 @@ void main() {
         ),
       ]);
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -773,7 +803,6 @@ void main() {
           awaiting(timeLeft: const Duration(minutes: 10)),
         ]),
       );
-      await b.close();
     });
 
     test(
@@ -785,6 +814,7 @@ void main() {
       ]);
       answers([opened()]);
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -796,7 +826,6 @@ void main() {
       deviceNow = deviceNow.add(const Duration(minutes: 135));
       b.add(const CheckoutRefreshed());
       await expectLater(b.stream, emits(isA<CheckoutWindowClosed>()));
-      await b.close();
     });
 
     test(
@@ -809,6 +838,7 @@ void main() {
       ]);
       answers([opened()]);
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -824,7 +854,6 @@ void main() {
       b.add(const CheckoutRefreshed());
       await expectLater(b.stream, emits(isA<CheckoutWindowClosed>()));
       verify(() => escrow.openOrderCheckout(orderId)).called(1);
-      await b.close();
     });
 
     test('a problem from a request stays until the buyer acts', () async {
@@ -833,6 +862,7 @@ void main() {
       );
       answers([const OrderCheckoutFailed('ESCROW_013', 502, 'telebirr')]);
       final b = bloc();
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -846,7 +876,6 @@ void main() {
       await pumpEventQueue();
 
       expect(b.state, const CheckoutProblem(CheckoutIssue.gateway));
-      await b.close();
     });
 
     test('a KYC resubmit wakes a checkout stopped at "not sent"', () async {
@@ -861,6 +890,7 @@ void main() {
       ]);
       answers([opened()]);
       final b = bloc(mobile: true);
+      addTearDown(b.close);
 
       b.add(const CheckoutStarted());
       await expectLater(
@@ -871,7 +901,6 @@ void main() {
         ..paymentResubmitted('another-order')
         ..paymentResubmitted(orderId);
       await expectLater(b.stream, emits(const CheckoutWaitingToSend()));
-      await b.close();
     });
   });
 }

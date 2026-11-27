@@ -23,17 +23,26 @@ import 'package:wereda_connect/screens/market_screen.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/screens/payments_tab_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/navigation/role_navigation.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/app_update_banner.dart';
 
-/// Main navigation with a labeled center FAB + role-shaped 4-tab bar.
+/// Main navigation: a role-shaped bar of three tabs and the role's create
+/// button.
 ///
 /// Tab sets come from [tabsForRole] — each role's bar reflects its actual
-/// job (see role_navigation.dart). The FAB is the role's create verb.
+/// job (see role_navigation.dart). The bar's button is the role's create
+/// verb.
 /// No AppBar — each screen manages its own header.
 /// Profile accessible from header icon on each screen.
 class MainNavigation extends StatefulWidget {
-  const MainNavigation({super.key});
+  const MainNavigation({super.key, this.tabBodyBuilder});
+
+  /// Replaces the real tab screens, so a test can lay out the bar and FAB
+  /// without every screen's blocs and repositories.
+  @visibleForTesting
+  final Widget Function(RoleTab tab)? tabBodyBuilder;
 
   @override
   State<MainNavigation> createState() => _MainNavigationState();
@@ -69,6 +78,10 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 
   List<Widget> _buildScreens(UserRole role) {
+    final tabBodyBuilder = widget.tabBodyBuilder;
+    if (tabBodyBuilder != null) {
+      return [for (final tab in tabsForRole(role)) tabBodyBuilder(tab)];
+    }
     return [
       for (final tab in tabsForRole(role))
         switch (tab) {
@@ -79,16 +92,27 @@ class _MainNavigationState extends State<MainNavigation> {
                 setState(() => _currentIndex = index);
               },
             ),
-          RoleTab.myCrops =>
-            const BrowseListingsScreen(ownerMode: true, embedded: true),
+          RoleTab.myCrops => BrowseListingsScreen(
+              ownerMode: true,
+              embedded: true,
+              // The empty state's "Back to Home".
+              onBackToHome: () => setState(() => _currentIndex = 0),
+            ),
           RoleTab.myTrips => const BrowseTripsScreen(embedded: true),
           RoleTab.market => const MarketScreen(),
           RoleTab.orders => const OrdersTabScreen(),
-          RoleTab.deliveries => const DeliveriesTabScreen(),
+          RoleTab.deliveries => DeliveriesTabScreen(
+              // The empty state's buttons ("Find crops", "See my orders")
+              // switch tabs.
+              onNavigateToTab: (index) {
+                setState(() => _currentIndex = index);
+              },
+            ),
           RoleTab.payments => const PaymentsTabScreen(),
           // Never a bar tab (sidebar-extra only); reachable from the home
           // header on mobile. Handled here to keep the switch exhaustive.
           RoleTab.messages => const MessagesInboxScreen(),
+          RoleTab.findTrips => const BrowseTripsScreen(),
         },
     ];
   }
@@ -189,97 +213,31 @@ class _MainNavigationState extends State<MainNavigation> {
               );
             }
           },
-          child: Scaffold(
-            body: screens[_currentIndex],
-            // The role's one create verb, labeled — an icon-only "+"
-            // assumes app-convention literacy; a verb assumes nothing.
-            floatingActionButton: FloatingActionButton.extended(
-              onPressed: () => _onFabPressed(context, role),
-              shape: const StadiumBorder(),
-              icon: const Icon(Icons.add),
-              label: Text(
-                switch (role) {
-                  UserRole.farmer => l10n.sellCrops,
-                  UserRole.trucker => l10n.postTrip,
-                  UserRole.buyer => l10n.newBuyingIntent,
-                },
+          // BUG-27: the create button folds to its plus while the tab
+          // scrolls toward its end. Another tab opens at its top, with the
+          // label.
+          child: CreateButtonScrollScope(
+            resetKey: _currentIndex,
+            child: Scaffold(
+              // FUP-75: "update the app" over every tab while the server
+              // refuses this build's orders.
+              body: AppUpdateBanner(
+                child: CreateButtonScrollBody(child: screens[_currentIndex]),
               ),
-            ),
-            floatingActionButtonLocation:
-                FloatingActionButtonLocation.centerDocked,
-            bottomNavigationBar: BottomAppBar(
-              shape: const AutomaticNotchedShape(
-                RoundedRectangleBorder(),
-                StadiumBorder(),
-              ),
-              notchMargin: 8,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  for (var i = 0; i < tabs.length; i++) ...[
-                    if (i == 2) const SizedBox(width: 48), // FAB gap
-                    _NavItem(
-                      icon: tabs[i].icon,
-                      activeIcon: tabs[i].activeIcon,
-                      label: tabs[i].label(l10n),
-                      index: i,
-                      currentIndex: _currentIndex,
-                      onTap: () => setState(() => _currentIndex = i),
-                    ),
-                  ],
-                ],
+              // The role's one create verb ends the bar, labeled: an
+              // icon-only "+" assumes app-convention literacy; a verb
+              // assumes nothing.
+              bottomNavigationBar: RoleNavBar(
+                role: role,
+                tabs: tabs,
+                currentIndex: _currentIndex,
+                onSelected: (i) => setState(() => _currentIndex = i),
+                onCreate: () => _onFabPressed(context, role),
               ),
             ),
           ),
         );
       },
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final IconData activeIcon;
-  final String label;
-  final int index;
-  final int currentIndex;
-  final VoidCallback onTap;
-
-  const _NavItem({
-    required this.icon,
-    required this.activeIcon,
-    required this.label,
-    required this.index,
-    required this.currentIndex,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isActive = index == currentIndex;
-    final color = isActive ? AppTheme.primaryGreen : AppTheme.textMuted;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(isActive ? activeIcon : icon, color: color, size: 24),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: color,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

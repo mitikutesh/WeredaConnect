@@ -441,6 +441,35 @@ public class OrderMoneyMirrorTests
         _hops.Should().BeEmpty();
     }
 
+    [Theory]
+    // FUP-64: the admin settled the verdict as it is; the order cannot follow it and is consistent with the money.
+    [InlineData("buyer_wins", "refunded", "settled", "settle_as_is", OrderMoneyOutcome.Consistent)]
+    [InlineData("farmer_wins", "completed", "cancelled", "settle_as_is", OrderMoneyOutcome.Consistent)]
+    [InlineData("farmer_wins", "released", "cancelled", "settle_as_is", OrderMoneyOutcome.Consistent)]
+    // Without the admin's choice the same order is a mismatch, and so is money that moved against the verdict.
+    [InlineData("farmer_wins", "completed", "cancelled", null, OrderMoneyOutcome.Mismatch)]
+    [InlineData("farmer_wins", "refunded", "cancelled", "settle_as_is", OrderMoneyOutcome.Mismatch)]
+    public async Task AVerdictSettledAsIs_IsConsistent_WhenItsMoneyMovedTheVerdictsWay(
+        string resolution, string escrowStatus, string orderStatus, string? disposition, OrderMoneyOutcome expected)
+    {
+        _status = orderStatus;
+        _deliveries.GetByIdAsync(DeliveryId, true).Returns(new Dictionary<string, object>
+        {
+            { "deliveryId", DeliveryId }, { "status", "delivered" }, { "orderId", OrderId }
+        });
+        var escrow = Escrow(escrowStatus, ("disputeResolution", resolution), ("disputeResolvedAt", "2026-10-05T10:00:00Z"));
+        if (disposition != null)
+        {
+            escrow["disputeDisposition"] = disposition;
+        }
+
+        var result = await _mirror.FollowAsync(escrow, "sweep");
+
+        result.Outcome.Should().Be(expected);
+        _hops.Should().BeEmpty();
+        await _orders.DidNotReceive().UpdateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>(), Arg.Any<int>());
+    }
+
     [Fact]
     public async Task NoOrderRepository_IsNotApplicable()
     {

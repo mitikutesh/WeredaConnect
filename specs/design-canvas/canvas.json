@@ -1,0 +1,394 @@
+{
+ "v": 3,
+ "title": "WeredaConnect · White, role colours (page M)",
+ "launch": {
+  "view": "canvas"
+ },
+ "pages": [],
+ "boards": {
+  "MainM.dc.html": {
+   "x": 0,
+   "y": 0,
+   "w": 1880,
+   "h": 1120,
+   "title": "Colour identity"
+  },
+  "FoundationsM.dc.html": {
+   "x": 0,
+   "y": 1540,
+   "w": 1280,
+   "h": 900,
+   "title": "Live trip · foundations"
+  },
+  "CheckInFlowM.dc.html": {
+   "x": 1360,
+   "y": 1540,
+   "w": 1440,
+   "h": 960,
+   "title": "How a check-in travels"
+  },
+  "EthiopianClockM.dc.html": {
+   "x": 2880,
+   "y": 1540,
+   "w": 1440,
+   "h": 960,
+   "title": "Ethiopian clock"
+  },
+  "WebDeliveriesM.dc.html": {
+   "x": 4400,
+   "y": 1540,
+   "w": 1440,
+   "h": 1000,
+   "title": "Web · Buyer deliveries"
+  },
+  "AdminDisputeM.dc.html": {
+   "x": 5920,
+   "y": 1540,
+   "w": 1440,
+   "h": 1000,
+   "title": "Web · Admin dispute evidence"
+  },
+  "WelcomeM.dc.html": {
+   "x": 0,
+   "y": 2960,
+   "w": 390,
+   "h": 844,
+   "title": "Join · Welcome and login",
+   "is_interactive": true
+  },
+  "RegisterRoleM.dc.html": {
+   "x": 470,
+   "y": 2960,
+   "w": 390,
+   "h": 844,
+   "title": "Join · Select role"
+  },
+  "RegisterFaydaM.dc.html": {
+   "x": 940,
+   "y": 2960,
+   "w": 390,
+   "h": 844,
+   "title": "Join · Fayda verification"
+  },
+  "RegisterRoleDetailsM.dc.html": {
+   "x": 1410,
+   "y": 2960,
+   "w": 390,
+   "h": 844,
+   "title": "Join · Trucker license"
+  },
+  "RegisterPersonalM.dc.html": {
+   "x": 1880,
+   "y": 2960,
+   "w": 390,
+   "h": 920,
+   "title": "Join · Personal info"
+  },
+  "RegisterOtpM.dc.html": {
+   "x": 2350,
+   "y": 2960,
+   "w": 390,
+   "h": 844,
+   "title": "Join · Confirm phone"
+  },
+  "FarmerHomeM.dc.html": {
+   "x": 0,
+   "y": 4300,
+   "w": 390,
+   "h": 844,
+   "title": "Farmer · Home"
+  },
+  "CreateCropListingM.dc.html": {
+   "x": 470,
+   "y": 4300,
+   "w": 390,
+   "h": 900,
+   "title": "Farmer · Create crop listing"
+  },
+  "MyCropsM.dc.html": {
+   "x": 940,
+   "y": 4300,
+   "w": 390,
+   "h": 844,
+   "title": "Farmer · My crops"
+  },
+  "FarmerOrderRequestM.dc.html": {
+   "x": 1410,
+   "y": 4300,
+   "w": 390,
+   "h": 844,
+   "title": "Farmer · Answer a new order"
+  },
+  "FarmerJourneyM.dc.html": {
+   "x": 1880,
+   "y": 4300,
+   "w": 390,
+   "h": 884,
+   "title": "Farmer · Order on the road"
+  },
+  "TruckerHomeM.dc.html": {
+   "x": 0,
+   "y": 5620,
+   "w": 390,
+   "h": 844,
+   "title": "Trucker · Home"
+  },
+  "CreateTripM.dc.html": {
+   "x": 470,
+   "y": 5620,
+   "w": 390,
+   "h": 920,
+   "title": "Trucker · Create trip"
+  },
+  "TripDetailM.dc.html": {
+   "x": 940,
+   "y": 5620,
+   "w": 390,
+   "h": 1130,
+   "title": "Trucker · Trip and bookings"
+  },
+  "TruckerTripModeM.dc.html": {
+   "x": 1410,
+   "y": 5620,
+   "w": 390,
+   "h": 860,
+   "title": "Trucker · Trip mode"
+  },
+  "TruckerShareConsentM.dc.html": {
+   "x": 1880,
+   "y": 5620,
+   "w": 390,
+   "h": 844,
+   "title": "Trucker · Share location after pickup"
+  },
+  "TruckerPausedM.dc.html": {
+   "x": 2350,
+   "y": 5620,
+   "w": 390,
+   "h": 844,
+   "title": "Trucker · Offline and pause"
+  },
+  "MarketM.dc.html": {
+   "x": 0,
+   "y": 7180,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · Find crops"
+  },
+  "CreateIntentM.dc.html": {
+   "x": 470,
+   "y": 7180,
+   "w": 390,
+   "h": 900,
+   "title": "Buyer · New buying intent"
+  },
+  "CropDetailM.dc.html": {
+   "x": 940,
+   "y": 7180,
+   "w": 390,
+   "h": 1080,
+   "title": "Buyer · Crop detail and transport"
+  },
+  "PlaceOrderM.dc.html": {
+   "x": 1410,
+   "y": 7180,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · Place order"
+  },
+  "PaymentM.dc.html": {
+   "x": 1880,
+   "y": 7180,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · Telebirr payment"
+  },
+  "BuyerOrderDetailM.dc.html": {
+   "x": 2350,
+   "y": 7180,
+   "w": 390,
+   "h": 900,
+   "title": "Buyer · Order detail"
+  },
+  "BuyerDeliveriesM.dc.html": {
+   "x": 0,
+   "y": 8680,
+   "w": 390,
+   "h": 884,
+   "title": "Buyer · Deliveries tab"
+  },
+  "BuyerLiveTripM.dc.html": {
+   "x": 470,
+   "y": 8680,
+   "w": 390,
+   "h": 944,
+   "title": "Buyer · Live trip"
+  },
+  "BuyerTripLogM.dc.html": {
+   "x": 940,
+   "y": 8680,
+   "w": 390,
+   "h": 1620,
+   "title": "Buyer · Trip log and order"
+  },
+  "BuyerArrivingM.dc.html": {
+   "x": 1410,
+   "y": 8680,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · Truck arriving"
+  },
+  "BuyerDeliveredM.dc.html": {
+   "x": 1880,
+   "y": 8680,
+   "w": 390,
+   "h": 864,
+   "title": "Buyer · Delivered"
+  },
+  "LiveTripAmM.dc.html": {
+   "x": 2350,
+   "y": 8680,
+   "w": 390,
+   "h": 904,
+   "title": "Live trip · Amharic, Ethiopian clock"
+  },
+  "LiveTripOmM.dc.html": {
+   "x": 2820,
+   "y": 8680,
+   "w": 390,
+   "h": 904,
+   "title": "Live trip · Afaan Oromo, Ethiopian clock"
+  },
+  "FarmerEmptyCropsM.dc.html": {
+   "x": 2350,
+   "y": 4300,
+   "w": 390,
+   "h": 844,
+   "title": "Farmer · No crops yet"
+  },
+  "FarmerRejectConfirmM.dc.html": {
+   "x": 2820,
+   "y": 4300,
+   "w": 390,
+   "h": 844,
+   "title": "Farmer · Confirm reject"
+  },
+  "TruckerQrFailedM.dc.html": {
+   "x": 2820,
+   "y": 5620,
+   "w": 390,
+   "h": 844,
+   "title": "Trucker · QR scan failed"
+  },
+  "PaymentFailedM.dc.html": {
+   "x": 2820,
+   "y": 7180,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · Payment failed"
+  },
+  "PaymentOfflineM.dc.html": {
+   "x": 3290,
+   "y": 7180,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · Payment, no network"
+  },
+  "BuyerDeliveriesEmptyM.dc.html": {
+   "x": 3290,
+   "y": 8680,
+   "w": 390,
+   "h": 844,
+   "title": "Buyer · No deliveries yet"
+  }
+ },
+ "order": [
+  "MainM.dc.html",
+  "FoundationsM.dc.html",
+  "CheckInFlowM.dc.html",
+  "EthiopianClockM.dc.html",
+  "WebDeliveriesM.dc.html",
+  "AdminDisputeM.dc.html",
+  "WelcomeM.dc.html",
+  "RegisterRoleM.dc.html",
+  "RegisterFaydaM.dc.html",
+  "RegisterRoleDetailsM.dc.html",
+  "RegisterPersonalM.dc.html",
+  "RegisterOtpM.dc.html",
+  "FarmerHomeM.dc.html",
+  "CreateCropListingM.dc.html",
+  "MyCropsM.dc.html",
+  "FarmerOrderRequestM.dc.html",
+  "FarmerJourneyM.dc.html",
+  "TruckerHomeM.dc.html",
+  "CreateTripM.dc.html",
+  "TripDetailM.dc.html",
+  "TruckerTripModeM.dc.html",
+  "TruckerShareConsentM.dc.html",
+  "TruckerPausedM.dc.html",
+  "MarketM.dc.html",
+  "CreateIntentM.dc.html",
+  "CropDetailM.dc.html",
+  "PlaceOrderM.dc.html",
+  "PaymentM.dc.html",
+  "BuyerOrderDetailM.dc.html",
+  "BuyerDeliveriesM.dc.html",
+  "BuyerLiveTripM.dc.html",
+  "BuyerTripLogM.dc.html",
+  "BuyerArrivingM.dc.html",
+  "BuyerDeliveredM.dc.html",
+  "LiveTripAmM.dc.html",
+  "LiveTripOmM.dc.html",
+  "FarmerEmptyCropsM.dc.html",
+  "FarmerRejectConfirmM.dc.html",
+  "TruckerQrFailedM.dc.html",
+  "PaymentFailedM.dc.html",
+  "PaymentOfflineM.dc.html",
+  "BuyerDeliveriesEmptyM.dc.html"
+ ],
+ "notes": {
+  "row0_m": {
+   "x": 0,
+   "y": 1300,
+   "text": "Foundations and web",
+   "kind": "title1",
+   "maxW": 7360
+  },
+  "row1_m": {
+   "x": 0,
+   "y": 2720,
+   "text": "Join",
+   "kind": "title1",
+   "maxW": 2740
+  },
+  "row2_m": {
+   "x": 0,
+   "y": 4060,
+   "text": "Farmer",
+   "kind": "title1",
+   "maxW": 3210
+  },
+  "row3_m": {
+   "x": 0,
+   "y": 5380,
+   "text": "Trucker",
+   "kind": "title1",
+   "maxW": 3210
+  },
+  "row4_m": {
+   "x": 0,
+   "y": 6940,
+   "text": "Buyer · market and orders",
+   "kind": "title1",
+   "maxW": 3680
+  },
+  "row5_m": {
+   "x": 0,
+   "y": 8440,
+   "text": "Buyer · live trip",
+   "kind": "title1",
+   "maxW": 3680
+  }
+ },
+ "sketchRules": "Sketch rules\n\n1. Decoration only. Never carries information, hidden from screen readers.\n2. One sketch per screen: the header sketch, kept in the right 35% of the header. Hide it if the title is long.\n3. The larger branch drawing is for empty states only (for example \"No deliveries yet\"). Never behind cards or near the bottom bar.\n4. No text on top of a sketch.\n5. Hidden in large-text and reduced-effects modes."
+}

@@ -12,6 +12,7 @@ import 'package:wereda_connect/core/database/schemas/trip.dart';
 import 'package:wereda_connect/core/database/schemas/user.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
+import 'package:wereda_connect/shared/services/place_repository.dart';
 
 void main() {
   group('TripListingRepository', () {
@@ -120,6 +121,30 @@ void main() {
       final pending = await syncQueue.getPendingOperations();
       expect(pending.first.entityType, 'trip');
       expect(pending.first.action, 'create');
+    });
+
+    // trip-listing-api 2.1.0: the queued create carries the picked
+    // destination's point (the live track's drop-off).
+    test('createTrip queues the picked destination point', () async {
+      PlaceRepository.instance.loadFromStringForTest(
+        File('test/fixtures/woredas_sample.json').readAsStringSync(),
+      );
+      await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Adama',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+        toPlaceId: 'gn-adama',
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      final data = jsonDecode(pending.first.data) as Map<String, dynamic>;
+      expect(data['destinationLatitude'], 8.54);
+      expect(data['destinationLongitude'], 39.27);
     });
 
     test('getTripsByTrucker returns only that trucker trips', () async {
@@ -279,17 +304,113 @@ void main() {
       expect(fromDb!.status, TripStatus.cancelled);
       expect(fromDb.version, 2);
 
-      // Should have 2 sync ops: create + delete
+      // Should have 2 sync ops: create + the cancel. ESC-17: the cancel is an
+      // update to cancelled, the one cancel path web sends too
+      // (trip-listing-api.md 2.4.0), not the delete older builds queued.
       final pending = await syncQueue.getPendingOperations();
       expect(pending.length, 2);
-      expect(pending.last.action, 'delete');
+      expect(pending.last.action, 'update');
+      expect(pending.last.entityType, 'trip');
 
-      // The delete op must carry the version the server still holds (1, the
-      // pre-increment value) — NOT the locally-bumped 2. Sending 2 fails the
+      // The cancel must carry the version the server still holds (1, the
+      // pre-increment value), not the locally-bumped 2. Sending 2 fails the
       // server's optimistic-concurrency check and the cancel silently reverts.
-      final deleteData = jsonDecode(pending.last.data) as Map<String, dynamic>;
-      expect(deleteData['version'], 1);
-      expect(deleteData['status'], TripStatus.cancelled.name);
+      final cancelData = jsonDecode(pending.last.data) as Map<String, dynamic>;
+      expect(cancelData, {'status': 'cancelled', 'version': 1});
+    });
+
+    test('start and mark delivered queue an update too', () async {
+      final trip = await repository.createTrip(
+        truckerId: 'trucker-001',
+        truckerName: 'Test Trucker',
+        truckerPhone: '+251911000000',
+        fromWoreda: 'Bishoftu',
+        toWoreda: 'Addis Ababa',
+        departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+        capacity: 150.0,
+        pricePerQuintal: 120.0,
+      );
+      await isar.writeTxn(() async {
+        final row =
+            await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+        row!.status = TripStatus.matched;
+        await isar.trips.put(row);
+      });
+
+      await repository.startTrip(tripId: trip.tripId, truckerId: 'trucker-001');
+      await repository.markDelivered(
+        tripId: trip.tripId,
+        truckerId: 'trucker-001',
+      );
+
+      final pending = await syncQueue.getPendingOperations();
+      expect(
+        [for (final op in pending.skip(1)) op.action],
+        ['update', 'update'],
+      );
+    });
+
+    // ESC-15 (trip-listing-api.md 2.0.0): `matched` means full, so a partly
+    // booked open trip may start; the server allows `open -> inTransit` with
+    // bookings and the trip detail screen offers Start for it.
+    group('startTrip from open', () {
+      Future<Trip> openTrip({double? bookedQuintals}) async {
+        final trip = await repository.createTrip(
+          truckerId: 'trucker-001',
+          truckerName: 'Test Trucker',
+          truckerPhone: '+251911000000',
+          fromWoreda: 'Bishoftu',
+          toWoreda: 'Addis Ababa',
+          departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+          capacity: 150.0,
+          pricePerQuintal: 120.0,
+        );
+        await isar.writeTxn(() async {
+          final row =
+              await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+          row!
+            ..bookedQuintals = bookedQuintals
+            ..remainingQuintals =
+                bookedQuintals == null ? null : 150.0 - bookedQuintals;
+          await isar.trips.put(row);
+        });
+        return trip;
+      }
+
+      test('with bookings, it starts and queues inTransit', () async {
+        final trip = await openTrip(bookedQuintals: 20);
+
+        final started = await repository.startTrip(
+          tripId: trip.tripId,
+          truckerId: 'trucker-001',
+        );
+
+        expect(started.status, TripStatus.inTransit);
+        expect(started.version, 2);
+        final op = (await syncQueue.getPendingOperations()).last;
+        expect(op.action, 'update');
+        expect(
+          jsonDecode(op.data),
+          {'status': 'inTransit', 'version': 1},
+        );
+      });
+
+      for (final booked in [null, 0.0]) {
+        test('without bookings ($booked), it is refused and nothing queued',
+            () async {
+          final trip = await openTrip(bookedQuintals: booked);
+
+          await expectLater(
+            repository.startTrip(tripId: trip.tripId, truckerId: 'trucker-001'),
+            throwsA(isA<TripValidationException>()),
+          );
+
+          final row =
+              await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+          expect(row!.status, TripStatus.open);
+          expect(await syncQueue.getPendingOperations(), hasLength(1));
+        });
+      }
     });
 
     // --- Contract Edge Cases: Capacity Boundaries ---
@@ -696,6 +817,79 @@ void main() {
       expect(trips, isEmpty);
     });
 
+    // L-7: a cache from before a sync must not offer a truck whose
+    // departure day is over in Ethiopia; the trucker still sees it.
+    group('open trips from the start of today in Ethiopia', () {
+      Trip cached(String id, DateTime departure) => Trip()
+        ..tripId = id
+        ..truckerId = 'trucker-001'
+        ..truckerName = 'Test Trucker'
+        ..truckerPhone = '+251911000000'
+        ..fromWoreda = 'Meki'
+        ..toWoreda = 'Addis Ababa'
+        ..departureDate = departure
+        ..capacity = 40
+        ..pricePerQuintal = 90
+        ..status = TripStatus.open
+        ..matchedListings = <String>[]
+        ..createdAt = DateTime.utc(2026, 10, 28)
+        ..updatedAt = DateTime.utc(2026, 10, 28)
+        ..version = 1;
+
+      // Each trip is stored as Ethiopia midnight of its day (21:00 UTC).
+      setUp(() async {
+        await isar.writeTxn(() async {
+          await isar.trips.putAll([
+            cached('yesterday', DateTime.utc(2026, 11, 2, 21)), // 3 Nov
+            cached('today', DateTime.utc(2026, 11, 3, 21)), // 4 Nov
+            cached('tomorrow', DateTime.utc(2026, 11, 4, 21)), // 5 Nov
+          ]);
+        });
+      });
+
+      TripListingRepository at(DateTime now) => TripListingRepository(
+            isar: isar,
+            syncQueue: syncQueue,
+            clock: () => now,
+          );
+
+      test('drops yesterday, keeps a trip leaving today all day', () async {
+        for (final now in [
+          DateTime.utc(2026, 11, 3, 21, 0, 1), // 00:00:01 in Addis Ababa
+          DateTime.utc(2026, 11, 4, 20, 59, 59), // 23:59:59
+        ]) {
+          final open = await at(now).getOpenTrips();
+          expect(
+            open.map((t) => t.tripId).toSet(),
+            {'today', 'tomorrow'},
+            reason: 'at $now',
+          );
+        }
+      });
+
+      test('from the next Ethiopia midnight today has left too', () async {
+        final open = await at(DateTime.utc(2026, 11, 4, 21)).getOpenTrips();
+        expect(open.map((t) => t.tripId), ['tomorrow']);
+      });
+
+      test('the route filters keep the cutoff', () async {
+        final open = await at(DateTime.utc(2026, 11, 4, 12))
+            .getOpenTrips(fromWoreda: 'Meki', toWoreda: 'Addis Ababa');
+        expect(open.map((t) => t.tripId).toSet(), {'today', 'tomorrow'});
+      });
+
+      test("the trucker's own trips and a read by id keep every departure",
+          () async {
+        final repo = at(DateTime.utc(2026, 11, 4, 21));
+        final own = await repo.getTripsByTrucker('trucker-001');
+        expect(
+          own.map((t) => t.tripId).toSet(),
+          {'yesterday', 'today', 'tomorrow'},
+        );
+        expect((await repo.getTripById('yesterday'))?.tripId, 'yesterday');
+      });
+    });
+
     // --- F-SEC-04: Client-side Validation Tests ---
 
     group('_validateTripData via createTrip', () {
@@ -910,6 +1104,64 @@ void main() {
     // --- F-SEC-04: cancelTrip Terminal State Validation ---
 
     group('cancelTrip terminal state validation', () {
+      // ESC-17: the cancel is an update, so it follows the server's
+      // transitions: only open or matched. A trip in transit is refused
+      // locally, never queued.
+      test('cancel an inTransit trip throws and queues nothing', () async {
+        final trip = await repository.createTrip(
+          truckerId: 'trucker-001',
+          truckerName: 'Test Trucker',
+          truckerPhone: '+251911000000',
+          fromWoreda: 'Bishoftu',
+          toWoreda: 'Addis Ababa',
+          departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+          capacity: 150.0,
+          pricePerQuintal: 120.0,
+        );
+        await isar.writeTxn(() async {
+          trip.status = TripStatus.inTransit;
+          await isar.trips.put(trip);
+        });
+
+        await expectLater(
+          repository.cancelTrip(tripId: trip.tripId, truckerId: 'trucker-001'),
+          throwsA(
+            isA<TripValidationException>()
+                .having((e) => e.field, 'field', 'status'),
+          ),
+        );
+        final row =
+            await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+        expect(row!.status, TripStatus.inTransit);
+        expect(await syncQueue.getPendingOperations(), hasLength(1));
+      });
+
+      test('cancel a matched trip is allowed', () async {
+        final trip = await repository.createTrip(
+          truckerId: 'trucker-001',
+          truckerName: 'Test Trucker',
+          truckerPhone: '+251911000000',
+          fromWoreda: 'Bishoftu',
+          toWoreda: 'Addis Ababa',
+          departureDate: DateTime.now().add(const Duration(days: 2)).toUtc(),
+          capacity: 150.0,
+          pricePerQuintal: 120.0,
+        );
+        await isar.writeTxn(() async {
+          trip.status = TripStatus.matched;
+          await isar.trips.put(trip);
+        });
+
+        await repository.cancelTrip(
+          tripId: trip.tripId,
+          truckerId: 'trucker-001',
+        );
+
+        final row =
+            await isar.trips.filter().tripIdEqualTo(trip.tripId).findFirst();
+        expect(row!.status, TripStatus.cancelled);
+      });
+
       test('cancel a delivered trip throws TripValidationException', () async {
         final trip = await repository.createTrip(
           truckerId: 'trucker-001',

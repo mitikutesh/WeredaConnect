@@ -1,0 +1,312 @@
+import type { ReactNode } from "react";
+import { Link } from "react-router";
+import { Badge } from "@/components/ui/Badge";
+import { Card } from "@/components/ui/Card";
+import { useLocale } from "@/hooks/useLocale";
+import { useEscrowLedger } from "@/hooks/useQuery";
+import { formatDateTime, formatETB } from "@/lib/i18n";
+import {
+  type LedgerRow,
+  labelOrRaw,
+  ledgerStatusVariant,
+  legStateVariant,
+  legStatusOf,
+  recordedSplit,
+} from "@/lib/legs";
+import { partyName } from "@/lib/user";
+import { CorrectReference } from "./CorrectReference";
+
+type Row = Record<string, unknown>;
+
+/** FUP-218: a 1.x manual payout leg on the admin escrow DTO (escrow-protocol.md 1.8.0). */
+interface ManualLeg {
+  ref: string;
+  status: string;
+  externalRef?: string;
+  paidBy?: string;
+  paidAt?: string;
+}
+
+/** FUP-218: an admin recorded the leg (not the gateway), so its reference can be corrected. */
+function adminRecorded(status: string | undefined, paidBy: string | undefined, reference: string | undefined): boolean {
+  return (status === "paid" || status === "done") && !!paidBy && paidBy !== "gateway" && !!reference;
+}
+
+function LegRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <dt className="shrink-0 text-slate">{label}</dt>
+      <dd className="text-right">{children}</dd>
+    </div>
+  );
+}
+
+/**
+ * ESC-24: the transport leg of an escrow, as rows of the page's detail list: the trucker, the
+ * payout, and where the leg stands. Read only. A trucker leg is paid by the settlement sweeps or
+ * recorded in Manual Payouts, so the only action offered here is the link to that queue.
+ * Renders nothing for an escrow without a transport leg.
+ */
+export function TruckerLegRows({ escrow, showPayout = true }: { escrow: Row; showPayout?: boolean }) {
+  const { t, locale } = useLocale();
+  const leg = escrow.truckerLeg as Row | undefined;
+  const hasPayout = escrow.truckerPayout != null;
+  if (!leg && !hasPayout && !escrow.truckerId) return null;
+  const state = leg ? String(leg.state || "none") : "";
+
+  return (
+    <>
+      {(escrow.truckerId || escrow.truckerName) && (
+        <LegRow label={t("legs.trucker")}>{partyName(escrow.truckerName, escrow.truckerId, locale)}</LegRow>
+      )}
+      {showPayout && hasPayout && (
+        <LegRow label={t("transactions.truckerPayout")}>{formatETB(Number(escrow.truckerPayout) || 0, locale)}</LegRow>
+      )}
+      {leg && (
+        <LegRow label={t("legs.truckerLeg")}>
+          <Badge variant={legStateVariant[state] || "default"}>{labelOrRaw(t, `legs.truckerState_${state}`, state)}</Badge>
+        </LegRow>
+      )}
+      {leg?.blockReason ? (
+        <LegRow label={t("legs.blockReason")}>
+          {labelOrRaw(t, `legs.block_${String(leg.blockReason)}`, String(leg.blockReason))}
+        </LegRow>
+      ) : null}
+      {leg?.pendingSince ? (
+        <LegRow label={t("legs.pendingSince")}>{formatDateTime(String(leg.pendingSince))}</LegRow>
+      ) : null}
+      {leg?.paidAt ? <LegRow label={t("legs.truckerPaidAt")}>{formatDateTime(String(leg.paidAt))}</LegRow> : null}
+      {leg?.telebirrRef ? <LegRow label={t("legs.truckerRef")}>{String(leg.telebirrRef)}</LegRow> : null}
+      {leg && (state === "manual_queue" || state === "blocked" || state === "pending") && (
+        <p className="text-xs text-slate">
+          {t(state === "manual_queue" ? "legs.truckerQueueHint" : "legs.truckerRetryHint")}{" "}
+          <Link to="/payouts" className="font-medium text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
+            {t("nav.manualPayouts")}
+          </Link>
+        </p>
+      )}
+    </>
+  );
+}
+
+/** A recorded per-leg verdict (ESC-20), as one row of the page's detail list. */
+export function RecordedSplitRow({ escrow }: { escrow: Row }) {
+  const { t, locale } = useLocale();
+  const split = recordedSplit(escrow);
+  if (!split) return null;
+  return (
+    <LegRow label={t("legs.recordedSplit")}>
+      {`${t("legs.farmerGets")} ${formatETB(split.farmerAmount, locale)} · ${t("legs.truckerGets")} ${formatETB(
+        split.truckerAmount,
+        locale,
+      )} · ${t("legs.buyerGets")} ${formatETB(split.buyerRefund, locale)}`}
+    </LegRow>
+  );
+}
+
+/**
+ * FUP-218: the legs of a 1.x escrow's manual payout (1.8.0), open or closed: who was paid, under which Telebirr
+ * transaction ID and who recorded it. A leg an admin recorded can have its ID corrected here; one the gateway paid
+ * cannot. Renders nothing for an escrow that never entered the queue (and for a ledger escrow, whose rows are in the
+ * ledger card).
+ */
+export function ManualLegsCard({ escrow }: { escrow: Row }) {
+  const { t } = useLocale();
+  const legs = Array.isArray(escrow.manualLegs) ? (escrow.manualLegs as ManualLeg[]) : [];
+  if (legs.length === 0) return null;
+  const escrowId = String(escrow.escrowId || "");
+
+  return (
+    <Card className="lg:col-span-2">
+      <h3 className="mb-1 text-[15px] font-extrabold">{t("legs.manualLegsTitle")}</h3>
+      <p className="mb-4 text-xs text-slate">{t("legs.manualLegsHint")}</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <caption className="sr-only">{t("legs.manualLegsTitle")}</caption>
+          <thead>
+            <tr className="border-b border-line text-xs text-slate">
+              <th scope="col" className="px-2 py-2 font-medium">{t("payouts.payee")}</th>
+              <th scope="col" className="px-2 py-2 font-medium">{t("legs.colStatus")}</th>
+              <th scope="col" className="px-2 py-2 font-medium">{t("payouts.externalRef")}</th>
+              <th scope="col" className="px-2 py-2 font-medium">{t("payouts.paidBy")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {legs.map((leg) => (
+              <tr key={leg.ref} className="border-b border-track align-top">
+                <td className="px-2 py-2">{labelOrRaw(t, `payouts.role_${leg.ref}`, leg.ref)}</td>
+                <td className="px-2 py-2">
+                  <Badge variant={leg.status === "paid" ? "success" : "warning"}>
+                    {labelOrRaw(t, `payouts.${leg.status}`, leg.status)}
+                  </Badge>
+                  {leg.paidAt && <span className="mt-1 block text-xs">{formatDateTime(leg.paidAt)}</span>}
+                </td>
+                <td className="px-2 py-2 font-mono text-xs">
+                  {leg.externalRef || ""}
+                  {adminRecorded(leg.status, leg.paidBy, leg.externalRef) && (
+                    <CorrectReference escrowId={escrowId} legRef={leg.ref} currentRef={leg.externalRef!} />
+                  )}
+                </td>
+                <td className="px-2 py-2 text-xs">
+                  {leg.paidBy === "gateway" ? t("legs.paidByGateway") : leg.paidBy || ""}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+const legAmountField: Record<string, string> = {
+  crop: "farmerPayout",
+  transport: "truckerPayout",
+  commission: "commission",
+};
+
+/**
+ * ESC-24: the ledger of an escrow (ESC-20): its legs with what each still carries, the totals
+ * decided so far, and one row per money movement. Read only. An escrow of the legacy model has no
+ * ledger: the card is not shown and the page keeps its fields as before.
+ */
+export function LedgerCard({ escrow }: { escrow: Row }) {
+  const { t, locale } = useLocale();
+  const legs = legStatusOf(escrow);
+  const escrowId = String(escrow.escrowId || "");
+  const ledger = useEscrowLedger(escrowId, legs != null);
+  if (!legs) return null;
+
+  const rows = (ledger.data?.pages ?? []).flatMap((page) => page.rows ?? []);
+
+  return (
+    <Card className="lg:col-span-2">
+      <h3 className="mb-1 text-[15px] font-extrabold">{t("legs.ledgerTitle")}</h3>
+      <p className="mb-4 text-xs text-slate">{t("legs.ledgerHint")}</p>
+
+      <ul aria-label={t("legs.legsLabel")} className="mb-4 flex flex-wrap gap-3 text-sm">
+        {["crop", "transport", "commission"]
+          .filter((leg) => legs[leg])
+          .map((leg) => (
+            <li key={leg} className="rounded-[14px] border border-line px-3 py-2">
+              <span className="block text-xs text-slate">{t(`legs.leg_${leg}`)}</span>
+              <span className="font-medium">{formatETB(Number(escrow[legAmountField[leg]]) || 0, locale)}</span>{" "}
+              <Badge variant={legStateVariant[legs[leg]] || "default"}>
+                {labelOrRaw(t, `legs.legState_${legs[leg]}`, legs[leg])}
+              </Badge>
+            </li>
+          ))}
+        <li className="rounded-[14px] border border-line px-3 py-2">
+          <span className="block text-xs text-slate">{t("legs.releasedTotal")}</span>
+          <span className="font-medium">{formatETB(Number(escrow.releasedTotal) || 0, locale)}</span>
+        </li>
+        <li className="rounded-[14px] border border-line px-3 py-2">
+          <span className="block text-xs text-slate">{t("legs.refundedTotal")}</span>
+          <span className="font-medium">{formatETB(Number(escrow.refundedTotal) || 0, locale)}</span>
+        </li>
+      </ul>
+
+      {ledger.isLoading ? (
+        <p role="status" className="text-sm text-slate">
+          {t("common.loading")}
+        </p>
+      ) : ledger.isError ? (
+        <div role="alert" className="rounded-[10px] border border-danger/30 bg-danger-tint px-4 py-2 text-sm text-danger">
+          {t("legs.ledgerLoadFailed")}
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-slate">{t("legs.ledgerEmpty")}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <caption className="sr-only">{t("legs.ledgerTitle")}</caption>
+            <thead>
+              <tr className="border-b border-line text-xs text-slate">
+                <th scope="col" className="px-2 py-2 font-medium">{t("legs.colLeg")}</th>
+                <th scope="col" className="px-2 py-2 font-medium">{t("legs.colKind")}</th>
+                <th scope="col" className="px-2 py-2 font-medium">{t("legs.colPayee")}</th>
+                <th scope="col" className="px-2 py-2 text-right font-medium">{t("legs.colAmount")}</th>
+                <th scope="col" className="px-2 py-2 font-medium">{t("legs.colStatus")}</th>
+                <th scope="col" className="px-2 py-2 font-medium">{t("legs.colReference")}</th>
+                <th scope="col" className="px-2 py-2 font-medium">{t("legs.colTimes")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <LedgerTableRow key={row.ref} row={row} escrowId={escrowId} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {ledger.hasNextPage && (
+        <div className="mt-3 flex justify-center">
+          <button
+            type="button"
+            onClick={() => ledger.fetchNextPage()}
+            disabled={ledger.isFetchingNextPage}
+            className="rounded-[10px] border border-field px-3 py-1 text-sm hover:bg-paper disabled:opacity-50"
+          >
+            {t("disputes.loadMore")}
+          </button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function LedgerTableRow({ row, escrowId }: { row: LedgerRow; escrowId: string }) {
+  const { t, locale } = useLocale();
+  return (
+    <tr className="border-b border-track align-top">
+      <td className="px-2 py-2">
+        {(row.legs ?? []).map((leg) => labelOrRaw(t, `legs.leg_${leg}`, leg)).join(", ")}
+      </td>
+      <td className="px-2 py-2">
+        {labelOrRaw(t, `legs.kind_${row.kind}`, row.kind)}
+        <span className="block font-mono text-xs text-slate">{row.ref}</span>
+      </td>
+      <td className="px-2 py-2">
+        {row.payeeRole ? labelOrRaw(t, `payouts.role_${row.payeeRole}`, row.payeeRole) : ""}
+        <span className="block text-xs text-slate">{partyName(row.payeeName, row.payeeId, locale)}</span>
+      </td>
+      <td className="px-2 py-2 text-right font-medium">{formatETB(Number(row.amount) || 0, locale)}</td>
+      <td className="px-2 py-2">
+        <Badge variant={ledgerStatusVariant[row.status] || "default"}>
+          {labelOrRaw(t, `legs.rowStatus_${row.status}`, row.status)}
+        </Badge>
+        {row.manualReason && (
+          <span className="mt-1 block text-xs text-slate">
+            {labelOrRaw(t, `legs.manual_${row.manualReason}`, row.manualReason)}
+          </span>
+        )}
+        {row.lastCode && row.status !== "done" && (
+          <span className="mt-1 block font-mono text-xs text-slate">{row.lastCode}</span>
+        )}
+      </td>
+      <td className="px-2 py-2 font-mono text-xs">
+        {row.telebirrRef || ""}
+        <span className="block text-slate">{row.gatewayRef}</span>
+        {/* FUP-218: a row an admin recorded in Manual Payouts can have its reference corrected. */}
+        {adminRecorded(row.status, row.paidBy, row.telebirrRef) && (
+          <CorrectReference escrowId={escrowId} legRef={row.ref} currentRef={row.telebirrRef!} />
+        )}
+      </td>
+      <td className="px-2 py-2 text-xs">
+        <span className="block">
+          {t("legs.timeCreated")} {row.createdAt ? formatDateTime(row.createdAt) : ""}
+        </span>
+        {row.sentAt && (
+          <span className="block">
+            {t("legs.timeSent")} {formatDateTime(row.sentAt)}
+          </span>
+        )}
+        {row.doneAt && (
+          <span className="block">
+            {t("legs.timeDone")} {formatDateTime(row.doneAt)}
+          </span>
+        )}
+      </td>
+    </tr>
+  );
+}

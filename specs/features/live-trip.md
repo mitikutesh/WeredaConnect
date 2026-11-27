@@ -1,0 +1,251 @@
+# Feature: Live Trip (where the truck is after pickup)
+
+**Status**: APPROVED 2026-10-28 (decisions D1 to D8 in §3, set by the user on the design canvas)
+**Tasks**: EPIC LT in `TASK.md` (LT-01 to LT-13)
+**Contract**: `specs/contracts/live-trip-api.md` 1.0.0 (new)
+**Design**: canvas https://claude.ai/artifact/K6DUM33R6apPwa2jmdsLax (35 boards: Live trip for all roles, the Ethiopian clock, and the core marketplace screens drawn in the same look)
+**Author**: AI-assisted
+**Date**: 2026-10-28
+**Related**: `delivery-verification-api.md` (QR handoff, GPS proximity, "Real-time GPS tracking" in Future Enhancements), `order-lifecycle.md` 2.1.0 (commitments, contact per party), `notifications-api.md` (push types, `PushText`), `specs/features/three-party-escrow-commitments-reputation.md` §1.5 ("GPS check-ins" as evidence)
+
+---
+
+## 1. What
+
+After pickup, the trucker's phone reports where the truck is. The buyer and the farmer of that order see it on a map that the phone draws from data the app already ships.
+
+1. **Check-ins, not live streaming.** The phone records a GPS fix about once an hour, at each QR scan, every 15 minutes when the truck is within 10 km of a drop-off, and when the driver taps "Check in now" or "I've arrived". With no network the fixes wait in the sync queue and go up later with their real capture time.
+2. **An honest map.** The map shows the trail from the viewer's own pickup, the last check-in with a halo that grows with its age, the road ahead as a dashed line, and an arrival window ("13:20-14:00"), never a fake exact minute. States: fresh, normal, late (no network), paused, scans only, ended.
+3. **Optional for the driver.** After the first pickup scan the driver is asked once per trip. A driver who declines is shown as "Scans only"; the QR scans still prove pickup and delivery.
+4. **Ends by itself.** Sharing stops when every delivery on the trip is delivered, cancelled or disputed. The driver can pause for a rest stop or the night.
+5. **Useful events.** The first check-in 2 km past a pickup moves that delivery to `inTransit` (the manual button stays as a fallback). A check-in within 5 km of a drop-off pushes `truck_nearby` to that buyer, once. Impossible speeds and mock-location apps raise fraud signals. Admins see the full trail as dispute evidence.
+6. **Ethiopian clock.** Amharic and Afaan Oromo show times on the Ethiopian clock across the app and in push messages; English keeps the 24-hour clock.
+
+## 2. Why
+
+- The most common question after pickup is "where is my crop?". Today the only answer is a phone call. Buyers and farmers who can see progress call less and trust the escrow more, and drivers are interrupted less while driving.
+- Hourly check-ins fit rural reality: cheap phones, patchy network, 2 GB RAM, costly data. A continuous stream would drain batteries and fail on most roads anyway.
+- The trail is evidence. A dispute about a short delivery or a missed drop-off is easier to judge with the route and its stops next to the QR, GPS and photo proof.
+- Times on the Ethiopian clock are how most Amharic and Oromo speakers read the day. A deadline shown as "18:00" to a farmer who reads "12 in the evening" invites missed answers.
+
+## 3. Decisions
+
+| # | Decision | Set by |
+|---|---|---|
+| D1 | The map is drawn on the phone from shipped data (the bundled place list, later an optional roads file). No map tiles, no map data cost. | User, 2026-10-27 |
+| D2 | Location sharing is optional for drivers ("Scans only" when declined). | User, 2026-10-28 |
+| D3 | Amharic and Afaan Oromo use the Ethiopian clock, always with the part of the day; English keeps the 24-hour clock. A Clock setting follows the language until the person picks one. | User, 2026-10-28 |
+| D4 | Dates stay on the Gregorian calendar. Superseded 2026-11-19: Amharic and Afaan Oromoo show the Ethiopian date first with the Gregorian month and day in brackets (FUP-545); the date picker stays Gregorian. | Default (the user was told; not asked for); changed by the owner's decision of 2026-11-19 |
+| D5 | Cadence: hourly, at each scan, every 15 min within 10 km of a drop-off, and on tap. | Design |
+| D6 | Live location is never stored on trip rows (every buyer can browse every trip). It lives only behind the delivery's track endpoint. | Design (role rule) |
+| D7 | Each party sees the trail only from their own pickup until their delivery; other stops on the truck are never named. | Design (privacy) |
+| D8 | The labeled create FAB floats above the bottom bar instead of docking into a 48 px gap it covers today. | Design (bug fix) |
+
+## 4. Experience per role
+
+Board names refer to the design canvas.
+
+**Trucker** (Trucker · Share consent, Trip mode, Offline and pause)
+- After the trip's first pickup scan: a one-time sheet per trip, "Share where the truck is?", with who sees it, how often, when it stops, and the data cost (the daily figure LT-08 measures, §5.3). "Share trip location" or "Not now, scans only".
+- Trip mode: the trip header, sharing state with last and next check-in, Pause, Check in now, the next stop with I've arrived and Show QR, the stop list (pickups and drop-offs of this trip, with names: the trucker is a party to every order), and the pay for the trip.
+- Pause sheet: 15 min, 30 min, 1 hour, overnight until 06:00. Sharing resumes by itself. QR scans still record their place.
+- Offline banner: how many check-ins wait on the phone.
+- Android shows a foreground notification while sharing is on.
+- As built (LT-09): the engine asks for the sheet at the first pickup scan of a trip with no answer; the sheet opens above every route once the scan screens closed and quotes the wire figure (about 170 KB a day). Settings > Trip location (truckers only) sets what that scan does: Ask on each trip (the sheet, the default), Always share (sharing starts without the sheet), Never share (records `declined`, then the scan's fix). Trip mode opens from a "Trip on the road" card on the trucker home and from the sheet's snackbar. The next stop is the first pickup still waiting, else the first drop-off on the road (no road map to plan a route): Scan QR at a pickup, Show drop-off QR at a drop-off (usability audit T-3, `delivery-verification-api.md` 1.22.0: the buyer's confirm checks the farmer's pickup nonce, so the trucker's phone keeps the farmer's token it scanned, or the code it typed, and shows it; a trucker-issued nonce is still ESC-35); I've arrived records the drop-off's place. The home card opens trip mode for the trucker's trip once a load is on board or a pickup is due, not only while sharing (T-2), and the sharing card offers Stop sharing with a confirm (T-5), which records `declined`, ends sharing for the trip for good and is kept with it; sharing also ends when the trip itself is delivered or cancelled. The pay is the transport cost of the trip's orders. Overnight is offered only from 12:00 in the day, when 06:00 is at most 18 hours away. The offline banner shows while the phone has no network.
+
+**Buyer** (Buyer · Deliveries tab, Live trip in 5 states, Trip log, Arriving, Delivered; Web · Buyer deliveries)
+- Deliveries tab: an "On the road now" card with a route ribbon, the freshness chip and the arrival window; waiting-for-pickup cards say the map starts at pickup.
+- Live trip: map hero plus bottom sheet (arrival window, distance left, 4-step progress, escrow line, driver card with message and call, trip log link).
+- Trip log: check-ins with times and places, "sent late" tags, other stops unnamed, pickup proof, price breakdown, who has agreed, help text (no cancel after pickup, 48 h to report after delivery), privacy note.
+- Arriving (truck within 5 km): checklist and the Scan driver's QR button.
+- Delivered: trip summary (distance, time, check-ins), "sharing ended at delivery", escrow timeline, report a problem until the window ends, Rate Farmer and Rate Trucker.
+
+**Farmer** (Farmer · Order on the road)
+- "Your wheat is on the road": map card from the farmer's pickup, freshness, arrival window, a note that grey rings are other stops, the payment steps (paid into escrow, handed over, buyer confirms, 48 h, paid out), contact rows, and a link to the order details.
+
+**Admin** (Web · Admin dispute evidence)
+- A Trip trail tab on a dispute detail page (new: the admin Disputes page is a list today, and FRD-14 plans the full evidence view): map, the check-ins with leg distance, time and speed, pauses, what the trail says (shared the whole way, no impossible jumps, stops off the stop list), and a reminder that the trail shows where the truck was, not what it carried.
+
+**Every role**: freshness chips, the route ribbon and the map language follow the Foundations board.
+
+**As built (LT-11)**, in `mobile/lib/features/live_trip/presentation/` (buyer and farmer only; the trucker gets none of these screens or cards):
+- Arriving is a state of the Live trip screen, not a screen of its own: the last check-in within 5 km of the drop-off by great circle (else `remainingKm` within 5 km when the point is unknown), or a `truck_nearby` entry for the delivery in the buyer's inbox. Scan driver's QR opens the existing delivery QR scan.
+- The trip log shows the answer the Live trip screen last read (no read of its own). Other stops from `otherStops` are rows without a town; a QR scan after the viewer's pickup is "Another stop on this truck" under the town of that check-in, which the trail already shows. Who has agreed reuses the order's commitment rows, without answer times (the order carries none).
+- The drop-off is named by the buyer's `dropoffNote`, else "You" (buyer) or "Drop-off" (farmer): the track has no place name for it. The driver card has no truck model or plate (no such data), and the arrival checklist names no sack count.
+- Entry points: the deliveries tab ("On the road now" cards first, a "map starts at pickup" line under the buyer's deliveries waiting for pickup), a Live trip button on the delivery and order details, and the farmer's home card under Action needed. On a desktop width the deliveries tab shows the selected live trip beside the list (the Web · Buyer deliveries board).
+- The screens read the track while their route is the top one and the app is in the foreground, tick their clock every minute while shown, and trust the track over a delivery status the device has not pulled yet.
+
+## 5. Check-in model
+
+### 5.1 Kinds
+
+| Kind | Coordinates | When |
+|---|---|---|
+| `fix` | yes | hourly, at a scan, near a drop-off, Check in now, I've arrived (`source` says which) |
+| `paused` | no | the driver paused; carries `pausedUntil` |
+| `resumed` | no | the driver resumed early, or the pause ran out on the phone |
+| `declined` | no | the driver chose "Not now, scans only" for this trip |
+
+### 5.2 Cadence on the phone
+
+- After an accepted consent, the phone records a fix at once and then:
+  - every 60 minutes after the last fix of any source (a scan or a tap resets the clock),
+  - every 15 minutes while the last fix is within 10 km of any undelivered drop-off on the trip,
+  - on a pickup or drop-off scan, on Check in now and on I've arrived.
+- Fixes use the medium accuracy setting with a 60 second timeout. No fix in time: skip, try at the next slot, never retry in a loop.
+- Mock-location detection (`Position.isMocked`) is sent as `mocked: true`.
+- While paused no fix is taken. The pause ends at `pausedUntil` or when the driver resumes.
+- The phone stops sharing (and the foreground service) when its local copy shows every delivery on the trip delivered, cancelled or disputed, or when the server answers `LOCATION_SHARING_ENDED`.
+
+### 5.3 Offline and the queue
+
+- Each fix and event is a `location_ping` create in the existing sync queue (FIFO), so it waits offline like every other write.
+- Coalescing: when more than 24 location pings wait unsent, keep at most one `fix` per clock hour plus every event, so a long dead zone does not flood the queue ahead of a delivery scan.
+- Measured in LT-08 with real ids (`mobile/test/core/sync/sync_executor_location_ping_test.dart`): 635 bytes of sync request body for a ping that goes up alone, 531 bytes per ping when several go in one request. The operation envelope and its ids are most of it; the `data` is about 175 bytes. At the hourly rate that is about 15 KB of bodies a day per truck (24 × 635 B), plus 4 pings an hour while within 10 km of a drop-off. A ping that goes up alone also carries the request headers with the ID token and the answer with its headers (roughly 2 KB together, estimated), and after an hour idle usually a new TLS connection (roughly 5 KB, estimated): about 7 KB on the wire per hourly ping, about 170 KB a day. Pings that waited offline go up together and share that overhead. The consent sheet (LT-09) quotes the wire figure; a device run with `DataUsageTracker` confirms it before release.
+- The phone sends a ping only after every other waiting write (the trip's pickup first), so check-ins that wait as `deferred` never hold back a delivery scan, and a ping the server would refuse for its bounds (outside Ethiopia, accuracy over 5,000 m) is never sent.
+
+### 5.4 Android
+
+- A foreground service with a visible notification runs the cadence while sharing is on. It is started from the consent sheet, while the app is in the foreground, so the "while in use" location permission is enough (no `ACCESS_BACKGROUND_LOCATION`).
+- The installed `geolocator_android` 5.0.4 supports the foreground notification (`ForegroundNotificationConfig`); no new package is needed.
+- The manifest adds `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_LOCATION`; the Play Console foreground-service declaration (location type) is filed before release. The consent sheet is the in-app disclosure.
+- Web drivers check in only while the page is open (manual and a visible-page timer); no background.
+- As built (LT-08): the service is the position stream of `geolocator` with a `ForegroundNotificationConfig`, asking for a low power position (cell and wifi, no GPS) about every 5 minutes. Those positions only wake the cadence when the phone sleeps (Dart timers do not run in deep sleep); each check-in is its own fix with the medium accuracy setting. The service keeps running through a pause, so sharing resumes by itself, and stops when sharing ends or the trucker signs out. If its position stream fails (location switched off, permission taken back), the engine starts it again while the app is visible: at once when the app comes back, else on a tick after a backoff from 1 minute doubling to 30. The notification title, text and channel name are in en, am and om. The text stays the same during a pause: the plugin keeps one stream, a new text needs a stop and a new start of the service, and Android refuses that start from the background, where a pause usually ends.
+
+## 6. Server
+
+### 6.1 Ingest (`location_ping` via `POST /sync`)
+
+Accepted only when all hold (each refusal code is in the contract):
+- the caller is the trip's trucker;
+- the trip has at least one delivery that is `pickedUp` or `inTransit`, or that reached `delivered`, `cancelled` or `disputed` after `capturedAt` (late offline pings are kept);
+- `capturedAt` is at most 2 minutes in the future and at most 7 days old;
+- for `fix`: latitude 3 to 15, longitude 32.5 to 48.5 (Ethiopia with a margin), accuracy 0 to 5,000 m;
+- at most 20 fixes per trip per clock hour.
+
+Stored in `{prefix}-trip-locations`: PK `tripId`, SK `{capturedAt}#{kind}`, coordinates rounded to 4 decimals (about 11 m), `receivedAt`, `source`, `accuracyM`, `mocked`, `pausedUntil`, `expiresAt` = `capturedAt` + 60 days (TTL; the same attribute name as the rate-limits, notifications and fraud-signals tables, not `ttl` as on match-events). Duplicates (same SK) are idempotent successes.
+
+### 6.2 Track (`GET /deliveries/{deliveryId}/track`)
+
+- Readable by the delivery's buyer, farmer and trucker only. Anyone else: `404` (no existence leak).
+- Before pickup: `sharing: not_started`, no position.
+- From the delivery's `pickedUpAt` until `confirmedAt`: the trail of fixes in that window, coordinates rounded to 3 decimals (about 110 m), the last fix, the sharing state, pickup and drop-off points, other stops, the arrival window and the distance left.
+- After delivery: `sharing: ended` and a summary (distance, duration, fix count), no coordinates.
+- Drop-off point: the order's own drop-off point (LT-14, section 10), else the trip's destination point, plus the order's `dropoffNote` when set (LT-12).
+- Other stops: the other undelivered pickups and drop-offs on the same trip as `{kind, done}` with coordinates rounded to 2 decimals (about 1 km) and no names, ids or quantities.
+- Arrival window: distance left = great-circle distance from the last fix to the drop-off × 1.3, plus 20 minutes for each other undelivered stop that is nearer to the truck than this drop-off; speed = median of the last up to three legs, clamped to 20 to 60 km/h (40 when there is only one fix); centre = last fix time + distance ÷ speed; half-width = 10 min + a quarter of the last fix's age, capped at 90 min; rounded to 5 minutes; the start is never before now.
+
+### 6.3 Side effects of an accepted fix (best effort, never fail the ingest)
+
+- **Auto in transit.** For each `pickedUp` delivery on the trip whose `gpsPickup` (else the listing location) is 2 km or more from the fix: `pickedUp → inTransit` as a system actor, with the existing order coupling (`in_transit`) and a transaction-audit row.
+- **Truck nearby.** For each `pickedUp` or `inTransit` delivery whose drop-off point is within 5 km of the fix and that has no `nearbyNotifiedAt`: stamp it and push `truck_nearby` to that buyer.
+- **Fraud signals.** Over 130 km/h between consecutive fixes more than 1 km apart: `GPS_JUMP`. `mocked: true`: `GPS_MOCKED`. Both through the existing fraud signal writer.
+
+### 6.4 Admin (`GET /admin/deliveries/{deliveryId}/trail`)
+
+Admin group only. Every fix and event from pickup to delivery at 4 decimals, with leg distance, minutes and speed, and the pauses.
+
+As built (LT-13): the response with the QR scan points, the `coarse` and `late` flags, the jump flag on each leg (the `GPS_JUMP` rule), the gaps (over 90 minutes without a check-in, pauses left out) and the summary is in `live-trip-api.md` section 3 (1.0.5). The admin app shows it in a Trip trail tab on a new dispute page (`/disputes/{escrowId}`, linked from the Disputes list), a minimal shell FRD-14 adds its evidence tabs to. Not built: "stops off the stop list" from section 4, which needs the planned stops of every order on the trip; a follow-up for FRD-14.
+
+## 7. Privacy and roles
+
+- Farmer: only their own order's trail; other stops unnamed. Trucker: their own trips. Buyer: their own deliveries. Admin: dispute evidence. Nobody can follow a trucker before pickup or after delivery.
+- Trip rows, browse, matching and messages never carry live location (D6).
+- Party reads at 3 decimals, other stops at 2, admin at 4. Rows expire after 60 days.
+- The consent sheet says who sees what and for how long; Settings can change the default.
+
+## 8. The map (D1)
+
+- Data: the bundled `mobile/assets/data/ethiopia_woredas.json` (3,860 GeoNames places, 70 KB gzipped, already in the APK), the trail and the stops. No tiles. A roads layer (OpenStreetMap trunk and primary roads, estimated 100 to 150 KB gzipped) is a follow-up, not in this epic; without it the map draws towns, the real trail and a dashed line ahead.
+- Rendering: a Flutter `CustomPainter` with an equirectangular projection fitted to the trail, stops and drop-off; no new map package; the same code on web (no `dart:io`).
+- Labels: towns inside the padded bounds ranked by population plus the nearest town to each fix; greedy collision removal; at most 10. Check-in rows in the trip log name the nearest town too.
+- Credits on the about or licences screen: "© GeoNames (CC BY 4.0)" (and "© OpenStreetMap contributors" once roads ship).
+- As built (LT-10), in `mobile/lib/features/live_trip/`:
+  - Map language: the trail is a solid line through the check-ins with a dot at each; two check-ins more than 90 minutes apart are joined by a dotted line (the road between is unknown); the road ahead is dashed from the last check-in to the drop-off; the pickup is a ring, the drop-off a filled dot (labelled with the buyer's `note` when there is one), other stops grey rings without labels; the truck sits at the last check-in inside a halo of `min(2 + 40 x age in hours, 60)` km, none while paused; an `ended` track draws no truck, no halo and no road ahead.
+  - Freshness bands (`trackFreshness`, on the device clock, so an offline snapshot turns late by itself): fresh under 20 minutes, normal 20 to 75, late over 75, paused (until `pausedUntil`), scans only (`declined`), ended; none before pickup.
+  - Labels: the town nearest to the last check-in first, then the towns with a known population inside the padded bounds, largest first, then the town nearest to each earlier check-in, newest first; placed right of the dot, else left, dropped when they would leave the canvas or touch a label, a pin, a check-in, a stop or the truck; at most 10. `nearestPlace` names a check-in for the trip log.
+  - Projection: equirectangular, longitudes scaled by the cosine of the mean latitude of the bounds, fitted with 28 px of padding, at least 20 km across.
+  - Track client: `BaseTrackRepository` with `TrackRepository` (mobile, skips the network when the phone is offline) and `WebTrackRepository`; `TrackPoller` reads at once when shown, then at most every 5 minutes while visible, plus an explicit refresh, and stops after `ended` or `404`. The last good answer per user and delivery is kept in SharedPreferences (localStorage on web) with its fetch time, at most 20 per user, removed at logout and account deletion; a `404` or `500` keeps it.
+- Place data fixes (LT-02), found while validating the design on 2026-10-27:
+  - display names without transliteration marks ("Mek’ī" → "Meki", "‘Alem T’ēna" → "Alem Tena", "K’ok’a" → "Koka");
+  - aliases: Adama (the city is only "Nazrēt" today, and "Adama" finds a village in Amhara), Batu (Ziway), and "Debre Zeyit" pointing at Bishoftu instead of a village in Benishangul;
+  - Amharic and Oromo names: 37 and 4 of 3,860 places have them. An overrides file curated for the top towns, each entry marked for native review.
+
+## 9. Ethiopian clock (D3)
+
+- Ethiopian hour = (24-hour hour − 6) mod 12, with 0 shown as 12. Minutes unchanged.
+- Part of the day, from the 24-hour hour: 00 to 05 night, 06 to 11 morning, 12 to 17 day, 18 to 23 evening.
+  - Amharic, before the time: ከሌሊቱ, ከጠዋቱ, ከቀኑ, ከምሽቱ ("ከቀኑ 7:20").
+  - Afaan Oromo, after the time: halkan, ganama, waaree booda, galgala ("7:20 waaree booda").
+- Never a bare hour. Ranges repeat the part of the day only when it changes ("ከቀኑ 11:30-ከምሽቱ 12:30").
+- Deadlines and arrival windows also show the 24-hour time in small text in Amharic and Oromo.
+- Clock setting: Auto (default: Ethiopian for am and om, international for en), Ethiopian, International.
+- One formatter on the client (Dart) and one on the server (C#, `PushText`), both tested against `specs/contracts/fixtures/ethiopian-clock-cases.json`.
+- Storage, deadlines and contracts keep UTC; only display changes.
+
+## 10. Drop-off landmark (LT-12)
+
+The place list has towns, not neighbourhoods (Merkato, Kality and Saris are missing), so "Addis Ababa" is too vague for a driver. The buyer may add an optional `dropoffNote` (up to 80 characters, the same phone-number guard as listing descriptions) when placing an order, editable until pickup. The trucker sees it on the stop list once committed; the buyer's map labels the drop-off with it.
+
+As built (LT-12, `order-lifecycle.md` 2.5.0):
+- 80 user-visible characters, counted as extended grapheme clusters on both sides (an Amharic syllable is one), one line, trimmed; a phone number is `ORDER_CONTACT_IN_TEXT`; a change after pickup is `ORDER_DROPOFF_NOTE_LOCKED` (the order's status, and its active delivery read strongly consistent). Only the buyer changes it; an unchanged echo passes from a party who reads it, and a trucker not committed gets the buyer-only refusal whatever it sends (no equality oracle). The clients turn control characters and line separators into spaces before sending, since the server refuses them.
+- Returned to the buyer, the farmer and the trucker once committed to a held order, on `GET /orders`, `GET /orders/{id}`, `/sync` rows and the track's `dropoff.note` (every phase); nobody else. The deliveries Lambda reads the orders table (Query) for the track.
+- Clients: an optional field under the chosen truck on Place order (no truck, no field), a card on the order detail for whoever received it with Add or Edit for the buyer until pickup (a sheet with the same checks), the trucker's next stop and stop list (drop-offs still to do), and the buyer's and farmer's map and route ribbon (LT-10, LT-11). The same screens on mobile and web.
+- The order's own drop-off point is LT-14 (below).
+
+As built (LT-14, `order-lifecycle.md` 2.9.0, `live-trip-api.md` 1.1.0):
+- The order's `deliveryLatitude` and `deliveryLongitude` (the buyer intent's names, P.4 of `delivery-verification-api.md`): both or neither, inside the `location_ping` box; set on Place order from a place picked in the bundled list, starting from the intent's place, else the registered place; changed by the buyer until pickup in the note's window (`ORDER_DELIVERY_LOCATION_LOCKED` after pickup); ignored on a self-pickup order; returned to the buyer, the farmer and the order's trucker while the money is held and the trucker is still on the order (not asked yet, asked or committed) (so the transport answer reads the real town; a trucker who declined, expired, dropped out or failed on capacity reads nothing more; the landmark still waits for the commitment). Without one (an older client, an off-list place) the trip's destination point stands in.
+- `TripTrack.PlannedDropoff(trip, order)` is the one rule: the order's point, else the trip's. The track's `dropoff` (for a caller who may read the point), each other stop's drop-off (from its own order), `truck_nearby` and its minutes and the admin trail's planned stops read it. The delivered GPS check passes within 5 km of either point, and the dispute evidence shows the nearer.
+- Clients: a Drop-off place picker on Place order above the landmark (trip orders only), a Drop-off place card on the order detail with Change for the buyer until pickup (a sheet with the same picker), and the drop-off named after the place nearest to the point in trip mode and in the trip's bookings. The same screens on mobile and web.
+
+## 11. Bottom bar FAB (LT-01, D8)
+
+`mobile/lib/screens/main_navigation.dart` docks a labeled `FloatingActionButton.extended` ("New Buying Intent", "Sell Crops", "Post Trip", about 190 dp) into a 48 px `SizedBox` gap of the `BottomAppBar`, so the button covers the second and third tabs. The labeled button stays (it is deliberate for low-literacy users) and floats centred above the bar; the bar loses the notch and spaces its four tabs evenly; scrollable bodies get bottom padding so the button never hides the last item. The web `AdaptiveShell` FAB is checked for the same problem.
+
+## 12. Contracts
+
+- New: `specs/contracts/live-trip-api.md` 1.0.0 (the entity, the endpoints, the push type, the error codes).
+- New fixture: `specs/contracts/fixtures/ethiopian-clock-cases.json`.
+- Bumped by the ticket that implements the change: `sync-protocol.md` (LT-05, the `location_ping` entity, its permanent codes and the `deferred` `LOCATION_NOT_ACTIVE`), `delivery-verification-api.md` (LT-07, the system `pickedUp → inTransit` and `nearbyNotifiedAt`), `notifications-api.md` (LT-04 the clock in push text, LT-07 `truck_nearby`), `order-lifecycle.md` and `data-models.md` (LT-12 `dropoffNote`).
+
+## 13. Constraints check
+
+- **Offline first**: pings queue offline; the buyer's map shows the last snapshot with its age; Fayda and payments already say they need network.
+- **Low-end phones and data**: no tiles, no new packages, about 15 KB a day of check-in bodies per truck and about 170 KB on the wire (§5.3), about 2 KB per map refresh, a repaint only when data changes.
+- **Roles**: §7. Farmer never sees another farmer's crop; buyer browse is unchanged.
+- **Mobile and web**: every new screen exists on both. New Isar schemas get their web model pair; sync executor and queue changes land on both sides.
+- **Three languages**: every new string in en, am and om; the Amharic and Oromo copy on the canvas needs a native speaker's review before release.
+
+## 14. Tickets
+
+One PR per ticket, stacked in this order (each PR's base is the previous ticket's branch, the first is based on this spec's branch):
+
+| ID | Scope | Summary |
+|---|---|---|
+| LT-01 | @Mobile | FAB floats above the bottom bar (§11) |
+| LT-02 | @Mobile @Data | Place data: display names, aliases, Amharic and Oromo overrides (§8) |
+| LT-03 | @Mobile @l10n | Ethiopian clock formatter, Clock setting, applied app-wide (§9) |
+| LT-04 | @Server | `PushText` deadlines on the Ethiopian clock for am and om (§9) |
+| LT-05 | @Server @Infra | Location ingest: table, `location_ping` sync entity, validation (§6.1) |
+| LT-06 | @Server @Infra | Track endpoint and arrival window (§6.2) |
+| LT-07 | @Server | Side effects: auto in transit, `truck_nearby`, fraud signals (§6.3) |
+| LT-08 | @Mobile | Check-in engine: schema pair, sync, cadence, foreground service (§5) |
+| LT-09 | @Mobile @l10n | Trucker UI: consent, trip mode, pause, check in now, arrived (§4) |
+| LT-10 | @Mobile | Track client with offline snapshot, and the map painter (§6.2, §8) |
+| LT-11 | @Mobile @l10n | Buyer and farmer Live trip screens, deliveries card, trip log, arriving, delivered (§4) |
+| LT-12 | @Server @Mobile @l10n | Drop-off landmark note (§10) |
+| LT-13 | @Server @Admin | Admin dispute evidence: trail endpoint and Trip trail tab (§6.4) |
+
+## 15. Not in this epic
+
+- Restyling the existing screens to the canvas look (the canvas draws them in the new look only to show nothing is lost). A separate decision.
+- The roads layer, road-snapped routes and turn-by-turn navigation.
+- An Ethiopian date picker (dates are shown in both calendars since FUP-545; the picker stays Gregorian).
+- iOS background location (the app targets Android 8+ and web).
+
+## 16. Risks
+
+- **Battery on old phones**: one fix an hour with medium accuracy is cheap; the 15-minute mode is limited to the last 10 km.
+- **Vendor-killed services** (aggressive battery savers on some Android brands): the queue and the scans still work; the map shows "late" honestly.
+- **Spoofing**: mock-location flag, impossible-speed check, and the QR scans remain the money evidence; the trail is supporting evidence only.
+- **Clock confusion between languages**: the part of the day is always shown and deadlines carry the 24-hour time too.

@@ -1,11 +1,20 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/local_auth_gate.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/data/delivery_validation_exception.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_handoff_store.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/dropoff_qr_issuer.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/handoff_code.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/photo_manager.dart';
 import 'package:wereda_connect/features/delivery_verification/data/services/qr_verification_service.dart';
 import 'package:wereda_connect/features/delivery_verification/data/verification_type.dart';
@@ -16,11 +25,32 @@ import 'package:wereda_connect/features/delivery_verification/presentation/deliv
 import 'package:wereda_connect/features/delivery_verification/presentation/widgets/photo_evidence_widget.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
 
 /// QR scan screen for pickup and delivery verification.
 ///
-/// Two phases: Scanning (camera preview) and Verified (GPS + photo + confirm).
-/// Uses offline HMAC-SHA256 verification — no internet needed.
+/// Phases: Scanning (the camera in a rounded panel on a black page), Typing
+/// (T-1: the nine-digit code typed when the camera fails, its check digit
+/// checked on the phone), Read (GPS + photo on the white page, Confirm
+/// pinned at the foot) and Failed (design canvas page M, TruckerQrFailedM:
+/// [QrScanFailedView]). The phone
+/// only reads the QR or checks the code's check digit; the server compares
+/// it with the farmer's nonce once the confirm reaches it, so the copy says
+/// so instead of "verified". A typed code needs a GPS fix.
+///
+/// FRD-11: the location is stamped at the scan. Confirm waits while the
+/// fix is taken (at most [gpsWaitCap]), so a quick tap cannot skip it; a
+/// phone that gets no fix still confirms a scanned QR without one, except
+/// at a self-pickup (FUP-138): the server refuses that confirm without a
+/// fix, so Confirm stays off, the screen says why there is none and offers
+/// Try location again ([QrLocationNeededView]).
+///
+/// A trucker's confirmed pickup makes the trucker's own drop-off code, kept
+/// on the phone ([DropoffHandoffStore]) and registered with the server
+/// ([DropoffQrIssuer], ESC-35). The buyer scans or types it at the drop-off;
+/// the screen then shows the trucker's wait and lock texts, not the
+/// farmer's.
 ///
 /// Confirming a DELIVERY (buyer delivery confirm and buyer self-pickup
 /// confirm) releases the farmer's escrow, so it first asks the device to
@@ -28,6 +58,10 @@ import 'package:wereda_connect/shared/theme/app_theme.dart';
 /// lock screen proceeds with a logged warning; the server stays the
 /// authority. Pickup confirmation (trucker) is not gated.
 class QrScanScreen extends StatefulWidget {
+  /// The longest Confirm waits for a fix. The capture itself stops after
+  /// 15 seconds; this also covers a permission prompt nobody answers.
+  static const gpsWaitCap = Duration(seconds: 30);
+
   final Delivery delivery;
   final VerificationType verificationType;
   final QrVerificationService qrService;
@@ -38,6 +72,10 @@ class QrScanScreen extends StatefulWidget {
   /// `local_auth` prompt; tests inject a fake.
   final LocalAuthGate? localAuthGate;
 
+  /// Where a confirmed pickup keeps the handoff for the drop-off QR.
+  /// Defaults to secure storage; tests inject a memory store.
+  final DropoffHandoffStore? handoffStore;
+
   const QrScanScreen({
     required this.delivery,
     required this.verificationType,
@@ -45,6 +83,7 @@ class QrScanScreen extends StatefulWidget {
     required this.gpsService,
     required this.photoManager,
     this.localAuthGate,
+    this.handoffStore,
     super.key,
   });
 
@@ -52,19 +91,53 @@ class QrScanScreen extends StatefulWidget {
   State<QrScanScreen> createState() => _QrScanScreenState();
 }
 
-enum _ScanPhase { scanning, verified, invalid }
+enum _ScanPhase { scanning, typing, verified, invalid }
 
 class _QrScanScreenState extends State<QrScanScreen> {
   _ScanPhase _phase = _ScanPhase.scanning;
   MobileScannerController? _scannerController;
   String? _errorCode;
 
+  /// Why the server refused the confirm (a code that is not this
+  /// delivery's, a locked code, a code not synced yet), in the viewer's
+  /// language: the failed page shows it instead of a scan failure.
+  String? _serverRefusal;
+
   // Verified phase data
   GpsCaptureResult? _gpsResult;
   String? _photoRef;
+
+  /// The photo's bytes for the preview on web (FRD-12), where it has no
+  /// file and went up already.
+  Uint8List? _photoPreview;
   String? _scannedNonce;
   bool _isCapturingGps = false;
+
+  /// Counts captures, so one started before a reset cannot land after it.
+  int _gpsRun = 0;
   bool _isConfirming = false;
+
+  // Typing phase (T-1)
+  final _codeController = TextEditingController();
+  String? _codeError;
+
+  /// The checked nine digits once a typed code passed its check digit.
+  String? _typedCode;
+
+  bool get _typed => _typedCode != null;
+
+  bool get _gpsReady => _gpsResult?.isAvailable ?? false;
+
+  /// The buyer's self-pickup confirm at the farm, which the server refuses
+  /// without a fix (FUP-138).
+  bool get _isSelfPickup =>
+      widget.verificationType == VerificationType.delivery &&
+      widget.delivery.deliveryType == DeliveryConstants.selfPickupDeliveryType;
+
+  /// Confirm waits for a usable fix: a typed code (the server refuses one
+  /// without a fix on a paid delivery) and a self-pickup (FUP-138). A
+  /// scanned trucker pickup or drop-off confirms without one.
+  bool get _needsFix => _typed || _isSelfPickup;
 
   @override
   void initState() {
@@ -75,7 +148,141 @@ class _QrScanScreenState extends State<QrScanScreen> {
   @override
   void dispose() {
     _scannerController?.dispose();
+    _codeController.dispose();
     super.dispose();
+  }
+
+  /// The camera failed to start (permission, no camera, busy): start it
+  /// again. The controller keeps the error until a start succeeds.
+  Future<void> _retryCamera() async {
+    try {
+      await _scannerController?.start();
+    } on Object catch (e) {
+      debugPrint('[QrScan] camera restart failed: $e');
+    }
+  }
+
+  /// The app's own page in the phone's settings, where the camera is
+  /// allowed. Not on web: the browser's site settings hold it.
+  Future<void> _openSettings() async {
+    try {
+      await Geolocator.openAppSettings();
+    } on Object catch (e) {
+      debugPrint('[QrScan] settings did not open: $e');
+    }
+  }
+
+  /// The app's page in the phone's settings, where a location permission
+  /// denied for good is allowed again (FUP-138). Not on web.
+  void _openLocationSettings() => widget.gpsService.openAppSettings().ignore();
+
+  /// "Type the code instead": the camera stops, the code field opens.
+  void _openTyping() {
+    _stopCamera();
+    setState(() {
+      _phase = _ScanPhase.typing;
+      _codeError = null;
+    });
+  }
+
+  void _stopCamera() {
+    final controller = _scannerController;
+    if (controller == null) return;
+    controller.stop().catchError((Object e) {
+      debugPrint('[QrScan] camera stop failed: $e');
+    });
+  }
+
+  /// The check digit catches a mistyped digit or two swapped ones here,
+  /// offline. Whether the code is the farmer's is for the server to say.
+  void _checkTypedCode() {
+    final l10n = AppLocalizations.of(context)!;
+    final code = HandoffCode.normalize(_codeController.text);
+    if (code.length != HandoffCode.length) {
+      setState(() => _codeError = l10n.qrTypeCodeIncomplete);
+      return;
+    }
+    if (!HandoffCode.isValid(code)) {
+      setState(() => _codeError = l10n.qrTypeCodeTypo);
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _phase = _ScanPhase.verified;
+      _typedCode = code;
+      _scannedNonce = null;
+      _codeError = null;
+    });
+    _captureGps();
+  }
+
+  /// A confirmed pickup of a trucker delivery: the trucker's own drop-off
+  /// code is made, kept on the phone and registered now (ESC-35), so on a
+  /// phone its registration goes in the queue behind the pickup. Never
+  /// fails the pickup: the drop-off QR makes one when it opens without.
+  Future<void> _keepHandoff() async {
+    final delivery = widget.delivery;
+    if (widget.verificationType != VerificationType.pickup ||
+        delivery.deliveryType == DeliveryConstants.selfPickupDeliveryType ||
+        delivery.truckerId.isEmpty) {
+      return;
+    }
+    try {
+      final issuer = DropoffQrIssuer(
+        qrService: widget.qrService,
+        repository: context.read<DeliveryBloc>().repository,
+        store: widget.handoffStore ?? SecureDropoffHandoffStore(),
+      );
+      await issuer.issue(delivery);
+    } on Object catch (e) {
+      debugPrint('[QrScan] drop-off code not made: ${e.runtimeType}');
+    }
+  }
+
+  /// The buyer at a trucker's drop-off (ESC-35): a wait for the trucker's
+  /// code to sync, and the lock of the trucker's code (which the trucker
+  /// renews), name the trucker; everything else reads as anywhere.
+  String _errorText(AppLocalizations l10n, DeliveryError error) {
+    final code = error.code;
+    final message = error.message;
+    final truckerDropoff =
+        widget.verificationType == VerificationType.delivery &&
+            widget.delivery.deliveryType !=
+                DeliveryConstants.selfPickupDeliveryType;
+    // The code alone also covers the farmer's QR, a payment check and a
+    // store without typed codes: the server's text says which.
+    if (truckerDropoff &&
+        code == DeliveryErrorCode.qrPending &&
+        message.startsWith(deliveryDropoffCodePendingText)) {
+      return l10n.deliveryErrorDropoffQrPending;
+    }
+    if (truckerDropoff &&
+        code == DeliveryErrorCode.codeLocked &&
+        message.startsWith(deliveryDropoffCodeLockedText)) {
+      return l10n.deliveryErrorDropoffCodeLocked;
+    }
+    return localizeDeliveryError(l10n, code);
+  }
+
+  /// A refusal of the code itself after Confirm: not this delivery's,
+  /// locked, or not on the server yet. Scanning (or typing) again is what
+  /// helps, so these open the failed page. Anything else (the place, the
+  /// network, the session) keeps the confirm page and says why there.
+  /// `DELIVERY_NONCE_PENDING` is a code only while it waits for the
+  /// farmer's or the trucker's QR; its payment check and its wait for the
+  /// pickup keep the confirm page, with the photo and the GPS fix.
+  bool _refusesTheCode(DeliveryError error) {
+    if (_phase != _ScanPhase.verified) return false;
+    if (error.code == DeliveryErrorCode.qrPending) {
+      final message = error.message;
+      return message.startsWith(deliveryPickupCodePendingText) ||
+          message.startsWith(deliveryDropoffCodePendingText);
+    }
+    return const {
+      DeliveryErrorCode.codeMismatch,
+      DeliveryErrorCode.codeLocked,
+      DeliveryErrorCode.codeLockedDropoff,
+    }.contains(error.code);
   }
 
   void _onBarcodeDetected(BarcodeCapture capture) {
@@ -94,6 +301,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
       setState(() {
         _phase = _ScanPhase.verified;
         _scannedNonce = result.nonce;
+        _typedCode = null;
       });
       _captureGps();
     } else {
@@ -105,9 +313,21 @@ class _QrScanScreenState extends State<QrScanScreen> {
   }
 
   Future<void> _captureGps() async {
+    final run = ++_gpsRun;
     setState(() => _isCapturingGps = true);
-    final result = await widget.gpsService.captureCurrentPosition();
-    if (mounted) {
+    GpsCaptureResult result;
+    try {
+      result = await widget.gpsService
+          .captureCurrentPosition()
+          .timeout(QrScanScreen.gpsWaitCap);
+    } on Object catch (e) {
+      // Confirm waits for this capture, so it must always end.
+      debugPrint('[QrScan] location capture failed: $e');
+      result = const GpsCaptureResult.unavailable(
+        GpsCaptureResult.noSignalReason,
+      );
+    }
+    if (mounted && run == _gpsRun) {
       setState(() {
         _gpsResult = result;
         _isCapturingGps = false;
@@ -125,15 +345,29 @@ class _QrScanScreenState extends State<QrScanScreen> {
       type: photoType,
     );
 
-    if (mounted && result.success) {
+    if (!mounted) return;
+    if (result.success) {
       setState(() {
-        _photoRef = result.localPath;
+        // FRD-12: the phone's file (the sync queue uploads it after the
+        // handoff), or on web the key of the photo that went up already.
+        _photoRef = result.photoRef;
+        _photoPreview = result.previewBytes;
       });
+    } else if (!result.cancelled) {
+      // The photo is optional: the handoff can still be confirmed.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppLocalizations.of(context)!.deliveryPhotoFailed),
+        ),
+      );
     }
   }
 
   Future<void> _confirm() async {
-    if (_isConfirming) return;
+    if (_isConfirming || _isCapturingGps) return;
+    // A typed code and a self-pickup need a fix: the server refuses them
+    // without one, so the button waits for it.
+    if (_needsFix && !_gpsReady) return;
     setState(() => _isConfirming = true);
 
     if (widget.verificationType == VerificationType.delivery) {
@@ -163,8 +397,11 @@ class _QrScanScreenState extends State<QrScanScreen> {
               deliveryId: widget.delivery.deliveryId,
               truckerId: widget.delivery.truckerId,
               gpsPickup: gps,
+              gpsCapture: _gpsResult,
               photoRef: _photoRef,
               scannedQrNonce: _scannedNonce,
+              scannedQrCode: _typedCode,
+              tripId: widget.delivery.tripId,
             ),
           );
     } else {
@@ -173,45 +410,81 @@ class _QrScanScreenState extends State<QrScanScreen> {
               deliveryId: widget.delivery.deliveryId,
               buyerId: widget.delivery.buyerId,
               gpsDropoff: gps,
+              gpsCapture: _gpsResult,
               photoRef: _photoRef,
               scannedQrNonce: _scannedNonce,
+              scannedQrCode: _typedCode,
+              tripId: widget.delivery.tripId,
             ),
           );
     }
   }
 
+  /// Back to the camera from the result or the typed code. The scanner is
+  /// mounted again and starts the camera itself (auto start); starting it
+  /// here too raced that start ("controller initializing").
   void _resetScanner() {
+    _gpsRun++;
     setState(() {
       _phase = _ScanPhase.scanning;
       _errorCode = null;
+      _serverRefusal = null;
       _gpsResult = null;
+      _isCapturingGps = false;
       _photoRef = null;
+      _photoPreview = null;
       _scannedNonce = null;
+      _typedCode = null;
+      _codeError = null;
     });
-    _scannerController?.start();
   }
+
+  bool get _isPickup => widget.verificationType == VerificationType.pickup;
+
+  String _title(AppLocalizations l10n) =>
+      _isPickup ? l10n.deliveryConfirmPickup : l10n.deliveryConfirmDelivery;
+
+  String _deliveryLabel(AppLocalizations l10n) =>
+      l10n.deliveryIdLabel(widget.delivery.deliveryId.substring(0, 8));
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final isPickup = widget.verificationType == VerificationType.pickup;
-    final title = isPickup
-        ? '${l10n.deliveryScanQr} (${l10n.deliveryConfirmPickup})'
-        : '${l10n.deliveryScanQr} (${l10n.deliveryConfirmDelivery})';
+    final scanning = _phase == _ScanPhase.scanning;
 
     return BlocListener<DeliveryBloc, DeliveryState>(
       listener: (context, state) {
         if (state is PickupConfirmed || state is DeliveryConfirmed) {
+          if (state is PickupConfirmed) _keepHandoff();
+          // Mobile queues the confirm: a typed code is only checked once
+          // it reaches the server (web waited for the answer already).
+          if (_typed && !kIsWeb) {
+            ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+              SnackBar(
+                content: Text(
+                  state is PickupConfirmed
+                      ? l10n.qrPickupSavedCheckOnline
+                      : l10n.qrDeliverySavedCheckOnline,
+                ),
+              ),
+            );
+          }
           Navigator.of(context).pop(true);
+        } else if (state is DeliveryError && _refusesTheCode(state)) {
+          // TruckerQrFailedM: the server did not take the code. The same
+          // failed page as a scan the phone refused, with the server's
+          // reason; Try again goes back to the scanner.
+          setState(() {
+            _isConfirming = false;
+            _serverRefusal = _errorText(AppLocalizations.of(context)!, state);
+            _phase = _ScanPhase.invalid;
+          });
         } else if (state is DeliveryError) {
           setState(() => _isConfirming = false);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                localizeDeliveryError(
-                  AppLocalizations.of(context)!,
-                  state.code,
-                ),
+                _errorText(AppLocalizations.of(context)!, state),
               ),
               backgroundColor: AppTheme.statusError,
             ),
@@ -219,138 +492,184 @@ class _QrScanScreenState extends State<QrScanScreen> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(title),
-          elevation: 0,
-          actions: [
-            if (_phase == _ScanPhase.scanning)
-              IconButton(
-                icon: const Icon(Icons.flash_on),
-                onPressed: () => _scannerController?.toggleTorch(),
-                tooltip: l10n.deliveryToggleFlash,
-              ),
-          ],
-        ),
+        // The camera sits on the soil dark page; the result pages are chalk.
+        backgroundColor: scanning ? AppTheme.ink : null,
         body: SafeArea(
+          // The camera page and the failed page end with their own actions.
+          bottom: scanning || _phase == _ScanPhase.invalid,
           child: switch (_phase) {
-            _ScanPhase.scanning => _buildScanningPhase(),
-            _ScanPhase.verified => _buildVerifiedPhase(),
-            _ScanPhase.invalid => _buildInvalidPhase(),
+            _ScanPhase.scanning => _buildScanningPhase(l10n),
+            _ScanPhase.typing => _buildTypingPhase(l10n),
+            _ScanPhase.verified => _buildVerifiedPhase(l10n),
+            _ScanPhase.invalid => _buildInvalidPhase(l10n),
           },
         ),
+        bottomNavigationBar: switch (_phase) {
+          _ScanPhase.scanning => null,
+          _ScanPhase.typing => FwBottomActions(
+              children: [
+                FilledButton(
+                  key: const Key('qr_code_check'),
+                  onPressed: _checkTypedCode,
+                  style: _primaryStyle,
+                  child: Text(l10n.qrTypeCodeCheck),
+                ),
+                TextButton.icon(
+                  key: const Key('qr_code_back_to_camera'),
+                  onPressed: _resetScanner,
+                  icon: const Icon(Icons.qr_code_scanner),
+                  label: Text(l10n.deliveryScanQr),
+                ),
+              ],
+            ),
+          _ScanPhase.verified => FwBottomActions(
+              children: [
+                FilledButton(
+                  key: const Key('qr_confirm'),
+                  onPressed: _isConfirming ||
+                          _isCapturingGps ||
+                          (_needsFix && !_gpsReady)
+                      ? null
+                      : _confirm,
+                  style: _primaryStyle,
+                  child: _isConfirming
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : Text(_title(l10n)),
+                ),
+              ],
+            ),
+          _ScanPhase.invalid => null,
+        },
       ),
     );
   }
 
-  Widget _buildScanningPhase() {
-    return Stack(
-      children: [
-        MobileScanner(
-          controller: _scannerController,
-          onDetect: _onBarcodeDetected,
-        ),
-        // Scan frame overlay
-        Center(
-          child: Container(
-            width: 250,
-            height: 250,
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.white, width: 2),
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-        ),
-        // Instruction text
-        Positioned(
-          bottom: 80,
-          left: 24,
-          right: 24,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.7),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              AppLocalizations.of(context)!.deliveryQrPointCamera,
-              style: const TextStyle(color: Colors.white, fontSize: 16),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  static final ButtonStyle _primaryStyle = FilledButton.styleFrom(
+    minimumSize: const Size.fromHeight(56),
+    textStyle: const TextStyle(
+      fontFamily: AppTheme.fontFamily,
+      fontFamilyFallback: AppTheme.ethiopicFontFallback,
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+    ),
+  );
 
-  Widget _buildVerifiedPhase() {
-    final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context)!;
-    final isPickup = widget.verificationType == VerificationType.pickup;
-    final photoType = isPickup ? PhotoType.pickup : PhotoType.dropoff;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+  /// The camera in a rounded panel under the dark header, the scan frame
+  /// over it and the instruction at its foot.
+  Widget _buildScanningPhase(AppLocalizations l10n) {
+    return FwContentWidth(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Green checkmark
-          const Icon(
-            Icons.check_circle,
-            color: AppTheme.statusSuccess,
-            size: 64,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            l10n.deliveryQrVerified,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: AppTheme.statusSuccess,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            l10n.deliveryIdLabel(
-              widget.delivery.deliveryId.substring(0, 8),
-            ),
-            style: theme.textTheme.bodyLarge,
-          ),
-          const SizedBox(height: 24),
-
-          // GPS section
-          _buildGpsSection(theme),
-          const SizedBox(height: 24),
-
-          // Photo section
-          PhotoEvidenceWidget(
-            photoRef: _photoRef,
-            photoType: photoType,
-            deliveryId: widget.delivery.deliveryId,
-            onCapture: _capturePhoto,
-          ),
-          const SizedBox(height: 32),
-
-          // Confirm button
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _isConfirming ? null : _confirm,
-              style: FilledButton.styleFrom(
-                backgroundColor: AppTheme.statusSuccess,
-                minimumSize: const Size.fromHeight(48),
+          _DarkHeader(
+            title: _title(l10n),
+            subtitle: l10n.deliveryScanQr,
+            trailing: Semantics(
+              button: true,
+              label: l10n.deliveryToggleFlash,
+              child: Material(
+                color: AppTheme.inkCard,
+                shape: const CircleBorder(),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => _scannerController?.toggleTorch(),
+                  child: const SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: Icon(Icons.flash_on, size: 20, color: Colors.white),
+                  ),
+                ),
               ),
-              child: _isConfirming
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: MobileScanner(
+                  controller: _scannerController,
+                  onDetect: _onBarcodeDetected,
+                  // T-1: a camera that cannot start says why and how to fix
+                  // it, with the typed code next to it.
+                  errorBuilder: (context, error) => QrCameraErrorView(
+                    permissionDenied: error.errorCode ==
+                        MobileScannerErrorCode.permissionDenied,
+                    onRetry: _retryCamera,
+                    onOpenSettings: kIsWeb ? null : _openSettings,
+                    onTypeCode: _openTyping,
+                  ),
+                  // Drawn only over a running preview.
+                  overlayBuilder: (context, constraints) => Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 250,
+                          height: 250,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.white, width: 2),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
                       ),
-                    )
-                  : Text(
-                      isPickup
-                          ? l10n.deliveryConfirmPickup
-                          : l10n.deliveryConfirmDelivery,
-                    ),
+                      Positioned(
+                        bottom: 20,
+                        left: 20,
+                        right: 20,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            l10n.deliveryQrPointCamera,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+            child: OutlinedButton.icon(
+              key: const Key('qr_type_code'),
+              onPressed: _openTyping,
+              icon: const Icon(Icons.dialpad, size: 18),
+              label: Text(l10n.qrTypeCodeInstead),
+              style: OutlinedButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: AppTheme.inkMuted),
+                minimumSize: const Size.fromHeight(52),
+                textStyle: const TextStyle(
+                  fontFamily: AppTheme.fontFamily,
+                  fontFamilyFallback: AppTheme.ethiopicFontFallback,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           ),
         ],
@@ -358,88 +677,250 @@ class _QrScanScreenState extends State<QrScanScreen> {
     );
   }
 
-  Widget _buildGpsSection(ThemeData theme) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.location_on, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                AppLocalizations.of(context)!.deliveryGpsCaptured,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (_isCapturingGps)
-            Row(
-              children: [
-                const SizedBox(
-                  height: 16,
-                  width: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                const SizedBox(width: 8),
-                Text(AppLocalizations.of(context)!.deliveryGpsCapturing),
-              ],
-            )
-          else if (_gpsResult != null && _gpsResult!.isAvailable)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${_gpsResult!.latitude!.toStringAsFixed(4)}, ${_gpsResult!.longitude!.toStringAsFixed(4)}',
-                  style: theme.textTheme.bodyMedium,
-                ),
-                Text(
-                  AppLocalizations.of(context)!.deliveryGpsAccuracy(
-                    _gpsResult!.accuracy!.toStringAsFixed(0),
-                  ),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                ),
-              ],
-            )
-          else
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppTheme.statusWarning.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.warning_amber,
-                    color: AppTheme.statusWarning,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      AppLocalizations.of(context)!.deliveryGpsUnavailable,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppTheme.onStatusWarningContainer,
+  /// Who shows the code, and at a delivery the warning to type it only
+  /// with the crops there.
+  String _typingHint(AppLocalizations l10n) {
+    if (_isPickup) return l10n.qrTypeCodePickupHint;
+    return widget.delivery.deliveryType ==
+            DeliveryConstants.selfPickupDeliveryType
+        ? l10n.qrTypeCodeSelfPickupHint
+        : l10n.qrTypeCodeDropoffHint;
+  }
+
+  /// T-1: the nine digits, typed. Digits only, so any keyboard works.
+  Widget _buildTypingPhase(AppLocalizations l10n) {
+    return SingleChildScrollView(
+      child: FwContentWidth(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            FwDetailHeader(
+              title: l10n.qrTypeCodeTitle,
+              subtitle: _deliveryLabel(l10n),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              child: FwCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      _typingHint(l10n),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        height: 1.45,
+                        color: AppTheme.ink,
                       ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      key: const Key('qr_code_field'),
+                      controller: _codeController,
+                      autofocus: true,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      inputFormatters: const [_HandoffCodeFormatter()],
+                      onSubmitted: (_) => _checkTypedCode(),
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 4,
+                        color: AppTheme.ink,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: l10n.qrTypeCodeLabel,
+                        errorText: _codeError,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The code passed: the GPS fix and the photo to add, Confirm at the foot.
+  Widget _buildVerifiedPhase(AppLocalizations l10n) {
+    final photoType = _isPickup ? PhotoType.pickup : PhotoType.dropoff;
+
+    return SingleChildScrollView(
+      child: FwContentWidth(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            FwDetailHeader(
+              title: _title(l10n),
+              subtitle: _deliveryLabel(l10n),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FwCard(
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: context.roleColors.tint,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(
+                            Icons.check_circle,
+                            size: 24,
+                            color: context.roleColors.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _typed
+                                ? l10n.deliveryCodeTypedCheckedOnline
+                                : l10n.deliveryQrReadCheckedOnline,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: context.roleColors.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // GPS section
+                  FwSectionLabel(
+                    l10n.deliveryGpsCaptured,
+                    padding: const EdgeInsets.only(bottom: 8),
+                  ),
+                  FwCard(child: _buildGpsContent(l10n)),
+                  const SizedBox(height: 16),
+
+                  // Photo section
+                  FwCard(
+                    child: PhotoEvidenceWidget(
+                      photoRef: _photoRef,
+                      previewBytes: _photoPreview,
+                      photoType: photoType,
+                      deliveryId: widget.delivery.deliveryId,
+                      onCapture: _capturePhoto,
                     ),
                   ),
                 ],
               ),
             ),
-        ],
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildGpsContent(AppLocalizations l10n) {
+    if (_isCapturingGps) {
+      return Row(
+        children: [
+          const SizedBox(
+            height: 16,
+            width: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            l10n.deliveryGpsCapturing,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.slate,
+            ),
+          ),
+        ],
+      );
+    }
+    final gps = _gpsResult;
+    if (gps != null && gps.isAvailable) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(
+              Icons.location_on,
+              size: 18,
+              color: context.roleColors.primary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${gps.latitude!.toStringAsFixed(4)}, ${gps.longitude!.toStringAsFixed(4)}',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.ink,
+                  ),
+                ),
+                Text(
+                  l10n.deliveryGpsAccuracy(gps.accuracy!.toStringAsFixed(0)),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.slate,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+    if (_isSelfPickup) {
+      return QrLocationNeededView(
+        cause: gps?.unavailableCause ?? GpsUnavailableCause.noSignal,
+        onRetry: _captureGps,
+        onOpenSettings: kIsWeb ? null : _openLocationSettings,
+      );
+    }
+    final unavailable = Row(
+      children: [
+        const Icon(
+          Icons.warning_amber,
+          size: 18,
+          color: AppTheme.orangeInk,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            _typed ? l10n.qrTypedCodeNeedsGps : l10n.deliveryGpsUnavailable,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.orangeInk,
+            ),
+          ),
+        ),
+      ],
+    );
+    if (!_typed) return unavailable;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        unavailable,
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          key: const Key('qr_retry_gps'),
+          onPressed: _captureGps,
+          icon: const Icon(Icons.my_location, size: 18),
+          label: Text(l10n.qrRetryLocation),
+        ),
+      ],
     );
   }
 
@@ -455,42 +936,461 @@ class _QrScanScreenState extends State<QrScanScreen> {
     };
   }
 
-  Widget _buildInvalidPhase() {
-    final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context)!;
+  /// The scan failed (TruckerQrFailedM): what went wrong, that nothing was
+  /// lost, Try again, the way back and the typed code.
+  Widget _buildInvalidPhase(AppLocalizations l10n) {
+    // The trucker scans at a pickup and goes back to the trip; a buyer
+    // confirming a delivery just goes back.
+    return QrScanFailedView(
+      pickup: _isPickup,
+      reason: _serverRefusal ?? _localizeQrError(l10n),
+      backLabel: _isPickup ? l10n.qrFailedBackToTrip : l10n.back,
+      onRetry: _resetScanner,
+      onBack: () => Navigator.of(context).maybePop(),
+      onTypeCode: _openTyping,
+    );
+  }
+}
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.cancel,
-              color: AppTheme.statusError,
-              size: 64,
+/// What the driver (or the buyer) sees when a QR scan fails (design canvas
+/// page M, TruckerQrFailedM): the round Back with the kind of scan beside
+/// it, the error tile, "The scan did not work", why (the failure the phone
+/// found: a QR of another delivery, one it cannot read, one that is not a
+/// handoff code; or the server's refusal of the code after Confirm) and
+/// that nothing was lost, then Try again (the one orange
+/// action), the way back, and the typed code for a QR that will not read.
+/// Nothing here needs the network.
+class QrScanFailedView extends StatelessWidget {
+  const QrScanFailedView({
+    required this.pickup,
+    required this.reason,
+    required this.backLabel,
+    required this.onRetry,
+    required this.onBack,
+    this.onTypeCode,
+    super.key,
+  });
+
+  /// A pickup scan (the trucker at the farm) or a delivery scan.
+  final bool pickup;
+
+  /// Why the scan failed, in the viewer's language.
+  final String reason;
+
+  /// "Back to trip" for the trucker, "Back" for a buyer.
+  final String backLabel;
+  final VoidCallback onRetry;
+  final VoidCallback onBack;
+
+  /// Opens the nine-digit code field (T-1); null hides the link.
+  final VoidCallback? onTypeCode;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final onTypeCode = this.onTypeCode;
+    return FwContentWidth(
+      key: const Key('qr_scan_failed'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
+            child: Row(
+              children: [
+                FwBackButton(onPressed: onBack),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    pickup
+                        ? l10n.qrFailedPickupScan
+                        : l10n.qrFailedDeliveryScan,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.slate,
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              l10n.deliveryQrFailed,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: AppTheme.statusError,
+          ),
+          Expanded(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
+                child: Semantics(
+                  liveRegion: true,
+                  container: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          color: AppTheme.statusErrorContainer,
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                        child: const Icon(
+                          Icons.qr_code_scanner,
+                          size: 38,
+                          color: AppTheme.statusError,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Semantics(
+                        header: true,
+                        child: Text(
+                          l10n.qrFailedTitle,
+                          style: const TextStyle(
+                            fontSize: 34,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -1.2,
+                            height: 1.05,
+                            color: AppTheme.ink,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        // A reason that ends without a full stop gets one
+                        // before the next sentence.
+                        '${_sentence(reason)} ${l10n.qrFailedNothingLost}',
+                        key: const Key('qr_scan_failed_reason'),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          height: 1.45,
+                          color: AppTheme.inkSoft,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              _localizeQrError(l10n),
-              style: theme.textTheme.bodyLarge,
-              textAlign: TextAlign.center,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FilledButton.icon(
+                  key: const Key('qr_failed_retry'),
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: Text(l10n.deliveryTryAgain),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  key: const Key('qr_failed_back'),
+                  onPressed: onBack,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                  child: Text(backLabel),
+                ),
+                if (onTypeCode != null)
+                  TextButton.icon(
+                    key: const Key('qr_failed_type_code'),
+                    onPressed: onTypeCode,
+                    icon: const Icon(Icons.dialpad, size: 18),
+                    label: Text(l10n.qrTypeCodeInstead),
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                  )
+                else
+                  const SizedBox(height: 12),
+                Text(
+                  l10n.qrFailedOfflineNote,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 13, color: AppTheme.slate),
+                ),
+              ],
             ),
-            const SizedBox(height: 32),
-            FilledButton.icon(
-              onPressed: _resetScanner,
-              icon: const Icon(Icons.refresh),
-              label: Text(l10n.deliveryTryAgain),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// [text] ending in a sentence mark (Latin or Ethiopic).
+  static String _sentence(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return trimmed;
+    const marks = ['.', '!', '?', '።'];
+    return marks.any(trimmed.endsWith) ? trimmed : '$trimmed.';
+  }
+}
+
+/// The Trip detail board's dark header, with the back square on the soil
+/// card colour, the title in white and a trailing square (the torch).
+class _DarkHeader extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final Widget trailing;
+
+  const _DarkHeader({
+    required this.title,
+    required this.subtitle,
+    required this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      child: Row(
+        children: [
+          const FwBackButton(dark: true),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.inkMuted,
+                  ),
+                ),
+                Semantics(
+                  header: true,
+                  child: Text(
+                    title,
+                    style:
+                        FwDetailHeader.titleStyle.copyWith(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          trailing,
+        ],
+      ),
+    );
+  }
+}
+
+/// Keeps only the code's digits as they are typed (ASCII, or Arabic-Indic
+/// and Persian digits mapped to them), at most nine.
+class _HandoffCodeFormatter extends TextInputFormatter {
+  const _HandoffCodeFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    var digits = HandoffCode.normalize(newValue.text);
+    if (digits.length > HandoffCode.length) {
+      digits = digits.substring(0, HandoffCode.length);
+    }
+    return TextEditingValue(
+      text: digits,
+      selection: TextSelection.collapsed(offset: digits.length),
+    );
+  }
+}
+
+/// A self-pickup without a usable fix (FUP-138): Confirm stays off, so this
+/// says that the pickup needs the buyer's location, why there is none and
+/// what to do, with Try location again. A permission denied for good gets
+/// Open settings on the phone; on web the text names the browser's site
+/// settings instead.
+class QrLocationNeededView extends StatelessWidget {
+  const QrLocationNeededView({
+    required this.cause,
+    required this.onRetry,
+    this.onOpenSettings,
+    super.key,
+  });
+
+  final GpsUnavailableCause cause;
+  final VoidCallback onRetry;
+
+  /// Opens the app's page in the phone's settings; null on web.
+  final VoidCallback? onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final reason = switch (cause) {
+      GpsUnavailableCause.locationOff => l10n.checkInNeedsLocation,
+      GpsUnavailableCause.permissionDenied => l10n.deliveryGpsPermissionDenied,
+      GpsUnavailableCause.deniedForever => onOpenSettings == null
+          ? l10n.checkInLocationBlockedWeb
+          : l10n.checkInLocationBlocked,
+      GpsUnavailableCause.noSignal => l10n.qrLocationNoSignal,
+    };
+    final showSettings =
+        cause == GpsUnavailableCause.deniedForever && onOpenSettings != null;
+
+    return Column(
+      key: const Key('qr_location_needed'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(
+              Icons.warning_amber,
+              size: 18,
+              color: AppTheme.orangeInk,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                l10n.qrSelfPickupNeedsGps,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.orangeInk,
+                ),
+              ),
             ),
           ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          reason,
+          key: const Key('qr_location_reason'),
+          style: const TextStyle(
+            fontSize: 13,
+            height: 1.45,
+            color: AppTheme.ink,
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (showSettings) ...[
+          FilledButton.icon(
+            key: const Key('qr_location_settings'),
+            onPressed: onOpenSettings,
+            icon: const Icon(Icons.settings, size: 18),
+            label: Text(l10n.checkInOpenSettings),
+          ),
+          const SizedBox(height: 8),
+        ],
+        OutlinedButton.icon(
+          key: const Key('qr_retry_gps'),
+          onPressed: onRetry,
+          icon: const Icon(Icons.my_location, size: 18),
+          label: Text(l10n.qrRetryLocation),
+        ),
+      ],
+    );
+  }
+}
+
+/// The camera could not start (T-1): why, how to allow it, Try again, and
+/// the typed code. On the scan panel's dark ground.
+class QrCameraErrorView extends StatelessWidget {
+  const QrCameraErrorView({
+    required this.permissionDenied,
+    required this.onRetry,
+    required this.onTypeCode,
+    this.onOpenSettings,
+    super.key,
+  });
+
+  /// The user (or the browser) refused the camera, rather than a camera
+  /// that is missing or busy.
+  final bool permissionDenied;
+  final VoidCallback onRetry;
+  final VoidCallback onTypeCode;
+
+  /// Opens the app's page in the phone's settings; null on web.
+  final VoidCallback? onOpenSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final title = permissionDenied
+        ? l10n.qrCameraDeniedTitle
+        : l10n.qrCameraUnavailableTitle;
+    final text = permissionDenied
+        ? (onOpenSettings == null
+            ? l10n.qrCameraDeniedTextWeb
+            : l10n.qrCameraDeniedText)
+        : l10n.qrCameraUnavailableText;
+    final buttonStyle = OutlinedButton.styleFrom(
+      backgroundColor: Colors.transparent,
+      foregroundColor: Colors.white,
+      side: const BorderSide(color: AppTheme.inkMuted),
+      minimumSize: const Size.fromHeight(48),
+    );
+
+    return ColoredBox(
+      key: const Key('qr_camera_error'),
+      color: AppTheme.inkCard,
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Icon(
+                permissionDenied ? Icons.no_photography : Icons.videocam_off,
+                size: 40,
+                color: Colors.white,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                text,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.45,
+                  color: AppTheme.inkMuted,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (permissionDenied && onOpenSettings != null) ...[
+                FilledButton.icon(
+                  key: const Key('qr_camera_settings'),
+                  onPressed: onOpenSettings,
+                  icon: const Icon(Icons.settings, size: 18),
+                  label: Text(l10n.qrCameraOpenSettings),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              OutlinedButton.icon(
+                key: const Key('qr_camera_retry'),
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: Text(l10n.deliveryTryAgain),
+                style: buttonStyle,
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                key: const Key('qr_camera_type_code'),
+                onPressed: onTypeCode,
+                icon: const Icon(Icons.dialpad, size: 18),
+                label: Text(l10n.qrTypeCodeInstead),
+                style: buttonStyle,
+              ),
+            ],
+          ),
         ),
       ),
     );

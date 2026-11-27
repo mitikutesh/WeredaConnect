@@ -83,6 +83,81 @@ void main() {
     expect(signalled, isEmpty);
   });
 
+  group('403 AUTH_025 (suspended account)', () {
+    late List<void> expired;
+    late StreamSubscription<void> expiredSub;
+
+    setUp(() {
+      expired = [];
+      expiredSub =
+          SessionSignals.instance.onAccountSuspended.listen(expired.add);
+    });
+
+    tearDown(() => expiredSub.cancel());
+
+    Map<String, dynamic> suspended() => {
+          'error': {'code': 'AUTH_025', 'message': 'Account suspended.'},
+        };
+
+    for (final path in ['/sync', '/escrow/initiate', '/device-tokens']) {
+      test('on $path ends the session, and the caller gets the error',
+          () async {
+        dioAdapter.onPost(
+          path,
+          (server) => server.reply(403, suspended()),
+          data: Matchers.any,
+        );
+
+        final error = await post(path);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          error,
+          isA<AuthException>()
+              .having((e) => e.code, 'code', accountSuspendedCode),
+        );
+        expect(expired, hasLength(1));
+      });
+    }
+
+    test('on a sign-in route is the screen\'s answer, not a sign-out',
+        () async {
+      dioAdapter.onPost(
+        '/auth/login',
+        (server) => server.reply(403, suspended()),
+        data: Matchers.any,
+      );
+
+      await post('/auth/login');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(expired, isEmpty);
+    });
+
+    test('another 403 ends nothing', () async {
+      dioAdapter.onPost(
+        '/sync',
+        (server) => server.reply(403, {
+          'error': {'code': 'RATING_FORBIDDEN', 'message': 'no'},
+        }),
+        data: Matchers.any,
+      );
+
+      await post('/sync');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(expired, isEmpty);
+    });
+
+    test('isAccountSuspended reads a decoded (mobile) and a String (web) body',
+        () {
+      expect(isAccountSuspended(403, suspended()), isTrue);
+      expect(isAccountSuspended(403, jsonEncode(suspended())), isTrue);
+      expect(isAccountSuspended(401, suspended()), isFalse);
+      expect(isAccountSuspended(403, 'not json'), isFalse);
+    });
+  });
+
   group('accountGoneState', () {
     test('reads the state from a decoded (mobile) and a String (web) body', () {
       expect(accountGoneState(410, _gone('completed')), 'completed');

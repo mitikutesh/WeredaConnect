@@ -22,6 +22,10 @@ public sealed record AccountDeletionTables
     public required string Intents { get; init; }
     public required string MatchEvents { get; init; }
     public required string DeviceTokens { get; init; }
+    public required string Notifications { get; init; }
+
+    /// <summary>ESC-28: the user's reputation events (appeal text and photo refs included) are deleted.</summary>
+    public required string ReputationEvents { get; init; }
 }
 
 /// <summary>
@@ -34,8 +38,9 @@ public sealed class AccountDeletionRepository : IAccountDeletionRepository
     /// <summary>Attempts of a conditional write that re-reads its row after a lost condition.</summary>
     private const int MaxConditionAttempts = 3;
 
+    // photoIds (crop-listing-api 1.6.0): without them no photo URL is ever signed for the listing again.
     private static readonly string[] CropScrubFields =
-        { "farmerPhone", "latitude", "longitude", "locationName", "description", "audioNoteRef" };
+        { "farmerPhone", "latitude", "longitude", "locationName", "description", "audioNoteRef", "photoIds" };
 
     private static readonly string[] TripScrubFields = { "truckerPhone", "vehiclePlate", "vehicleDescription" };
 
@@ -686,12 +691,12 @@ public sealed class AccountDeletionRepository : IAccountDeletionRepository
 
     public async Task<List<string>> QueryIntentIdsAsync(string buyerId)
         => (await QueryAllAsync(new QueryRequest
-            {
-                TableName = _tables.Intents,
-                KeyConditionExpression = "buyerId = :id",
-                ProjectionExpression = "intentId",
-                ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", S(buyerId) } }
-            }))
+        {
+            TableName = _tables.Intents,
+            KeyConditionExpression = "buyerId = :id",
+            ProjectionExpression = "intentId",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", S(buyerId) } }
+        }))
             .Select(i => i.TryGetValue("intentId", out var id) ? id.S : null)
             .Where(id => !string.IsNullOrEmpty(id))
             .Select(id => id!)
@@ -699,12 +704,12 @@ public sealed class AccountDeletionRepository : IAccountDeletionRepository
 
     public async Task<List<string>> QueryMatchEventIdsAsync(string intentId)
         => (await QueryAllAsync(new QueryRequest
-            {
-                TableName = _tables.MatchEvents,
-                KeyConditionExpression = "intentId = :id",
-                ProjectionExpression = "eventId",
-                ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", S(intentId) } }
-            }))
+        {
+            TableName = _tables.MatchEvents,
+            KeyConditionExpression = "intentId = :id",
+            ProjectionExpression = "eventId",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", S(intentId) } }
+        }))
             .Select(i => i.TryGetValue("eventId", out var id) ? id.S : null)
             .Where(id => !string.IsNullOrEmpty(id))
             .Select(id => id!)
@@ -735,6 +740,130 @@ public sealed class AccountDeletionRepository : IAccountDeletionRepository
     public Task<List<string>> QueryDeviceEndpointsAsync(string userId) => _deviceTokens.GetEndpointArnsByUserAsync(userId);
 
     public Task DeleteDeviceTokenAsync(string userId, string endpointArn) => _deviceTokens.DeleteAsync(userId, endpointArn);
+
+    // ── step 10: the ESC-21 notifications inbox (FUP-120) ──
+
+    public async Task<List<string>> QueryNotificationKeysAsync(string userId)
+        => (await QueryAllAsync(new QueryRequest
+        {
+            TableName = _tables.Notifications,
+            KeyConditionExpression = "userId = :id",
+            ProjectionExpression = "sortKey",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", S(userId) } }
+        }))
+            .Select(i => i.TryGetValue("sortKey", out var key) ? key.S : null)
+            .Where(key => !string.IsNullOrEmpty(key))
+            .Select(key => key!)
+            .ToList();
+
+    public Task DeleteNotificationAsync(string userId, string sortKey)
+        => _dynamoDb.DeleteItemAsync(new DeleteItemRequest
+        {
+            TableName = _tables.Notifications,
+            Key = NotificationKey(userId, sortKey)
+        });
+
+    public async Task<List<string>> QueryReputationEventIdsAsync(string userId)
+        => (await QueryAllAsync(new QueryRequest
+        {
+            TableName = _tables.ReputationEvents,
+            KeyConditionExpression = "userId = :id",
+            ProjectionExpression = "eventId",
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", S(userId) } }
+        }))
+            .Select(i => i.TryGetValue("eventId", out var key) ? key.S : null)
+            .Where(key => !string.IsNullOrEmpty(key))
+            .Select(key => key!)
+            .ToList();
+
+    public Task DeleteReputationEventAsync(string userId, string eventId)
+        => _dynamoDb.DeleteItemAsync(new DeleteItemRequest
+        {
+            TableName = _tables.ReputationEvents,
+            Key = new Dictionary<string, AttributeValue> { { "userId", S(userId) }, { "eventId", S(eventId) } }
+        });
+
+    public async Task<List<InboxEntry>> QueryNotificationsAsync(string recipientId)
+    {
+        var items = await QueryAllAsync(new QueryRequest
+        {
+            TableName = _tables.Notifications,
+            KeyConditionExpression = "userId = :id",
+            // What the match and the write need; the rest of the row (type, times) is never read.
+            ProjectionExpression = "sortKey, #o, #e, #eid, #p",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#o", "orderId" },
+                { "#e", "entity" },
+                { "#eid", "entityId" },
+                { "#p", "params" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue> { { ":id", S(recipientId) } }
+        });
+
+        var entries = new List<InboxEntry>();
+        foreach (var item in items)
+        {
+            var sortKey = Str(item, "sortKey");
+            if (sortKey.Length == 0)
+            {
+                continue;
+            }
+
+            var parameters = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (item.TryGetValue("params", out var map) && map.M != null)
+            {
+                foreach (var kv in map.M.Where(kv => kv.Value.S != null))
+                {
+                    parameters[kv.Key] = kv.Value.S;
+                }
+            }
+
+            entries.Add(new InboxEntry(sortKey, Str(item, "orderId"), Str(item, "entity"), Str(item, "entityId"), parameters));
+        }
+
+        return entries;
+    }
+
+    public async Task<bool> AnonymizeNotificationAsync(
+        string recipientId, string sortKey, IReadOnlyCollection<string> nameParams)
+    {
+        var names = new Dictionary<string, string> { { "#p", "params" } };
+        var sets = new List<string>();
+        foreach (var param in nameParams.Distinct(StringComparer.Ordinal))
+        {
+            var placeholder = $"#n{sets.Count}";
+            names[placeholder] = param;
+            sets.Add($"#p.{placeholder} = :sentinel");
+        }
+
+        if (sets.Count == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tables.Notifications,
+                Key = NotificationKey(recipientId, sortKey),
+                UpdateExpression = "SET " + string.Join(", ", sets),
+                // Only an existing row: an update would otherwise create a bare one after the TTL removed it.
+                ConditionExpression = "attribute_exists(sortKey)",
+                ExpressionAttributeNames = names,
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":sentinel", S(AccountDeletionPolicy.Sentinel) }
+                }
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
 
     // ── helpers ──
 
@@ -802,6 +931,12 @@ public sealed class AccountDeletionRepository : IAccountDeletionRepository
 
     private static Dictionary<string, AttributeValue> UserKey(string userId)
         => new() { { "userId", S(userId) } };
+
+    private static Dictionary<string, AttributeValue> NotificationKey(string userId, string sortKey)
+        => new() { { "userId", S(userId) }, { "sortKey", S(sortKey) } };
+
+    private static string Str(Dictionary<string, AttributeValue> item, string key)
+        => item.TryGetValue(key, out var value) && value.S != null ? value.S : "";
 
     private static AttributeValue S(string value) => new() { S = value };
 

@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:wereda_connect/core/models/place.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/l10n/fallback_material_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
 
@@ -19,11 +21,19 @@ Widget _harness({
   required PlaceRepository repo,
   ValueChanged<Place?>? onSelected,
   ValueChanged<String>? onChanged,
+  Locale locale = const Locale('en'),
+  bool pickerLook = false,
 }) {
   return MaterialApp(
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    // The app's delegates: Afan Oromo has no built-in Material strings.
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      FallbackMaterialLocalizationsDelegate(),
+      GlobalWidgetsLocalizations.delegate,
+      FallbackCupertinoLocalizationsDelegate(),
+    ],
     supportedLocales: AppLocalizations.supportedLocales,
-    locale: const Locale('en'),
+    locale: locale,
     home: Scaffold(
       body: PlaceSelector(
         controller: controller,
@@ -32,12 +42,14 @@ Widget _harness({
         debounce: const Duration(milliseconds: 10),
         onPlaceSelected: onSelected,
         onChanged: onChanged,
+        pickerLook: pickerLook,
       ),
     ),
   );
 }
 
 Future<void> _type(WidgetTester tester, String text) async {
+  await tester.pumpAndSettle(); // the fallback delegates load asynchronously
   await tester.enterText(find.byType(TextField), text);
   await tester.pump(const Duration(milliseconds: 30)); // let debounce fire
   await tester.pump(); // build the options overlay
@@ -78,6 +90,29 @@ void main() {
     expect(controller.text, 'Adama'); // canonical en, not the id
     expect(selected?.id, 'gn-adama');
     expect(find.text('አዳማ'), findsNothing); // overlay dismissed
+  });
+
+  // Register personal board: "Meki · Oromia" with a chevron, no glass.
+  testWidgets('the picker look shows the region and a chevron', (tester) async {
+    final controller = TextEditingController();
+    Place? selected;
+    await tester.pumpWidget(
+      _harness(
+        controller: controller,
+        repo: _loadRepo(),
+        onSelected: (p) => selected = p,
+        pickerLook: true,
+      ),
+    );
+
+    await _type(tester, 'Adam');
+    await tester.tap(find.text('አዳማ'));
+    await tester.pumpAndSettle();
+
+    expect(controller.text, 'Adama · ${selected!.region}');
+    expect(selected?.en, 'Adama');
+    expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
+    expect(find.byIcon(Icons.search), findsNothing);
   });
 
   testWidgets('reports raw text via onChanged while typing', (tester) async {
@@ -168,5 +203,153 @@ void main() {
 
     // en shown; no crash despite empty am/om.
     expect(find.text('Mertule Maryam'), findsOneWidget);
+  });
+
+  testWidgets('shows the display name without marks; a pick stores en',
+      (tester) async {
+    final controller = TextEditingController();
+    Place? selected;
+    await tester.pumpWidget(
+      _harness(
+        controller: controller,
+        repo: _loadRepo(),
+        onSelected: (p) => selected = p,
+      ),
+    );
+
+    await _type(tester, 'meki');
+
+    expect(find.text('Meki'), findsOneWidget); // tile title
+    expect(find.text('Mek’ī'), findsNothing);
+    expect(find.text('መቂ'), findsOneWidget); // other names beneath
+
+    await tester.tap(find.text('Meki'));
+    await tester.pumpAndSettle();
+
+    expect(selected?.id, 'gn-meki');
+    expect(controller.text, 'Mek’ī'); // canonical en for legacy fields
+  });
+
+  testWidgets('a renamed place shows its current name and the old one',
+      (tester) async {
+    await tester.pumpWidget(
+      _harness(controller: TextEditingController(), repo: _loadRepo()),
+    );
+
+    await _type(tester, 'Ziway');
+
+    expect(find.text('Batu'), findsOneWidget);
+    expect(find.text('ባቱ  ·  Baatuu  ·  Ziway'), findsOneWidget);
+  });
+
+  testWidgets('shows the Amharic name first in am', (tester) async {
+    await tester.pumpWidget(
+      _harness(
+        controller: TextEditingController(),
+        repo: _loadRepo(),
+        locale: const Locale('am'),
+      ),
+    );
+
+    await _type(tester, 'Batu');
+
+    expect(find.text('ባቱ'), findsOneWidget);
+    expect(find.text('Batu  ·  Baatuu  ·  Ziway'), findsOneWidget);
+  });
+
+  testWidgets('shows the Oromo name first in om, else the English one',
+      (tester) async {
+    await tester.pumpWidget(
+      _harness(
+        controller: TextEditingController(),
+        repo: _loadRepo(),
+        locale: const Locale('om'),
+      ),
+    );
+
+    await _type(tester, 'Batu');
+    expect(find.text('Baatuu'), findsOneWidget);
+    expect(find.text('Batu  ·  ባቱ  ·  Ziway'), findsOneWidget);
+
+    await _type(tester, 'Meki');
+    expect(find.text('Meki'), findsWidgets); // field text + tile title
+    expect(find.text('መቂ'), findsOneWidget);
+  });
+
+  // BUG-38: the suggestions open under the field, where the on-screen
+  // keyboard is. With the keyboard up the focused field moves to the top of
+  // its scroll view; without one (desktop web) nothing moves.
+  group('room for the suggestions above the keyboard', () {
+    late ScrollController scroll;
+
+    Widget form(TextEditingController controller) => MaterialApp(
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            FallbackMaterialLocalizationsDelegate(),
+            GlobalWidgetsLocalizations.delegate,
+            FallbackCupertinoLocalizationsDelegate(),
+          ],
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('en'),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              controller: scroll,
+              child: Column(
+                children: [
+                  const SizedBox(height: 300),
+                  PlaceSelector(
+                    controller: controller,
+                    repository: _loadRepo(),
+                    debounce: const Duration(milliseconds: 10),
+                  ),
+                  const SizedBox(height: 1200),
+                ],
+              ),
+            ),
+          ),
+        );
+
+    setUp(() => scroll = ScrollController());
+    tearDown(() => scroll.dispose());
+
+    testWidgets('the keyboard coming up lifts the focused field',
+        (tester) async {
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(form(TextEditingController()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(TextField));
+      await tester.pumpAndSettle();
+      expect(scroll.offset, 0);
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 900);
+      await tester.pumpAndSettle();
+
+      expect(scroll.offset, greaterThan(100));
+      // The field sits near the top, the list has the room under it.
+      expect(tester.getTopLeft(find.byType(TextField)).dy, lessThan(120));
+    });
+
+    testWidgets('no keyboard, no scroll', (tester) async {
+      await tester.pumpWidget(form(TextEditingController()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(TextField));
+      await tester.pumpAndSettle();
+
+      expect(scroll.offset, 0);
+    });
+
+    testWidgets('a field without the focus is left where it is',
+        (tester) async {
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(form(TextEditingController()));
+      await tester.pumpAndSettle();
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 900);
+      await tester.pumpAndSettle();
+
+      expect(scroll.offset, 0);
+    });
   });
 }

@@ -6,8 +6,11 @@ import 'package:isar/isar.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/core/utils/phone_utils.dart';
+import 'package:wereda_connect/features/trip_listing/data/trip_destination.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 
 /// Validation error thrown when trip data fails client-side checks.
@@ -33,11 +36,16 @@ class TripListingRepository extends BaseTripListingRepository {
   final SyncQueue _syncQueue;
   static const _uuid = Uuid();
 
+  /// The clock for the open-trips cutoff (L-7); the device clock by default.
+  final DateTime Function() _clock;
+
   TripListingRepository({
     required Isar isar,
     required SyncQueue syncQueue,
+    DateTime Function()? clock,
   })  : _isar = isar,
-        _syncQueue = syncQueue;
+        _syncQueue = syncQueue,
+        _clock = clock ?? DateTime.now;
 
   /// Validate trip data before saving to Isar / enqueueing sync.
   ///
@@ -199,6 +207,7 @@ class TripListingRepository extends BaseTripListingRepository {
       'status': trip.status.name,
       'matchedListings': <String>[],
       'version': 1,
+      ...tripDestinationFields(toPlaceId),
     };
     if (vehiclePlate != null && vehiclePlate.isNotEmpty) {
       syncData['vehiclePlate'] = vehiclePlate;
@@ -241,12 +250,23 @@ class TripListingRepository extends BaseTripListingRepository {
   }
 
   /// Get all open trips, optionally filtered by origin and/or destination woreda.
+  ///
+  /// L-7: only trips departing today or later in Ethiopia, as the server
+  /// lists them, so a cache from before a sync never offers a truck that
+  /// already left. A trucker's own trips ([getTripsByTrucker]) and a trip read
+  /// by id keep every departure.
   @override
   Future<List<Trip>> getOpenTrips({
     String? fromWoreda,
     String? toWoreda,
   }) async {
-    var query = _isar.trips.filter().statusEqualTo(TripStatus.open);
+    var query = _isar.trips
+        .filter()
+        .statusEqualTo(TripStatus.open)
+        .departureDateGreaterThan(
+          tripListingCutoff(_clock()),
+          include: true,
+        );
 
     if (fromWoreda != null) {
       query = query.fromWoredaEqualTo(fromWoreda);
@@ -261,17 +281,18 @@ class TripListingRepository extends BaseTripListingRepository {
 
   /// Shared trip status-transition logic.
   ///
-  /// Looks up the trip, validates ownership and current status,
-  /// applies the new status, bumps version, and enqueues a sync op.
+  /// Looks up the trip, validates ownership and that [isValidFrom] accepts
+  /// the trip as it is, applies the new status, bumps version, and enqueues
+  /// an `update` sync op (every status change, the cancel included, is an
+  /// update since ESC-17).
   ///
   /// Throws [TripValidationException] on any validation failure.
   Future<Trip> _transitionTrip({
     required String tripId,
     required String truckerId,
-    required bool Function(TripStatus) isValidStatus,
+    required bool Function(Trip trip) isValidFrom,
     required String statusErrorMessage,
     required TripStatus newStatus,
-    required String syncAction,
   }) async {
     final trip = await _isar.trips.filter().tripIdEqualTo(tripId).findFirst();
 
@@ -286,7 +307,7 @@ class TripListingRepository extends BaseTripListingRepository {
       );
     }
 
-    if (!isValidStatus(trip.status)) {
+    if (!isValidFrom(trip)) {
       throw TripValidationException('status', statusErrorMessage);
     }
 
@@ -314,7 +335,7 @@ class TripListingRepository extends BaseTripListingRepository {
       userId: truckerId,
       entityType: 'trip',
       entityId: tripId,
-      action: syncAction,
+      action: 'update',
       data: jsonEncode({
         'status': newStatus.name,
         'version': baseVersion,
@@ -325,10 +346,16 @@ class TripListingRepository extends BaseTripListingRepository {
     return trip;
   }
 
-  /// Cancel a trip (soft delete).
+  /// Cancel a trip.
   ///
-  /// Validates ownership, that the trip exists and is in a cancellable state
-  /// (not already delivered or cancelled). Sets status=cancelled.
+  /// Validates ownership, that the trip exists and is in a cancellable state:
+  /// `open` or `matched`, the server's transitions (a trip in transit has
+  /// crops on the road and is refused there). Sets status=cancelled.
+  ///
+  /// ESC-17 (trip-listing-api.md 2.4.0): queued as an `update` to
+  /// `cancelled`, the same operation web sends, so the server checks it
+  /// against the trip's status transitions. Builds before it queued a
+  /// `delete`, which the server still takes.
   ///
   /// Throws [TripValidationException] if the trip cannot be cancelled.
   @override
@@ -339,15 +366,17 @@ class TripListingRepository extends BaseTripListingRepository {
     await _transitionTrip(
       tripId: tripId,
       truckerId: truckerId,
-      isValidStatus: (s) =>
-          s != TripStatus.delivered && s != TripStatus.cancelled,
+      isValidFrom: (t) =>
+          t.status == TripStatus.open || t.status == TripStatus.matched,
       statusErrorMessage: 'Trip cannot be cancelled in its current state.',
       newStatus: TripStatus.cancelled,
-      syncAction: 'delete',
     );
   }
 
-  /// Start a trip (transition from matched -> inTransit).
+  /// Start a trip: `matched -> inTransit`, or `open -> inTransit` when the
+  /// trip has bookings (ESC-15, trip-listing-api.md 2.0.0: `matched` means
+  /// full, so a partly booked truck may leave). The trip detail screen offers
+  /// Start for the same two cases.
   ///
   /// Throws [TripValidationException] if the trip cannot be started.
   @override
@@ -358,10 +387,12 @@ class TripListingRepository extends BaseTripListingRepository {
     return _transitionTrip(
       tripId: tripId,
       truckerId: truckerId,
-      isValidStatus: (s) => s == TripStatus.matched,
-      statusErrorMessage: 'Only matched trips can be started.',
+      isValidFrom: (t) =>
+          t.status == TripStatus.matched ||
+          (t.status == TripStatus.open && tripHasBookings(t)),
+      statusErrorMessage:
+          'Only a full trip, or an open one with bookings, can be started.',
       newStatus: TripStatus.inTransit,
-      syncAction: 'update',
     );
   }
 
@@ -376,10 +407,9 @@ class TripListingRepository extends BaseTripListingRepository {
     return _transitionTrip(
       tripId: tripId,
       truckerId: truckerId,
-      isValidStatus: (s) => s == TripStatus.inTransit,
+      isValidFrom: (t) => t.status == TripStatus.inTransit,
       statusErrorMessage: 'Only in-transit trips can be marked as delivered.',
       newStatus: TripStatus.delivered,
-      syncAction: 'update',
     );
   }
 

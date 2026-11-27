@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Place order</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&amp;family=Noto+Sans+Ethiopic:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#18775F}a:hover{color:#105443}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #FFFFFF; color: #1A1516; font-family: 'Bricolage Grotesque', 'Noto Sans Ethiopic', system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden">
+
+  <header style="position: relative; padding: 24px 20px 0; display: flex; align-items: center; gap: 12px">
+    <a href="CropDetailM.dc.html" aria-label="Back" style="width: 44px; height: 44px; border-radius: 999px; background: #F5F3F1; color: #1A1516; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></a>
+    <h1 style="margin: 0; font-size: 32px; line-height: 1.05; font-weight: 800; letter-spacing: -0.035em">Place Order</h1>
+    <svg data-sketch="buyer" width="64" height="43" sc-camel-view-box="20 20 112 76" fill="none" stroke="#C9BEB5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="position: absolute; pointer-events: none; right: 20px; top: 22px"><path d="M58 92 L 96 92" stroke-width="2.4"></path><path d="M77 92 L 77 30" stroke-width="2.4"></path><circle cx="77" cy="26" r="3.5" stroke-width="2.4"></circle><path d="M40 38 L 114 34" stroke-width="2.4"></path><path d="M40 38 L 30 62" stroke-width="2.0"></path><path d="M40 38 L 50 62" stroke-width="2.0"></path><path d="M26 62 L 54 62 C 52 73, 28 73, 26 62 Z" stroke-width="2.4"></path><path d="M114 34 L 104 56" stroke-width="2.0"></path><path d="M114 34 L 124 56" stroke-width="2.0"></path><path d="M100 56 L 128 56 C 126 67, 102 67, 100 56 Z" stroke-width="2.4"></path><path d="M31 62 C 35 53, 45 53, 49 62" stroke-width="2.1"></path><circle cx="110" cy="51" r="4" stroke-width="2.1"></circle><circle cx="119" cy="51" r="4" stroke-width="2.1"></circle></svg>
+  </header>
+
+  <div style="padding: 20px 20px 0; display: flex; flex-direction: column; gap: 18px">
+    <section aria-label="Listing Summary" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 24px; background: #E4D5C7">
+      <span style="width: 46px; height: 46px; border-radius: 14px; background: #FBE6D6; color: #8A4510; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0"><path d="M12 21V3"></path><path d="M12 9c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 9c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path><path d="M12 15c-2.6 0-4-1.4-4-4 2.6 0 4 1.4 4 4z"></path><path d="M12 15c2.6 0 4-1.4 4-4-2.6 0-4 1.4-4 4z"></path></svg></span>
+      <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px"><div style="font-size: 17px; font-weight: 800; letter-spacing: -0.02em">Wheat · 42 ETB/kg</div><div style="font-size: 14px; color: #4A4340">Almaz Bekele · Meki</div></div>
+    </section>
+
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 700; color: #4A4340">Quantity (kg)
+      <span style="height: 56px; padding: 0 8px 0 16px; box-sizing: border-box; border-radius: 16px; border: 2px solid #1A1516; background: #F5F3F1; display: flex; align-items: center; gap: 8px">
+        <input type="text" inputmode="numeric" value="1,500" aria-label="Quantity in kg" style="flex-grow: 1; min-width: 0; border: none; background: transparent; font: 800 22px 'Bricolage Grotesque', sans-serif; color: #1A1516; outline: none">
+        <button type="button" aria-label="Less" style="width: 44px; height: 44px; flex-shrink: 0; padding: 0; border-radius: 999px; border: none; background: #E4D5C7; color: #1A1516; font: 700 20px 'Bricolage Grotesque', sans-serif">−</button>
+        <button type="button" aria-label="More" style="width: 44px; height: 44px; flex-shrink: 0; padding: 0; border-radius: 999px; border: none; background: #E4D5C7; color: #1A1516; font: 700 20px 'Bricolage Grotesque', sans-serif">+</button>
+      </span>
+      <span style="font-size: 13px; line-height: 1.4; font-weight: 500; color: #18775F">1,500 kg <span style="color: #5C5450">(15 quintals)</span> · fits this trip, 1,800 kg left <span style="color: #5C5450">(18 quintals)</span></span>
+    </label>
+
+    <section aria-label="Transport" style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 24px; border: 1px solid #8E857E">
+      <span style="width: 40px; height: 40px; border-radius: 14px; background: #1A1516; color: #F0873A; display: flex; align-items: center; justify-content: center; flex-shrink: 0"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11v9H3z"></path><path d="M14 10h4l3 3v3h-7"></path><circle cx="7" cy="17.5" r="1.8"></circle><circle cx="17" cy="17.5" r="1.8"></circle></svg></span>
+      <span style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 15px; font-weight: 800; letter-spacing: -0.01em">Dawit Tesfaye · Thu 30 Oct</span><span style="font-size: 14px; color: #5C5450">Meki → Addis Ababa · 1.50 ETB per kg (150 per quintal)</span></span>
+      <a href="CropDetailM.dc.html" style="height: 44px; display: flex; align-items: center; font-size: 13px; font-weight: 800; color: #18775F; flex-shrink: 0">Change</a>
+    </section>
+
+    <section aria-label="Price Breakdown" style="padding: 18px; border-radius: 28px; background: #F5F3F1; box-shadow: 0 14px 30px rgba(26,21,22,0.14); display: flex; flex-direction: column; gap: 9px; border: 1px solid #DDD5CE">
+      <h2 style="margin: 0 0 3px; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #5C5450"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"></path><path d="M9 8h6"></path><path d="M9 12h6"></path></svg>Price Breakdown</h2>
+      <div style="display: flex; justify-content: space-between; font-size: 14px"><span style="color: #4A4340">Crop Cost</span><span style="font-weight: 700">63,000 ETB</span></div>
+      <div style="display: flex; justify-content: space-between; font-size: 14px"><span style="color: #4A4340">Transport Cost</span><span style="font-weight: 700">2,250 ETB</span></div>
+      <div style="display: flex; justify-content: space-between; font-size: 14px"><span style="color: #4A4340">Platform Commission (5%)</span><span style="font-weight: 700">3,150 ETB</span></div>
+      <div style="display: flex; justify-content: space-between; align-items: baseline; padding-top: 11px; border-top: 1px solid #C9BDB5"><span style="font-size: 15px; font-weight: 800">Total</span><span style="font-size: 24px; font-weight: 800; letter-spacing: -0.03em; color: #18775F">68,400 ETB</span></div>
+    </section>
+
+    <div style="display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.5; color: #4A4340"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="#18775F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 1px"><path d="M6 11h12v9H6z"></path><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg><span>Your money is held safely. The farmer is asked first, then the trucker.</span></div>
+  </div>
+
+  <div style="margin-top: auto; padding: 0 20px 28px">
+    <a href="PaymentM.dc.html" style="height: 54px; border-radius: 999px; background: #F0873A; color: #1A1516; text-decoration: none; font-size: 16px; font-weight: 800; display: flex; align-items: center; justify-content: center">Place Order</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844}}">
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+
+
+</body></html>

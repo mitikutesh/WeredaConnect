@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/trip_listing/domain/repositories/base_trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
@@ -17,11 +18,11 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
 
   /// Mobile-only: pulls all open trips into Isar before the Buyer browses the
   /// marketplace ([LoadOpenTrips]). Null on web (API-backed reads). A
-  /// Trucker's own-scoped events never trigger a pull.
+  /// Trucker's own-scoped events never pull the market: they pull only the
+  /// trucker's own trips (FUP-374, [MarketplaceSync.pullOwnTrips]).
   final MarketplaceSync? _marketplaceSync;
 
-  /// Exposed for screens that need to query trips directly
-  /// (e.g., CreateDeliveryScreen loading trucker's open trips).
+  /// Exposed for screens that need to query trips directly.
   BaseTripListingRepository get repository => _repository;
 
   TripListingBloc({
@@ -46,10 +47,26 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
     emit(const TripListingLoading());
 
     try {
+      await _refreshOwnTrips(event.truckerId);
       final trips = await _repository.getTripsByTrucker(event.truckerId);
       emit(TripsLoaded(trips: trips));
     } on Object catch (e) {
       emit(TripListingError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  /// FUP-374: bring the status the server set on the trucker's own trips
+  /// (matched, delivered, a trip a no-show re-open opened again) into local
+  /// storage before the trucker's list reads it. Best effort like
+  /// [_refreshMarketplace]; no-op on web (null sync).
+  Future<void> _refreshOwnTrips(String truckerId) async {
+    final sync = _marketplaceSync;
+    if (sync == null) return;
+    try {
+      await sync.pullOwnTrips(truckerId: truckerId);
+    } on Object catch (e) {
+      debugPrint('[TripListingBloc] own trip pull failed, '
+          'showing cached trips: $e');
     }
   }
 
@@ -116,7 +133,17 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
       );
       emit(TripCreated(trip: trip));
     } on Object catch (e) {
-      emit(TripListingError(message: e.toString(), code: mapErrorToCode(e)));
+      // Web sends the create at once: a duplicate of a trip the trucker
+      // already has comes back here (trip-listing-api 2.10.0). On mobile the
+      // queue reports it later (SyncOperationRejected).
+      final duplicate =
+          e is SyncRejectedException && isDuplicateListingMessage(e.message);
+      emit(
+        TripListingError(
+          message: e.toString(),
+          code: duplicate ? AppErrorCode.duplicateTrip : mapErrorToCode(e),
+        ),
+      );
     }
   }
 
@@ -196,6 +223,7 @@ class TripListingBloc extends Bloc<TripListingEvent, TripListingState> {
       // MUST NOT see other truckers' trips. Apply the route filter in
       // memory rather than calling getOpenTrips (which is unscoped and
       // returns every trucker's open trips).
+      await _refreshOwnTrips(event.truckerId);
       var trips = await _repository.getTripsByTrucker(event.truckerId);
       if (event.fromWoreda != null) {
         trips = trips.where((t) => t.fromWoreda == event.fromWoreda).toList();

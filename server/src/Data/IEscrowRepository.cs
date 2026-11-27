@@ -34,6 +34,9 @@ public interface IEscrowRepository
     /// refund is scheduled (<c>refundReason</c>, FUP-32).
     /// ESC-04: a move to <c>completed</c> requires no open manual payout and no pending trucker leg
     /// (<c>truckerPayoutPending</c>): an escrow is completed only once every leg is paid.
+    /// SIM-29: every call adds 1 to <c>version</c>, a move to the same status too (the delivery link,
+    /// the confirmation stamp, a scheduled refund); a <c>version</c> in <paramref name="additionalFields"/>
+    /// is ignored.
     /// </summary>
     /// <param name="escrowId">The escrow partition key.</param>
     /// <param name="createdAt">The escrow sort key.</param>
@@ -47,15 +50,35 @@ public interface IEscrowRepository
     /// <see cref="IOrderRepository.TryUpdateWithAsync"/>. The item schedules the refund for the hourly
     /// sweep (<c>expiresAt</c> and <c>updatedAt</c> set to <paramref name="scheduledAt"/>,
     /// <c>refundReason</c>) only while the escrow is a plain hold: <c>escrowed</c>, no settlement
-    /// lock, no open manual payout, no confirmed delivery. No I/O.
+    /// lock, no open manual payout, no confirmed delivery. Adds 1 to <c>version</c> (SIM-29). No I/O.
+    /// FUP-53: <paramref name="allowConfirmedDelivery"/> drops the confirmed delivery condition, for the
+    /// admin refund, which refunds a confirmed escrow as its separate arm always did.
     /// </summary>
-    TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt);
+    TransactWriteItem BuildRefundArm(string escrowId, string createdAt, string reason, string scheduledAt, bool allowConfirmedDelivery = false);
+
+    /// <summary>
+    /// FUP-53: <see cref="UpdateStatusAsync"/> (the same write and the same conditions) in one DynamoDB
+    /// transaction with <paramref name="linkedItems"/> (condition checks on other rows): all of it
+    /// lands or none of it. The escrow's own failed condition is reported over a linked item's. A
+    /// transaction cancelled for any other reason (a conflicting transaction, throttling) throws, with
+    /// nothing written.
+    /// </summary>
+    Task<EscrowLinkedWriteOutcome> TryUpdateStatusWithAsync(
+        string escrowId, string createdAt, string newStatus, string expectedCurrentStatus,
+        Dictionary<string, object>? additionalFields, IReadOnlyList<TransactWriteItem> linkedItems);
+
+    /// <summary>
+    /// FUP-53: a transaction item that lets a write land only while this escrow still has
+    /// <paramref name="status"/> (for example an order closed without a refund arm because its escrow
+    /// is <c>held</c> for review). No I/O.
+    /// </summary>
+    TransactWriteItem BuildStatusCheck(string escrowId, string createdAt, string status);
 
     /// <summary>
     /// ESC-06: push an order escrow's <c>expiresAt</c> forward while it is still a plain
     /// <c>escrowed</c> hold: no refund scheduled (<c>refundReason</c>), no settlement lock, no open
     /// manual payout. Returns false when that no longer holds (a refund scheduled in the meantime
-    /// keeps its <c>expiresAt</c>, so the sweep refunds it).
+    /// keeps its <c>expiresAt</c>, so the sweep refunds it). Adds 1 to <c>version</c> (SIM-29).
     /// </summary>
     Task<bool> TryExtendExpiryAsync(string escrowId, string createdAt, string expiresAt);
 
@@ -129,18 +152,21 @@ public interface IEscrowRepository
     /// </summary>
     Task<bool> TryQueueManualPayoutAsync(
         string escrowId, string createdAt, string op, string reason, string fromStatus,
-        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt);
+        IReadOnlyList<ManualPayoutLegSeed> legs, string queuedAt, string? releaseOrigin = null);
 
     /// <summary>
     /// ESC-02: record an admin-paid leg that is NOT the last pending one. Conditional on
     /// the queue being open for <paramref name="op"/>, this leg still pending and
     /// <paramref name="otherLegMustBePending"/> (when given) still pending, which proves
     /// another leg remains and the escrow must stay in its current status. Returns false
-    /// when the condition fails (the caller re-reads and decides again).
+    /// when the condition fails (the caller re-reads and decides again). FUP-05: also conditional on
+    /// no other admin holding a live claim on the leg (the record ends the claim), and with
+    /// <paramref name="reference"/> the reference item is written in the same transaction; a
+    /// transaction that fails only on that item throws <see cref="PayoutReferenceTakenException"/>.
     /// </summary>
     Task<bool> TryMarkManualLegPaidAsync(
         string escrowId, string createdAt, string op, string leg, string externalRef,
-        string paidBy, string paidAt, string? otherLegMustBePending);
+        string paidBy, string paidAt, string? otherLegMustBePending, PayoutReferenceRecord? reference = null);
 
     /// <summary>
     /// ESC-02: record the LAST pending leg and close the queue in one write: the leg
@@ -150,18 +176,35 @@ public interface IEscrowRepository
     /// on the queue being open for <paramref name="op"/> and the status still settleable.
     /// ESC-04: a trucker leg queued on a <c>released</c> escrow (from status <c>released</c>)
     /// closes too, to <c>completed</c>; a release close also removes the trucker leg's pending
-    /// flag, block reason and lock. Returns false when the condition fails.
+    /// flag, block reason and lock. Returns false when the condition fails. FUP-05: the claim
+    /// condition and the reference item as <see cref="TryMarkManualLegPaidAsync"/>.
     /// </summary>
     Task<bool> TryCloseManualPayoutAsync(
         string escrowId, string createdAt, string op, string leg, string externalRef,
         string paidBy, string paidAt, IReadOnlyList<string> otherLegsMustBePaid,
-        string newStatus, Dictionary<string, object> settlementFields);
+        string newStatus, Dictionary<string, object> settlementFields, PayoutReferenceRecord? reference = null);
 
     /// <summary>
     /// ESC-02: open manual payouts, oldest first, from the sparse <c>ManualPayoutIndex</c>.
     /// </summary>
     Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryOpenManualPayoutsAsync(
         int limit, Dictionary<string, AttributeValue>? exclusiveStartKey);
+
+    /// <summary>
+    /// FUP-06: record that the overdue report announced the queue entry queued at <paramref name="queuedAt"/>
+    /// (<c>manualPayoutOverdueLoggedFor = queuedAt</c>), only while that entry is still open with that queue time
+    /// and not announced yet. No version or <c>updatedAt</c> moves. False when the condition failed (announced
+    /// already, closed, or queued again since); any other failure throws.
+    /// </summary>
+    Task<bool> TryMarkManualPayoutOverdueLoggedAsync(string escrowId, string createdAt, string queuedAt);
+
+    /// <summary>
+    /// FUP-436: record that the trucker retry announced the 1.x trucker leg pending since <paramref name="pendingSince"/>
+    /// (<c>truckerPayoutOverdueLoggedFor = truckerPayoutPendingSince</c>), only while the leg is still pending from that
+    /// time and not announced yet. No version or <c>updatedAt</c> moves. False when the condition failed (announced
+    /// already, paid, or pending again from another time); any other failure throws.
+    /// </summary>
+    Task<bool> TryMarkTruckerPayoutOverdueLoggedAsync(string escrowId, string createdAt, string pendingSince);
 
     /// <summary>
     /// ESC-04: <c>released</c> escrows whose trucker leg is still owed and not queued, from
@@ -188,7 +231,8 @@ public interface IEscrowRepository
 
     /// <summary>
     /// ESC-04: copy the trucker the escrow pays from its order, only when the escrow has none.
-    /// Returns false when the condition fails (a truckerId is already there).
+    /// Returns false when the condition fails (a truckerId is already there). Adds 1 to
+    /// <c>version</c> (SIM-29).
     /// </summary>
     Task<bool> TryBackfillTruckerIdAsync(string escrowId, string createdAt, string truckerId);
 
@@ -305,10 +349,27 @@ public interface IEscrowRepository
         string escrowId, string createdAt, string expectedStatus, string reason, string reasonAt);
 
     /// <summary>
+    /// FUP-41: record an admin's decision to refund this escrow as a second payment of its order
+    /// (<see cref="DoubleEscrowFields"/>), only while it is <c>escrowed</c>, names <paramref name="orderId"/>,
+    /// carries no such decision, no settlement lock and no manual payout. Returns false when the condition fails.
+    /// </summary>
+    Task<bool> TryRecordDoubleEscrowRefundAsync(
+        string escrowId, string createdAt, string orderId, string by, string reason, string at, string orderEscrowStatus);
+
+    /// <summary>
     /// ESC-10: remove the stored block reason once its gate passes, only when it is still
     /// <paramref name="storedReason"/>. Returns false when the condition fails.
     /// </summary>
     Task<bool> TryClearSettlementBlockReasonAsync(string escrowId, string createdAt, string storedReason);
+
+    /// <summary>
+    /// FUP-436: record that the system's release announced the block <paramref name="reason"/> stored at
+    /// <paramref name="reasonAt"/> as overdue (<c>settlementBlockOverdueLoggedFor = settlementBlockReasonAt</c>), only
+    /// while the escrow still stores that reason with that time and the block is not announced yet. No version or
+    /// <c>updatedAt</c> moves. False when the condition failed (announced already, settled, cleared or stored again
+    /// since); any other failure throws.
+    /// </summary>
+    Task<bool> TryMarkSettlementBlockOverdueLoggedAsync(string escrowId, string createdAt, string reason, string reasonAt);
 }
 
 /// <summary>FRD-03: what <see cref="IEscrowRepository.TryHoldAsync"/> found.</summary>
@@ -351,3 +412,19 @@ public sealed record CronSweepQuery(
     bool? DeliveryConfirmed = null,
     bool ExcludeLocked = false,
     int PageSize = 100);
+
+/// <summary>
+/// FUP-53: what <see cref="IEscrowRepository.TryUpdateStatusWithAsync"/> did. Only <see cref="Written"/>
+/// wrote anything. <see cref="EscrowRefused"/> is the zero value so an unset result never reads as success.
+/// </summary>
+public enum EscrowLinkedWriteOutcome
+{
+    /// <summary>The escrow's own condition failed (its status moved, a lock, a queue entry, a scheduled refund).</summary>
+    EscrowRefused = 0,
+
+    /// <summary>The escrow and every linked item were written or passed.</summary>
+    Written,
+
+    /// <summary>The escrow was fine and a linked item's condition failed (for example its order is closed).</summary>
+    LinkedItemRefused,
+}

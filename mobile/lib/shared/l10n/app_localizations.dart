@@ -145,7 +145,7 @@ abstract class AppLocalizations {
   /// Indicator that there are pending sync operations
   ///
   /// In en, this message translates to:
-  /// **'Sync Pending'**
+  /// **'Waiting to be sent'**
   String get syncPending;
 
   /// Short tagline for welcome screen
@@ -163,19 +163,19 @@ abstract class AppLocalizations {
   /// Indicator that sync is currently in progress
   ///
   /// In en, this message translates to:
-  /// **'Syncing...'**
+  /// **'Sending...'**
   String get syncInProgress;
 
   /// Indicator that sync has completed successfully
   ///
   /// In en, this message translates to:
-  /// **'Sync Complete'**
+  /// **'Everything is sent'**
   String get syncComplete;
 
   /// Indicator that sync has failed
   ///
   /// In en, this message translates to:
-  /// **'Sync Failed'**
+  /// **'Not sent'**
   String get syncFailed;
 
   /// Button to retry a failed operation
@@ -187,7 +187,7 @@ abstract class AppLocalizations {
   /// Button to trigger an immediate sync
   ///
   /// In en, this message translates to:
-  /// **'Sync Now'**
+  /// **'Send now'**
   String get syncNow;
 
   /// Language selection prompt on welcome screen
@@ -319,8 +319,20 @@ abstract class AppLocalizations {
   /// The server refused a queued change for good (listing, trip, delivery, rating, message); it stays on this phone but was never saved
   ///
   /// In en, this message translates to:
-  /// **'This change could not be saved on the server.'**
+  /// **'This change was not accepted.'**
   String get errorChangeNotSaved;
+
+  /// BUG-L9: a queued crop listing change was refused for its contents (CROP_VALIDATION); says what to do, never the word server
+  ///
+  /// In en, this message translates to:
+  /// **'Your crop listing details were not accepted. Check them and try again.'**
+  String get errorListingDetailsNotAccepted;
+
+  /// BUG-L9: a queued trip change was refused for its contents (TRIP_VALIDATION); says what to do, never the word server
+  ///
+  /// In en, this message translates to:
+  /// **'Your trip details were not accepted. Check them and try again.'**
+  String get errorTripDetailsNotAccepted;
 
   /// Banner when a marketplace refresh failed and cached data is shown
   ///
@@ -337,7 +349,7 @@ abstract class AppLocalizations {
   /// Indicator that the app is ready to work offline
   ///
   /// In en, this message translates to:
-  /// **'Offline Ready'**
+  /// **'Works without network'**
   String get offlineReady;
 
   /// Home navigation tab
@@ -466,6 +478,12 @@ abstract class AppLocalizations {
   /// **'Connecting Ethiopian farmers, truckers, and buyers'**
   String get aboutTagline;
 
+  /// About dialog: the attribution the GeoNames licence (CC BY 4.0) requires for the place names and positions the live trip map draws. {credit} is the fixed credit line, never translated. Amharic and Afaan Oromo need a native speaker review.
+  ///
+  /// In en, this message translates to:
+  /// **'Map data: {credit}'**
+  String aboutMapDataCredit(String credit);
+
   /// Active listings count label
   ///
   /// In en, this message translates to:
@@ -489,6 +507,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Password'**
   String get password;
+
+  /// BUG-L16: tooltip and screen reader label of the eye button on a hidden password field
+  ///
+  /// In en, this message translates to:
+  /// **'Show password'**
+  String get showPassword;
+
+  /// BUG-L16: tooltip and screen reader label of the eye button on a shown password field
+  ///
+  /// In en, this message translates to:
+  /// **'Hide password'**
+  String get hidePassword;
 
   /// Confirm password input label
   ///
@@ -610,6 +640,90 @@ abstract class AppLocalizations {
   /// **'Forgot Password?'**
   String get forgotPassword;
 
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Screen reader name of the Farmer, Trucker, Buyer switch; the switch only dresses the screen
+  ///
+  /// In en, this message translates to:
+  /// **'Your role'**
+  String get loginYourRole;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Login button while the Farmer look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Login as Farmer'**
+  String get loginAsFarmer;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Login button while the Trucker look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Login as Trucker'**
+  String get loginAsTrucker;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Login button while the Buyer look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Login as Buyer'**
+  String get loginAsBuyer;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Line above the welcome title while the Farmer look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Sell your harvest and follow every order'**
+  String get loginTaglineFarmer;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Line above the welcome title while the Trucker look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Fill your truck and get paid on delivery'**
+  String get loginTaglineTrucker;
+
+  /// Design canvas page M, login screen. am and om machine drafted, native review owed. Line above the welcome title while the Buyer look is picked
+  ///
+  /// In en, this message translates to:
+  /// **'Find crops and transport in one place'**
+  String get loginTaglineBuyer;
+
+  /// Design canvas page M, Telebirr payment. am and om machine drafted, native review owed. Status card while the app waits for the buyer to approve in Telebirr
+  ///
+  /// In en, this message translates to:
+  /// **'You need to approve the payment in Telebirr. Then the money is held in escrow until you confirm delivery.'**
+  String get orderCheckoutApproveNote;
+
+  /// Design canvas page M, payment failed state. am and om machine drafted, native review owed. Pill above the title
+  ///
+  /// In en, this message translates to:
+  /// **'Not paid'**
+  String get paymentNotPaidPill;
+
+  /// Design canvas page M, payment failed state. am and om machine drafted, native review owed. Title
+  ///
+  /// In en, this message translates to:
+  /// **'Payment did not go through'**
+  String get paymentFailedTitle;
+
+  /// Design canvas page M, payment failed state. am and om machine drafted, native review owed. Explanation under the title
+  ///
+  /// In en, this message translates to:
+  /// **'No money was taken from your Telebirr account, and your order is still saved.'**
+  String get paymentFailedBody;
+
+  /// Design canvas page M, payment failed state. am and om machine drafted, native review owed. Main button: start the payment again
+  ///
+  /// In en, this message translates to:
+  /// **'Try payment again'**
+  String get paymentTryAgain;
+
+  /// Design canvas page M, payment offline state. am and om machine drafted, native review owed. Explanation under the title No internet connection
+  ///
+  /// In en, this message translates to:
+  /// **'Payment needs a connection. Your order is saved on this phone.'**
+  String get paymentOfflineBody;
+
+  /// Design canvas page M, payment offline state. am and om machine drafted, native review owed. Second button: leave the payment and show the order
+  ///
+  /// In en, this message translates to:
+  /// **'Back to order'**
+  String get paymentBackToOrder;
+
   /// Get started button
   ///
   /// In en, this message translates to:
@@ -631,7 +745,7 @@ abstract class AppLocalizations {
   /// Offline mode indicator message
   ///
   /// In en, this message translates to:
-  /// **'You are in offline mode'**
+  /// **'No network. Your work is saved on your phone.'**
   String get offlineModeIndicator;
 
   /// Password requirements message
@@ -922,12 +1036,6 @@ abstract class AppLocalizations {
   /// **'Select Crop Type'**
   String get selectCropType;
 
-  /// Quantity input label in quintals
-  ///
-  /// In en, this message translates to:
-  /// **'Quantity (quintals)'**
-  String get quantityInQuintals;
-
   /// Price input label in Ethiopian Birr per kg
   ///
   /// In en, this message translates to:
@@ -999,6 +1107,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Listing deleted'**
   String get listingDeleted;
+
+  /// SIM-56: title of the screen where a farmer edits their own crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Edit listing'**
+  String get editListing;
+
+  /// SIM-56: note at the top of the edit listing screen: what can change, and what needs a new listing
+  ///
+  /// In en, this message translates to:
+  /// **'Change how much is left, the price or the description. To change the crop, the photos or the place, delete this listing and list it again.'**
+  String get editListingNote;
+
+  /// SIM-56: title of the dialog that confirms deleting the farmer's own crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this listing?'**
+  String get deleteListingTitle;
+
+  /// SIM-56: body of the dialog that confirms deleting the farmer's own crop listing
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers will no longer see it. This cannot be undone.'**
+  String get deleteListingBody;
+
+  /// SIM-56: snackbar on the listing detail when the farmer's edit was not saved because the listing changed since the edit form opened (version conflict); the detail now shows the listing as it is
+  ///
+  /// In en, this message translates to:
+  /// **'This listing changed since you opened it, maybe an order took some. Check it and edit again.'**
+  String get editListingChanged;
+
+  /// SIM-56: snackbar when the farmer tries to edit a listing while an earlier change of it is still waiting in the phone's sync queue (a second edit on top could undo stock an order took)
+  ///
+  /// In en, this message translates to:
+  /// **'Your last change to this listing has not been sent yet. Edit it again once you are online and it has gone out.'**
+  String get editListingWaiting;
+
+  /// SIM-56: snackbar when the farmer's delete is stopped because the listing's orders could not be read to check none is in progress
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check this listing\'s orders. Try again when you are online.'**
+  String get deleteListingOrdersUnreadable;
 
   /// Filter label for all crop types
   ///
@@ -1120,6 +1270,36 @@ abstract class AppLocalizations {
   /// **'My Trips'**
   String get myTrips;
 
+  /// Short hint of the origin field in the trips route filter
+  ///
+  /// In en, this message translates to:
+  /// **'From'**
+  String get listsRouteFrom;
+
+  /// Short hint of the destination field in the trips route filter
+  ///
+  /// In en, this message translates to:
+  /// **'To'**
+  String get listsRouteTo;
+
+  /// Note under the trucker's own trips (sibling of the My Crops board note)
+  ///
+  /// In en, this message translates to:
+  /// **'Only you see your trips here. Buyers find them in the Market.'**
+  String get listsMyTripsPrivacyNote;
+
+  /// Footer under the buyer's trip list
+  ///
+  /// In en, this message translates to:
+  /// **'Every open trip from every trucker.'**
+  String get listsAllTripsNote;
+
+  /// Dismiss button of the cancel-trip confirmation in the trips list
+  ///
+  /// In en, this message translates to:
+  /// **'Keep trip'**
+  String get listsKeepTrip;
+
   /// Title for trip details screen
   ///
   /// In en, this message translates to:
@@ -1143,18 +1323,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Departure Date'**
   String get departureDate;
-
-  /// Label for truck capacity input in quintals
-  ///
-  /// In en, this message translates to:
-  /// **'Capacity (quintals)'**
-  String get capacity;
-
-  /// Label for price per quintal input in Ethiopian Birr
-  ///
-  /// In en, this message translates to:
-  /// **'Price per Quintal (ETB)'**
-  String get pricePerQuintal;
 
   /// Trip status label when trip is open for booking
   ///
@@ -1251,12 +1419,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Capacity is required'**
   String get capacityRequired;
-
-  /// Validation error for out-of-range capacity value
-  ///
-  /// In en, this message translates to:
-  /// **'Capacity must be between 0.1 and 1000 quintals'**
-  String get invalidCapacity;
 
   /// Validation error for out-of-range price value
   ///
@@ -1359,6 +1521,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Delivery Details'**
   String get deliveryDetails;
+
+  /// Fieldway design alignment (specs/design-canvas). Delivery detail: title of the card with the delivery's four steps as bars
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery Timeline'**
+  String get restDeliveryTimeline;
 
   /// Title for the QR scan screen
   ///
@@ -1558,10 +1726,10 @@ abstract class AppLocalizations {
   /// **'Not captured'**
   String get deliveryGpsNotCaptured;
 
-  /// Location permission was denied by user
+  /// FUP-138. am and om machine drafted, native review owed. QR scan, self-pickup: the location permission was refused this time; Try location again asks again
   ///
   /// In en, this message translates to:
-  /// **'Location permission denied'**
+  /// **'Location was not allowed. Tap Try location again and allow it.'**
   String get deliveryGpsPermissionDenied;
 
   /// Instruction on the farmer's QR screen for a self-pickup delivery (the buyer scans it)
@@ -1731,6 +1899,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Add Photo'**
   String get deliveryAddPhoto;
+
+  /// Fieldway design alignment (specs/design-canvas). Delivery detail: the read-only photo tile of a leg that has no photo
+  ///
+  /// In en, this message translates to:
+  /// **'No photo'**
+  String get restNoPhoto;
+
+  /// FRD-12. Delivery detail: the photo tile of a handoff photo held on the server while the phone is offline or the photo could not be loaded (short, fits a 120 px tile)
+  ///
+  /// In en, this message translates to:
+  /// **'Shows when online'**
+  String get deliveryPhotoOnlineOnly;
+
+  /// FRD-12. Handoff scan screen: snackbar when the photo could not be taken, compressed under 200 KB or (web) uploaded; the handoff itself can still be confirmed
+  ///
+  /// In en, this message translates to:
+  /// **'The photo could not be saved. Try again.'**
+  String get deliveryPhotoFailed;
 
   /// Button to mark delivery as in transit
   ///
@@ -1911,6 +2097,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Commission ({rate}%)'**
   String escrowCommission(String rate);
+
+  /// Label for the platform commission on an escrow, without a rate (SIM-30: the rate applies to the crop cost, not the amount)
+  ///
+  /// In en, this message translates to:
+  /// **'Platform Commission'**
+  String get escrowPlatformCommission;
 
   /// Label for net amount farmer will receive after commission
   ///
@@ -2320,6 +2512,24 @@ abstract class AppLocalizations {
   /// **'A dispute can be opened only after the goods are picked up. Before pickup, cancel the order instead, or contact support.'**
   String get escrowErrorDisputeBeforePickup;
 
+  /// A dispute was refused because the refund to the buyer is already scheduled for this payment (409 ESCROW_INVALID_TRANSITION with that reason, FUP-77)
+  ///
+  /// In en, this message translates to:
+  /// **'A refund to the buyer is already scheduled for this payment, so it can no longer be disputed. Contact support if you disagree.'**
+  String get escrowErrorDisputeRefundScheduled;
+
+  /// A buyer's dispute with the reason not delivered was refused because the goods are picked up and still on the road and the delivery deadline has not passed (422 ESCROW_INVALID_TRANSITION with that reason, persona simulation BUG-8)
+  ///
+  /// In en, this message translates to:
+  /// **'The goods are still on the way. You can report them as not delivered once the delivery deadline has passed. For another problem, choose another reason.'**
+  String get escrowErrorDisputeGoodsOnTheWay;
+
+  /// The same refusal as escrowErrorDisputeGoodsOnTheWay, with the time (Ethiopia time) from which the buyer can report the goods as not delivered
+  ///
+  /// In en, this message translates to:
+  /// **'The goods are still on the way. You can report them as not delivered after {time}. For another problem, choose another reason.'**
+  String escrowErrorDisputeGoodsOnTheWayAfter(String time);
+
   /// Error when escrow state transition is invalid
   ///
   /// In en, this message translates to:
@@ -2331,6 +2541,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'ETB {amount}'**
   String escrowEtbAmount(String amount);
+
+  /// Fieldway design alignment (specs/design-canvas). Profile: section label over Fayda, app lock and documents, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Account'**
+  String get profileSectionAccount;
+
+  /// Fieldway design alignment (specs/design-canvas). Profile: section label over the wallet and escrow history rows, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Money'**
+  String get profileSectionMoney;
+
+  /// Fieldway design alignment (specs/design-canvas). Profile: section label over settings and help, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'App'**
+  String get profileSectionApp;
+
+  /// Fieldway design alignment (specs/design-canvas). Settings: section label over the language and clock rows, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Language and time'**
+  String get profileSettingsLanguageTime;
+
+  /// Fieldway design alignment (specs/design-canvas). Settings: section label over location sharing, data usage and data saver, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Data'**
+  String get profileSettingsData;
 
   /// Message shown when user is not authenticated — prompt to restart
   ///
@@ -2818,48 +3058,6 @@ abstract class AppLocalizations {
   /// **'Max'**
   String get filterMax;
 
-  /// Section header for trip selection in create delivery screen
-  ///
-  /// In en, this message translates to:
-  /// **'Select Trip'**
-  String get selectTrip;
-
-  /// Section header for buyer info in create delivery screen
-  ///
-  /// In en, this message translates to:
-  /// **'Buyer Information'**
-  String get buyerInformation;
-
-  /// Input label for buyer name field
-  ///
-  /// In en, this message translates to:
-  /// **'Buyer Name'**
-  String get buyerNameLabel;
-
-  /// Input label for buyer phone or ID field
-  ///
-  /// In en, this message translates to:
-  /// **'Buyer Phone / ID'**
-  String get buyerPhoneIdLabel;
-
-  /// Validation error when buyer name is empty
-  ///
-  /// In en, this message translates to:
-  /// **'Buyer name is required'**
-  String get buyerNameRequired;
-
-  /// Validation error when buyer phone/ID is empty
-  ///
-  /// In en, this message translates to:
-  /// **'Buyer phone or ID is required'**
-  String get buyerIdRequired;
-
-  /// Validation error when no trip is selected
-  ///
-  /// In en, this message translates to:
-  /// **'Please select a trip'**
-  String get tripSelectionRequired;
-
   /// Dropdown hint for trip selection
   ///
   /// In en, this message translates to:
@@ -2889,6 +3087,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Copied to clipboard'**
   String get copiedToClipboard;
+
+  /// BUG-L16: tooltip and screen reader label of one star of the rating picker
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of {max} stars'**
+  String ratingStarsOf(int count, int max);
 
   /// Message shown in forgot password dialog with support contact info
   ///
@@ -3778,6 +3982,12 @@ abstract class AppLocalizations {
   /// **'Track your payments & escrow'**
   String get trackBuyerPayments;
 
+  /// Footer under the payments list
+  ///
+  /// In en, this message translates to:
+  /// **'Each row is one escrow. Tap it for the timeline.'**
+  String get listsPaymentsNote;
+
   /// Empty state message when no deliveries exist
   ///
   /// In en, this message translates to:
@@ -3877,7 +4087,7 @@ abstract class AppLocalizations {
   /// Subtitle on splash/landing screen
   ///
   /// In en, this message translates to:
-  /// **'One platform for farmers, truckers, and buyers — with secure escrow.'**
+  /// **'One platform for farmers, truckers, and buyers, with secure escrow.'**
   String get splashSubtitle;
 
   /// Order status label for funded/paid orders
@@ -3975,12 +4185,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Transport Cost'**
   String get transportCost;
-
-  /// Label for platform commission in price breakdown
-  ///
-  /// In en, this message translates to:
-  /// **'Platform Commission (5%)'**
-  String get platformCommission;
 
   /// Label for total order amount
   ///
@@ -4270,6 +4474,24 @@ abstract class AppLocalizations {
   /// **'Order Timeline'**
   String get orderTimeline;
 
+  /// BUG-L5: screen reader state of an order timeline step that is finished (check icon)
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get orderTimelineStepDone;
+
+  /// BUG-L5: screen reader state of the order timeline step the order is at (filled dot icon)
+  ///
+  /// In en, this message translates to:
+  /// **'Now'**
+  String get orderTimelineStepNow;
+
+  /// BUG-L5: screen reader state of an order timeline step still ahead (empty circle icon)
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet'**
+  String get orderTimelineStepLater;
+
   /// Ethiopian Birr currency format
   ///
   /// In en, this message translates to:
@@ -4347,6 +4569,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'{count, plural, =0{No matches found} =1{1 match found} other{{count} matches found}}'**
   String matchesFound(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Match results page title; {crop} is the crop name of the buyer's request
+  ///
+  /// In en, this message translates to:
+  /// **'Matches for {crop}'**
+  String restMatchesFor(String crop);
 
   /// Empty state when no listings match the intent
   ///
@@ -4426,16 +4654,10 @@ abstract class AppLocalizations {
   /// **'Transport Cost'**
   String get transportCostLabel;
 
-  /// Label for commission in price breakdown
-  ///
-  /// In en, this message translates to:
-  /// **'Commission (5%)'**
-  String get commissionLabel;
-
   /// Stale data indicator
   ///
   /// In en, this message translates to:
-  /// **'Synced {time} ago'**
+  /// **'Updated {time} ago'**
   String syncedAgo(String time);
 
   /// Link to browse all crop listings
@@ -4489,7 +4711,7 @@ abstract class AppLocalizations {
   /// Helper under the max price field explaining it is optional
   ///
   /// In en, this message translates to:
-  /// **'Optional — leave empty to see all prices'**
+  /// **'Price is optional. Leave it empty to see all prices.'**
   String get maxPriceOptionalHint;
 
   /// Shown instead of a max price when the request has no budget
@@ -4570,11 +4792,47 @@ abstract class AppLocalizations {
   /// **'= {count} quintals'**
   String quintalEquivalent(String count);
 
+  /// Design canvas page M (specs/design-canvas): kilograms lead everywhere and the quintals follow in parentheses, in smaller muted text ("2,800 kg left (28 quintals)"). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'({count} quintals)'**
+  String quintalsInParens(String count);
+
+  /// Exactly 100 kg: the singular of quintalsInParens. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'(1 quintal)'**
+  String get oneQuintalInParens;
+
   /// Error under the order quantity field when the buyer asks for more kg than the listing has
   ///
   /// In en, this message translates to:
   /// **'Only {available} kg available. Enter a smaller quantity.'**
   String orderQuantityExceedsStock(String available);
+
+  /// BUG-20. am and om machine drafted, native review owed. Place order: helper under the empty quantity field naming how many kg can be ordered (the listing's stock, or the chosen truck's room when smaller); a grouped number
+  ///
+  /// In en, this message translates to:
+  /// **'{available} kg available'**
+  String orderQuantityAvailable(String available);
+
+  /// BUG-26. am and om machine drafted, native review owed. Create and edit crop listing: warning (it does not block Save) under the price when the price per kg is 500 ETB or more, which usually means the farmer typed a price per quintal (100 kg)
+  ///
+  /// In en, this message translates to:
+  /// **'This price is for 1 kg and looks very high. If you typed the price of a quintal, divide it by 100.'**
+  String get cropFormPriceHighWarning;
+
+  /// BUG-39. am and om machine drafted, native review owed. My Crops: title of the empty state of a status tab (active, reserved, sold) that has no listing while other tabs have some; nobody searched
+  ///
+  /// In en, this message translates to:
+  /// **'No listings here'**
+  String get myCropsSegmentEmpty;
+
+  /// BUG-39. am and om machine drafted, native review owed. My Crops: line under myCropsSegmentEmpty
+  ///
+  /// In en, this message translates to:
+  /// **'Listings with this status show here.'**
+  String get myCropsSegmentEmptyHint;
 
   /// Label for the optional delivery-deadline field on the create-intent screen
   ///
@@ -4741,26 +4999,122 @@ abstract class AppLocalizations {
   /// Sync status badge when data is up to date
   ///
   /// In en, this message translates to:
-  /// **'Synced'**
+  /// **'All sent'**
   String get synced;
 
   /// Sync status badge when device is offline
   ///
   /// In en, this message translates to:
-  /// **'Offline'**
+  /// **'No network'**
   String get offline;
 
   /// Subtitle for failed sync notification
   ///
   /// In en, this message translates to:
-  /// **'{count} operations need attention'**
+  /// **'{count} could not be sent'**
   String syncFailureCount(int count);
 
   /// Subtitle for pending sync notification
   ///
   /// In en, this message translates to:
-  /// **'{count} waiting to sync'**
+  /// **'{count} waiting to be sent'**
   String syncPendingCount(int count);
+
+  /// Create crop listing (F-3): live line under the quantity (quintals) and price (ETB per kg): what the whole listing sells for, then the price per kg as a price per quintal (100 kg); both are grouped numbers
+  ///
+  /// In en, this message translates to:
+  /// **'Total: {total} ETB ({perQuintal} ETB per quintal)'**
+  String cropFormTotalLine(String total, String perQuintal);
+
+  /// Logout dialog (E-1): changes made on this phone that are still in the sync queue; logging out deletes them (shared-device protection)
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 change on this phone is not sent yet. Logging out deletes it.} other{{count} changes on this phone are not sent yet. Logging out deletes them.}}'**
+  String logoutUnsentChanges(int count);
+
+  /// Logout dialog (E-1): buyer payments started offline that wait on this phone; logging out cancels them, no money has moved
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 payment waiting to be sent will be cancelled.} other{{count} payments waiting to be sent will be cancelled.}}'**
+  String logoutUnpaidPayments(int count);
+
+  /// Logout dialog (E-1), offline: logout clears the offline login, so signing in again needs a connection
+  ///
+  /// In en, this message translates to:
+  /// **'You are offline. Logging in again will need internet.'**
+  String get logoutOfflineNeedsInternet;
+
+  /// Logout dialog (E-1): the button that logs out although changes are not sent yet
+  ///
+  /// In en, this message translates to:
+  /// **'Log out anyway'**
+  String get logoutAnyway;
+
+  /// Snackbar (E-5) after an order, a crop listing or an answer to an order was saved while the phone had no network: it waits in the sync queue
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on your phone. It will be sent when you have network.'**
+  String get savedOnPhoneWillSend;
+
+  /// BUG-34 (persona sim 2026-11-19). Sync sheet, under the header, after a sync run that ended without an error but left changes in the queue (a listing whose photo upload failed): replaces 'Sync Complete'. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 change is still waiting. It will be sent again by itself.} other{{count} changes are still waiting. They will be sent again by themselves.}}'**
+  String syncStillWaiting(int count);
+
+  /// BUG-36 (persona sim 2026-11-19). My Crops card status and crop detail pill, with an upload icon, for the farmer's own listing whose create or edit is still in this phone's sync queue: replaces 'Active'. Short. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Not sent yet'**
+  String get listingNotSentYet;
+
+  /// BUG-36 (persona sim 2026-11-19). Crop detail, farmer's own listing, under the 'Not sent yet' pill: the new listing or the edit is on the phone only. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on this phone only. Buyers will see it once it is sent.'**
+  String get listingNotSentYetNote;
+
+  /// BUG-36 (persona sim 2026-11-19). My Crops, note under the list when a listing is marked 'Not sent yet' (the listingNotSentYet text, quoted). am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Listings marked \"Not sent yet\" are saved on this phone only. Buyers see them once they are sent.'**
+  String get myCropsNotSentNote;
+
+  /// BUG-35 (persona sim 2026-11-19). Login error on a phone that is online but the server did not answer in time, and that has never logged in before (no offline login possible). Not the 'log in online first' text. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'The network is too slow right now. Move to a place with better signal and try again.'**
+  String get authNetworkTooSlow;
+
+  /// Snackbar (E-5) after the farmer accepted an order with a network
+  ///
+  /// In en, this message translates to:
+  /// **'You accepted the order.'**
+  String get orderAcceptedSent;
+
+  /// Snackbar (E-5) after the farmer declined an order with a network; the buyer is refunded
+  ///
+  /// In en, this message translates to:
+  /// **'You declined the order. The buyer gets the money back.'**
+  String get orderRejectedSent;
+
+  /// Home, At a glance (E-6): the tiles' counts and amounts failed to load; shown with Retry instead of zeros
+  ///
+  /// In en, this message translates to:
+  /// **'These numbers could not be loaded.'**
+  String get homeTilesLoadFailed;
+
+  /// Home, Action needed (E-6): the orders waiting for the user failed to load; shown with Retry instead of no card
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check for orders that need you.'**
+  String get homeActionNeededLoadFailed;
+
+  /// Deliveries tab (E-6): the list failed to load; shown with Retry, unlike the empty state 'No deliveries yet'
+  ///
+  /// In en, this message translates to:
+  /// **'Your deliveries could not be loaded.'**
+  String get deliveriesLoadFailed;
 
   /// Payment notification title with status. {status} is the localized payment status label, not the enum name
   ///
@@ -5074,10 +5428,22 @@ abstract class AppLocalizations {
   /// **'The code expires at {time}.'**
   String otpExpiresAt(String time);
 
+  /// Password step-up dialog (AUTH_040) when the action is a dispute, not a payment (FUP-77)
+  ///
+  /// In en, this message translates to:
+  /// **'For your safety, confirm it\'s you before this dispute is sent.'**
+  String get stepUpDisputeMessage;
+
+  /// Fayda step-up dialog (AUTH_041) when the action is a dispute, not a payment (FUP-77)
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm it\'s you with Fayda to send this dispute. You may also be asked for your password.'**
+  String get faydaStepUpDisputeMessage;
+
   /// Fayda step-up dialog (AUTH_041): this payment needs a fresh Fayda login instead of the password. No amount: the server asks for it above 10,000 ETB and may ask at any amount
   ///
   /// In en, this message translates to:
-  /// **'This payment needs a Fayda login, not your password. Confirm it\'s you with Fayda and your payment continues right after.'**
+  /// **'Confirm it\'s you with Fayda to continue with this payment. You may also be asked for your password.'**
   String get faydaStepUpMessage;
 
   /// Title of the step-up re-authentication dialog
@@ -5109,6 +5475,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Confirmed. Retrying your payment.'**
   String get stepUpDone;
+
+  /// Password step-up dialog (AUTH_040) when the action is neither a payment nor a dispute: a farmer or trucker dropping out of an accepted order, deleting the account, or several kinds waiting together (FUP-167, FUP-181). am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'For your safety, confirm it\'s you before you continue.'**
+  String get stepUpOtherMessage;
+
+  /// Fayda step-up dialog (AUTH_041) when the waiting action is not a payment or a dispute (FUP-181). am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm it\'s you with Fayda to continue. You may also be asked for your password.'**
+  String get faydaStepUpOtherMessage;
+
+  /// Snackbar after a successful background step-up for an action that is not a payment (a dispute, a drop-out), FUP-181. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed. Trying again.'**
+  String get stepUpDoneRetrying;
 
   /// Fayda callback state mismatch or FAYDA_002
   ///
@@ -5223,6 +5607,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The farmer\'s identity is not verified yet, so this payment was not sent. You can pay once the farmer verifies.'**
   String get kycFarmerNotVerifiedMessage;
+
+  /// KYC dialog and error text when the server names a verification reason this app version does not know. Explains only, no Fayda action (FUP-83)
+  ///
+  /// In en, this message translates to:
+  /// **'This payment was not sent because an identity check is still missing. Update the app or contact support to see what is needed.'**
+  String get kycUnknownReasonMessage;
 
   /// KYC dialog when the server could not run the identity check
   ///
@@ -5452,6 +5842,12 @@ abstract class AppLocalizations {
   /// **'You get back everything you paid, including transport and the platform commission.'**
   String get cancelOrderTransportFailedBody;
 
+  /// The server refused to cancel an accepted order (ORDER_CANCEL_NOT_ALLOWED) because its payment is frozen by a dispute, being settled or under review (FUP-77)
+  ///
+  /// In en, this message translates to:
+  /// **'This order can\'t be cancelled now because its payment is under dispute or being settled. Wait for the outcome or contact support.'**
+  String get errorOrderCancelPaymentBusy;
+
   /// The server (ORDER_CANCEL_NOT_ALLOWED) or the app refused to cancel an accepted order: its pickup deadline has not passed, or the crops were picked up (ESC-06)
   ///
   /// In en, this message translates to:
@@ -5500,6 +5896,12 @@ abstract class AppLocalizations {
   /// **'This trip has booked orders, so this change can\'t be made.'**
   String get errorTripHasBookings;
 
+  /// The server refused a trip create because the trucker already has an open trip on the same route, departure day and vehicle (FRAUD_DUPLICATE_LISTING on a trip); on mobile the local copy of the new trip was removed
+  ///
+  /// In en, this message translates to:
+  /// **'You already have a trip on this route on that day, so this one was not posted. Edit that trip instead. If this is a second truck, add its plate number.'**
+  String get errorDuplicateTrip;
+
   /// The server refused to remove or reduce a listing that has funded or accepted orders (CROP_HAS_ACTIVE_ORDERS); on mobile the local listing went back to the server's
   ///
   /// In en, this message translates to:
@@ -5517,6 +5919,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Please update the app. This change is kept on your phone and will be sent after the update.'**
   String get errorAppUpdateRequiredKept;
+
+  /// FUP-75: the banner at the top of every main screen while the server refuses orders from this app build as too old (APP_UPDATE_REQUIRED). It stays until the app is updated
+  ///
+  /// In en, this message translates to:
+  /// **'Please update the app to place or change orders. Everything else still works.'**
+  String get appUpdateBannerMessage;
+
+  /// FUP-75: the update banner's button on the phone; opens the app's store page
+  ///
+  /// In en, this message translates to:
+  /// **'Update'**
+  String get appUpdateBannerUpdate;
+
+  /// FUP-75: the update banner's button on the web app; reloads the page with the latest version
+  ///
+  /// In en, this message translates to:
+  /// **'Reload page'**
+  String get appUpdateBannerReload;
+
+  /// FUP-75: second line of the update banner on the phone, under the message. The Play listing is not live yet, so the Update button may land on a page without the app
+  ///
+  /// In en, this message translates to:
+  /// **'If the store does not open or does not show the app, get the latest WeredaConnect from where you got it.'**
+  String get appUpdateBannerStoreHint;
+
+  /// FUP-75: snackbar on the web app when Reload page could not fetch the newer app (offline, or it did not finish in time); the page was not reloaded
+  ///
+  /// In en, this message translates to:
+  /// **'Could not get the latest version. Check your connection and try again.'**
+  String get appUpdateReloadFailed;
 
   /// A crop or trip text field that buyers read holds a phone number. Shown under the field and when the server refuses the listing (CROP_CONTACT_IN_TEXT / TRIP_CONTACT_IN_TEXT, FUP-49). Also under the registration name, woreda and company name fields (FUP-52)
   ///
@@ -5739,6 +6171,5029 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Deleted user'**
   String get deletedUser;
+
+  /// A noun shown where a person's name belongs when the app has no name for them and cannot say their role (chat title, inbox row). Never a verb.
+  ///
+  /// In en, this message translates to:
+  /// **'User'**
+  String get unnamedUser;
+
+  /// ESC-15 order status awaiting_transport: the trucker cannot carry a paid order and the buyer decides
+  ///
+  /// In en, this message translates to:
+  /// **'Transport fell through'**
+  String get statusAwaitingTransport;
+
+  /// Timeline tooltip for the awaiting_transport status
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker can\'t carry this order. The money stays held safely. The buyer can cancel for a full refund; without a decision in time the order is cancelled and refunded.'**
+  String get statusAwaitingTransportInfo;
+
+  /// Label for an order status this app version does not know (a newer server)
+  ///
+  /// In en, this message translates to:
+  /// **'Updating'**
+  String get orderStatusUpdating;
+
+  /// Timeline tooltip for an unknown order status
+  ///
+  /// In en, this message translates to:
+  /// **'This order changed in a way this app version can\'t show yet. Please update the app.'**
+  String get orderStatusUpdatingInfo;
+
+  /// Order detail: heading of the section showing the farmer and trucker answers (ESC-15)
+  ///
+  /// In en, this message translates to:
+  /// **'Who has agreed'**
+  String get commitmentTitle;
+
+  /// Commitment row: this party accepted
+  ///
+  /// In en, this message translates to:
+  /// **'Accepted'**
+  String get commitmentAccepted;
+
+  /// Commitment row: this party has not answered yet; time is the deadline in Ethiopia time
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting, answer due {time}'**
+  String commitmentWaitingUntil(String time);
+
+  /// Commitment row: this party has not answered yet (no deadline known)
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for an answer'**
+  String get commitmentWaiting;
+
+  /// Commitment row: this party declined
+  ///
+  /// In en, this message translates to:
+  /// **'Declined'**
+  String get commitmentDeclined;
+
+  /// Commitment row: this party let the request expire
+  ///
+  /// In en, this message translates to:
+  /// **'Did not answer in time'**
+  String get commitmentExpired;
+
+  /// Commitment row for the trucker: not asked yet, the farmer answers first
+  ///
+  /// In en, this message translates to:
+  /// **'Asked once the farmer accepts'**
+  String get commitmentNotAskedYet;
+
+  /// Commitment row for the trucker: the trip was cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Trip cancelled'**
+  String get commitmentTripCancelled;
+
+  /// Commitment row for the trucker: the trip had no room left
+  ///
+  /// In en, this message translates to:
+  /// **'Trip was full'**
+  String get commitmentTripFull;
+
+  /// Commitment row for the trucker: dropped out after accepting
+  ///
+  /// In en, this message translates to:
+  /// **'Dropped out'**
+  String get commitmentDroppedOut;
+
+  /// Order detail: the deadline of the answer the viewer owes
+  ///
+  /// In en, this message translates to:
+  /// **'Please answer by {time}.'**
+  String commitmentAnswerBy(String time);
+
+  /// Order detail, buyer, funded order: what happens while the farmer and the trucker decide
+  ///
+  /// In en, this message translates to:
+  /// **'Your money is held safely. The farmer is asked first, then the trucker. A paid order can\'t be cancelled while they decide.'**
+  String get commitmentBuyerWaitingNote;
+
+  /// Order detail, trucker, funded order the farmer has not accepted yet
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer has not accepted yet. You will be asked once they do.'**
+  String get commitmentTruckerNotAskedNote;
+
+  /// Trucker button: accept the transport request
+  ///
+  /// In en, this message translates to:
+  /// **'Accept transport'**
+  String get truckerAcceptRequest;
+
+  /// Trucker button: decline the transport request
+  ///
+  /// In en, this message translates to:
+  /// **'Decline'**
+  String get truckerDeclineRequest;
+
+  /// Title of the decline reason sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Why are you declining?'**
+  String get declineReasonTitle;
+
+  /// Decline reason code date
+  ///
+  /// In en, this message translates to:
+  /// **'The date doesn\'t work'**
+  String get declineReasonDate;
+
+  /// Decline reason code capacity
+  ///
+  /// In en, this message translates to:
+  /// **'Not enough room'**
+  String get declineReasonCapacity;
+
+  /// Decline reason code price
+  ///
+  /// In en, this message translates to:
+  /// **'The price doesn\'t work'**
+  String get declineReasonPrice;
+
+  /// Decline reason code route
+  ///
+  /// In en, this message translates to:
+  /// **'The route doesn\'t work'**
+  String get declineReasonRoute;
+
+  /// Decline reason code crop_not_ready
+  ///
+  /// In en, this message translates to:
+  /// **'The crops are not ready'**
+  String get declineReasonCropNotReady;
+
+  /// Decline reason code other
+  ///
+  /// In en, this message translates to:
+  /// **'Another reason'**
+  String get declineReasonOther;
+
+  /// Trucker button on an accepted order before pickup: drop out
+  ///
+  /// In en, this message translates to:
+  /// **'I can\'t make this delivery'**
+  String get truckerDropOut;
+
+  /// Body of the trucker drop-out sheet
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer is told and may cancel for a full refund. Dropping out after you accepted counts against you. You will be asked to sign in again.'**
+  String get truckerDropOutWarning;
+
+  /// Farmer button on an order whose transport fell through
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel without penalty'**
+  String get farmerCancelWithoutPenalty;
+
+  /// Cancel dialog body: the farmer cancels an accepted order before pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelling after you accepted counts against you, and the buyer gets a full refund. You will be asked to sign in again.'**
+  String get farmerCancelCommittedWarning;
+
+  /// Cancel dialog body: the farmer cancels an order whose transport fell through
+  ///
+  /// In en, this message translates to:
+  /// **'The transport fell through, so cancelling does not count against you. The buyer gets a full refund.'**
+  String get farmerCancelAwaitingTransportBody;
+
+  /// Order detail, buyer, awaiting_transport with a deadline (Ethiopia time)
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker can\'t carry this order. Cancel for a full refund by {deadline}. If you don\'t decide by then, the order is cancelled and refunded for you.'**
+  String transportFailedBuyerBody(String deadline);
+
+  /// Order detail, buyer, awaiting_transport without a known deadline
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker can\'t carry this order. You can cancel it for a full refund.'**
+  String get transportFailedBuyerBodyNoDeadline;
+
+  /// Order detail, farmer who accepted, awaiting_transport
+  ///
+  /// In en, this message translates to:
+  /// **'The transport for this order fell through. Please keep the crops until the buyer decides.'**
+  String get transportFailedFarmerBody;
+
+  /// Cancel dialog body: the buyer cancels an order whose transport fell through
+  ///
+  /// In en, this message translates to:
+  /// **'The money held for this order comes back to you in full.'**
+  String get cancelOrderAwaitingTransportBody;
+
+  /// Error ORDER_RESPONSE_NOT_PENDING
+  ///
+  /// In en, this message translates to:
+  /// **'This request is not open for you: the farmer has not accepted yet, or it was already answered.'**
+  String get errorResponseNotPending;
+
+  /// transportFailure trucker_declined
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker declined'**
+  String get transportFailureTruckerDeclined;
+
+  /// transportFailure trucker_expired
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker did not answer in time'**
+  String get transportFailureTruckerExpired;
+
+  /// transportFailure trucker_cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker dropped out'**
+  String get transportFailureTruckerCancelled;
+
+  /// transportFailure trip_cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'The trip was cancelled'**
+  String get transportFailureTripCancelled;
+
+  /// transportFailure trip_full
+  ///
+  /// In en, this message translates to:
+  /// **'The trip was full'**
+  String get transportFailureTripFull;
+
+  /// Home: heading of the list of orders waiting for the user
+  ///
+  /// In en, this message translates to:
+  /// **'Action needed'**
+  String get actionNeededTitle;
+
+  /// Action card, farmer: a paid order waits for an answer
+  ///
+  /// In en, this message translates to:
+  /// **'Answer the new order'**
+  String get actionAnswerOrder;
+
+  /// Action card, trucker: a transport request waits for an answer
+  ///
+  /// In en, this message translates to:
+  /// **'Answer the transport request'**
+  String get actionAnswerTransport;
+
+  /// Action card, farmer: transport fell through
+  ///
+  /// In en, this message translates to:
+  /// **'Keep the crops: the buyer is deciding'**
+  String get actionKeepCrops;
+
+  /// Action card, trucker: an agreed order has no delivery yet
+  ///
+  /// In en, this message translates to:
+  /// **'Set up the delivery'**
+  String get actionSetUpDelivery;
+
+  /// Action card, buyer: an order waits for payment
+  ///
+  /// In en, this message translates to:
+  /// **'Pay for the order'**
+  String get actionPay;
+
+  /// Action card, buyer: the payment failed
+  ///
+  /// In en, this message translates to:
+  /// **'Payment failed: pay again'**
+  String get actionPayAgain;
+
+  /// Action card, buyer: awaiting_transport
+  ///
+  /// In en, this message translates to:
+  /// **'Transport fell through: decide'**
+  String get actionDecideTransport;
+
+  /// Action card, buyer: the order was delivered (48 hours to report a problem)
+  ///
+  /// In en, this message translates to:
+  /// **'Check the delivery'**
+  String get actionCheckDelivery;
+
+  /// FUP-327 (ESC-34 arrival check-ins on Home). am and om machine drafted, native review owed. Action card, trucker (the buyer on a self-pickup order): the arrival check-in at the farm is open and not given yet; the order's button reads I have arrived; due at the pickup deadline
+  ///
+  /// In en, this message translates to:
+  /// **'Check in when you reach the farm'**
+  String get actionCheckInAtFarm;
+
+  /// FUP-327 (ESC-34 arrival check-ins on Home). am and om machine drafted, native review owed. Action card, farmer: the Crops are ready check-in is open and not given yet; due at the pickup deadline
+  ///
+  /// In en, this message translates to:
+  /// **'Check in when the crops are ready'**
+  String get actionCropsReady;
+
+  /// FUP-371 (ESC-36 drop-off check-in on Home). am and om machine drafted, native review owed. Action card, trucker: the drop-off check-in is open and not given yet; the order's button reads Arrived at drop-off; due at the delivery deadline
+  ///
+  /// In en, this message translates to:
+  /// **'Check in when you reach the drop-off'**
+  String get actionCheckInAtDropoff;
+
+  /// FUP-371 (ESC-36 drop-off check-in on Home). am and om machine drafted, native review owed. Action card, buyer: the trucker checked in at the drop-off; the card's due time is when the delivery may be confirmed for the buyer if they say nothing (T9)
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm the delivery'**
+  String get actionConfirmDelivery;
+
+  /// Deadline of an action card or inbox entry (Ethiopia time)
+  ///
+  /// In en, this message translates to:
+  /// **'Due {time}'**
+  String actionDueBy(String time);
+
+  /// Trip detail: heading of the orders booked on the trip
+  ///
+  /// In en, this message translates to:
+  /// **'Booked orders'**
+  String get tripBookings;
+
+  /// Trip detail: no orders booked on the trip
+  ///
+  /// In en, this message translates to:
+  /// **'No orders booked yet'**
+  String get tripNoBookings;
+
+  /// Match results: sheet title to pick one of several suggested trips
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a truck'**
+  String get chooseTrip;
+
+  /// Inbox entry of a type this app version does not know
+  ///
+  /// In en, this message translates to:
+  /// **'Order update'**
+  String get notifGenericTitle;
+
+  /// Inbox entry of a type this app version does not know
+  ///
+  /// In en, this message translates to:
+  /// **'Open the order to see what changed.'**
+  String get notifGenericBody;
+
+  /// Inbox entry title, notification type payment_confirmed
+  ///
+  /// In en, this message translates to:
+  /// **'Payment received'**
+  String get notifPaymentConfirmedTitle;
+
+  /// Inbox entry body, notification type payment_confirmed; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment is held safely. We will tell you when the farmer answers.'**
+  String get notifPaymentConfirmedBody;
+
+  /// Inbox entry title, notification type order_request
+  ///
+  /// In en, this message translates to:
+  /// **'New order'**
+  String get notifOrderRequestTitle;
+
+  /// Inbox entry body, notification type order_request; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'{buyer} paid, and the money is held safely until delivery. Please accept or decline.'**
+  String notifOrderRequestBody(String buyer);
+
+  /// Inbox entry title, notification type farmer_accepted
+  ///
+  /// In en, this message translates to:
+  /// **'Farmer accepted'**
+  String get notifFarmerAcceptedTitle;
+
+  /// Inbox entry body, notification type farmer_accepted; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'{farmer} accepted your order. We are now asking the trucker.'**
+  String notifFarmerAcceptedBody(String farmer);
+
+  /// Inbox entry title, notification type transport_request
+  ///
+  /// In en, this message translates to:
+  /// **'Transport request'**
+  String get notifTransportRequestTitle;
+
+  /// Inbox entry body, notification type transport_request; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'{farmer} accepted an order on your trip. Please accept or decline the transport.'**
+  String notifTransportRequestBody(String farmer);
+
+  /// Inbox entry title, notification type order_confirmed
+  ///
+  /// In en, this message translates to:
+  /// **'Order confirmed'**
+  String get notifOrderConfirmedTitle;
+
+  /// Inbox entry body, notification type order_confirmed; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Everyone has agreed to the order.'**
+  String get notifOrderConfirmedBody;
+
+  /// Inbox entry title, notification type order_rejected
+  ///
+  /// In en, this message translates to:
+  /// **'Order declined'**
+  String get notifOrderRejectedTitle;
+
+  /// Inbox entry body, notification type order_rejected; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'{farmer} declined your order. Your money will be returned to you.'**
+  String notifOrderRejectedBody(String farmer);
+
+  /// Inbox entry title, notification type transport_failed
+  ///
+  /// In en, this message translates to:
+  /// **'Transport fell through'**
+  String get notifTransportFailedTitle;
+
+  /// Inbox entry body, notification type transport_failed; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker can\'t carry your order. Please decide: you can cancel for a full refund.'**
+  String get notifTransportFailedBody;
+
+  /// Inbox entry title, notification type transport_failed_keep_crops
+  ///
+  /// In en, this message translates to:
+  /// **'Transport fell through'**
+  String get notifTransportFailedKeepCropsTitle;
+
+  /// Inbox entry body, notification type transport_failed_keep_crops; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker for this order dropped out. Please keep the crops until the buyer decides.'**
+  String get notifTransportFailedKeepCropsBody;
+
+  /// Inbox entry title, notification type request_expired
+  ///
+  /// In en, this message translates to:
+  /// **'Request closed'**
+  String get notifRequestExpiredTitle;
+
+  /// Inbox entry body, notification type request_expired; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The request closed because it was not answered in time.'**
+  String get notifRequestExpiredBody;
+
+  /// Inbox entry title, notification type request_on_hold
+  ///
+  /// In en, this message translates to:
+  /// **'Request on hold'**
+  String get notifRequestOnHoldTitle;
+
+  /// Inbox entry body, notification type request_on_hold; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Transport for this order is not available. The buyer is deciding, so you do not need to answer now.'**
+  String get notifRequestOnHoldBody;
+
+  /// Inbox entry title, notification type order_cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Order cancelled'**
+  String get notifOrderCancelledTitle;
+
+  /// Inbox entry body, notification type order_cancelled; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The order was cancelled. Any money held goes back to the buyer.'**
+  String get notifOrderCancelledBody;
+
+  /// Inbox entry title, notification type order_expired_unpaid
+  ///
+  /// In en, this message translates to:
+  /// **'Order closed'**
+  String get notifOrderExpiredUnpaidTitle;
+
+  /// Inbox entry body, notification type order_expired_unpaid; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your order was closed because it was not paid in time. You can place a new order.'**
+  String get notifOrderExpiredUnpaidBody;
+
+  /// Inbox: an admin agreed another platform commission for the buyer's unpaid order (notifications-api.md order_commission_changed)
+  ///
+  /// In en, this message translates to:
+  /// **'Order total changed'**
+  String get notifCommissionChangedTitle;
+
+  /// Inbox: an admin agreed another platform commission for the buyer's unpaid order (notifications-api.md order_commission_changed)
+  ///
+  /// In en, this message translates to:
+  /// **'The platform commission on this order is now {rate}. New total: {total}. Nothing has been paid yet.'**
+  String notifCommissionChangedBody(String rate, String total);
+
+  /// Inbox: an admin agreed another platform commission for the buyer's unpaid order (notifications-api.md order_commission_changed)
+  ///
+  /// In en, this message translates to:
+  /// **'The platform commission on this order changed. Open the order to see the new total before you pay.'**
+  String get notifCommissionChangedBodyNoTotal;
+
+  /// Inbox entry title, notification type payment_failed
+  ///
+  /// In en, this message translates to:
+  /// **'Payment failed'**
+  String get notifPaymentFailedTitle;
+
+  /// Inbox entry body, notification type payment_failed; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment did not go through. Please try again.'**
+  String get notifPaymentFailedBody;
+
+  /// Inbox entry title, notification type request_reminder
+  ///
+  /// In en, this message translates to:
+  /// **'Your answer is needed'**
+  String get notifRequestReminderTitle;
+
+  /// Inbox entry body, notification type request_reminder; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'This order is waiting for your answer.'**
+  String get notifRequestReminderBody;
+
+  /// Inbox entry title, notification type pickup_overdue
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup is late'**
+  String get notifPickupOverdueTitle;
+
+  /// Inbox entry body, notification type pickup_overdue; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your order was not picked up on time. Open it to see your options, including a full refund.'**
+  String get notifPickupOverdueBody;
+
+  /// Inbox entry title, notification type pickup_missed
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup missed'**
+  String get notifPickupMissedTitle;
+
+  /// Inbox entry body, notification type pickup_missed; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The order was not picked up on time. The buyer may now cancel it for a refund.'**
+  String get notifPickupMissedBody;
+
+  /// Inbox entry title, notification type delivery_scheduled
+  ///
+  /// In en, this message translates to:
+  /// **'Transport arranged'**
+  String get notifDeliveryScheduledTitle;
+
+  /// Inbox entry body, notification type delivery_scheduled; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} will carry the order.'**
+  String notifDeliveryScheduledBody(String trucker);
+
+  /// Inbox entry title, notification type buyer_collecting
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer is coming'**
+  String get notifBuyerCollectingTitle;
+
+  /// Inbox entry body, notification type buyer_collecting; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'{buyer} will collect the order from you. Please have the crops ready.'**
+  String notifBuyerCollectingBody(String buyer);
+
+  /// Inbox entry title, notification type picked_up
+  ///
+  /// In en, this message translates to:
+  /// **'Crops picked up'**
+  String get notifPickedUpTitle;
+
+  /// Inbox entry body, notification type picked_up; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your order was picked up from the farmer.'**
+  String get notifPickedUpBody;
+
+  /// Inbox entry title, notification type handoff_recorded
+  ///
+  /// In en, this message translates to:
+  /// **'Handoff recorded'**
+  String get notifHandoffRecordedTitle;
+
+  /// Inbox entry body, notification type handoff_recorded; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The handoff is recorded. You are paid after the buyer receives the crops.'**
+  String get notifHandoffRecordedBody;
+
+  /// Inbox entry title, notification type in_transit
+  ///
+  /// In en, this message translates to:
+  /// **'On the way'**
+  String get notifInTransitTitle;
+
+  /// Inbox entry body, notification type in_transit; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your order is on the way to you.'**
+  String get notifInTransitBody;
+
+  /// Inbox entry title, notification type truck_nearby (LT-07: a check-in put the truck within 5 km of the buyer's drop-off)
+  ///
+  /// In en, this message translates to:
+  /// **'Truck nearby'**
+  String get notifTruckNearbyTitle;
+
+  /// Inbox entry body, notification type truck_nearby; names are display names. No minutes or clock time: the entry stays in the history
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} is less than 5 km from you. Please be ready to receive the crops.'**
+  String notifTruckNearbyBody(String trucker);
+
+  /// Inbox entry title, notification type delivered
+  ///
+  /// In en, this message translates to:
+  /// **'Order delivered'**
+  String get notifDeliveredTitle;
+
+  /// Inbox entry body, notification type delivered; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your order was delivered. If something is wrong, report it before the time is up. If not, the farmer is paid.'**
+  String get notifDeliveredBody;
+
+  /// Inbox entry title, notification type delivered_payout_pending
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered, payment coming'**
+  String get notifDeliveredPayoutPendingTitle;
+
+  /// Inbox entry body, notification type delivered_payout_pending; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The order was delivered. Your payment is sent after the buyer\'s 48 hour check.'**
+  String get notifDeliveredPayoutPendingBody;
+
+  /// Inbox entry title, notification type order_settled
+  ///
+  /// In en, this message translates to:
+  /// **'Order complete'**
+  String get notifOrderSettledTitle;
+
+  /// Inbox entry body, notification type order_settled; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'The order is complete and everyone is paid. Thank you.'**
+  String get notifOrderSettledBody;
+
+  /// Inbox entry title, notification type refund_sent
+  ///
+  /// In en, this message translates to:
+  /// **'Refund sent'**
+  String get notifRefundSentTitle;
+
+  /// Inbox entry body, notification type refund_sent; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your refund has been sent to you.'**
+  String get notifRefundSentBody;
+
+  /// Inbox entry title, notification type payout_sent
+  ///
+  /// In en, this message translates to:
+  /// **'Payment sent'**
+  String get notifPayoutSentTitle;
+
+  /// Inbox entry body, notification type payout_sent; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment has been sent to you. Thank you.'**
+  String get notifPayoutSentBody;
+
+  /// Inbox entry title, notification type payout_blocked
+  ///
+  /// In en, this message translates to:
+  /// **'Payment on hold'**
+  String get notifPayoutBlockedTitle;
+
+  /// Inbox entry body, notification type payout_blocked; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment is waiting. {hint}'**
+  String notifPayoutBlockedBody(String hint);
+
+  /// Inbox entry title, notification type payout_processing
+  ///
+  /// In en, this message translates to:
+  /// **'Payment being processed'**
+  String get notifPayoutProcessingTitle;
+
+  /// Inbox entry body, notification type payout_processing; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Our team is sending your payment by hand. It can take a few days.'**
+  String get notifPayoutProcessingBody;
+
+  /// Inbox entry title, notification type dispute_opened
+  ///
+  /// In en, this message translates to:
+  /// **'Problem reported'**
+  String get notifDisputeOpenedTitle;
+
+  /// Inbox entry body, notification type dispute_opened; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'A problem was reported on your order. The money stays held until our team decides.'**
+  String get notifDisputeOpenedBody;
+
+  /// Inbox entry title, notification type dispute_received
+  ///
+  /// In en, this message translates to:
+  /// **'Report received'**
+  String get notifDisputeReceivedTitle;
+
+  /// Inbox entry body, notification type dispute_received; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'We received your report. The money stays held until our team decides.'**
+  String get notifDisputeReceivedBody;
+
+  /// Inbox entry title, notification type dispute_resolved
+  ///
+  /// In en, this message translates to:
+  /// **'Decision made'**
+  String get notifDisputeResolvedTitle;
+
+  /// Inbox entry title, notification type under_review
+  ///
+  /// In en, this message translates to:
+  /// **'Payment under review'**
+  String get notifUnderReviewTitle;
+
+  /// Inbox entry body, notification type under_review; names are display names
+  ///
+  /// In en, this message translates to:
+  /// **'Our team is checking the payment for your order. We will tell you when it is done.'**
+  String get notifUnderReviewBody;
+
+  /// Inbox body, dispute_resolved, resolution farmer_wins
+  ///
+  /// In en, this message translates to:
+  /// **'Our team has decided: the money goes to the farmer.'**
+  String get notifDisputeResolvedFarmerWins;
+
+  /// Inbox body, dispute_resolved, resolution buyer_wins
+  ///
+  /// In en, this message translates to:
+  /// **'Our team has decided: the money goes back to the buyer.'**
+  String get notifDisputeResolvedBuyerWins;
+
+  /// Inbox body, dispute_resolved, no known resolution
+  ///
+  /// In en, this message translates to:
+  /// **'Our team has decided on the reported problem. Open the order for the details.'**
+  String get notifDisputeResolvedBody;
+
+  /// payout_blocked hint: reason fayda_required
+  ///
+  /// In en, this message translates to:
+  /// **'Please verify your Fayda ID in the app.'**
+  String get notifPayoutHintFayda;
+
+  /// payout_blocked hint: reason phone_unverified
+  ///
+  /// In en, this message translates to:
+  /// **'Please verify your phone number in the app.'**
+  String get notifPayoutHintPhone;
+
+  /// payout_blocked hint: reason profile_missing
+  ///
+  /// In en, this message translates to:
+  /// **'Please complete your profile in the app.'**
+  String get notifPayoutHintProfile;
+
+  /// payout_blocked hint: any other reason
+  ///
+  /// In en, this message translates to:
+  /// **'Open the app to see what is needed.'**
+  String get notifPayoutHintOther;
+
+  /// Settings: row and dialog title for the clock that times are shown on (LT-03)
+  ///
+  /// In en, this message translates to:
+  /// **'Clock'**
+  String get clockSetting;
+
+  /// Clock setting option: follow the app language (Ethiopian clock for Amharic and Afaan Oromo, 24-hour clock for English)
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get clockAuto;
+
+  /// Clock setting: helper text under the Auto option
+  ///
+  /// In en, this message translates to:
+  /// **'Follows the app language'**
+  String get clockAutoHint;
+
+  /// Clock setting option: the Ethiopian clock (the day starts at 6:00 in the morning)
+  ///
+  /// In en, this message translates to:
+  /// **'Ethiopian'**
+  String get clockEthiopian;
+
+  /// Clock setting option: the 24-hour clock
+  ///
+  /// In en, this message translates to:
+  /// **'International (24-hour)'**
+  String get clockInternational;
+
+  /// Ethiopian clock: a time from 00:00 to 05:59 with its part of the day. Amharic puts the part before {time}, Afaan Oromo after it. Never drop {time}.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} at night'**
+  String clockNight(String time);
+
+  /// Ethiopian clock: a time from 06:00 to 11:59 with its part of the day. Never drop {time}.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} in the morning'**
+  String clockMorning(String time);
+
+  /// Ethiopian clock: a time from 12:00 to 17:59 with its part of the day. Never drop {time}.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} in the afternoon'**
+  String clockDay(String time);
+
+  /// Ethiopian clock: a time from 18:00 to 23:59 with its part of the day. Never drop {time}.
+  ///
+  /// In en, this message translates to:
+  /// **'{time} in the evening'**
+  String clockEvening(String time);
+
+  /// Android notification title while the trucker shares the trip's location (LT-08)
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing the truck\'s location'**
+  String get liveTripNotificationTitle;
+
+  /// Android notification text while the trucker shares the trip's location (LT-08)
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers and farmers on this trip see where the truck is. Sharing stops after the last delivery.'**
+  String get liveTripNotificationText;
+
+  /// Name of the Android notification channel for trip location sharing, shown in the phone's settings (LT-08)
+  ///
+  /// In en, this message translates to:
+  /// **'Trip location'**
+  String get liveTripNotificationChannel;
+
+  /// Consent sheet title after a trip's first pickup scan (LT-09)
+  ///
+  /// In en, this message translates to:
+  /// **'Share where the truck is?'**
+  String get liveTripConsentTitle;
+
+  /// Consent sheet: why sharing helps (LT-09)
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers and farmers who can see the truck worry less and call you less while you drive.'**
+  String get liveTripConsentLede;
+
+  /// Consent sheet row title: who sees the truck's location
+  ///
+  /// In en, this message translates to:
+  /// **'Who sees it'**
+  String get liveTripConsentWhoTitle;
+
+  /// Consent sheet: who sees the location (the parties of each order only)
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer and farmer of each order on this trip, each only for their own order. Other truckers and buyers browsing trips never see it.'**
+  String get liveTripConsentWhoText;
+
+  /// Consent sheet row title: how often the phone checks in
+  ///
+  /// In en, this message translates to:
+  /// **'How often'**
+  String get liveTripConsentOftenTitle;
+
+  /// Consent sheet: the check-in cadence (live-trip.md section 5.2)
+  ///
+  /// In en, this message translates to:
+  /// **'About once an hour and at each QR scan. Every 15 minutes when you are near a drop-off.'**
+  String get liveTripConsentOftenText;
+
+  /// Consent sheet row title: when sharing stops
+  ///
+  /// In en, this message translates to:
+  /// **'When it stops'**
+  String get liveTripConsentStopsTitle;
+
+  /// Consent sheet: sharing ends by itself at the last delivery
+  ///
+  /// In en, this message translates to:
+  /// **'By itself when the last delivery on this trip is done. You can pause any time.'**
+  String get liveTripConsentStopsText;
+
+  /// Consent sheet row title: the mobile data it costs
+  ///
+  /// In en, this message translates to:
+  /// **'Data'**
+  String get liveTripConsentDataTitle;
+
+  /// Consent sheet: the data cost on the wire per day (live-trip.md section 5.3) and offline behaviour
+  ///
+  /// In en, this message translates to:
+  /// **'About 170 KB a day. With no network, check-ins wait on the phone and send later.'**
+  String get liveTripConsentDataText;
+
+  /// Consent sheet note on Android: the foreground service notification
+  ///
+  /// In en, this message translates to:
+  /// **'Android shows a notification while sharing is on.'**
+  String get liveTripConsentAndroidNote;
+
+  /// Consent sheet note on web: no background check-ins
+  ///
+  /// In en, this message translates to:
+  /// **'On the web, check-ins are sent only while this page is open.'**
+  String get liveTripConsentWebNote;
+
+  /// Button: share the truck's location for this trip
+  ///
+  /// In en, this message translates to:
+  /// **'Share trip location'**
+  String get liveTripConsentShare;
+
+  /// Button: do not share; only QR scans record a place (sends declined)
+  ///
+  /// In en, this message translates to:
+  /// **'Not now, scans only'**
+  String get liveTripConsentDecline;
+
+  /// Snackbar after the trucker started sharing
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing the truck\'s location for this trip.'**
+  String get liveTripSharingStarted;
+
+  /// Snackbar after Not now, scans only
+  ///
+  /// In en, this message translates to:
+  /// **'Scans only for this trip. You can still share from trip mode.'**
+  String get liveTripScansOnlyChosen;
+
+  /// Title of the trucker's trip mode screen (LT-09)
+  ///
+  /// In en, this message translates to:
+  /// **'Trip mode'**
+  String get tripModeTitle;
+
+  /// Snackbar action that opens trip mode
+  ///
+  /// In en, this message translates to:
+  /// **'Open trip'**
+  String get tripModeOpen;
+
+  /// Trip mode header: how many orders the trip carries
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 order} other{{count} orders}}'**
+  String tripModeOrders(int count);
+
+  /// Trip mode: sharing is on
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing your location'**
+  String get tripModeSharingLive;
+
+  /// Trip mode: time of the last check-in (Ethiopian clock in am and om)
+  ///
+  /// In en, this message translates to:
+  /// **'Last check-in {time}'**
+  String tripModeLastCheckIn(String time);
+
+  /// Trip mode: no check-in recorded yet
+  ///
+  /// In en, this message translates to:
+  /// **'No check-in yet'**
+  String get tripModeNoCheckInYet;
+
+  /// Trip mode: when the next check-in is due, after the last check-in
+  ///
+  /// In en, this message translates to:
+  /// **'next by {time}'**
+  String tripModeNextBy(String time);
+
+  /// Trip mode: privacy note under the sharing state
+  ///
+  /// In en, this message translates to:
+  /// **'Each buyer and farmer sees only the part for their own order.'**
+  String get tripModePrivacy;
+
+  /// Trip mode button: pause sharing
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get tripModePause;
+
+  /// Trip mode button: record a check-in now
+  ///
+  /// In en, this message translates to:
+  /// **'Check in now'**
+  String get tripModeCheckInNow;
+
+  /// Trip mode: sharing is paused
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing paused'**
+  String get tripModePausedTitle;
+
+  /// Trip mode: when a pause ends (Ethiopian clock in am and om)
+  ///
+  /// In en, this message translates to:
+  /// **'Comes back by itself at {time}'**
+  String tripModePausedUntil(String time);
+
+  /// Trip mode button: end the pause early
+  ///
+  /// In en, this message translates to:
+  /// **'Resume now'**
+  String get tripModeResume;
+
+  /// Trip mode: the trucker chose not to share for this trip
+  ///
+  /// In en, this message translates to:
+  /// **'Scans only'**
+  String get tripModeScansOnlyTitle;
+
+  /// Trip mode: explanation of scans only
+  ///
+  /// In en, this message translates to:
+  /// **'Your location is not shared. QR scans still record pickup and delivery.'**
+  String get tripModeScansOnlyText;
+
+  /// Trip mode: sharing stopped for good
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing ended'**
+  String get tripModeEndedTitle;
+
+  /// Trip mode: why sharing ended
+  ///
+  /// In en, this message translates to:
+  /// **'Every delivery on this trip is done, so sharing stopped.'**
+  String get tripModeEndedText;
+
+  /// Trip mode: no trip is active
+  ///
+  /// In en, this message translates to:
+  /// **'No trip is on the road. Trip mode starts with your first pickup scan.'**
+  String get tripModeNoTrip;
+
+  /// Trip mode: label of the next stop card at a pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Next stop: pickup'**
+  String get tripModeNextPickup;
+
+  /// Trip mode: label of the next stop card at a drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Next stop: drop-off'**
+  String get tripModeNextDropoff;
+
+  /// Trip mode button: record an arrived check-in at the next stop
+  ///
+  /// In en, this message translates to:
+  /// **'I\'ve arrived'**
+  String get tripModeArrived;
+
+  /// Trip mode: title of the stop list
+  ///
+  /// In en, this message translates to:
+  /// **'Stops'**
+  String get tripModeStops;
+
+  /// Trip mode stop row: a pickup at the farmer {name}
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup: {name}'**
+  String tripModeStopPickup(String name);
+
+  /// Trip mode stop row: a drop-off at the buyer {name} (and the place)
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off: {name}'**
+  String tripModeStopDropoff(String name);
+
+  /// Trip mode stop row: when the pickup QR was scanned
+  ///
+  /// In en, this message translates to:
+  /// **'scanned {time}'**
+  String tripModeScannedAt(String time);
+
+  /// Trip mode stop row: when the buyer confirmed the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'delivered {time}'**
+  String tripModeDeliveredAt(String time);
+
+  /// Trip mode stop row: this is the next stop
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get tripModeNextLabel;
+
+  /// Trip mode: the trucker's pay for the trip
+  ///
+  /// In en, this message translates to:
+  /// **'Your pay for this trip'**
+  String get tripModePayTitle;
+
+  /// Trip mode: when the pay is released
+  ///
+  /// In en, this message translates to:
+  /// **'Paid 48 h after each drop-off'**
+  String get tripModePayNote;
+
+  /// Snackbar: a check-in the trucker asked for was recorded
+  ///
+  /// In en, this message translates to:
+  /// **'Check-in saved.'**
+  String get tripModeCheckInSaved;
+
+  /// Snackbar: no GPS fix in time
+  ///
+  /// In en, this message translates to:
+  /// **'No location right now. Check that location is on, then try again.'**
+  String get tripModeNoFix;
+
+  /// Snackbar: the trip does not share now (scans only or ended)
+  ///
+  /// In en, this message translates to:
+  /// **'This trip does not share its location.'**
+  String get tripModeNotSharing;
+
+  /// Fieldway structure pass. Trip detail, trucker: the booked orders could not be read (offline, server error); a Retry button follows
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load the bookings of this trip.'**
+  String get tripBookingsLoadFailed;
+
+  /// Trip mode: the deliveries of the trip could not be read
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load the stops of this trip.'**
+  String get tripModeLoadFailed;
+
+  /// Trip mode offline banner title
+  ///
+  /// In en, this message translates to:
+  /// **'No network here'**
+  String get tripModeOfflineTitle;
+
+  /// Trip mode offline banner: how many check-ins wait on the phone
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Check-ins wait on this phone and send by themselves when you are back in coverage.} =1{1 check-in waits on this phone. It sends by itself when you are back in coverage.} other{{count} check-ins wait on this phone. They send by themselves when you are back in coverage.}}'**
+  String tripModeOfflineWaiting(int count);
+
+  /// Trucker home card that opens trip mode
+  ///
+  /// In en, this message translates to:
+  /// **'Trip on the road'**
+  String get tripModeCardTitle;
+
+  /// Pause sheet title (LT-09)
+  ///
+  /// In en, this message translates to:
+  /// **'Pause sharing?'**
+  String get pauseSheetTitle;
+
+  /// Pause sheet: what pausing does
+  ///
+  /// In en, this message translates to:
+  /// **'For a rest stop or the night. Buyers and farmers see that sharing is paused and when it comes back.'**
+  String get pauseSheetText;
+
+  /// Pause sheet: heading of the durations
+  ///
+  /// In en, this message translates to:
+  /// **'Pause for'**
+  String get pauseSheetFor;
+
+  /// Pause sheet option
+  ///
+  /// In en, this message translates to:
+  /// **'15 minutes'**
+  String get pauseSheet15;
+
+  /// Pause sheet option
+  ///
+  /// In en, this message translates to:
+  /// **'30 minutes'**
+  String get pauseSheet30;
+
+  /// Pause sheet option
+  ///
+  /// In en, this message translates to:
+  /// **'1 hour'**
+  String get pauseSheet60;
+
+  /// Pause sheet option: until 06:00 in Ethiopia, {time} on the viewer's clock (12:00 in the morning on the Ethiopian clock)
+  ///
+  /// In en, this message translates to:
+  /// **'Overnight, until {time}'**
+  String pauseSheetOvernight(String time);
+
+  /// Pause sheet: when sharing comes back for an option
+  ///
+  /// In en, this message translates to:
+  /// **'back at {time}'**
+  String pauseSheetBackAt(String time);
+
+  /// Pause sheet note
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing comes back by itself. QR scans still record their place.'**
+  String get pauseSheetNote;
+
+  /// Pause sheet button: pause for the chosen time
+  ///
+  /// In en, this message translates to:
+  /// **'Pause sharing'**
+  String get pauseSheetConfirm;
+
+  /// Pause sheet button: close without pausing
+  ///
+  /// In en, this message translates to:
+  /// **'Keep sharing'**
+  String get pauseSheetKeep;
+
+  /// Settings row and dialog title for the trucker's location sharing default (LT-09)
+  ///
+  /// In en, this message translates to:
+  /// **'Trip location'**
+  String get sharingDefaultSetting;
+
+  /// Settings dialog: what the trip location default controls
+  ///
+  /// In en, this message translates to:
+  /// **'What happens at the first pickup scan of a trip. The buyer and farmer of each order see the truck until their delivery.'**
+  String get sharingDefaultHint;
+
+  /// Trip location setting option: show the consent sheet (default)
+  ///
+  /// In en, this message translates to:
+  /// **'Ask on each trip'**
+  String get sharingDefaultAsk;
+
+  /// Trip location setting option: share without asking
+  ///
+  /// In en, this message translates to:
+  /// **'Always share'**
+  String get sharingDefaultShare;
+
+  /// Trip location setting option: scans only without asking
+  ///
+  /// In en, this message translates to:
+  /// **'Never share (scans only)'**
+  String get sharingDefaultScansOnly;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Screen title and button: where the truck carrying the order is, after pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Live trip'**
+  String get liveTripTitle;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Deliveries tab: heading over the deliveries a truck is carrying now
+  ///
+  /// In en, this message translates to:
+  /// **'On the road now'**
+  String get liveTripOnTheRoadNow;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). A delivery the truck has not picked up yet
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for pickup'**
+  String get liveTripWaitingForPickup;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Before pickup there is no map: it starts at the pickup scan
+  ///
+  /// In en, this message translates to:
+  /// **'The map appears once the driver scans the farmer\'s QR.'**
+  String get liveTripMapStartsAtPickup;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). A duration under an hour, used inside other live trip messages
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes} min'**
+  String liveTripDurationMinutes(int minutes);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). A duration of an hour or more, used inside other live trip messages
+  ///
+  /// In en, this message translates to:
+  /// **'{hours} h {minutes} min'**
+  String liveTripDurationHours(int hours, int minutes);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). How old the last check-in is; {duration} is liveTripDurationMinutes or liveTripDurationHours
+  ///
+  /// In en, this message translates to:
+  /// **'{duration} ago'**
+  String liveTripAgo(String duration);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The last check-in is under a minute old
+  ///
+  /// In en, this message translates to:
+  /// **'Just now'**
+  String get liveTripJustNow;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Deliveries card: when the truck last reported where it is
+  ///
+  /// In en, this message translates to:
+  /// **'Checked in {duration} ago'**
+  String liveTripCheckedInAgo(String duration);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Deliveries card: the truck reported where it is under a minute ago
+  ///
+  /// In en, this message translates to:
+  /// **'Checked in just now'**
+  String get liveTripCheckedInJustNow;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The last check-in is over 75 minutes old (usually no network on the road)
+  ///
+  /// In en, this message translates to:
+  /// **'No check-in for {duration}'**
+  String liveTripNoCheckInFor(String duration);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The driver paused sharing the location (rest stop, night)
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get liveTripPaused;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Until when sharing is paused; {time} is a clock time
+  ///
+  /// In en, this message translates to:
+  /// **'until {time}'**
+  String liveTripUntil(String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The driver chose not to share the location; only the QR scans record where the truck was
+  ///
+  /// In en, this message translates to:
+  /// **'Scans only'**
+  String get liveTripScansOnly;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Chip line under Scans only
+  ///
+  /// In en, this message translates to:
+  /// **'Location not shared'**
+  String get liveTripScansOnlyChip;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). After delivery the truck's location is no longer shared
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing ended at delivery'**
+  String get liveTripSharingEnded;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Status: the truck carries the order
+  ///
+  /// In en, this message translates to:
+  /// **'On the road'**
+  String get liveTripStatusOnTheRoad;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Status: the truck is within 5 km of the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Arriving'**
+  String get liveTripStatusArriving;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Heading over the arrival window; {place} is the buyer's drop-off landmark
+  ///
+  /// In en, this message translates to:
+  /// **'Arriving at {place}'**
+  String liveTripArrivingAt(String place);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Heading over the arrival window when the drop-off has no landmark
+  ///
+  /// In en, this message translates to:
+  /// **'Expected arrival'**
+  String get liveTripArrivalWindow;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Under the arrival window; {km} is whole from 10 km, one decimal below
+  ///
+  /// In en, this message translates to:
+  /// **'About {km} km to go, from the last check-in'**
+  String liveTripKmToGo(String km);
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip: the control over the map that shows the whole route from the pickup; am and om words from the LiveTripAm and LiveTripOm boards
+  ///
+  /// In en, this message translates to:
+  /// **'Whole route'**
+  String get liveTripWholeRoute;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip: screen reader hint of the whole route control when the whole route is shown: tapping returns to the truck and the road ahead. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Near the truck'**
+  String get liveTripNearTruck;
+
+  /// Design canvas page M (specs/design-canvas). Web deliveries pane: the name of the plus button that magnifies the map (screen reader label and tooltip). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom in'**
+  String get liveTripZoomIn;
+
+  /// Design canvas page M (specs/design-canvas). Web deliveries pane: the name of the minus button that shows more of the map (screen reader label and tooltip). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Zoom out'**
+  String get liveTripZoomOut;
+
+  /// Design canvas page M (specs/design-canvas). Buyer trip log, pickup proof: the link that opens the pickup photo larger. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'View photo'**
+  String get liveTripViewPhoto;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip: screen reader label of the map legend. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Map legend'**
+  String get liveTripLegendLabel;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip, map legend: the solid trail. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Driven'**
+  String get liveTripLegendDriven;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip, map legend: the dashed estimate to the drop-off. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Road ahead'**
+  String get liveTripLegendAhead;
+
+  /// Design canvas page M (specs/design-canvas). Buyer live trip, map legend: the halo around the last check-in. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Truck is about here'**
+  String get liveTripLegendTruck;
+
+  /// Design canvas page M (specs/design-canvas). Live trip: the label under the Call button of a party; am and om words from the LiveTripAm and LiveTripOm boards
+  ///
+  /// In en, this message translates to:
+  /// **'Call'**
+  String get liveTripCall;
+
+  /// Design canvas page M (specs/design-canvas). Buyer delivered: under the escrow amount; {time} is the end of the 48 h check window with its date. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do. The payment is released when the check window ends, {time}, unless you report a problem.'**
+  String liveTripNothingToDoWindow(String time);
+
+  /// Design canvas page M (specs/design-canvas). Farmer order on the road: under the payment steps. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do now. {buyer} must confirm delivery. Then the 48 h check window runs and the money is paid out to you.'**
+  String liveTripFarmerNothingToDo(String buyer);
+
+  /// Design canvas page M (specs/design-canvas). Farmer, after the buyer confirmed delivery: under the payment steps and on the delivered card. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do. You are paid when the check window ends, {time}, unless the buyer reports a problem.'**
+  String liveTripFarmerNothingToDoWindow(String time);
+
+  /// Design canvas page M (specs/design-canvas). Buyer trip log, under the price total: the buyer's next step; {place} is the drop-off landmark. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Next: you scan the driver\'s QR at {place}.'**
+  String liveTripNextScanAt(String place);
+
+  /// Design canvas page M (specs/design-canvas). Buyer trip log, under the price total, when the drop-off has no landmark. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Next: you scan the driver\'s QR when the truck arrives.'**
+  String get liveTripNextScan;
+
+  /// Design canvas page M (specs/design-canvas). Buyer trip log, the transport line: the quintals inside the parentheses, before the rate. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} quintals'**
+  String liveTripQuintalsCount(String count);
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the on the road card: the pill over the map. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Open map'**
+  String get delivOpenMap;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the delivered card: opens the delivery. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get delivOpen;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the buyer's delivered card inside the 48 h window; {time} is its end. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do. The payment is released after {time} unless you report a problem.'**
+  String delivNothingToDoReleased(String time);
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the farmer's and the trucker's delivered card inside the 48 h window; {time} is its end. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing for you to do. You are paid after {time} unless the buyer reports a problem.'**
+  String delivNothingToDoPaid(String time);
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, empty state title (BuyerDeliveriesEmpty board). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing on the road yet'**
+  String get delivEmptyTitle;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the buyer's empty state. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When a driver picks up one of your orders, you can follow the truck here.'**
+  String get delivEmptyBodyBuyer;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the farmer's empty state. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When a driver picks up one of your crops, you can follow the truck here.'**
+  String get delivEmptyBodyFarmer;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the trucker's empty state. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When you pick up a load, its delivery shows here.'**
+  String get delivEmptyBodyTrucker;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the buyer's empty state: goes to the Market tab
+  ///
+  /// In en, this message translates to:
+  /// **'Find crops'**
+  String get delivEmptyFindCrops;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, empty state: goes to the Orders tab. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'See my orders'**
+  String get delivEmptySeeOrders;
+
+  /// Design canvas page M (specs/design-canvas). Deliveries, the trucker's empty state: goes to the My Trips tab. am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'See my trips'**
+  String get delivEmptySeeTrips;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Under the arrival window when the last check-in is late
+  ///
+  /// In en, this message translates to:
+  /// **'Wider window: no check-in for a while'**
+  String get liveTripWiderWindow;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The server has no arrival window yet (no drop-off point or no check-in)
+  ///
+  /// In en, this message translates to:
+  /// **'No arrival estimate yet'**
+  String get liveTripNoEta;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Progress step 1: the parties agreed
+  ///
+  /// In en, this message translates to:
+  /// **'Agreed'**
+  String get liveTripStepAgreed;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Progress step 2: the truck picked the crop up
+  ///
+  /// In en, this message translates to:
+  /// **'Picked up'**
+  String get liveTripStepPickedUp;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer: the money is safe; {amount} is the order total with its currency (etbCurrency)
+  ///
+  /// In en, this message translates to:
+  /// **'Your {amount} stays in escrow until you scan the driver\'s QR.'**
+  String liveTripEscrowNote(String amount);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer: the money is safe, when the order total is not on this device
+  ///
+  /// In en, this message translates to:
+  /// **'Your money stays in escrow until you scan the driver\'s QR.'**
+  String get liveTripEscrowNoteNoAmount;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The last check-in is late; {trucker} is the driver's name
+  ///
+  /// In en, this message translates to:
+  /// **'Likely no network on this road. Check-ins saved on {trucker}\'s phone will show when it reconnects.'**
+  String liveTripLateNote(String trucker);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The driver paused; {time} is when sharing resumes (a clock time)
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} paused sharing for a rest stop. It turns back on by itself at {time}.'**
+  String liveTripPausedNote(String trucker, String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The driver declined sharing (Scans only)
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} chose not to share the truck\'s location. The QR scans still record the pickup and the delivery.'**
+  String liveTripScansOnlyNote(String trucker);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Offline: the map saved on the phone is shown; {time} is when it was fetched (a clock time)
+  ///
+  /// In en, this message translates to:
+  /// **'You are offline. This is the map from {time}, it updates when you reconnect.'**
+  String liveTripOfflineNote(String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Offline and no map saved on the phone yet
+  ///
+  /// In en, this message translates to:
+  /// **'You are offline. The map shows when you reconnect.'**
+  String get liveTripOfflineNoMap;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The server could not read the track; the last saved map stays
+  ///
+  /// In en, this message translates to:
+  /// **'The map cannot be updated right now.'**
+  String get liveTripUnavailable;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The server does not know this delivery for this person
+  ///
+  /// In en, this message translates to:
+  /// **'This trip cannot be found.'**
+  String get liveTripNotFound;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Link from the live trip to the trip log screen
+  ///
+  /// In en, this message translates to:
+  /// **'Trip log and order'**
+  String get liveTripTripLogLink;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). How many check-ins the truck sent
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 check-in} other{{count} check-ins}}'**
+  String liveTripCheckIns(int count);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log screen title
+  ///
+  /// In en, this message translates to:
+  /// **'Trip log'**
+  String get liveTripTripLogTitle;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). A distance; {km} is whole from 10 km, one decimal below
+  ///
+  /// In en, this message translates to:
+  /// **'{km} km'**
+  String liveTripKm(String km);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log stat label under a distance driven so far
+  ///
+  /// In en, this message translates to:
+  /// **'done'**
+  String get liveTripStatDone;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log stat label under the distance left
+  ///
+  /// In en, this message translates to:
+  /// **'to go'**
+  String get liveTripStatToGo;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Stat label under the time since pickup
+  ///
+  /// In en, this message translates to:
+  /// **'on the road'**
+  String get liveTripStatOnTheRoad;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Delivered summary stat label under the distance
+  ///
+  /// In en, this message translates to:
+  /// **'driven'**
+  String get liveTripStatDriven;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Delivered summary stat label under the check-in count
+  ///
+  /// In en, this message translates to:
+  /// **'check-ins'**
+  String get liveTripStatCheckIns;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: heading over the list of check-ins
+  ///
+  /// In en, this message translates to:
+  /// **'Check-ins about every hour'**
+  String get liveTripCheckInCadence;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: the viewer's pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Picked up, the farmer\'s QR was scanned'**
+  String get liveTripLogPickup;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: the phone's hourly check-in
+  ///
+  /// In en, this message translates to:
+  /// **'Hourly check-in'**
+  String get liveTripLogHourly;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: a check-in every 15 minutes near a drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Check-in near a stop'**
+  String get liveTripLogNearStop;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: the driver tapped Check in now
+  ///
+  /// In en, this message translates to:
+  /// **'The driver checked in'**
+  String get liveTripLogManual;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: the driver tapped I've arrived
+  ///
+  /// In en, this message translates to:
+  /// **'The driver arrived at a stop'**
+  String get liveTripLogArrived;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: the driver turned sharing on
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing started'**
+  String get liveTripLogStart;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: another order's stop on the same truck. Never named (privacy)
+  ///
+  /// In en, this message translates to:
+  /// **'Another stop on this truck'**
+  String get liveTripLogOtherStop;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: a check-in of an unknown kind
+  ///
+  /// In en, this message translates to:
+  /// **'Check-in'**
+  String get liveTripLogCheckIn;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log row: the driver paused sharing
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing paused'**
+  String get liveTripLogPaused;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log tag on the newest check-in
+  ///
+  /// In en, this message translates to:
+  /// **'latest'**
+  String get liveTripLogLatest;
+
+  /// Buyer trip log and the wide live trip (Fieldway boards): the title of the check-ins card; "about every hour" sits beside it
+  ///
+  /// In en, this message translates to:
+  /// **'Check-ins'**
+  String get liveTripCheckInsTitle;
+
+  /// Buyer trip log (Fieldway board): how often the truck checks in, beside the Check-ins title
+  ///
+  /// In en, this message translates to:
+  /// **'about every hour'**
+  String get liveTripAboutEveryHour;
+
+  /// Buyer trip log (Fieldway board): in the time column of the stop the truck goes to next
+  ///
+  /// In en, this message translates to:
+  /// **'next'**
+  String get liveTripLogNext;
+
+  /// Buyer trip log and delivered screen (Fieldway boards): in the time column of what comes after the next stop, and beside the payout step after the check window
+  ///
+  /// In en, this message translates to:
+  /// **'then'**
+  String get liveTripLogThen;
+
+  /// Buyer trip log (Fieldway board): tag on a check-in that waited on the phone; {time} is when it reached the server, on the viewer's clock
+  ///
+  /// In en, this message translates to:
+  /// **'Sent late, no network until {time}'**
+  String liveTripLogSentLateUntil(String time);
+
+  /// Farmer order on the road (Fieldway board): beside the Buyer confirms delivery step while the truck arrives today
+  ///
+  /// In en, this message translates to:
+  /// **'expected today'**
+  String get liveTripExpectedToday;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log tag: the check-in waited on the phone over 15 minutes before it arrived
+  ///
+  /// In en, this message translates to:
+  /// **'Sent late, no network'**
+  String get liveTripLogSentLate;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log tag: another stop the truck has done
+  ///
+  /// In en, this message translates to:
+  /// **'passed'**
+  String get liveTripLogPassed;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log heading over the stops still to come
+  ///
+  /// In en, this message translates to:
+  /// **'Ahead'**
+  String get liveTripLogAhead;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: the buyer's own drop-off, last
+  ///
+  /// In en, this message translates to:
+  /// **'Your drop-off: you scan the driver\'s QR here'**
+  String get liveTripLogYourDropoff;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: what proves the pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup proof'**
+  String get liveTripPickupProof;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Delivered summary: what proves the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off proof'**
+  String get liveTripDropoffProof;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). When the QR handoff was scanned; {time} is a clock time
+  ///
+  /// In en, this message translates to:
+  /// **'QR scanned {time}'**
+  String liveTripQrScannedAt(String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The phone recorded where the scan happened
+  ///
+  /// In en, this message translates to:
+  /// **'GPS recorded'**
+  String get liveTripGpsRecorded;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Chip: the order's money is held in escrow
+  ///
+  /// In en, this message translates to:
+  /// **'In escrow'**
+  String get liveTripInEscrow;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: who gets which part of the money; amounts carry their currency
+  ///
+  /// In en, this message translates to:
+  /// **'{farmer} is paid {farmerAmount} and {trucker} {truckerAmount}, 48 h after you confirm delivery.'**
+  String liveTripPayoutNote(
+      String farmer, String farmerAmount, String trucker, String truckerAmount);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: the farmer's part of the money when the order has no transport cost
+  ///
+  /// In en, this message translates to:
+  /// **'{farmer} is paid {amount}, 48 h after you confirm delivery.'**
+  String liveTripPayoutNoteFarmerOnly(String farmer, String amount);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: help heading
+  ///
+  /// In en, this message translates to:
+  /// **'Something wrong on the way?'**
+  String get liveTripHelpTitle;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: no cancel after pickup, 48 h to report after delivery
+  ///
+  /// In en, this message translates to:
+  /// **'A picked-up order can no longer be cancelled. Talk to {trucker} or {farmer} now. After delivery you have 48 h to report a problem, and the money waits until it is settled.'**
+  String liveTripHelpBody(String trucker, String farmer);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Button: open the order chat with this party
+  ///
+  /// In en, this message translates to:
+  /// **'Message {name}'**
+  String liveTripMessageParty(String name);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Trip log: who sees the trail (privacy, spec section 7)
+  ///
+  /// In en, this message translates to:
+  /// **'Only you and {farmer} see where this truck is, from the pickup until your delivery. Other stops are never named.'**
+  String liveTripPrivacyNote(String farmer);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Under the map: what the grey rings are (privacy)
+  ///
+  /// In en, this message translates to:
+  /// **'Grey rings are other stops on this truck. They are never named.'**
+  String get liveTripGreyRingsNote;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving screen title: the truck is within 5 km
+  ///
+  /// In en, this message translates to:
+  /// **'Truck arriving'**
+  String get liveTripArrivingTitle;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving: minutes to the start of the arrival window
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} is about {minutes} min away'**
+  String liveTripArrivingMinutes(String trucker, int minutes);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving, when no arrival window is known
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} is less than 5 km away'**
+  String liveTripArrivingNear(String trucker);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving: the truck's distance to the drop-off; {km} is whole from 10 km, one decimal below
+  ///
+  /// In en, this message translates to:
+  /// **'{km} km from the drop-off'**
+  String liveTripKmFromDropoff(String km);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving: checklist heading
+  ///
+  /// In en, this message translates to:
+  /// **'Before you scan'**
+  String get liveTripBeforeYouScan;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving checklist item
+  ///
+  /// In en, this message translates to:
+  /// **'Count the sacks and check the total weight'**
+  String get liveTripCheckCount;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving checklist item
+  ///
+  /// In en, this message translates to:
+  /// **'Check the crop is dry and clean'**
+  String get liveTripCheckQuality;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving checklist item
+  ///
+  /// In en, this message translates to:
+  /// **'Weigh a few sacks if you can'**
+  String get liveTripCheckWeigh;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving: what the scan does to the money
+  ///
+  /// In en, this message translates to:
+  /// **'Scanning confirms delivery. {farmer} and {trucker} are paid after a 48 h check window, unless you report a problem.'**
+  String liveTripScanConfirmsNote(String farmer, String trucker);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Arriving: button that opens the delivery QR scan
+  ///
+  /// In en, this message translates to:
+  /// **'Scan driver\'s QR'**
+  String get liveTripScanDriversQr;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Delivered summary heading; {time} is a clock time
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered at {time}'**
+  String liveTripDeliveredAt(String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The trip ended before this device saw the delivery's new status
+  ///
+  /// In en, this message translates to:
+  /// **'This trip has ended'**
+  String get liveTripEnded;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Delivered: button to report a problem while the 48 h window lasts; {time} is a date and clock time
+  ///
+  /// In en, this message translates to:
+  /// **'Report a problem until {time}'**
+  String liveTripReportProblemUntil(String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Delivered: heading over Rate Farmer and Rate Trucker
+  ///
+  /// In en, this message translates to:
+  /// **'How did it go?'**
+  String get liveTripHowDidItGo;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer: heading of the order on the road; {crop} is the crop name
+  ///
+  /// In en, this message translates to:
+  /// **'Your {crop} is on the road'**
+  String liveTripFarmerTitle(String crop);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer: heading when the crop is not known on this device
+  ///
+  /// In en, this message translates to:
+  /// **'Your order is on the road'**
+  String get liveTripFarmerTitleNoCrop;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer: how much goes to which buyer; {quantity} carries its unit
+  ///
+  /// In en, this message translates to:
+  /// **'{quantity} to {buyer}'**
+  String liveTripFarmerTo(String quantity, String buyer);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). The arrival window; {time} is a clock time range
+  ///
+  /// In en, this message translates to:
+  /// **'Arrives {time}'**
+  String liveTripArrives(String time);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer: heading over the payment steps
+  ///
+  /// In en, this message translates to:
+  /// **'Your payment'**
+  String get liveTripYourPayment;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer payment step 1
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer paid, held in escrow'**
+  String get liveTripPayStepPaid;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer payment step 2
+  ///
+  /// In en, this message translates to:
+  /// **'You handed over, QR scanned'**
+  String get liveTripPayStepHandedOver;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer payment step 3
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer confirms delivery'**
+  String get liveTripPayStepBuyerConfirms;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer payment step 4
+  ///
+  /// In en, this message translates to:
+  /// **'48 h check window, then paid out'**
+  String get liveTripPayStepPaidOut;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer: link to the order detail screen
+  ///
+  /// In en, this message translates to:
+  /// **'Order details, price and timeline'**
+  String get liveTripOrderDetailsLink;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Order detail, buyer and farmer, before pickup: where the live map will be
+  ///
+  /// In en, this message translates to:
+  /// **'After pickup you will see the truck on a map in Deliveries.'**
+  String get liveTripAfterPickupHint;
+
+  /// Fieldway structure pass (specs/design-canvas). The trip's day on an order: buyer order detail header, trucker home Action needed card ("Thu 30 Oct trip")
+  ///
+  /// In en, this message translates to:
+  /// **'{day} trip'**
+  String orderTripOn(String day);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Deliveries card: the farmer the crop comes from
+  ///
+  /// In en, this message translates to:
+  /// **'From {name}'**
+  String liveTripFrom(String name);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Screen reader label of the map
+  ///
+  /// In en, this message translates to:
+  /// **'Map of the trip. The truck was last near {place}.'**
+  String liveTripMapSemantics(String place);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Screen reader label of the map without a town
+  ///
+  /// In en, this message translates to:
+  /// **'Map of the trip'**
+  String get liveTripMapSemanticsNoPlace;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Route ribbon: the buyer's own drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'You'**
+  String get liveTripYou;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Route ribbon: the drop-off, for the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off'**
+  String get liveTripDropoff;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Route ribbon: the pickup when its town is unknown
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup'**
+  String get liveTripPickup;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Farmer card: when the truck picked the crop up; {time} is a clock time
+  ///
+  /// In en, this message translates to:
+  /// **'On the road since {time}'**
+  String liveTripOnTheRoadSince(String time);
+
+  /// Fieldway design alignment (specs/design-canvas). Login: footer line under the register button, shown before the Telebirr label
+  ///
+  /// In en, this message translates to:
+  /// **'Payments held safely in escrow'**
+  String get loginEscrowFooter;
+
+  /// Fieldway design alignment (specs/design-canvas). Login: outlined button that opens registration
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t have an account? Register'**
+  String get loginNoAccountRegister;
+
+  /// Fieldway design alignment (specs/design-canvas). OTP screen: why the phone code is asked
+  ///
+  /// In en, this message translates to:
+  /// **'We ask for this only when the number differs from your Fayda record.'**
+  String get otpFaydaNumberNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration Fayda step: label on the dark ID card, shown in capitals
+  ///
+  /// In en, this message translates to:
+  /// **'Digital ID'**
+  String get faydaDigitalIdLabel;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration Fayda step: line under the verified legal name
+  ///
+  /// In en, this message translates to:
+  /// **'Verified with Fayda'**
+  String get faydaVerifiedWith;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration Fayda step: note at the bottom of the ID card
+  ///
+  /// In en, this message translates to:
+  /// **'Your legal name comes from Fayda. Nobody can register in your name.'**
+  String get faydaLegalNameNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration: step counter above the progress bar
+  ///
+  /// In en, this message translates to:
+  /// **'Step {current} of {total}'**
+  String registrationStepOf(int current, int total);
+
+  /// Fieldway design alignment (specs/design-canvas). Registration role step: what comes next
+  ///
+  /// In en, this message translates to:
+  /// **'Next you verify with Fayda, then add your details. Farmers skip the role details step.'**
+  String get registrationRoleNextNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration Fayda step: line under the Verify with Fayda button
+  ///
+  /// In en, this message translates to:
+  /// **'Needs internet for this step.'**
+  String get joinFaydaNeedsInternet;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration personal info: helper under the Wereda field
+  ///
+  /// In en, this message translates to:
+  /// **'Search places and towns, works offline'**
+  String get joinWeredaHelper;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration personal info: tag on the locked legal name
+  ///
+  /// In en, this message translates to:
+  /// **'From Fayda'**
+  String get fromFayda;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration trucker step: text inside the camera frame
+  ///
+  /// In en, this message translates to:
+  /// **'Place the license here'**
+  String get placeLicenseHere;
+
+  /// Fieldway design alignment (specs/design-canvas). Registration trucker step: button once a license photo exists
+  ///
+  /// In en, this message translates to:
+  /// **'Retake License Photo'**
+  String get retakeLicensePhoto;
+
+  /// FUP-118. Registration trucker step: button under Retake that deletes the license photo and shows the empty camera frame again
+  ///
+  /// In en, this message translates to:
+  /// **'Remove License Photo'**
+  String get removeLicensePhoto;
+
+  /// Fieldway design alignment (specs/design-canvas). Create crop listing: quantity times price preview
+  ///
+  /// In en, this message translates to:
+  /// **'Total Listing Value'**
+  String get totalListingValue;
+
+  /// Fieldway design alignment (specs/design-canvas). Checkout: line under the amount
+  ///
+  /// In en, this message translates to:
+  /// **'Held in escrow until you confirm delivery'**
+  String get checkoutHeldInEscrowNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Place order: escrow assurance above the button
+  ///
+  /// In en, this message translates to:
+  /// **'Your money is held safely. The farmer is asked first, then the trucker.'**
+  String get placeOrderEscrowNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen): search box hint; matches the crop and the names on a delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Crop, farmer or driver'**
+  String get deliveriesSearchHint;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries: segmented switch, every delivery not delivered or cancelled
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get delivSegmentActive;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries card waiting for pickup: the trip's departure day after the farmer; {date} is a short date like Thu 30 Oct
+  ///
+  /// In en, this message translates to:
+  /// **'pickup {date}'**
+  String delivPickupOn(String date);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries card: a delivered delivery outside the buyer's report window; {date} is a short date
+  ///
+  /// In en, this message translates to:
+  /// **'Delivered {date}'**
+  String delivDeliveredOn(String date);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) summary line under the title: trucks carrying the viewer's crops now
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 on the road} other{{count} on the road}}'**
+  String delivSummaryOnTheRoad(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) summary line: deliveries not picked up yet
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 waiting for pickup} other{{count} waiting for pickup}}'**
+  String delivSummaryWaiting(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) summary line: delivered within the last 48 hours, the buyer can still report a problem
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 in the check window} other{{count} in the check window}}'**
+  String delivSummaryCheckWindow(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) list card: small word under the arrival window on the right, lowercase
+  ///
+  /// In en, this message translates to:
+  /// **'arriving'**
+  String get delivArrivingCaption;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) list card of a delivery not picked up yet; {date} is a short date like Thu 30 Oct; followed by the map note
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for pickup {date}'**
+  String delivWaitingForPickupOn(String date);
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) list card: short note after the pickup day, lowercase, the live map begins once the truck scans the farmer's QR
+  ///
+  /// In en, this message translates to:
+  /// **'map starts at pickup'**
+  String get delivMapStartsAtPickup;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen) list card of a delivered delivery, after 'Delivered Mon'; lowercase; {time} is a weekday and time like Wed 16:10
+  ///
+  /// In en, this message translates to:
+  /// **'report a problem until {time}'**
+  String delivReportProblemUntil(String time);
+
+  /// Fieldway design alignment (specs/design-canvas). Create crop listing and create trip: offline save note under Save
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on your phone first, sent when you have network.'**
+  String get savedOnPhoneFirstNote;
+
+  /// Fieldway design alignment (specs/design-canvas). My Crops: note under the farmer's own listings
+  ///
+  /// In en, this message translates to:
+  /// **'Only you see your listings here. Buyers see them in Find Crops.'**
+  String get myCropsPrivacyNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home header: big title under the greeting
+  ///
+  /// In en, this message translates to:
+  /// **'Today'**
+  String get homeToday;
+
+  /// Fieldway design alignment (specs/design-canvas). Home action card: a deadline that falls today, with the time of day
+  ///
+  /// In en, this message translates to:
+  /// **'Due today {time}'**
+  String homeDueToday(String time);
+
+  /// Fieldway design alignment (specs/design-canvas). Home: link under the one Action needed card to the other orders waiting; opens the Orders list
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 more} other{{count} more}}'**
+  String homeActionMore(int count);
+
+  /// Fieldway structure pass (specs/design-canvas). Trucker home trip card: the next stop is a drop-off near the town {place}, with the arrival the server estimates ("Next: drop-off in Dukem, about 12:35")
+  ///
+  /// In en, this message translates to:
+  /// **'Next: drop-off in {place}, about {time}'**
+  String homeNextDropoffAbout(String place, String time);
+
+  /// Fieldway structure pass. Trucker home trip card: the next drop-off's town, before any arrival estimate
+  ///
+  /// In en, this message translates to:
+  /// **'Next: drop-off in {place}'**
+  String homeNextDropoffIn(String place);
+
+  /// Fieldway structure pass. Trucker home trip card: the next pickup's town (the listing's place)
+  ///
+  /// In en, this message translates to:
+  /// **'Next: pickup in {place}'**
+  String homeNextPickupIn(String place);
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card: the next stop is a pickup at the farmer {name}
+  ///
+  /// In en, this message translates to:
+  /// **'Next: pickup at {name}'**
+  String homeNextPickup(String name);
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card: the next stop is a drop-off at the buyer {name}
+  ///
+  /// In en, this message translates to:
+  /// **'Next: drop-off at {name}'**
+  String homeNextDropoff(String name);
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card when no trip is posted: line under No active trip
+  ///
+  /// In en, this message translates to:
+  /// **'Post a trip and buyers can book space on it.'**
+  String get homeTripNoneHint;
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card, a booked trip not started: what to do on the trip day
+  ///
+  /// In en, this message translates to:
+  /// **'Scan each farmer\'s QR at pickup'**
+  String get homeTripMatchedLine;
+
+  /// Fieldway design alignment (specs/design-canvas). Farmer home My Crops tile: line under the count
+  ///
+  /// In en, this message translates to:
+  /// **'{active} active, {reserved} reserved'**
+  String homeTileActiveReserved(int active, int reserved);
+
+  /// Fieldway design alignment (specs/design-canvas). Farmer home Pending Orders tile: line under the count
+  ///
+  /// In en, this message translates to:
+  /// **'waiting for you'**
+  String get homeTileWaitingForYou;
+
+  /// Farmer Orders filter: the orders waiting for the farmer to accept or reject, what Home's Pending Orders tile counts
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for you'**
+  String get ordersFilterWaitingForYou;
+
+  /// Fieldway design alignment (specs/design-canvas). Buyer home Escrow tile: line under the amount (the buyer's money in escrow)
+  ///
+  /// In en, this message translates to:
+  /// **'held in escrow'**
+  String get homeTileHeldInEscrow;
+
+  /// Fieldway design alignment (specs/design-canvas). Home Deliveries tile: line under the count of deliveries on the road
+  ///
+  /// In en, this message translates to:
+  /// **'in transit'**
+  String get homeTileInTransit;
+
+  /// Fieldway design alignment (specs/design-canvas). Buyer home Active Orders tile: line under the count
+  ///
+  /// In en, this message translates to:
+  /// **'in progress'**
+  String get homeTileInProgress;
+
+  /// Fieldway design alignment (specs/design-canvas). Buyer home Find Crops tile: line under the count of listings on the market
+  ///
+  /// In en, this message translates to:
+  /// **'available now'**
+  String get homeTileAvailableNow;
+
+  /// Fieldway design alignment (specs/design-canvas). Buyer home Find Trips tile: line under the label (buyers browse every trucker's trips)
+  ///
+  /// In en, this message translates to:
+  /// **'all trucks heading out'**
+  String get homeTileBrowseAllTrips;
+
+  /// Fieldway design alignment (specs/design-canvas). Home: the one-line Recent card; {event} is the latest activity line
+  ///
+  /// In en, this message translates to:
+  /// **'Recent: {event}'**
+  String homeRecentLine(String event);
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail header: the trip's price; {price} is a number
+  ///
+  /// In en, this message translates to:
+  /// **'{price} ETB per quintal'**
+  String tripPricePerQuintalValue(String price);
+
+  /// Fieldway design alignment (specs/design-canvas). Create trip: line under the route preview; no road data, so the distance is a straight line
+  ///
+  /// In en, this message translates to:
+  /// **'About {km} km in a straight line, drawn on your phone'**
+  String createTripRouteDistance(int km);
+
+  /// Fieldway design alignment (specs/design-canvas). Create trip: screen reader label of the route preview
+  ///
+  /// In en, this message translates to:
+  /// **'Route preview from {from} to {to}'**
+  String createTripRoutePreviewLabel(String from, String to);
+
+  /// Fieldway design alignment (specs/design-canvas). Create trip: icon button that swaps From and To
+  ///
+  /// In en, this message translates to:
+  /// **'Swap origin and destination'**
+  String get createTripSwapRoute;
+
+  /// Fieldway design alignment (specs/design-canvas). Create trip: shown above the driver fields only when the profile did not prefill them
+  ///
+  /// In en, this message translates to:
+  /// **'We could not fill your name and phone from your profile. Please add them.'**
+  String get createTripDriverHint;
+
+  /// Fieldway design alignment (specs/design-canvas). Trucker home trip card: heading over the load bar
+  ///
+  /// In en, this message translates to:
+  /// **'Space on this trip'**
+  String get tripSpaceTitle;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: the capacity typed in kilograms is outside the limits (the same limits as 0.1 to 1000 quintals)
+  ///
+  /// In en, this message translates to:
+  /// **'Capacity must be between 10 and 100,000 kg'**
+  String get invalidCapacityKg;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: label of the capacity field, entered in kilograms
+  ///
+  /// In en, this message translates to:
+  /// **'Capacity (kg)'**
+  String get capacityKg;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: label of the price field; 100 kg is one quintal
+  ///
+  /// In en, this message translates to:
+  /// **'Price per 100 kg (ETB)'**
+  String get pricePer100Kg;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Create trip: small muted line under the price field
+  ///
+  /// In en, this message translates to:
+  /// **'(per quintal)'**
+  String get perQuintalInParens;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail: small muted word after a price per 100 kg
+  ///
+  /// In en, this message translates to:
+  /// **'(quintal)'**
+  String get quintalInParens;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail and trip card: the trip's price
+  ///
+  /// In en, this message translates to:
+  /// **'{price} ETB per 100 kg'**
+  String tripPricePer100KgValue(String price);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip card: the unit after the price number
+  ///
+  /// In en, this message translates to:
+  /// **'ETB/100 kg'**
+  String get etbPer100KgShort;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail and trip mode: kilograms booked or loaded out of the truck's capacity; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} of {capacity} kg'**
+  String tripKgOfKg(String amount, String capacity);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail: room left on the truck in kilograms; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{left} kg left'**
+  String tripKgLeft(String left);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip card: kilograms booked out of the capacity; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{booked} of {capacity} kg booked'**
+  String tripKgBooked(String booked, String capacity);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip card and trip tile: room left on a trip in kilograms; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{kg} kg free'**
+  String tripKgFree(String kg);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail: above Accept transport on the booking that waits for the trucker
+  ///
+  /// In en, this message translates to:
+  /// **'It is your turn to answer. After you accept, contact opens.'**
+  String get tripYourTurnNote;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip detail: the link at the end of the pickup scan note
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get tripOpenLink;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip mode: under Check in now, what the button does
+  ///
+  /// In en, this message translates to:
+  /// **'Sends where you are now.'**
+  String get tripModeCheckInSends;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip mode: under Check in now, when the next check-in is due (a clock time)
+  ///
+  /// In en, this message translates to:
+  /// **'Next check-in is due by {time}.'**
+  String tripModeNextDueBy(String time);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip mode: the estimated arrival at the next stop (a clock time)
+  ///
+  /// In en, this message translates to:
+  /// **'about {time}'**
+  String tripModeAboutTime(String time);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. Trip mode: the distance left to the next stop; a number
+  ///
+  /// In en, this message translates to:
+  /// **'about {km} km'**
+  String tripModeAboutKm(String km);
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: title
+  ///
+  /// In en, this message translates to:
+  /// **'The scan did not work'**
+  String get qrFailedTitle;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: after the reason
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing was lost.'**
+  String get qrFailedNothingLost;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: the trucker leaves the scan
+  ///
+  /// In en, this message translates to:
+  /// **'Back to trip'**
+  String get qrFailedBackToTrip;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: note under the actions
+  ///
+  /// In en, this message translates to:
+  /// **'Scanning also works without network.'**
+  String get qrFailedOfflineNote;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: line beside Back at a pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup scan'**
+  String get qrFailedPickupScan;
+
+  /// Design canvas page M (specs/design-canvas), am and om machine drafted, native review owed. QR scan failed page: line beside Back at a delivery
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery scan'**
+  String get qrFailedDeliveryScan;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail: under the capacity once paid orders are booked (trip-listing-api 2.0.0 freezes them)
+  ///
+  /// In en, this message translates to:
+  /// **'Booked trips keep their date, price and route.'**
+  String get tripBookedTermsNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail, trucker with bookings: what to do at pickup (LT-09: sharing starts at the first pickup scan)
+  ///
+  /// In en, this message translates to:
+  /// **'On the trip day, scan each farmer\'s QR at pickup. Live trip starts with the first scan.'**
+  String get tripScanAtPickupNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail: under Cancel Trip when orders are booked (they move to awaiting_transport; the buyer may cancel for a full refund)
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelling hands booked orders back to their buyers, who can cancel for a full refund.'**
+  String get tripCancelBookedNote;
+
+  /// B-2. Trip detail, buyer only: the button that opens the crops listed where this truck starts, with this truck chosen for transport
+  ///
+  /// In en, this message translates to:
+  /// **'Find crops on this route'**
+  String get tripFindCrops;
+
+  /// B-2. Trip detail, buyer only: the line under Find crops on this route; {from} is the place the truck starts from
+  ///
+  /// In en, this message translates to:
+  /// **'Crops listed in {from}. Order one with this truck.'**
+  String tripFindCropsNote(String from);
+
+  /// B-2. Market opened from a trip (buyer): the page title; {from} is the place the truck starts from
+  ///
+  /// In en, this message translates to:
+  /// **'Crops in {from}'**
+  String tripCropsTitle(String from);
+
+  /// B-2. Market opened from a trip (buyer): no listing at the truck's starting place; {from} is that place
+  ///
+  /// In en, this message translates to:
+  /// **'No crops listed in {from} right now'**
+  String tripCropsEmpty(String from);
+
+  /// B-2. Market opened from a trip (buyer): the line under the empty message
+  ///
+  /// In en, this message translates to:
+  /// **'New listings show here as farmers add them.'**
+  String get tripCropsEmptyHint;
+
+  /// B-2. Market opened from a trip (buyer): the line under the list; opening a listing has this truck chosen; {from} is the starting place
+  ///
+  /// In en, this message translates to:
+  /// **'Crops listed in {from}, where this truck starts. Order one with transport to book this truck.'**
+  String tripCropsFootnote(String from);
+
+  /// B-2 and L-7. Shown when the buyer picks, or orders with, a truck whose departure day is over in Ethiopia; the phone falls back to choosing another truck
+  ///
+  /// In en, this message translates to:
+  /// **'This truck already left. Choose another truck.'**
+  String get tripLeftChooseAnother;
+
+  /// L-7. My Trips, trucker: the status pill of an open trip whose departure day is over (buyers no longer see it)
+  ///
+  /// In en, this message translates to:
+  /// **'Date passed'**
+  String get tripStatusDatePassed;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail summary, farmer: the crop money they are paid after delivery
+  ///
+  /// In en, this message translates to:
+  /// **'You receive'**
+  String get orderYouReceive;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail summary, trucker: the transport cost of this order
+  ///
+  /// In en, this message translates to:
+  /// **'Your transport pay'**
+  String get orderYourTransportPay;
+
+  /// Fieldway design alignment (specs/design-canvas). Deliveries (wide screen): the search box hides every delivery
+  ///
+  /// In en, this message translates to:
+  /// **'No delivery matches that name.'**
+  String get deliveriesNoSearchMatch;
+
+  /// Fieldway design alignment (specs/design-canvas). Farmer reject reason sheet: what declining does to the buyer's money
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer gets a full refund.'**
+  String get farmerRejectRefundNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail, farmer answering a new order: note above Reject and Accept
+  ///
+  /// In en, this message translates to:
+  /// **'Contact with the buyer opens when you accept. Rejecting asks why and refunds the buyer.'**
+  String get farmerAnswerNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Checkout: how the payment asks the buyer to confirm it is them (AUTH_040 password up to 10,000 ETB, AUTH_041 Fayda above)
+  ///
+  /// In en, this message translates to:
+  /// **'Payments over 10,000 ETB need Fayda. Smaller ones ask for your password.'**
+  String get checkoutConfirmItsYouNote;
+
+  /// Design canvas page M, PaymentM. Pill on the checkout's Confirm it's you card once the buyer confirmed for this payment. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed with Fayda'**
+  String get checkoutConfirmedWithFayda;
+
+  /// Design canvas page M, PaymentM. Pill on the checkout's Confirm it's you card once the buyer confirmed for this payment. am and om machine drafted, native review owed
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed with your password'**
+  String get checkoutConfirmedWithPassword;
+
+  /// Fieldway design alignment (specs/design-canvas). My Crops card: paid orders out of the listing's quintals; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{ordered} of {total} quintals ordered'**
+  String myCropsOrderedOf(String ordered, String total);
+
+  /// Fieldway design alignment (specs/design-canvas). My Crops card: a listing nobody has paid an order on; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{quantity} quintals, no orders yet'**
+  String myCropsNoOrdersYet(String quantity);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Farmer home header: the small line over the person's first name
+  ///
+  /// In en, this message translates to:
+  /// **'Welcome back,'**
+  String get homeWelcomeBack;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Home cards: the pill or link that opens the card's page (a verb)
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get homeOpen;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Farmer home Escrow tile: the line under the amount
+  ///
+  /// In en, this message translates to:
+  /// **'held for you until the buyer confirms delivery'**
+  String get homeTileHeldUntilConfirmed;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Trucker home trip card: booked kilograms out of the truck's capacity; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{loaded} of {capacity} kg loaded'**
+  String homeTripLoadedKg(String loaded, String capacity);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. After a kilogram share, the same share in quintals, small and muted; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'({part} of {total} quintals)'**
+  String quintalsOfInParens(String part, String total);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Trucker home Payments row: the transport pay held in escrow; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} ETB in escrow'**
+  String homePaymentsInEscrow(String amount);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops card: paid orders out of the listing's kilograms; numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{ordered} of {total} kg ordered'**
+  String myCropsOrderedOfKg(String ordered, String total);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops card: after the listing's kilograms, nobody has paid an order on it
+  ///
+  /// In en, this message translates to:
+  /// **'no orders yet'**
+  String get myCropsNoOrdersShort;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops with no listing: the title under the drawing
+  ///
+  /// In en, this message translates to:
+  /// **'No crops listed yet'**
+  String get myCropsEmptyTitle;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops with no listing: the line under the title
+  ///
+  /// In en, this message translates to:
+  /// **'List your first crop so buyers can find it and send you orders.'**
+  String get myCropsEmptyBody;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. My Crops with no listing: the orange button that opens Create listing
+  ///
+  /// In en, this message translates to:
+  /// **'List a crop'**
+  String get myCropsEmptyAction;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Create and edit listing: the quantity field's label, kilograms
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity (kg)'**
+  String get quantityInKg;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. The kilogram unit after a number field
+  ///
+  /// In en, this message translates to:
+  /// **'kg'**
+  String get kgUnit;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Create and edit listing: the typed kilograms in quintals, short, beside the unit; a number
+  ///
+  /// In en, this message translates to:
+  /// **'({count} q)'**
+  String quintalsShortInParens(String count);
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Create and edit listing: the quantity is under one kilogram
+  ///
+  /// In en, this message translates to:
+  /// **'Enter at least 1 kg.'**
+  String get quantityKgTooSmall;
+
+  /// Design canvas page M (specs/design-canvas); am and om machine drafted, native review owed. Create and edit listing: the quantity is over the server's limit (10,000 quintals)
+  ///
+  /// In en, this message translates to:
+  /// **'Enter at most 1,000,000 kg.'**
+  String get quantityKgTooLarge;
+
+  /// Fieldway design alignment (specs/design-canvas). Create trip: under the departure date; the server refuses new orders on a trip leaving within 24 hours (ESC-15/17)
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers can book until 24 h before you leave.'**
+  String get createTripBookingCutoffNote;
+
+  /// Fieldway design alignment (specs/design-canvas). My Crops card: when the listing was posted; {date} is a short date
+  ///
+  /// In en, this message translates to:
+  /// **'listed {date}'**
+  String myCropsListedOn(String date);
+
+  /// Fieldway design alignment (specs/design-canvas). My Crops card: a listing posted today, in place of "listed {date}"
+  ///
+  /// In en, this message translates to:
+  /// **'listed today'**
+  String get cropsListedToday;
+
+  /// Fieldway design alignment (specs/design-canvas). My Crops: segmented switch label for the farmer's draft listings
+  ///
+  /// In en, this message translates to:
+  /// **'Drafts'**
+  String get cropsDrafts;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail booking card: under the trucker's transport pay for one booked order
+  ///
+  /// In en, this message translates to:
+  /// **'your pay'**
+  String get detailYourPay;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail booking card pill, first half: the farmer has not answered the order yet (followed by detailBookingAskedNext after a middle dot)
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for the farmer'**
+  String get detailBookingWaitingFarmer;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail booking card pill, second half: the trucker is asked after the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'you are asked next'**
+  String get detailBookingAskedNext;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail booking card pill, after "Accepted" and a middle dot: the parties can reach each other
+  ///
+  /// In en, this message translates to:
+  /// **'contact open'**
+  String get detailBookingAcceptedContactOpen;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail header: booked quintals out of the capacity (followed by detailLeft after a middle dot); numbers
+  ///
+  /// In en, this message translates to:
+  /// **'{booked} of {capacity} quintals'**
+  String detailBookedOf(String booked, String capacity);
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail header: the quintals of room left; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{left} left'**
+  String detailLeft(String left);
+
+  /// Fieldway design alignment (specs/design-canvas). Crop detail drawing: the label at the crop's place, after the place name and a middle dot
+  ///
+  /// In en, this message translates to:
+  /// **'crop here'**
+  String get detailCropHere;
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail transport request: the farmer said yes and the trucker's deadline; {time} is the deadline on the viewer's clock
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer accepted. Please answer by {time}.'**
+  String detailFarmerAcceptedAnswerBy(String time);
+
+  /// Fieldway design alignment (specs/design-canvas). Trip detail header: the label over the load bar
+  ///
+  /// In en, this message translates to:
+  /// **'Booked'**
+  String get detailBooked;
+
+  /// Fieldway design alignment (specs/design-canvas). Crop detail header: the listing's quantity still for sale; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{quintals} quintals left'**
+  String detailQuintalsLeft(String quintals);
+
+  /// Fieldway design alignment (specs/design-canvas). Crop detail drawing: straight-line distance from the crop to the buyer's place
+  ///
+  /// In en, this message translates to:
+  /// **'About {km} km to you'**
+  String detailKmToYou(int km);
+
+  /// Fieldway design alignment (specs/design-canvas). Crop detail price card title: the quantity the price is for, with its unit ("For 1,500 kg")
+  ///
+  /// In en, this message translates to:
+  /// **'For {quantity}'**
+  String detailForQuantity(String quantity);
+
+  /// Fieldway design alignment (specs/design-canvas). Suggested transport card: the unit under the price per quintal, short
+  ///
+  /// In en, this message translates to:
+  /// **'ETB/q'**
+  String get detailEtbPerQuintalShort;
+
+  /// Fieldway design alignment (specs/design-canvas). Place order, under the quantity: the chosen trip has room for it; the room left
+  ///
+  /// In en, this message translates to:
+  /// **'fits this trip ({quintals} quintals left)'**
+  String detailFitsTrip(String quintals);
+
+  /// Fieldway design alignment (specs/design-canvas). Place order, under the quantity: the chosen trip cannot carry it all; the room left
+  ///
+  /// In en, this message translates to:
+  /// **'more than this trip has room for ({quintals} quintals left)'**
+  String detailExceedsTrip(String quintals);
+
+  /// Fieldway design alignment (specs/design-canvas). Place order transport card: link back to pick another trip
+  ///
+  /// In en, this message translates to:
+  /// **'Change'**
+  String get detailChange;
+
+  /// Fieldway design alignment (specs/design-canvas). Place order quantity: screen reader label of the minus button (100 kg less)
+  ///
+  /// In en, this message translates to:
+  /// **'Less'**
+  String get detailLess;
+
+  /// Fieldway design alignment (specs/design-canvas). Place order quantity: screen reader label of the plus button (100 kg more)
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get detailMore;
+
+  /// Fieldway design alignment (specs/design-canvas). Create listing, under the location: what to do when the phone has no GPS fix
+  ///
+  /// In en, this message translates to:
+  /// **'No GPS? Pick your wereda from the list instead.'**
+  String get detailGpsPickFromList;
+
+  /// Fieldway design alignment (specs/design-canvas). Create listing, under the description: why a phone number is refused there
+  ///
+  /// In en, this message translates to:
+  /// **'No phone numbers: contact opens after payment is held in escrow.'**
+  String get detailNoPhoneNumbersNote;
+
+  /// Fieldway design alignment (specs/design-canvas). Create listing location drawing: the label at the farmer's position
+  ///
+  /// In en, this message translates to:
+  /// **'Your farm'**
+  String get detailYourFarm;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail header, farmer answering: the page title
+  ///
+  /// In en, this message translates to:
+  /// **'New order'**
+  String get detailNewOrderTitle;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail header, farmer answering: the crop and weight under the title ("Wheat · 1,200 kg from your listing")
+  ///
+  /// In en, this message translates to:
+  /// **'{what} from your listing'**
+  String detailFromYourListing(String what);
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail, farmer and trucker cards: the buyer's money is held
+  ///
+  /// In en, this message translates to:
+  /// **'Paid into escrow'**
+  String get detailPaidIntoEscrow;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail, farmer card: the row naming who collects the crop
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup'**
+  String get detailPickupLabel;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail, farmer card pickup row: the trucker's truck
+  ///
+  /// In en, this message translates to:
+  /// **'{name}\'s truck'**
+  String detailTruckOf(String name);
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail, farmer card pickup row: a self-pickup order, no truck
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer collects it'**
+  String get detailBuyerCollects;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail, buyer: the row at the foot with the money held
+  ///
+  /// In en, this message translates to:
+  /// **'Held in escrow'**
+  String get detailHeldInEscrow;
+
+  /// Fieldway design alignment (specs/design-canvas). Who has agreed, first row: the buyer paid; {party} is "You" or the buyer's name, drawn in bold
+  ///
+  /// In en, this message translates to:
+  /// **'{party} paid'**
+  String detailPartyPaid(String party);
+
+  /// Fieldway design alignment (specs/design-canvas). Who has agreed rows: the party's name and role ("Almaz Bekele, farmer"); the name is drawn in bold
+  ///
+  /// In en, this message translates to:
+  /// **'{name}, {role}'**
+  String detailPartyRole(String name, String role);
+
+  /// Fieldway design alignment (specs/design-canvas). Who has agreed rows: the viewer's own name
+  ///
+  /// In en, this message translates to:
+  /// **'You'**
+  String get detailYou;
+
+  /// Fieldway design alignment (specs/design-canvas). Order timeline card: the steps after the four shown, as a list; then the tap hint
+  ///
+  /// In en, this message translates to:
+  /// **'Then {steps}. Tap a step to read what it means.'**
+  String detailTimelineThen(String steps);
+
+  /// Fieldway design alignment (specs/design-canvas). Order timeline card: the tap hint when every step is shown
+  ///
+  /// In en, this message translates to:
+  /// **'Tap a step to read what it means.'**
+  String get detailTimelineTapStep;
+
+  /// Fieldway design alignment (specs/design-canvas). Joins a list's last item ("A, B and C"); {head} is the comma-joined start
+  ///
+  /// In en, this message translates to:
+  /// **'{head} and {last}'**
+  String detailListAnd(String head, String last);
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail contact card: the trucker's row while they have not answered the transport request
+  ///
+  /// In en, this message translates to:
+  /// **'Contact opens when the trucker accepts'**
+  String get detailContactOpensWhenTruckerAccepts;
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail contact card: screen reader label of the message button
+  ///
+  /// In en, this message translates to:
+  /// **'Message {name}'**
+  String detailMessageParty(String name);
+
+  /// Fieldway design alignment (specs/design-canvas). Order detail contact card: screen reader label of the call button (opens Call and Copy)
+  ///
+  /// In en, this message translates to:
+  /// **'Call {name}'**
+  String detailCallParty(String name);
+
+  /// Fieldway design alignment (specs/design-canvas). Trip log, buyer: an unnamed stop before the buyer's drop-off; {minutes} is the estimate at the pace of the arrival window
+  ///
+  /// In en, this message translates to:
+  /// **'About {minutes} min, then on to you'**
+  String liveTripLogStopAhead(int minutes);
+
+  /// Fieldway structure pass (specs/design-canvas). Find Crops transport pill: the room left on the trip, short ("Transport Thu · 18 q room"); q is quintals
+  ///
+  /// In en, this message translates to:
+  /// **'{quintals} q room'**
+  String marketQuintalsRoom(String quintals);
+
+  /// Fieldway structure pass. Crop detail suggested transport: the room left on the trip ("Meki → Addis Ababa · 18 quintals room · 4.7")
+  ///
+  /// In en, this message translates to:
+  /// **'{quintals} quintals room'**
+  String detailQuintalsRoom(String quintals);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops card: the one trip this week that can carry the crop; {day} is a short weekday, followed by the room left
+  ///
+  /// In en, this message translates to:
+  /// **'Transport {day}'**
+  String marketTransportOn(String day);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops card: how many trips this week can carry the crop
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 trip this week} other{{count} trips this week}}'**
+  String marketTripsThisWeek(int count);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops card: no trip this week can carry the crop
+  ///
+  /// In en, this message translates to:
+  /// **'No trip yet'**
+  String get marketNoTripYet;
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops: line under the list; the buyer sees every listing, those a trip this week can carry to their drop-off place first
+  ///
+  /// In en, this message translates to:
+  /// **'Every farmer\'s listing, sorted by the best match for {place}.'**
+  String marketFootnote(String place);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops: line under the list when the buyer's profile has no place; the listings with a trip this week come first
+  ///
+  /// In en, this message translates to:
+  /// **'Every farmer\'s listing, sorted by the best transport match.'**
+  String get marketFootnoteNoPlace;
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops card title after the crop: what the listing still has; a number
+  ///
+  /// In en, this message translates to:
+  /// **'{quantity} quintals left'**
+  String marketQuintalsLeft(String quantity);
+
+  /// Action needed card (Home, and the buyer's Orders tab): the black pill that opens the waiting order. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get actionOpen;
+
+  /// Order detail, Who has agreed: the pill on another party's row while their answer is awaited; {time} is a clock time, with the day when not today. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Answer due {time}'**
+  String commitmentAnswerDue(String time);
+
+  /// Order detail: names the farmer inside the buyer's waiting note when the farmer has no shown name. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'the farmer'**
+  String get commitmentTheFarmer;
+
+  /// Order detail: names the trucker inside the buyer's waiting note when the trucker has no shown name. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'the trucker'**
+  String get commitmentTheTrucker;
+
+  /// Order detail: names the farmer inside the buyer's waiting note ("Now waiting for Almaz Bekele, the farmer, to answer"). Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{name}, the farmer,'**
+  String commitmentWhoFarmer(String name);
+
+  /// Order detail: names the trucker inside the buyer's waiting note ("Now waiting for Dawit Tesfaye, the trucker, to answer"). Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{name}, the trucker,'**
+  String commitmentWhoTrucker(String name);
+
+  /// Order detail, buyer: who the paid order waits for and by when; the buyer has nothing to do. {who} is the party with their role. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Now waiting for {who} to answer by {time}. You do not need to do anything.'**
+  String commitmentBuyerWaitingOnBy(String who, String time);
+
+  /// Order detail, buyer: who the paid order waits for, when the order carries no deadline; the buyer has nothing to do. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Now waiting for {who} to answer. You do not need to do anything.'**
+  String commitmentBuyerWaitingOn(String who);
+
+  /// Order detail, buyer: follows the waiting note while the farmer decides on an order with transport. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When the farmer accepts, the trucker is asked next.'**
+  String get commitmentThenTruckerAsked;
+
+  /// Order detail, buyer: follows the waiting note while the trucker decides. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When the trucker accepts, contact opens here.'**
+  String get commitmentContactOpensOnTruckerAccept;
+
+  /// Order detail, farmer answering a new order: under the farmer's own row; {time} is a clock time, with the day when not today. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'It is your turn: accept or reject by {time}.'**
+  String commitmentYourTurnBy(String time);
+
+  /// Order detail, farmer answering a new order that carries no deadline: under the farmer's own row. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'It is your turn: accept or reject.'**
+  String get commitmentYourTurn;
+
+  /// Order detail, farmer answering a new order with transport: what accepting does, after the your-turn sentence. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When you accept, the trucker is asked next and the buyer\'s payment stays in escrow.'**
+  String get commitmentFarmerAcceptThenTrucker;
+
+  /// Order detail, farmer answering a new order the buyer collects: what accepting does, after the your-turn sentence. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'When you accept, the buyer\'s payment stays in escrow.'**
+  String get commitmentFarmerAcceptEscrowStays;
+
+  /// Farmer's confirm step before rejecting an order: the sheet's title. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Reject this order?'**
+  String get rejectConfirmTitle;
+
+  /// Farmer's confirm step before rejecting an order: what rejecting means for the buyer and their money. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer is told you cannot fill this order, and their payment is refunded from escrow.'**
+  String get rejectConfirmBody;
+
+  /// Farmer's confirm step before rejecting an order: the reason the farmer just picked. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Reason: {reason}'**
+  String rejectConfirmReason(String reason);
+
+  /// Farmer's confirm step before rejecting an order: the red destructive button. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Yes, reject order'**
+  String get rejectConfirmYes;
+
+  /// Farmer's confirm step before rejecting an order: the way back, nothing is rejected. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep order'**
+  String get rejectConfirmKeep;
+
+  /// Order detail contact row: the label under the round Message button. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Message'**
+  String get contactMessageLabel;
+
+  /// Place order, under the quantity: the chosen trip has room for it; {quantity} is the room left as a formatted kg amount with its unit, the quintals follow in parentheses. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'fits this trip, {quantity} left'**
+  String placeOrderFitsTripKg(String quantity);
+
+  /// Place order, under the quantity: the chosen trip has no room for it; {quantity} is the room left as a formatted kg amount with its unit, the quintals follow in parentheses. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'more than this trip has room for, {quantity} left'**
+  String placeOrderExceedsTripKg(String quantity);
+
+  /// Suggested transport card: the trip's price per quintal in birr, in parentheses under the price per kg ("1.50 ETB/kg (150/quintal)"). Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'({price}/quintal)'**
+  String pricePerQuintalInParens(String price);
+
+  /// Place Order transport row: the trip's price per kg first, the price per quintal in parentheses ("1.50 ETB per kg (150 per quintal)"). Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{perKg} ETB per kg ({perQuintal} per quintal)'**
+  String transportPricePerKgAndQuintal(String perKg, String perQuintal);
+
+  /// Create buying intent: label of the quantity field; the buyer types kilograms, the app stores quintals. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'Quantity needed (kg)'**
+  String get quantityNeededKg;
+
+  /// Find Crops card title after the crop: what the listing still has, in kilograms ("2,800 kg left"); {quantity} is a formatted kg amount with its unit. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{quantity} left'**
+  String marketKgLeft(String quantity);
+
+  /// Find Crops transport pill and suggested transport line: the room left on the trip in kilograms ("1,800 kg room"); {quantity} is a formatted kg amount with its unit. Design canvas page M (specs/design-canvas). am and om machine drafted, native review owed.
+  ///
+  /// In en, this message translates to:
+  /// **'{quantity} room'**
+  String marketKgRoom(String quantity);
+
+  /// Fieldway design alignment (specs/design-canvas). Find Crops: the header button that shows or hides the search box and the price range
+  ///
+  /// In en, this message translates to:
+  /// **'Search and price filters'**
+  String get marketSearchToggle;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: the order's money still held; {amount} is the sum with ETB
+  ///
+  /// In en, this message translates to:
+  /// **'{amount} in escrow'**
+  String liveTripEscrowAmount(String amount);
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: chip, the money is not paid out yet
+  ///
+  /// In en, this message translates to:
+  /// **'Release pending'**
+  String get liveTripReleasePending;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: step done when the buyer scanned the driver's QR
+  ///
+  /// In en, this message translates to:
+  /// **'You confirmed delivery'**
+  String get liveTripYouConfirmedDelivery;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: step, the end of the 48 h window to report a problem
+  ///
+  /// In en, this message translates to:
+  /// **'Check window ends'**
+  String get liveTripCheckWindowEnds;
+
+  /// LT-11 live trip (specs/features/live-trip.md section 4). Buyer delivered board, escrow card: who is paid what after the window; {amount} is the sum with ETB
+  ///
+  /// In en, this message translates to:
+  /// **'{name} gets {amount}'**
+  String liveTripPartyGets(String name, String amount);
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: title of the required photo section
+  ///
+  /// In en, this message translates to:
+  /// **'Photos of your crop'**
+  String get cropPhotosTitle;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: what photos buyers need, under the section title
+  ///
+  /// In en, this message translates to:
+  /// **'Add 2 to 4 clear photos in daylight: the whole pile and a close-up of the grain.'**
+  String get cropPhotosHint;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: how many photos are added out of the most allowed
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of {max}'**
+  String cropPhotosCount(int count, int max);
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: button that opens the camera
+  ///
+  /// In en, this message translates to:
+  /// **'Take photo'**
+  String get cropPhotosTake;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: button that opens the phone's photo gallery
+  ///
+  /// In en, this message translates to:
+  /// **'From gallery'**
+  String get cropPhotosGallery;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: tooltip of the button that removes one photo
+  ///
+  /// In en, this message translates to:
+  /// **'Remove photo'**
+  String get cropPhotosRemove;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: error when saving with too few photos
+  ///
+  /// In en, this message translates to:
+  /// **'Add at least {min} photos of your crop.'**
+  String cropPhotosRequired(int min);
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: shown when the farmer picked more photos than fit
+  ///
+  /// In en, this message translates to:
+  /// **'You can add up to {max} photos.'**
+  String cropPhotosLimitReached(int max);
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: a picked file is not a usable image
+  ///
+  /// In en, this message translates to:
+  /// **'That file is not a photo we can use. Choose a JPEG, PNG or WebP photo.'**
+  String get cropPhotosUnsupported;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: a picked photo is over the 10 MB upload cap
+  ///
+  /// In en, this message translates to:
+  /// **'That photo is too large. Choose a smaller one.'**
+  String get cropPhotosTooLarge;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: the camera or gallery failed to open
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open the camera or gallery. Check the app\'s permissions and try again.'**
+  String get cropPhotosPickFailed;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing (web): saving failed because a photo upload failed
+  ///
+  /// In en, this message translates to:
+  /// **'The photos did not upload. Check your connection and save again.'**
+  String get cropPhotosUploadFailed;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Create crop listing: tag on the first photo, the one buyers see in the list
+  ///
+  /// In en, this message translates to:
+  /// **'Cover'**
+  String get cropPhotoCover;
+
+  /// crop-listing-api.md 1.6.0, crop photos. Crop photos: screen reader label of one photo
+  ///
+  /// In en, this message translates to:
+  /// **'Photo {index} of {count}'**
+  String cropPhotoPosition(int index, int count);
+
+  /// crop-listing-api.md 1.6.0, crop photos. Marketplace card: screen reader label of the listing photo with its photo count
+  ///
+  /// In en, this message translates to:
+  /// **'{count} photos'**
+  String cropPhotosCountLabel(int count);
+
+  /// crop-listing-api.md 1.6.0, crop photos. Crop photos: screen reader label when a photo cannot be shown (still processing or offline)
+  ///
+  /// In en, this message translates to:
+  /// **'Photo not available yet'**
+  String get cropPhotoUnavailable;
+
+  /// Crop photos: tooltip of the arrow button that shows the photo before this one (listing detail and full-screen viewer)
+  ///
+  /// In en, this message translates to:
+  /// **'Previous photo'**
+  String get cropPhotoPrevious;
+
+  /// Crop photos: tooltip of the arrow button that shows the photo after this one (listing detail and full-screen viewer)
+  ///
+  /// In en, this message translates to:
+  /// **'Next photo'**
+  String get cropPhotoNext;
+
+  /// QR scan (T-1): button under the camera, and on the camera error panel, to type the 9-digit handoff code instead of scanning
+  ///
+  /// In en, this message translates to:
+  /// **'Type the code instead'**
+  String get qrTypeCodeInstead;
+
+  /// QR scan (T-1): title of the page where the 9-digit handoff code is typed
+  ///
+  /// In en, this message translates to:
+  /// **'Type the code'**
+  String get qrTypeCodeTitle;
+
+  /// QR scan (T-1), trucker at pickup: where the typed code comes from
+  ///
+  /// In en, this message translates to:
+  /// **'Ask the farmer to tap \"Camera not working?\" on their QR screen, then type the 9 digits shown there.'**
+  String get qrTypeCodePickupHint;
+
+  /// QR scan (T-1), buyer at drop-off: where the typed code comes from, and the warning not to type it before the crops arrived
+  ///
+  /// In en, this message translates to:
+  /// **'Ask the trucker to open the drop-off QR and tap \"Camera not working?\", then type the 9 digits shown there. Type it only when the crops are in front of you.'**
+  String get qrTypeCodeDropoffHint;
+
+  /// QR scan (T-1), buyer collecting at the farm (self-pickup): where the typed code comes from, and the warning
+  ///
+  /// In en, this message translates to:
+  /// **'Ask the farmer to tap \"Camera not working?\" on their QR screen, then type the 9 digits shown there. Type it only when the crops are in front of you.'**
+  String get qrTypeCodeSelfPickupHint;
+
+  /// QR scan (T-1): label of the field for the typed handoff code
+  ///
+  /// In en, this message translates to:
+  /// **'9-digit code'**
+  String get qrTypeCodeLabel;
+
+  /// QR scan (T-1): button that checks the typed code's check digit on the phone
+  ///
+  /// In en, this message translates to:
+  /// **'Check code'**
+  String get qrTypeCodeCheck;
+
+  /// QR scan (T-1): the typed code's check digit is wrong (a mistyped or swapped digit)
+  ///
+  /// In en, this message translates to:
+  /// **'This code has a typo. Check each digit and type it again.'**
+  String get qrTypeCodeTypo;
+
+  /// QR scan (T-1): the typed code has fewer than 9 digits
+  ///
+  /// In en, this message translates to:
+  /// **'Type all 9 digits.'**
+  String get qrTypeCodeIncomplete;
+
+  /// QR scan: after a scan the phone has only read the code; the server checks it once the confirm reaches it (replaces "Verification Passed")
+  ///
+  /// In en, this message translates to:
+  /// **'QR code read. The server checks it when your phone is online.'**
+  String get deliveryQrReadCheckedOnline;
+
+  /// QR scan (T-1): after a typed code passed its check digit; the server checks the code itself
+  ///
+  /// In en, this message translates to:
+  /// **'Code typed. The server checks it when your phone is online.'**
+  String get deliveryCodeTypedCheckedOnline;
+
+  /// QR scan (T-1): no GPS fix, and a typed code cannot be confirmed without one
+  ///
+  /// In en, this message translates to:
+  /// **'A typed code needs your location. Turn on location, then tap Try location again.'**
+  String get qrTypedCodeNeedsGps;
+
+  /// QR scan (T-1): button that asks for a GPS fix again
+  ///
+  /// In en, this message translates to:
+  /// **'Try location again'**
+  String get qrRetryLocation;
+
+  /// FUP-138. am and om machine drafted, native review owed. QR scan, self-pickup: no usable GPS fix, so Confirm stays off (the server refuses a self-pickup confirm without one). The reason follows on its own line
+  ///
+  /// In en, this message translates to:
+  /// **'Confirming a pickup at the farm needs your location.'**
+  String get qrSelfPickupNeedsGps;
+
+  /// FUP-138. am and om machine drafted, native review owed. QR scan, self-pickup: no fix came in time, or the browser gave no position (web cannot tell that location is off)
+  ///
+  /// In en, this message translates to:
+  /// **'No location signal yet. Check that location is on, move to an open spot outside, then tap Try location again.'**
+  String get qrLocationNoSignal;
+
+  /// QR scan (T-1), mobile: snackbar after a pickup confirmed with a typed code was queued
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup saved. The code is checked when your phone is online.'**
+  String get qrPickupSavedCheckOnline;
+
+  /// QR scan (T-1), mobile: snackbar after a delivery confirmed with a typed code was queued
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery saved. The code is checked when your phone is online.'**
+  String get qrDeliverySavedCheckOnline;
+
+  /// QR scan (T-1): camera error panel title when the camera permission was refused
+  ///
+  /// In en, this message translates to:
+  /// **'The camera is not allowed'**
+  String get qrCameraDeniedTitle;
+
+  /// QR scan (T-1), Android: how to allow the camera
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the camera for WeredaConnect in your phone\'s settings, then tap Try Again.'**
+  String get qrCameraDeniedText;
+
+  /// QR scan (T-1), web: how to allow the camera
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the camera for this site in your browser\'s settings, then tap Try Again.'**
+  String get qrCameraDeniedTextWeb;
+
+  /// QR scan (T-1): camera error panel title when the camera is missing or busy
+  ///
+  /// In en, this message translates to:
+  /// **'The camera is not working'**
+  String get qrCameraUnavailableTitle;
+
+  /// QR scan (T-1): what to do when the camera is missing or busy
+  ///
+  /// In en, this message translates to:
+  /// **'Close other apps that use the camera, then tap Try Again. You can also type the code instead.'**
+  String get qrCameraUnavailableText;
+
+  /// QR scan (T-1), Android: opens the app's page in the phone's settings
+  ///
+  /// In en, this message translates to:
+  /// **'Open settings'**
+  String get qrCameraOpenSettings;
+
+  /// QR screen (T-1): reveals the 9-digit code under the QR
+  ///
+  /// In en, this message translates to:
+  /// **'Camera not working?'**
+  String get qrCameraNotWorking;
+
+  /// QR screen (T-1): heading over the revealed 9-digit code
+  ///
+  /// In en, this message translates to:
+  /// **'Code to type instead of scanning'**
+  String get qrShowCodeTitle;
+
+  /// QR screen (T-1): warning under the revealed 9-digit code
+  ///
+  /// In en, this message translates to:
+  /// **'Show this code only to the person in front of you. Never read it out on the phone or send it in a message.'**
+  String get qrShowCodeWarning;
+
+  /// Trucker (T-3), trip mode and delivery detail: opens the QR the buyer scans at the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Show drop-off QR'**
+  String get deliveryShowDropoffQr;
+
+  /// Trucker (T-3): title of the drop-off QR screen
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off QR'**
+  String get deliveryDropoffQrTitle;
+
+  /// Trucker (T-3): instruction on the drop-off QR screen
+  ///
+  /// In en, this message translates to:
+  /// **'Show this QR code to the buyer when you hand over the crops'**
+  String get deliveryDropoffQrInstruction;
+
+  /// Trucker (T-3): note on the drop-off QR screen
+  ///
+  /// In en, this message translates to:
+  /// **'Kept on this phone from your pickup scan. It works offline, and the buyer\'s scan confirms the delivery.'**
+  String get deliveryDropoffQrNote;
+
+  /// Trucker (T-3): drop-off screen when the pickup was confirmed with a typed code
+  ///
+  /// In en, this message translates to:
+  /// **'You confirmed the pickup with a typed code, so there is no QR to show. The buyer types this code instead.'**
+  String get deliveryDropoffCodeOnly;
+
+  /// Delivery error (T-1, DELIVERY_CODE_MISMATCH): the server refused a typed handoff code
+  ///
+  /// In en, this message translates to:
+  /// **'The typed code does not match this delivery, so it was not confirmed. Check the code and try again.'**
+  String get deliveryErrorCodeMismatch;
+
+  /// Delivery error (T-1, DELIVERY_CODE_LOCKED): five wrong typed codes
+  ///
+  /// In en, this message translates to:
+  /// **'Too many wrong codes for this delivery, so typed codes are locked. Scan the QR code instead, or ask the person showing it to make a new code.'**
+  String get deliveryErrorCodeLocked;
+
+  /// Dispute screen on web (FUP-43): the server asked for the password again (AUTH_040) and the prompt was cancelled, so the dispute was not sent
+  ///
+  /// In en, this message translates to:
+  /// **'Dispute not sent. Confirm it\'s you to send it.'**
+  String get deliveryDisputeNotConfirmed;
+
+  /// Delivery error (T-1, DELIVERY_CODE_GPS_REQUIRED): a paid delivery's typed code came without GPS
+  ///
+  /// In en, this message translates to:
+  /// **'A typed code needs your location. Turn on location and try again.'**
+  String get deliveryErrorCodeGpsRequired;
+
+  /// Trip mode (T-5): button and confirm action that stop sharing the truck's location for the trip
+  ///
+  /// In en, this message translates to:
+  /// **'Stop sharing'**
+  String get tripModeStopSharing;
+
+  /// Trip mode (T-5): confirm dialog title
+  ///
+  /// In en, this message translates to:
+  /// **'Stop sharing for this trip?'**
+  String get tripModeStopSharingTitle;
+
+  /// Trip mode (T-5): confirm dialog text, what stopping costs
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer loses the truck\'s live position, and the automatic in-transit check-ins stop. QR scans still confirm pickup and delivery. Sharing cannot be turned back on for this trip.'**
+  String get tripModeStopSharingBody;
+
+  /// Trip mode (T-5): sharing card after the trucker stopped sharing
+  ///
+  /// In en, this message translates to:
+  /// **'Sharing stopped'**
+  String get tripModeStoppedTitle;
+
+  /// Trip mode (T-5): sharing card text after the trucker stopped sharing
+  ///
+  /// In en, this message translates to:
+  /// **'You stopped sharing for this trip. QR scans still confirm pickup and delivery.'**
+  String get tripModeStoppedText;
+
+  /// Trip mode (T-2): sharing card of a trip opened from the home card before any sharing answer
+  ///
+  /// In en, this message translates to:
+  /// **'Your location is not shared for this trip yet. It is set at your first pickup scan.'**
+  String get tripModeNotSharingYet;
+
+  /// Trucker home (T-6): trip card when the trip cannot be read, with Retry
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load your trip. Check your connection and try again.'**
+  String get homeTripLoadFailed;
+
+  /// Trip detail, owner (T-2): button per pickup still waiting; name is the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'Scan pickup QR: {name}'**
+  String tripScanPickupQrFor(String name);
+
+  /// Delivery error (T-1, DELIVERY_CODE_LOCKED_DROPOFF): five wrong typed codes at a trucker's drop-off, whose code cannot be renewed; the way out is the trucker's QR or support
+  ///
+  /// In en, this message translates to:
+  /// **'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR if they have one. If not, contact support: they can confirm the handoff with you and the trucker.'**
+  String get deliveryErrorCodeLockedDropoff;
+
+  /// Trucker (ESC-35): note on the drop-off QR screen for the trucker's own code
+  ///
+  /// In en, this message translates to:
+  /// **'Made on this phone for this delivery. It works offline, and the buyer\'s scan or typed code confirms the delivery. Lost or locked? Make a new code.'**
+  String get deliveryDropoffQrOwnNote;
+
+  /// Trucker (ESC-35): button on the drop-off QR screen that makes a new code (replaces a lost or locked one)
+  ///
+  /// In en, this message translates to:
+  /// **'New drop-off code'**
+  String get deliveryDropoffNewCode;
+
+  /// Trucker (ESC-35): the drop-off code could not be registered with the server (offline web)
+  ///
+  /// In en, this message translates to:
+  /// **'Not on the server yet. It is sent again each time you open this QR while online, and the buyer\'s confirm waits for it.'**
+  String get deliveryDropoffQrNotSent;
+
+  /// Buyer at a trucker's drop-off (ESC-35): the server waits for the trucker's drop-off code to sync
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker\'s drop-off code has not reached the server yet. Ask the trucker to open the drop-off QR while online, then try again.'**
+  String get deliveryErrorDropoffQrPending;
+
+  /// Buyer at a trucker's drop-off (ESC-35, DELIVERY_CODE_LOCKED): five wrong codes for the trucker's own code, which the trucker can renew
+  ///
+  /// In en, this message translates to:
+  /// **'Too many wrong codes for this drop-off, so typed codes are locked. Scan the trucker\'s drop-off QR instead, or ask the trucker to make a new code.'**
+  String get deliveryErrorDropoffCodeLocked;
+
+  /// Trucker (ESC-35): drop-off QR screen when this phone keeps no drop-off code
+  ///
+  /// In en, this message translates to:
+  /// **'This phone has no drop-off code for this delivery. If you made one on another phone or browser, show that one. Or make a new code here.'**
+  String get deliveryDropoffNoCodeHere;
+
+  /// Trucker (ESC-35): the server keeps another drop-off code for this delivery (DROPOFF_CODE_SUPERSEDED)
+  ///
+  /// In en, this message translates to:
+  /// **'A newer drop-off code was made on another phone or browser, so this one does not work. Show that one, or make a new code here.'**
+  String get deliveryDropoffQrSuperseded;
+
+  /// Trucker (ESC-35): title of the confirmation before New drop-off code
+  ///
+  /// In en, this message translates to:
+  /// **'Make a new drop-off code?'**
+  String get deliveryDropoffNewCodeConfirmTitle;
+
+  /// Trucker (ESC-35): body of the confirmation before New drop-off code
+  ///
+  /// In en, this message translates to:
+  /// **'Any drop-off code shown before, on this or another phone, stops working. Show the buyer only the new one.'**
+  String get deliveryDropoffNewCodeConfirmBody;
+
+  /// Farmer QR screen (T-1): the delivery left pending meanwhile, so no new QR (nonce) is made; the trucker shows a drop-off code of their own (ESC-35)
+  ///
+  /// In en, this message translates to:
+  /// **'This delivery was already picked up, so no new QR code is made. The trucker now shows the buyer a drop-off code of their own.'**
+  String get deliveryQrAlreadyPickedUp;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Place order: label of the optional field where the buyer names a landmark for the driver
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off landmark (optional)'**
+  String get dropoffNoteLabel;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Place order and edit sheet: example text inside the empty field
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Merkato, near Anwar Mosque'**
+  String get dropoffNoteHint;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Place order and edit sheet: who sees the landmark and until when it can change
+  ///
+  /// In en, this message translates to:
+  /// **'Helps the driver find you. The farmer and the driver see it. You can change it until pickup.'**
+  String get dropoffNoteHelper;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Order detail card title and the edit sheet title
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off landmark'**
+  String get dropoffNoteTitle;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Order detail card for the buyer when no landmark is set yet
+  ///
+  /// In en, this message translates to:
+  /// **'Add a landmark so the driver finds you.'**
+  String get dropoffNoteEmpty;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Order detail card button that opens the edit sheet when no landmark is set
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get dropoffNoteAdd;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Snackbar after the buyer saved the landmark and it reached the server
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off landmark saved.'**
+  String get dropoffNoteSaved;
+
+  /// LT-12 drop-off landmark (specs/features/live-trip.md section 10, order-lifecycle.md 2.5.0). Error when the server refuses a landmark change after pickup (ORDER_DROPOFF_NOTE_LOCKED)
+  ///
+  /// In en, this message translates to:
+  /// **'The goods were picked up, so the drop-off landmark can no longer be changed.'**
+  String get errorDropoffNoteLocked;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Low-key button on a crop or trip detail screen, buyers only
+  ///
+  /// In en, this message translates to:
+  /// **'Report this listing'**
+  String get reportListing;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Title of the report sheet
+  ///
+  /// In en, this message translates to:
+  /// **'What is wrong with this listing?'**
+  String get reportListingTitle;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Note under the title: the reporter stays hidden from the listing's owner
+  ///
+  /// In en, this message translates to:
+  /// **'The owner will not see who reported it. Our team reviews every report.'**
+  String get reportListingPrivacyNote;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Reason: a phone number or contact in the listing, its photos or its voice note
+  ///
+  /// In en, this message translates to:
+  /// **'Shares a phone number or other contact'**
+  String get reportReasonContactInfo;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Reason: price, quantity, crop, route or photos are wrong
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong or misleading details'**
+  String get reportReasonMisleading;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Reason: fraud, for example asks for payment outside the app
+  ///
+  /// In en, this message translates to:
+  /// **'Looks like a scam'**
+  String get reportReasonScam;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Reason: offensive or inappropriate content
+  ///
+  /// In en, this message translates to:
+  /// **'Offensive or inappropriate'**
+  String get reportReasonOffensive;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Reason: anything else
+  ///
+  /// In en, this message translates to:
+  /// **'Something else'**
+  String get reportReasonOther;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Send button of the report sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Send report'**
+  String get reportListingSend;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Snackbar after the report was sent or queued to send when online
+  ///
+  /// In en, this message translates to:
+  /// **'Thank you. Our team will review this listing.'**
+  String get reportListingSent;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). Snackbar when the server already holds this buyer's report of the listing
+  ///
+  /// In en, this message translates to:
+  /// **'You already reported this listing.'**
+  String get reportListingAlreadySent;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). The server refused the report for good (for example the listing no longer exists)
+  ///
+  /// In en, this message translates to:
+  /// **'Your report could not be sent.'**
+  String get errorReportNotSent;
+
+  /// FUP-67 report a listing (listing-report-api.md 1.0.0). The buyer reached the daily report limit
+  ///
+  /// In en, this message translates to:
+  /// **'You can send up to {count} reports a day. Try again tomorrow.'**
+  String errorReportLimitReached(int count);
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Place order and order detail: label of the place picker where the goods go (the order's own drop-off point)
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off place'**
+  String get deliveryPlaceLabel;
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Place order and change sheet: what the place is for, who sees it and until when it can change
+  ///
+  /// In en, this message translates to:
+  /// **'Where the truck brings the goods. The farmer and the driver see it. You can change it until pickup.'**
+  String get deliveryPlaceHelper;
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Order detail card when the order has no drop-off place of its own: the trip's destination is used
+  ///
+  /// In en, this message translates to:
+  /// **'The truck\'s destination'**
+  String get deliveryPlaceNone;
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Order detail card button that opens the sheet to pick another drop-off place
+  ///
+  /// In en, this message translates to:
+  /// **'Change'**
+  String get deliveryPlaceChange;
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Change sheet: shown when the buyer typed a name without picking a place from the list (Save waits)
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a place from the list.'**
+  String get deliveryPlacePickFromList;
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Snackbar after the buyer saved the drop-off place and it reached the server
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off place saved.'**
+  String get deliveryPlaceSaved;
+
+  /// LT-14 drop-off place (specs/features/live-trip.md section 10, order-lifecycle.md 2.9.0). Error when the server refuses a drop-off place change after pickup (ORDER_DELIVERY_LOCATION_LOCKED)
+  ///
+  /// In en, this message translates to:
+  /// **'The goods were picked up, so the drop-off place can no longer be changed.'**
+  String get errorDeliveryLocationLocked;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Chip a buyer sees on a card of a farmer or trucker whose public tier is low
+  ///
+  /// In en, this message translates to:
+  /// **'Low reputation'**
+  String get reputationLowTag;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). One line under the Low reputation chip on a detail screen, plain and without blame
+  ///
+  /// In en, this message translates to:
+  /// **'Recently cancelled or missed several paid orders.'**
+  String get reputationLowInfo;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The share of the owner's recent orders that were completed, a whole percent
+  ///
+  /// In en, this message translates to:
+  /// **'{pct}% of orders completed'**
+  String reputationReliability(String pct);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). When the shown reputation was last written by the server or saved on the device
+  ///
+  /// In en, this message translates to:
+  /// **'As of {date}'**
+  String reputationAsOf(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Title of the confirm a buyer gets before ordering from a low reputation farmer or trucker
+  ///
+  /// In en, this message translates to:
+  /// **'Order anyway?'**
+  String get reputationLowOrderTitle;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Body of the low reputation order confirm when the listing's farmer is tagged
+  ///
+  /// In en, this message translates to:
+  /// **'This farmer has a Low reputation label. They recently cancelled or missed several paid orders. You can still order.'**
+  String get reputationLowOrderFarmer;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Body of the low reputation order confirm when the chosen trip's trucker is tagged
+  ///
+  /// In en, this message translates to:
+  /// **'This trucker has a Low reputation label. They recently cancelled or missed several paid orders. You can still order.'**
+  String get reputationLowOrderTrucker;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Body of the low reputation order confirm when both the farmer and the trucker are tagged
+  ///
+  /// In en, this message translates to:
+  /// **'This farmer and this trucker both have a Low reputation label. They recently cancelled or missed several paid orders. You can still order.'**
+  String get reputationLowOrderBoth;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Button of the low reputation order confirm that places the order
+  ///
+  /// In en, this message translates to:
+  /// **'Order anyway'**
+  String get reputationLowOrderContinue;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The server refused a new listing, trip or order accept with REPUTATION_RESTRICTED and an until date; neutral wording, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'Your account can\'t take new orders, listings or trips until {date}, so this change was not saved. Your current orders continue.'**
+  String errorReputationRestrictedUntil(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Title of the farmer's or trucker's own reputation screen and its Profile row
+  ///
+  /// In en, this message translates to:
+  /// **'My reputation'**
+  String get reputationMyTitle;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Subtitle of the My reputation row on Profile
+  ///
+  /// In en, this message translates to:
+  /// **'Rating, penalty points and appeals'**
+  String get reputationMySubtitle;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Own tier good: 0 to 2 penalty points
+  ///
+  /// In en, this message translates to:
+  /// **'Good standing'**
+  String get reputationTierGood;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Line under the good tier on My reputation
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing to do. Keep completing your orders.'**
+  String get reputationTierGoodBody;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Own tier warning: private, buyers see nothing yet; respectful wording
+  ///
+  /// In en, this message translates to:
+  /// **'Please take care'**
+  String get reputationTierWarning;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Explains the low threshold from the live policy
+  ///
+  /// In en, this message translates to:
+  /// **'At {threshold} points, buyers will see a Low reputation label.'**
+  String reputationWarning(int threshold);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Line under the low tier on My reputation
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers see a Low reputation label on your listings and trips, and are asked to confirm before they order.'**
+  String get reputationTierLowBody;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Own tier restricted: no new listings, trips or accepts for a while
+  ///
+  /// In en, this message translates to:
+  /// **'New orders paused'**
+  String get reputationTierRestricted;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Line under the restricted tier with its end date
+  ///
+  /// In en, this message translates to:
+  /// **'You can\'t take new orders until {date}. Your current orders continue.'**
+  String reputationRestrictedUntil(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Line under the restricted tier while an admin review is open (no end date)
+  ///
+  /// In en, this message translates to:
+  /// **'You can\'t take new orders while our team reviews a late delivery. Your current orders continue.'**
+  String get reputationRestrictedReview;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The party's active penalty points
+  ///
+  /// In en, this message translates to:
+  /// **'{points, plural, =0{No penalty points} =1{1 penalty point} other{{points} penalty points}}'**
+  String reputationMyPoints(int points);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Explains the restricted threshold from the live policy
+  ///
+  /// In en, this message translates to:
+  /// **'At {threshold} points, new orders are paused for a while.'**
+  String reputationRestrictAt(int threshold);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). When the oldest active penalty expires
+  ///
+  /// In en, this message translates to:
+  /// **'Your oldest points expire on {date}.'**
+  String reputationNextExpiry(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). How points go away: expiry and earn-back
+  ///
+  /// In en, this message translates to:
+  /// **'Points expire with time, and a completed order can remove one.'**
+  String get reputationRecoverHint;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The raw star average and the penalty deduction on the party's own screen
+  ///
+  /// In en, this message translates to:
+  /// **'{stars} from buyers, {deduction} deducted for cancellations'**
+  String reputationRatingBreakdown(String stars, String deduction);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The raw star average on the party's own screen when nothing is deducted
+  ///
+  /// In en, this message translates to:
+  /// **'{stars} from buyers'**
+  String reputationRatingFromBuyers(String stars);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The effective rating buyers see, on the party's own screen
+  ///
+  /// In en, this message translates to:
+  /// **'Buyers see {stars}'**
+  String reputationShownToBuyers(String stars);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Completed orders out of completed plus fault cancels plus no-shows in 90 days
+  ///
+  /// In en, this message translates to:
+  /// **'{completed} of {total} orders completed in the last 90 days'**
+  String reputationCompletedOrders(int completed, int total);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). An admin tag is in force; the admin's reason follows as plain text
+  ///
+  /// In en, this message translates to:
+  /// **'Our team added the Low reputation label until {date}.'**
+  String reputationOverrideLow(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). An admin untag is in force; the admin's reason follows as plain text
+  ///
+  /// In en, this message translates to:
+  /// **'Our team removed the Low reputation label until {date}.'**
+  String reputationOverrideClear(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Section title of the party's own reputation events
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get reputationEventsTitle;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Empty state of the event list
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing recorded.'**
+  String get reputationEventsEmpty;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event DECLINED_REQUEST
+  ///
+  /// In en, this message translates to:
+  /// **'Declined a paid order'**
+  String get reputationEventDeclined;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event RESPONSE_EXPIRED
+  ///
+  /// In en, this message translates to:
+  /// **'Didn\'t respond in time'**
+  String get reputationEventExpired;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event CANCELLED_AFTER_ACCEPT
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled after accepting'**
+  String get reputationEventCancelled;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event LATE_CANCEL
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled less than a day before pickup'**
+  String get reputationEventLateCancel;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event TRIP_CANCELLED_WITH_BOOKINGS
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled a trip with booked orders'**
+  String get reputationEventTripCancelled;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event NO_SHOW
+  ///
+  /// In en, this message translates to:
+  /// **'Missed the pickup'**
+  String get reputationEventNoShow;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event DELIVERY_OVERDUE
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery overdue'**
+  String get reputationEventOverdue;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event CANCELLED_TRANSPORT_FAILED (never penalized)
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled after the transport failed'**
+  String get reputationEventTransportFailedCancel;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event ORDER_COMPLETED that earned a point back
+  ///
+  /// In en, this message translates to:
+  /// **'Completed an order, one point removed'**
+  String get reputationEventCompleted;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). An event code this build does not know
+  ///
+  /// In en, this message translates to:
+  /// **'Order event'**
+  String get reputationEventOther;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The points of one event
+  ///
+  /// In en, this message translates to:
+  /// **'{points, plural, =1{1 point} other{{points} points}}'**
+  String reputationEventPoints(int points);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). An event recorded with 0 points (a cap, not reachable, no fault)
+  ///
+  /// In en, this message translates to:
+  /// **'No points counted'**
+  String get reputationEventNoPoints;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Points of an event left after earn-back, when fewer than its points
+  ///
+  /// In en, this message translates to:
+  /// **'{points} still counted'**
+  String reputationEventRemaining(int points);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). When an active event's points expire
+  ///
+  /// In en, this message translates to:
+  /// **'Expires {date}'**
+  String reputationPointExpires(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event status expired: its points no longer count
+  ///
+  /// In en, this message translates to:
+  /// **'Expired'**
+  String get reputationEventStatusExpired;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Event status excused by an admin
+  ///
+  /// In en, this message translates to:
+  /// **'Excused'**
+  String get reputationEventStatusExcused;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Button on an appealable event and title of the appeal sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal'**
+  String get reputationAppeal;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The appeal deadline of an event
+  ///
+  /// In en, this message translates to:
+  /// **'You can appeal until {date}.'**
+  String reputationAppealBy(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Appeal status pending
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal sent. Our team will review it.'**
+  String get reputationAppealPending;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Appeal status review (admin review of a late delivery)
+  ///
+  /// In en, this message translates to:
+  /// **'Our team is reviewing this.'**
+  String get reputationAppealReview;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Appeal status excused
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal accepted. The points were removed.'**
+  String get reputationAppealAccepted;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Appeal status upheld
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal reviewed. The points stay.'**
+  String get reputationAppealUpheld;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The admin's note to the party after a decision
+  ///
+  /// In en, this message translates to:
+  /// **'Note from our team: {note}'**
+  String reputationAppealNote(String note);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Hint at the top of the appeal sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Explain what happened. Our team will review it. You can appeal each record once.'**
+  String get reputationAppealHint;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Label of the appeal text field
+  ///
+  /// In en, this message translates to:
+  /// **'What happened'**
+  String get reputationAppealTextLabel;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Button that adds the optional appeal photo
+  ///
+  /// In en, this message translates to:
+  /// **'Add a photo (optional)'**
+  String get reputationAppealAddPhoto;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Shown when an appeal photo is attached
+  ///
+  /// In en, this message translates to:
+  /// **'Photo added'**
+  String get reputationAppealPhotoAdded;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Removes the attached appeal photo
+  ///
+  /// In en, this message translates to:
+  /// **'Remove photo'**
+  String get reputationAppealRemovePhoto;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Note on the appeal sheet: the submit is an online request, the text is kept as a draft
+  ///
+  /// In en, this message translates to:
+  /// **'Sending an appeal needs a connection. Your text is kept on this device until you send it.'**
+  String get reputationAppealNeedsConnection;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Submit button of the appeal sheet
+  ///
+  /// In en, this message translates to:
+  /// **'Send appeal'**
+  String get reputationAppealSend;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Snackbar after the appeal reached the server
+  ///
+  /// In en, this message translates to:
+  /// **'Appeal sent.'**
+  String get reputationAppealSent;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The appeal request failed (offline or a server error); the draft is kept
+  ///
+  /// In en, this message translates to:
+  /// **'The appeal was not sent. Check your connection and try again.'**
+  String get reputationAppealFailed;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The server answered REPUTATION_APPEAL_CLOSED
+  ///
+  /// In en, this message translates to:
+  /// **'This can no longer be appealed.'**
+  String get reputationAppealClosed;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The server answered REPUTATION_APPEAL_EXISTS
+  ///
+  /// In en, this message translates to:
+  /// **'An appeal was already sent for this.'**
+  String get reputationAppealExists;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The picked appeal photo is over 200 KB or not a JPEG or WebP
+  ///
+  /// In en, this message translates to:
+  /// **'This photo is too large or can\'t be used. Try another one, or send without a photo.'**
+  String get reputationAppealPhotoProblem;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The server answered REPUTATION_UNAVAILABLE (the feature is switched off)
+  ///
+  /// In en, this message translates to:
+  /// **'Appeals are not available right now.'**
+  String get reputationAppealUnavailable;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). My reputation could not be loaded and nothing is saved on the device
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to the internet to see your reputation.'**
+  String get reputationOfflineNoCopy;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). My reputation shows the saved copy because the request failed
+  ///
+  /// In en, this message translates to:
+  /// **'You\'re offline. Showing what was saved on {date}.'**
+  String reputationShowingSaved(String date);
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). Loads the next page of reputation events
+  ///
+  /// In en, this message translates to:
+  /// **'Show more'**
+  String get reputationLoadMore;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The event list could not be loaded and nothing is saved
+  ///
+  /// In en, this message translates to:
+  /// **'Connect to the internet to see your history.'**
+  String get reputationHistoryNeedsConnection;
+
+  /// ESC-31 reputation UI (reputation-api.md 1.6.0). The Profile Rating tile when a farmer or trucker has no ratings yet (a buyer is never rated and keeps the dash); short, it sits in a narrow tile above the word Rating
+  ///
+  /// In en, this message translates to:
+  /// **'None yet'**
+  String get profileRatingNone;
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox title of penalty_recorded; plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'Penalty points added'**
+  String get notifPenaltyRecordedTitle;
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of penalty_recorded: what happened (the event line), the points it added, and where to look or appeal
+  ///
+  /// In en, this message translates to:
+  /// **'{reason}. Points added: {points}. Open My reputation to see the details or appeal.'**
+  String notifPenaltyRecordedBody(String reason, String points);
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox title of tier_changed
+  ///
+  /// In en, this message translates to:
+  /// **'Your reputation changed'**
+  String get notifTierChangedTitle;
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to good
+  ///
+  /// In en, this message translates to:
+  /// **'You are back in good standing.'**
+  String get notifTierGoodBody;
+
+  /// ESC-31 reputation notifications (notifications-api.md 1.5.0, reputation-api.md section 10). Inbox body of tier_changed to warning: the private warning
+  ///
+  /// In en, this message translates to:
+  /// **'You have penalty points. Buyers see nothing yet. Open My reputation for the details.'**
+  String get notifTierWarningBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of pickup_reminder: the pickup check-in closes soon and the reader has not checked in
+  ///
+  /// In en, this message translates to:
+  /// **'Check in for the pickup'**
+  String get notifPickupReminderTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of pickup_reminder; the detail line shows when it closes
+  ///
+  /// In en, this message translates to:
+  /// **'The pickup check-in closes soon. Please open the order and check in.'**
+  String get notifPickupReminderBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of trucker_arrived, to the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker has arrived'**
+  String get notifTruckerArrivedTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of trucker_arrived: the trucker's I have arrived at the farm was received
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} has arrived to collect the order. Please have the crops and your QR code ready.'**
+  String notifTruckerArrivedBody(String trucker);
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of buyer_arrived, to the farmer of a self-pickup
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer has arrived'**
+  String get notifBuyerArrivedTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of buyer_arrived: the collecting buyer's I have arrived at the farm was received
+  ///
+  /// In en, this message translates to:
+  /// **'{buyer} has arrived to collect the order. Please have the crops and your QR code ready.'**
+  String notifBuyerArrivedBody(String buyer);
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of crops_ready, to the trucker or the buyer collecting
+  ///
+  /// In en, this message translates to:
+  /// **'The crops are ready'**
+  String get notifCropsReadyTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of crops_ready: the farmer's Crops are ready was received
+  ///
+  /// In en, this message translates to:
+  /// **'{farmer} says the crops are ready for pickup.'**
+  String notifCropsReadyBody(String farmer);
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of delivery_arrived, to the buyer
+  ///
+  /// In en, this message translates to:
+  /// **'The truck has arrived'**
+  String get notifDeliveryArrivedTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of delivery_arrived: the trucker checked in at the drop-off; the detail line shows T9. Must not read as a promise
+  ///
+  /// In en, this message translates to:
+  /// **'{trucker} has checked in at the drop-off. Please confirm the delivery or report a problem. If you do neither by the time below, it may be confirmed for you.'**
+  String notifDeliveryArrivedBody(String trucker);
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of delivery_confirm_reminder, to the buyer before T9
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm your delivery'**
+  String get notifDeliveryConfirmReminderTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of delivery_confirm_reminder; the detail line shows T9. Must not read as a promise
+  ///
+  /// In en, this message translates to:
+  /// **'Please confirm the delivery or report a problem. If you do neither by the time below, it may be confirmed for you.'**
+  String get notifDeliveryConfirmReminderBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of transport_failed and transport_failed_keep_crops with reason trucker_no_show. Plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker did not check in'**
+  String get notifTruckerNoShowTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of transport_failed with reason trucker_no_show, to the buyer
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker did not check in at the farm by the deadline. Please decide: you can cancel for a full refund.'**
+  String get notifTruckerNoShowBuyerBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of transport_failed_keep_crops with reason trucker_no_show, to the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker did not check in at your farm by the deadline. Please keep the crops until the buyer decides.'**
+  String get notifTruckerNoShowFarmerBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of pickup_missed with reason trucker_no_show, to the trucker
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup check-in missed'**
+  String get notifPickupCheckInMissedTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of pickup_missed with reason trucker_no_show, to the trucker
+  ///
+  /// In en, this message translates to:
+  /// **'No arrival check-in reached us by the pickup deadline. The buyer now decides. If you were there, contact support.'**
+  String get notifPickupCheckInMissedBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of order_cancelled with reason farmer_no_show, to every party
+  ///
+  /// In en, this message translates to:
+  /// **'The order was cancelled because the crops were not marked ready by the deadline. The money goes back to the buyer.'**
+  String get notifFarmerNoShowBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of order_cancelled with reason buyer_no_show, to the buyer and the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'The order was cancelled because it was not collected by the deadline. The money goes back to the buyer.'**
+  String get notifBuyerNoShowBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of pickup_overdue and pickup_missed with reason both_present_no_scan or unchecked_check_in
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup under review'**
+  String get notifPickupReviewTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of a pickup the judgement sent to an admin, to every party
+  ///
+  /// In en, this message translates to:
+  /// **'The pickup was not confirmed with the QR code. Our team is checking it; the money stays held.'**
+  String get notifPickupReviewBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of delivered with reason auto_confirmed, to the buyer
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery confirmed for you'**
+  String get notifAutoConfirmedTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of delivered with reason auto_confirmed: the system confirmed for a silent buyer. Plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'Your order was confirmed as delivered because there was no answer. If something is wrong, report it before the time is up.'**
+  String get notifAutoConfirmedBuyerBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of delivered_payout_pending with reason auto_confirmed, to the farmer
+  ///
+  /// In en, this message translates to:
+  /// **'The delivery was confirmed by the system after the buyer did not answer. You are paid after the 48 hour check.'**
+  String get notifAutoConfirmedPayeeBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox title of dispute_opened with a drop-off judgement reason (delivery_overdue, silent_buyer, dropoff_out_of_range)
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery under review'**
+  String get notifDeliveryReviewTitle;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of dispute_opened with reason delivery_overdue, to every party. Plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'The delivery was not recorded by its deadline. Our team is checking it; the money stays held.'**
+  String get notifDeliveryOverdueBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of dispute_opened with reason silent_buyer, to every party. Plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'The delivery was not confirmed after the truck arrived. Our team is checking it; the money stays held.'**
+  String get notifSilentBuyerBody;
+
+  /// FUP-286 and FUP-338 check-in notifications (notifications-api.md 1.6.0). am and om machine drafted, native review owed. Inbox body of dispute_opened with reason dropoff_out_of_range, to every party. Plain, no blame
+  ///
+  /// In en, this message translates to:
+  /// **'The truck\'s arrival could not be matched to the drop-off place. Our team is checking it; the money stays held.'**
+  String get notifDropoffOutOfRangeBody;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Title of the edit screen and the Profile row that opens it
+  ///
+  /// In en, this message translates to:
+  /// **'Edit profile'**
+  String get profileEditTitle;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Subtitle of the Profile row that opens the edit screen
+  ///
+  /// In en, this message translates to:
+  /// **'Name and woreda'**
+  String get profileEditSubtitle;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Note above the form: existing listings, trips and orders keep the name they were made with
+  ///
+  /// In en, this message translates to:
+  /// **'Listings, trips and orders you create from now on show your new name and woreda. The ones you already made keep the old details.'**
+  String get profileEditNote;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar after the web app saved the edit on the server
+  ///
+  /// In en, this message translates to:
+  /// **'Profile saved.'**
+  String get profileEditSaved;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar after the phone app saved the edit and queued it for the server
+  ///
+  /// In en, this message translates to:
+  /// **'Profile saved on this phone. It is sent when you are online.'**
+  String get profileEditSavedQueued;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar when nothing was saved (no connection, a full queue, a refusal)
+  ///
+  /// In en, this message translates to:
+  /// **'Your profile could not be saved. Check your connection and try again.'**
+  String get profileEditFailed;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name, woreda or company name is over 100 characters
+  ///
+  /// In en, this message translates to:
+  /// **'Use 100 characters or fewer.'**
+  String get profileEditTooLong;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Field error: the name is the one deleted accounts carry
+  ///
+  /// In en, this message translates to:
+  /// **'This name is not available. Choose another.'**
+  String get profileEditNameUnavailable;
+
+  /// SIM-56 profile edit (user-entity.md 2.2.0). Snackbar when the server refused the edit for a reason the form did not catch (web): not a connection problem
+  ///
+  /// In en, this message translates to:
+  /// **'These details were not accepted. Check each field and try again.'**
+  String get profileEditRefused;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Order detail: title of the card with the check-ins at the farm
+  ///
+  /// In en, this message translates to:
+  /// **'Arrival check-ins'**
+  String get checkInTitle;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the trucker's I have arrived
+  ///
+  /// In en, this message translates to:
+  /// **'Trucker at the farm'**
+  String get checkInPartyTrucker;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the self-pickup buyer's I have arrived
+  ///
+  /// In en, this message translates to:
+  /// **'Buyer at the farm'**
+  String get checkInPartyBuyer;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the farmer's Crops are ready
+  ///
+  /// In en, this message translates to:
+  /// **'Crops ready'**
+  String get checkInPartyFarmer;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the server received the check-in at this time (Ethiopia time)
+  ///
+  /// In en, this message translates to:
+  /// **'Received {time}'**
+  String checkInReceived(String time);
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the check-in reached the server after the pickup deadline; kept for review, not counted
+  ///
+  /// In en, this message translates to:
+  /// **'Late, received {time}'**
+  String checkInReceivedLate(String time);
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the viewer's own check-in waits in the phone's queue
+  ///
+  /// In en, this message translates to:
+  /// **'Saved on this phone {time}, not sent yet'**
+  String checkInSavedOnPhone(String time);
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: the viewer's own check-in was sent; the server's copy comes with the next refresh
+  ///
+  /// In en, this message translates to:
+  /// **'Sent {time}'**
+  String checkInSentFromPhone(String time);
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in row: no check-in of this kind yet
+  ///
+  /// In en, this message translates to:
+  /// **'Not yet'**
+  String get checkInNotYet;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Order detail: the viewer's check-in opens 24 hours before the pickup day
+  ///
+  /// In en, this message translates to:
+  /// **'You can check in from {time}.'**
+  String checkInOpensAt(String time);
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Order detail: what the check-ins are for, under the rows while the pickup waits for its judgement
+  ///
+  /// In en, this message translates to:
+  /// **'If the QR code is not scanned by the pickup deadline, these check-ins decide what happens. What counts is when the server receives each one.'**
+  String get checkInPendingNote;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Order detail: the deadline passed and the server has not judged the pickup yet
+  ///
+  /// In en, this message translates to:
+  /// **'The pickup deadline has passed. The outcome follows soon.'**
+  String get checkInDeadlinePassedNote;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Button: the trucker (or the self-pickup buyer) says they are at the farm
+  ///
+  /// In en, this message translates to:
+  /// **'I have arrived'**
+  String get checkInArrivedButton;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Button: the farmer says the crops are ready for pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Crops are ready'**
+  String get checkInCropsReadyButton;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Check-in button while the GPS fix is taken
+  ///
+  /// In en, this message translates to:
+  /// **'Finding your location'**
+  String get checkInLocating;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar: the arrival needs a GPS fix and none could be read. Also shown on the QR scan self-pickup panel (FUP-138)
+  ///
+  /// In en, this message translates to:
+  /// **'We could not read your location. Turn on location and try again at the farm.'**
+  String get checkInNeedsLocation;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar: the check-in reached the server
+  ///
+  /// In en, this message translates to:
+  /// **'Check-in sent.'**
+  String get checkInSent;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome scanned
+  ///
+  /// In en, this message translates to:
+  /// **'The crops were picked up.'**
+  String get pickupJudgementScanned;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome trucker_no_show: the order waits in awaiting transport for the buyer
+  ///
+  /// In en, this message translates to:
+  /// **'Nobody checked in at the farm by the deadline. The buyer now chooses what happens to the order.'**
+  String get pickupJudgementTruckerNoShow;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome farmer_no_show (cancelReason farmer_no_show)
+  ///
+  /// In en, this message translates to:
+  /// **'The farmer did not say the crops were ready by the deadline. The order was cancelled and the buyer gets a full refund.'**
+  String get pickupJudgementFarmerNoShow;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome buyer_no_show of a self-pickup order (cancelReason buyer_no_show)
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer did not come to collect the crops by the deadline. The order was cancelled and the money goes back to the buyer.'**
+  String get pickupJudgementBuyerNoShow;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome both_present_no_scan: the admin queue decides, money held
+  ///
+  /// In en, this message translates to:
+  /// **'Both checked in, but the QR code was not scanned. Support is looking into it and the money stays held.'**
+  String get pickupJudgementBothPresent;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome unchecked_check_in: the admin queue decides, money held
+  ///
+  /// In en, this message translates to:
+  /// **'The arrival could not be checked against the farm\'s location. Support is looking into it and the money stays held.'**
+  String get pickupJudgementUnchecked;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Pickup judgement outcome this app version does not know
+  ///
+  /// In en, this message translates to:
+  /// **'The pickup was judged.'**
+  String get pickupJudgementOther;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Commitment row for the trucker: truckerResponse no_show (the pickup judgement found nobody at the farm)
+  ///
+  /// In en, this message translates to:
+  /// **'Did not come'**
+  String get commitmentTruckerNoShow;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Commitment row for the farmer: farmerResponse no_show (the pickup judgement found the crops not ready)
+  ///
+  /// In en, this message translates to:
+  /// **'Crops not ready'**
+  String get commitmentFarmerNoShow;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. transportFailure trucker_no_show
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker did not come to the farm'**
+  String get transportFailureTruckerNoShow;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_NOT_OPEN, or a server without check-ins: the order is no longer waiting for its pickup
+  ///
+  /// In en, this message translates to:
+  /// **'Check-ins are not open for this order, so your check-in was not saved.'**
+  String get errorCheckInNotOpen;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_NOT_PARTY
+  ///
+  /// In en, this message translates to:
+  /// **'Only the order\'s farmer says the crops are ready, and only its trucker (or the buyer collecting it) says they have arrived. Your check-in was not saved.'**
+  String get errorCheckInNotParty;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_EARLY
+  ///
+  /// In en, this message translates to:
+  /// **'Too early: check-ins open 24 hours before the pickup day. Your check-in was not saved, so check in again then.'**
+  String get errorCheckInTooEarly;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_FAR: an arrival more than 5 km from the farm
+  ///
+  /// In en, this message translates to:
+  /// **'You are more than 5 km from the farm. Your check-in was not saved, so check in again when you get there.'**
+  String get errorCheckInTooFar;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_LATE: kept on the order as late evidence, never counted
+  ///
+  /// In en, this message translates to:
+  /// **'Your check-in reached the server after the pickup deadline, so it does not count. It was kept for review.'**
+  String get errorCheckInTooLate;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Refusal CHECKIN_VALIDATION, or a CHECKIN_ code this version does not know
+  ///
+  /// In en, this message translates to:
+  /// **'Your check-in was not saved. Try again, and update the app if it keeps happening.'**
+  String get errorCheckInValidation;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. The device clock says the pickup deadline passed before the check-in was sent; nothing was queued or sent
+  ///
+  /// In en, this message translates to:
+  /// **'The pickup deadline has passed, so check-ins are closed. Your check-in was not saved.'**
+  String get errorCheckInClosed;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar on the phone: the arrival needs a GPS fix and the location permission was denied for good. Also shown on the QR scan self-pickup panel (FUP-138)
+  ///
+  /// In en, this message translates to:
+  /// **'Location is blocked for this app. Allow it in the app settings, then try again at the farm.'**
+  String get checkInLocationBlocked;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar on web: the arrival needs a GPS fix and the browser blocks location for the site. Also shown on the QR scan self-pickup panel (FUP-138)
+  ///
+  /// In en, this message translates to:
+  /// **'Location is blocked for this site. Allow it in the browser\'s site settings, then try again at the farm.'**
+  String get checkInLocationBlockedWeb;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar action: opens the app's page in the phone settings to allow location. Also shown on the QR scan self-pickup panel (FUP-138)
+  ///
+  /// In en, this message translates to:
+  /// **'Open settings'**
+  String get checkInOpenSettings;
+
+  /// ESC-34 arrival check-ins, client part (FUP-285, delivery-verification-api.md 2.6.0, sync-protocol.md 1.55.0). am and om machine drafted, native review owed. Snackbar: a repeat tap found the check-in already given, nothing was sent again
+  ///
+  /// In en, this message translates to:
+  /// **'You have already checked in.'**
+  String get checkInAlreadyGiven;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Delivery detail: label of the trucker's arrival photo at the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Arrival Photo'**
+  String get deliveryPhotoArrival;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Delivery detail: the order cron confirmed the delivery for a silent buyer (autoConfirmedAt, T9)
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed by the system {time}, after the buyer did not respond to the trucker\'s check-in at the drop-off.'**
+  String deliveryAutoConfirmedAt(String time);
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Order detail: title of the card with the trucker's check-in at the drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off check-in'**
+  String get dropoffCheckInTitle;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Check-in row: the trucker's Arrived at drop-off
+  ///
+  /// In en, this message translates to:
+  /// **'Trucker at the drop-off'**
+  String get dropoffCheckInPartyTrucker;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Button: the trucker says they are at the drop-off (takes the arrival photo, then a GPS fix)
+  ///
+  /// In en, this message translates to:
+  /// **'Arrived at drop-off'**
+  String get dropoffCheckInButton;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Under the trucker's button while the delivery has no arrival photo yet
+  ///
+  /// In en, this message translates to:
+  /// **'First take a photo of the goods at the drop-off, then your location is read.'**
+  String get dropoffCheckInPhotoHint;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Order detail, the trucker: the drop-off check-in is due by T8 (Ethiopia time)
+  ///
+  /// In en, this message translates to:
+  /// **'Check in when you reach the drop-off, by {time}. Without a check-in by then, the delivery goes to support as overdue.'**
+  String dropoffCheckInTruckerNote(String time);
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Order detail, the buyer and the farmer: the trucker's drop-off check-in is due by T8
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker checks in at the drop-off by {time}. Without a check-in by then, the delivery goes to support as overdue.'**
+  String dropoffCheckInWaitingNote(String time);
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Order and delivery detail, the buyer: after the trucker's counted check-in; time is T9 (check-in receipt plus 48 hours)
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker has checked in at the drop-off. Confirm the delivery when you have the crops. If you have not confirmed by {time}, the delivery may be confirmed for you.'**
+  String dropoffCheckInBuyerConfirmBy(String time);
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Order and delivery detail, the trucker and the farmer: after the trucker's counted check-in; time is T9
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker has checked in at the drop-off. If the buyer has not confirmed by {time}, the delivery may be confirmed for them.'**
+  String dropoffCheckInPartyConfirmBy(String time);
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Order detail: T8 or T9 passed and the server has not judged the drop-off yet
+  ///
+  /// In en, this message translates to:
+  /// **'The deadline has passed. The outcome follows soon.'**
+  String get dropoffCheckInOutcomeSoon;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Snackbar: the drop-off check-in needs a GPS fix and none could be read
+  ///
+  /// In en, this message translates to:
+  /// **'We could not read your location. Turn on location and try again at the drop-off.'**
+  String get dropoffCheckInNeedsLocation;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Snackbar on the phone: the location permission was denied for good
+  ///
+  /// In en, this message translates to:
+  /// **'Location is blocked for this app. Allow it in the app settings, then try again at the drop-off.'**
+  String get dropoffCheckInLocationBlocked;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Snackbar on web: the browser blocks location for the site
+  ///
+  /// In en, this message translates to:
+  /// **'Location is blocked for this site. Allow it in the browser\'s site settings, then try again at the drop-off.'**
+  String get dropoffCheckInLocationBlockedWeb;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome closed: a party confirmed or disputed first
+  ///
+  /// In en, this message translates to:
+  /// **'The delivery was confirmed or disputed before the deadline.'**
+  String get dropoffJudgementClosed;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome auto_confirmed (T9); the normal dispute window runs
+  ///
+  /// In en, this message translates to:
+  /// **'Confirmed by the system: the buyer did not respond after the trucker checked in at the drop-off. The buyer can still report a problem within the usual 48 hours.'**
+  String get dropoffJudgementAutoConfirmed;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome silent_buyer (T9 dispute); also the label of a delivery the system disputed with that reason
+  ///
+  /// In en, this message translates to:
+  /// **'The buyer did not respond after the trucker checked in, and the delivery could not be confirmed automatically. Support is looking into it and the money stays held.'**
+  String get dropoffJudgementSilentBuyer;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome delivery_overdue (T8 dispute); plain, without blame
+  ///
+  /// In en, this message translates to:
+  /// **'No drop-off check-in arrived by the delivery deadline. Support is looking into it and the money stays held.'**
+  String get dropoffJudgementDeliveryOverdue;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome dropoff_out_of_range (T8 dispute after an out-of-range attempt). FUP-373: says the check-in was far from the order's drop-off point, not that the trucker was far away (the buyer's pin may be wrong, FUP-204).
+  ///
+  /// In en, this message translates to:
+  /// **'The trucker\'s check-in was more than 5 km from the order\'s drop-off point. Support is looking into it and the money stays held.'**
+  String get dropoffJudgementOutOfRange;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome queued (the admin queue, nothing moved)
+  ///
+  /// In en, this message translates to:
+  /// **'Support is reviewing this delivery. The money stays held.'**
+  String get dropoffJudgementQueued;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Drop-off judgement outcome this app version does not know
+  ///
+  /// In en, this message translates to:
+  /// **'The delivery was judged.'**
+  String get dropoffJudgementOther;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_PHOTO_REQUIRED: the drop-off check-in needs the attached arrival photo
+  ///
+  /// In en, this message translates to:
+  /// **'The arrival photo has not reached the server. Take the arrival photo first, then check in at the drop-off again.'**
+  String get errorCheckInPhotoRequired;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_NOT_OPEN of a drop-off check-in (not stamped, judged, or no longer on the road)
+  ///
+  /// In en, this message translates to:
+  /// **'Drop-off check-ins are not open for this delivery, so your check-in was not saved.'**
+  String get errorDropoffCheckInNotOpen;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_NOT_PARTY of a drop-off check-in
+  ///
+  /// In en, this message translates to:
+  /// **'Only the order\'s trucker checks in at the drop-off. Your check-in was not saved.'**
+  String get errorDropoffCheckInNotParty;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_FAR at the drop-off. FUP-373: says the check-in was far from the order's drop-off point, not that the trucker was far away (the buyer's pin may be wrong, FUP-204).
+  ///
+  /// In en, this message translates to:
+  /// **'Your check-in was more than 5 km from the order\'s drop-off point, so it was not saved. Check in again nearer that point.'**
+  String get errorDropoffCheckInTooFar;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_FAR at the drop-off whose attempt the server kept for review (message ends The attempt was kept for review.) FUP-373: says the check-in was far from the order's drop-off point, not that the trucker was far away (the buyer's pin may be wrong, FUP-204).
+  ///
+  /// In en, this message translates to:
+  /// **'Your check-in was more than 5 km from the order\'s drop-off point, so it was not saved, but this attempt was kept for review. Check in again nearer that point.'**
+  String get errorDropoffCheckInTooFarKept;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. Refusal CHECKIN_TOO_LATE at the drop-off: after T8, kept as late evidence
+  ///
+  /// In en, this message translates to:
+  /// **'Your check-in reached the server after the delivery deadline, so it does not count. It was kept for review.'**
+  String get errorDropoffCheckInTooLate;
+
+  /// ESC-36 drop-off check-in, client part (FUP-336, delivery-verification-api.md 2.10.0 P.4, sync-protocol.md 1.59.0). am and om machine drafted, native review owed. The device clock says T8 passed before the drop-off check-in was sent; nothing was queued or sent
+  ///
+  /// In en, this message translates to:
+  /// **'The delivery deadline has passed, so check-ins are closed. Your check-in was not saved.'**
+  String get errorDropoffCheckInClosed;
+
+  /// FUP-439 (sync-protocol.md 1.62.0, delivery-verification-api.md 2.15.0). am and om machine drafted, native review owed. Trucker: the server refused the pickup for good (DELIVERY_GPS_PROXIMITY pickup_far, more than 5 km from the listing's point); the local pickup was undone, so the goods still count as waiting at the farm
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup not saved: your location was more than 5 km from the farm. Scan the farmer\'s QR code again at the farm before you leave with the goods.'**
+  String get deliveryErrorGpsPickupFar;
+
+  /// FUP-439 (sync-protocol.md 1.62.0, delivery-verification-api.md 2.15.0). am and om machine drafted, native review owed. Self-pickup buyer: the server refused the confirm for good (DELIVERY_GPS_PROXIMITY self_pickup_no_fix, no GPS fix); the local confirm was undone and the payment stays held
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup not confirmed: your phone sent no location, and the farmer is not paid yet. Turn on location and scan the farmer\'s QR code again at the farm.'**
+  String get deliveryErrorGpsSelfPickupNoFix;
+
+  /// FUP-439 (sync-protocol.md 1.62.0, delivery-verification-api.md 2.15.0). am and om machine drafted, native review owed. Self-pickup buyer: the server refused the confirm for good (DELIVERY_GPS_PROXIMITY self_pickup_no_farm_point, the listing has no coordinates); the local confirm was undone and the payment stays held
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup not confirmed: this listing has no farm location to check yours against, and the farmer is not paid yet. Contact support.'**
+  String get deliveryErrorGpsSelfPickupNoFarmPoint;
+
+  /// FUP-439 (sync-protocol.md 1.62.0, delivery-verification-api.md 2.15.0). am and om machine drafted, native review owed. Self-pickup buyer: the server refused the confirm for good (DELIVERY_GPS_PROXIMITY self_pickup_far, more than 5 km from the listing's point); the local confirm was undone and the payment stays held
+  ///
+  /// In en, this message translates to:
+  /// **'Pickup not confirmed: your location was more than 5 km from the farm, and the farmer is not paid yet. Scan the farmer\'s QR code again at the farm.'**
+  String get deliveryErrorGpsSelfPickupFar;
+
+  /// FUP-439 (sync-protocol.md 1.62.0, delivery-verification-api.md 2.15.0). am and om machine drafted, native review owed. Buyer at a trucker's drop-off: the server refused the confirm for good (DELIVERY_GPS_PROXIMITY dropoff_far, more than 5 km from both the trip's destination and the order's drop-off point); the local confirm was undone. Support is the way out when both stored points are wrong (a wrong pin, FUP-204), since every scan at the right place is refused then
+  ///
+  /// In en, this message translates to:
+  /// **'Delivery not confirmed: your location was more than 5 km from the drop-off point. Scan the trucker\'s QR code again where you receive the goods, or contact support.'**
+  String get deliveryErrorGpsDropoffFar;
 }
 
 class _AppLocalizationsDelegate

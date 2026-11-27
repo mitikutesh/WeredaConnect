@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/trip.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
 import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
@@ -12,21 +14,56 @@ import 'package:wereda_connect/features/trip_listing/presentation/screens/create
 import 'package:wereda_connect/features/trip_listing/presentation/screens/trip_detail_screen.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/navigation/role_nav_bar.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
-import 'package:wereda_connect/shared/widgets/green_header.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/account_menu.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 import 'package:wereda_connect/shared/widgets/offline_banner.dart';
 import 'package:wereda_connect/shared/widgets/place_selector.dart';
+import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 
-/// Browse screen for viewing and filtering trip listings.
+/// Which of the trucker's own trips My Trips lists (the pill switch, as
+/// My Crops has Active, Reserved and Sold). Only what is shown changes: the
+/// trips are the ones the bloc loaded.
+enum TripListFilter {
+  all,
+  open,
+  onTheRoad,
+  delivered;
+
+  bool matches(Trip trip) => switch (this) {
+        TripListFilter.all => true,
+        TripListFilter.open =>
+          trip.status == TripStatus.open || trip.status == TripStatus.matched,
+        TripListFilter.onTheRoad => trip.status == TripStatus.inTransit,
+        TripListFilter.delivered => trip.status == TripStatus.delivered,
+      };
+}
+
+/// The trips list, in the language of the My Crops board (MyCropsM): page
+/// header (person · place, the 42 px title, the role's sketch), for the
+/// trucker the status pill switch, the route filter, then one [TripCard]
+/// per trip (the first one raised) inside the phone-width column at every
+/// window size.
 ///
-/// Shows offline banner, filter fields, and a lazy-loaded list of trip cards.
+/// A trucker sees only their own trips and may cancel an open one here; a
+/// buyer sees every open trip from every trucker (CLAUDE.md visibility).
 ///
 /// When [embedded] is true, the screen omits its own Scaffold and back
-/// arrow so it can live inside the adaptive shell as a tab child.
+/// arrow so it can live inside the adaptive shell as a tab child. A parent
+/// that already draws the page header (the Market's Transport segment)
+/// passes [showHeader] false.
 class BrowseTripsScreen extends StatefulWidget {
   final bool embedded;
+  final bool showHeader;
 
-  const BrowseTripsScreen({this.embedded = false, super.key});
+  const BrowseTripsScreen({
+    this.embedded = false,
+    this.showHeader = true,
+    super.key,
+  });
 
   @override
   State<BrowseTripsScreen> createState() => _BrowseTripsScreenState();
@@ -35,6 +72,9 @@ class BrowseTripsScreen extends StatefulWidget {
 class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
   final _fromWoredaFilterController = TextEditingController();
   final _toWoredaFilterController = TextEditingController();
+
+  /// The trucker's status pill; a buyer's list has no switch.
+  TripListFilter _filter = TripListFilter.all;
 
   @override
   void initState() {
@@ -106,238 +146,326 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
     }
   }
 
+  /// Cancel Trip from the card asks first, like the detail screen does.
+  void _confirmCancel(Trip trip) {
+    final l10n = AppLocalizations.of(context)!;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.cancelTrip),
+        content: Text(l10n.cancelTripConfirmation),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.listsKeepTrip),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              final truckerId = _getTruckerId();
+              if (truckerId == null) return;
+              context.read<TripListingBloc>().add(
+                    CancelTrip(tripId: trip.tripId, truckerId: truckerId),
+                  );
+            },
+            style: TextButton.styleFrom(foregroundColor: AppTheme.statusError),
+            child: Text(l10n.cancelTrip),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader(AppLocalizations l10n) {
+    final authState = context.read<AuthBloc>().state;
+    final isOwner = _isOwnerMode;
+    final header = FwPageHeader(
+      padding: EdgeInsets.zero,
+      eyebrow: fwPersonPlaceEyebrow(
+        authState,
+        isOwner ? l10n.trucker : l10n.marketTransport,
+      ),
+      title: isOwner ? l10n.myTrips : l10n.trips,
+      // The viewer's own sketch: the truck on My Trips, the scale when a
+      // buyer browses every trip.
+      sketchRole: _getRole(),
+      trailing: const HeaderActions(),
+    );
+    // A tab child draws under the status bar; a pushed screen has SafeArea.
+    final top = widget.embedded ? MediaQuery.paddingOf(context).top : 0.0;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(20, 16 + top, 20, 12),
+      child: widget.embedded
+          ? header
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FwSquareButton(
+                  onTap: () => Navigator.of(context).maybePop(),
+                  semanticLabel:
+                      MaterialLocalizations.of(context).backButtonTooltip,
+                  child: const Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    size: 20,
+                    color: AppTheme.ink,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: header),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildFilters(AppLocalizations l10n) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: PlaceSelector(
+              controller: _fromWoredaFilterController,
+              hintText: l10n.listsRouteFrom,
+              prefixIcon: Icons.trip_origin,
+              // The round search button beside the fields is the search.
+              showSearchIcon: false,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 12,
+              ),
+              // Selecting a suggestion applies the filter immediately;
+              // free text is still applied via the search button.
+              onPlaceSelected: (_) => _applyFilters(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: PlaceSelector(
+              controller: _toWoredaFilterController,
+              hintText: l10n.listsRouteTo,
+              prefixIcon: Icons.place_outlined,
+              showSearchIcon: false,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 12,
+              ),
+              onPlaceSelected: (_) => _applyFilters(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          FwSquareButton(
+            onTap: _applyFilters,
+            semanticLabel: l10n.filterByRoute,
+            child: const Icon(
+              Icons.search,
+              size: 22,
+              color: AppTheme.ink,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The trucker's pill switch over the list, with how many trips are open
+  /// and on the road.
+  Widget _buildStatusSwitch(AppLocalizations l10n, List<Trip> trips) {
+    int count(TripListFilter f) => trips.where(f.matches).length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 2, 20, 12),
+      child: FwSegmented<TripListFilter>(
+        key: const Key('my_trips_status_switch'),
+        segments: [
+          FwSegment(value: TripListFilter.all, label: l10n.all),
+          FwSegment(
+            value: TripListFilter.open,
+            label: l10n.tripStatusOpen,
+            count: count(TripListFilter.open),
+          ),
+          FwSegment(
+            value: TripListFilter.onTheRoad,
+            label: l10n.tripStatusInTransit,
+            count: count(TripListFilter.onTheRoad),
+          ),
+          FwSegment(
+            value: TripListFilter.delivered,
+            label: l10n.tripStatusDelivered,
+          ),
+        ],
+        selected: _filter,
+        onChanged: (value) => setState(() => _filter = value),
+      ),
+    );
+  }
+
+  Widget _buildEmpty(AppLocalizations l10n, {String? detail}) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // The large drawing is for empty states only (the canvas's
+            // sketch rules); it hides itself with large text.
+            if (RoleSketch.sketchesShown(context)) ...[
+              RoleSketch.emptyState(role: _getRole(), width: 160),
+              const SizedBox(height: 20),
+            ],
+            Text(
+              l10n.noTripsFound,
+              style: FwText.cardTitle,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              detail ?? l10n.dataWillSyncWhenOnline,
+              style: FwText.body,
+              textAlign: TextAlign.center,
+            ),
+            if (detail != null) ...[
+              const SizedBox(height: 20),
+              FilledButton(
+                onPressed: _loadTrips,
+                child: Text(l10n.retry),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildList(AppLocalizations l10n, List<Trip> loaded) {
+    if (loaded.isEmpty) return _buildEmpty(l10n);
+    final isOwner = _isOwnerMode;
+    // L-7: My Trips keeps the trips whose day passed, after the ones still
+    // ahead and marked "Date passed"; buyers are never sent them.
+    final now = DateTime.now();
+    final ordered = isOwner ? upcomingTripsFirst(loaded, now) : loaded;
+    // The pill only narrows what the trucker's own list shows.
+    final trips = isOwner ? ordered.where(_filter.matches).toList() : ordered;
+    // The last row is the note the boards end their lists with: who else
+    // sees these trips.
+    final note = Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+      child: isOwner
+          ? FwInfoNote(
+              icon: Icons.lock_outline,
+              text: l10n.listsMyTripsPrivacyNote,
+            )
+          : Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(l10n.listsAllTripsNote, style: FwText.body),
+            ),
+    );
+    final list = RefreshIndicator(
+      onRefresh: () async {
+        _loadTrips();
+      },
+      child: ListView.builder(
+        padding: const EdgeInsets.only(
+          top: 4,
+          bottom: Breakpoints.fabClearance,
+        ),
+        itemCount: trips.length + 1,
+        itemBuilder: (context, index) {
+          if (index == trips.length) {
+            // A pill with nothing under it says so above the note.
+            if (trips.isNotEmpty) return note;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+                  child: Text(l10n.noTripsFound, style: FwText.body),
+                ),
+                note,
+              ],
+            );
+          }
+          final trip = trips[index];
+          return TripCard(
+            trip: trip,
+            // The list leads with its first card, as My Crops does.
+            lead: index == 0,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (context) => TripDetailScreen(trip: trip),
+                ),
+              );
+            },
+            onCancel: isOwner ? () => _confirmCancel(trip) : null,
+            departureDayPassed: isOwner && tripHasLeft(trip, now),
+            // Every trucker's trips: say whose truck it is (SIM-33).
+            showTrucker: !isOwner,
+          );
+        },
+      ),
+    );
+    if (!isOwner) return list;
+    return Column(
+      children: [
+        _buildStatusSwitch(l10n, ordered),
+        Expanded(child: list),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
+    final column = Column(
+      children: [
+        if (widget.showHeader || !widget.embedded) _buildHeader(l10n),
+        const OfflineBanner(),
+        _buildFilters(l10n),
+        Expanded(
+          child: BlocBuilder<TripListingBloc, TripListingState>(
+            builder: (context, state) {
+              if (state is TripListingLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (state is TripListingError) {
+                return _buildEmpty(
+                  l10n,
+                  detail: localizeLoadError(state.code, l10n),
+                );
+              }
+              if (state is TripsLoaded) return _buildList(l10n, state.trips);
+              // Initial state
+              return _buildEmpty(l10n);
+            },
+          ),
+        ),
+      ],
+    );
+
     final content = Stack(
       children: [
-        Column(
-          children: [
-            // ── Header ──────────────────────────────────────────────────
-            GreenHeader(
-              height: widget.embedded ? 100 : 130,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (!widget.embedded)
-                    GestureDetector(
-                      onTap: () => Navigator.of(context).pop(),
-                      child: const Padding(
-                        padding: EdgeInsets.only(top: 4, bottom: 4),
-                        child: Icon(
-                          Icons.arrow_back,
-                          color: Colors.white,
-                          size: 24,
-                        ),
-                      ),
-                    ),
-                  Text(
-                    l10n.myTrips,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const OfflineBanner(),
-            // Filter row
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: PlaceSelector(
-                      controller: _fromWoredaFilterController,
-                      hintText: l10n.fromWoreda,
-                      prefixIcon: Icons.trip_origin,
-                      isDense: true,
-                      // Selecting a suggestion applies the filter immediately;
-                      // free text is still applied via the search button.
-                      onPlaceSelected: (_) => _applyFilters(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: PlaceSelector(
-                      controller: _toWoredaFilterController,
-                      hintText: l10n.toWoreda,
-                      prefixIcon: Icons.place_outlined,
-                      isDense: true,
-                      onPlaceSelected: (_) => _applyFilters(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: _applyFilters,
-                    icon: const Icon(Icons.search),
-                    tooltip: l10n.filterByRoute,
-                  ),
-                ],
-              ),
-            ),
-            // Trip list
-            Expanded(
-              child: BlocBuilder<TripListingBloc, TripListingState>(
-                builder: (context, state) {
-                  if (state is TripListingLoading) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (state is TripListingError) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.route_outlined,
-                            size: 56,
-                            color: AppTheme.textMuted.withAlpha(150),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            l10n.noTripsFound,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.textDark,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            localizeLoadError(state.code, l10n),
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppTheme.textMuted,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 20),
-                          FilledButton(
-                            onPressed: _loadTrips,
-                            child: Text(l10n.retry),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  if (state is TripsLoaded) {
-                    if (state.trips.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.local_shipping_outlined,
-                              size: 80,
-                              color: Theme.of(context).colorScheme.secondary,
-                            ),
-                            const SizedBox(height: 24),
-                            Text(
-                              l10n.noTripsFound,
-                              style: Theme.of(context).textTheme.titleLarge,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              l10n.dataWillSyncWhenOnline,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurface
-                                        .withValues(alpha: 0.6),
-                                  ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    return RefreshIndicator(
-                      onRefresh: () async {
-                        _loadTrips();
-                      },
-                      child: ListView.builder(
-                        padding: const EdgeInsets.only(top: 8, bottom: 80),
-                        itemCount: state.trips.length,
-                        itemBuilder: (context, index) {
-                          final trip = state.trips[index];
-                          return TripCard(
-                            trip: trip,
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute<void>(
-                                  builder: (context) =>
-                                      TripDetailScreen(trip: trip),
-                                ),
-                              );
-                            },
-                            onCancel: _isOwnerMode
-                                ? () {
-                                    final truckerId = _getTruckerId();
-                                    if (truckerId == null) return;
-                                    context.read<TripListingBloc>().add(
-                                          CancelTrip(
-                                            tripId: trip.tripId,
-                                            truckerId: truckerId,
-                                          ),
-                                        );
-                                  }
-                                : null,
-                          );
-                        },
-                      ),
-                    );
-                  }
-
-                  // Initial state
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.local_shipping_outlined,
-                          size: 80,
-                          color: Theme.of(context).colorScheme.secondary,
-                        ),
-                        const SizedBox(height: 24),
-                        Text(
-                          l10n.noTripsFound,
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-        // FAB for truckers to post a trip (hidden when embedded — shell provides FAB)
+        FwContentWidth(child: column),
+        // Post Trip for a trucker who reached the list outside the shell
+        // (the shell draws its own create button when embedded).
         if (_isOwnerMode && !widget.embedded)
           Positioned(
-            right: 20,
-            bottom: 20,
-            child: FloatingActionButton(
-              onPressed: () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const CreateTripScreen(),
-                  ),
-                );
-                _loadTrips();
-              },
-              backgroundColor: AppTheme.accentGold,
-              child: const Icon(Icons.add, color: Colors.white),
+            left: 0,
+            right: 0,
+            bottom: 16,
+            child: Center(
+              child: RoleCreateButton(
+                role: UserRole.trucker,
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => const CreateTripScreen(),
+                    ),
+                  );
+                  _loadTrips();
+                },
+              ),
             ),
           ),
       ],
@@ -356,6 +484,8 @@ class _BrowseTripsScreenState extends State<BrowseTripsScreen> {
       child: content,
     );
 
-    return widget.embedded ? withRefresh : Scaffold(body: withRefresh);
+    return widget.embedded
+        ? withRefresh
+        : Scaffold(body: SafeArea(child: withRefresh));
   }
 }

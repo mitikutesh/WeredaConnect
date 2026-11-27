@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
 import 'package:wereda_connect/features/escrow_payment/data/repositories/escrow_result.dart';
@@ -30,6 +31,8 @@ class FakeOrderEvent extends Fake implements OrderEvent {}
 /// (SIM-54).
 void main() {
   const defaultOrderId = '24d367a5-0000-0000-0000-000000000000';
+  const realAccount = '1000123456789';
+  const cbeLabel = 'Commercial Bank of Ethiopia (CBE)';
 
   late MockOrderBloc bloc;
   late StreamController<OrderState> states;
@@ -68,6 +71,7 @@ void main() {
     WidgetTester tester, {
     bool verifies = true,
     String orderId = defaultOrderId,
+    String? cbeAccount,
   }) async {
     await tester.pumpWidget(
       BlocProvider<OrderBloc>.value(
@@ -78,6 +82,7 @@ void main() {
           locale: const Locale('en'),
           home: PaymentInstructionsScreen(
             order: order(id: orderId),
+            cbeAccount: cbeAccount,
             kycVerificationScreen: (context) => Scaffold(
               body: TextButton(
                 onPressed: () => Navigator.of(context).pop(verifies),
@@ -103,6 +108,88 @@ void main() {
     states.add(OrderError(message: message, code: code));
     await tester.pumpAndSettle();
   }
+
+  // PaymentOfflineM (BUG-19): a payment that could not be sent for lack of
+  // a network takes the page and offers the same payment again.
+  group('no network while paying', () {
+    for (final code in [AppErrorCode.network, AppErrorCode.timeout]) {
+      testWidgets('${code.name}: the offline state, Retry sends it again',
+          (tester) async {
+        await open(tester);
+        await payAndGetRejected(tester, 'x', code: code);
+
+        expect(find.byKey(const Key('payment_offline_state')), findsOneWidget);
+        expect(find.text('No internet connection'), findsOneWidget);
+        expect(
+          find.text(
+            'Payment needs a connection. Your order is saved on this phone.',
+          ),
+          findsOneWidget,
+        );
+        // The form and its pinned actions give way to the state.
+        expect(find.text('Submit Payment'), findsNothing);
+        expect(find.byType(SnackBar), findsNothing);
+
+        await tester.tap(find.widgetWithText(FilledButton, 'Retry'));
+        await tester.pump();
+
+        // The same payment, once more.
+        expect(submitted, hasLength(2));
+        expect(submitted.last.orderId, submitted.first.orderId);
+        expect(submitted.last.paymentMethod, submitted.first.paymentMethod);
+        expect(
+          submitted.last.cbeTransactionId,
+          submitted.first.cbeTransactionId,
+        );
+      });
+    }
+
+    testWidgets('another refusal is still a message, not the offline state',
+        (tester) async {
+      await open(tester);
+      await payAndGetRejected(tester, 'x', code: AppErrorCode.server);
+
+      expect(find.byKey(const Key('payment_offline_state')), findsNothing);
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text('Submit Payment'), findsOneWidget);
+    });
+
+    testWidgets('Back to order leaves the payment', (tester) async {
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        BlocProvider<OrderBloc>.value(
+          value: bloc,
+          child: MaterialApp(
+            navigatorKey: navigator,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: const Scaffold(body: Text('the order')),
+          ),
+        ),
+      );
+      // The order detail is the page underneath.
+      unawaited(
+        navigator.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => PaymentInstructionsScreen(
+              order: order(),
+              fromOrderDetail: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await payAndGetRejected(tester, 'x', code: AppErrorCode.network);
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Back to order'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PaymentInstructionsScreen), findsNothing);
+      expect(find.text('the order'), findsOneWidget);
+      expect(submitted, hasLength(1));
+    });
+  });
 
   testWidgets('above 10,000 ETB: a Fayda login resubmits the same payment',
       (tester) async {
@@ -213,6 +300,70 @@ void main() {
     expect(submitted, hasLength(1));
   });
 
+  // BUG-29: the demo screen opened on the bank transfer and showed the
+  // placeholder account 1000XXXXXXXXXX as if a buyer could pay into it.
+  group('payment method (BUG-29)', () {
+    Future<void> submit(WidgetTester tester) async {
+      await tester.ensureVisible(find.text('Submit Payment'));
+      await tester.tap(find.text('Submit Payment'));
+      await tester.pump();
+    }
+
+    testWidgets('Telebirr is the default, also with a real CBE account',
+        (tester) async {
+      await open(tester, cbeAccount: realAccount);
+
+      expect(find.text('Telebirr Payment'), findsOneWidget);
+      expect(find.text(realAccount), findsNothing);
+      await submit(tester);
+      expect(submitted.single.paymentMethod, 'telebirr');
+    });
+
+    testWidgets('the shipped placeholder account hides the bank transfer',
+        (tester) async {
+      // No account passed: the configured one, which is the placeholder.
+      await open(tester);
+
+      expect(find.text(cbeLabel), findsNothing);
+      expect(find.textContaining('1000XXXX'), findsNothing);
+      expect(find.text('CBE Account Number'), findsNothing);
+      expect(find.text('Telebirr Payment'), findsOneWidget);
+      // The reference stays the full order id (SIM-54).
+      expect(find.text(defaultOrderId), findsOneWidget);
+      await submit(tester);
+      expect(submitted.single.paymentMethod, 'telebirr');
+    });
+
+    for (final missing in ['', '   ', '1000XXXXXXXXXX', 'TBD', '12345']) {
+      testWidgets('account "$missing" is not offered', (tester) async {
+        await open(tester, cbeAccount: missing);
+        expect(find.text(cbeLabel), findsNothing);
+      });
+    }
+
+    testWidgets('a real account offers the bank transfer and shows it',
+        (tester) async {
+      await open(tester, cbeAccount: realAccount);
+
+      expect(find.text(cbeLabel), findsOneWidget);
+      await tester.ensureVisible(find.text(cbeLabel));
+      await tester.tap(find.text(cbeLabel));
+      await tester.pumpAndSettle();
+
+      expect(find.text(realAccount), findsOneWidget);
+      expect(find.textContaining('XXXX'), findsNothing);
+      await submit(tester);
+      expect(submitted.single.paymentMethod, 'cbe_transfer');
+    });
+
+    test('realCbeAccount keeps digits, spaces and hyphens only', () {
+      expect(realCbeAccount('1000123456789'), '1000123456789');
+      expect(realCbeAccount(' 1000 1234-56789 '), '1000 1234-56789');
+      expect(realCbeAccount('1000XXXXXXXXXX'), isNull);
+      expect(realCbeAccount(null), isNull);
+    });
+  });
+
   group('payment reference (SIM-54)', () {
     Future<void> submit(WidgetTester tester) async {
       await tester.ensureVisible(find.text('Submit Payment'));
@@ -220,10 +371,12 @@ void main() {
       await tester.pump();
     }
 
-    Future<void> chooseTelebirr(WidgetTester tester) async {
-      await tester.tap(find.text('Telebirr'));
+    /// The bank transfer, offered because a real account is configured.
+    Future<void> chooseCbe(WidgetTester tester) async {
+      await tester.ensureVisible(find.text(cbeLabel));
+      await tester.tap(find.text(cbeLabel));
       await tester.pumpAndSettle();
-      expect(find.text('Telebirr Payment'), findsOneWidget);
+      expect(find.text(realAccount), findsOneWidget);
     }
 
     /// The copy button on the detail row that shows [value].
@@ -236,7 +389,8 @@ void main() {
 
     testWidgets('CBE card shows the full order id, not its first 8 chars',
         (tester) async {
-      await open(tester);
+      await open(tester, cbeAccount: realAccount);
+      await chooseCbe(tester);
 
       expect(find.text(defaultOrderId), findsOneWidget);
       expect(find.text('24D367A5'), findsNothing);
@@ -244,7 +398,7 @@ void main() {
 
     testWidgets('Telebirr card shows the same full reference', (tester) async {
       await open(tester);
-      await chooseTelebirr(tester);
+      expect(find.text('Telebirr Payment'), findsOneWidget);
 
       expect(find.text(defaultOrderId), findsOneWidget);
       expect(find.text('24D367A5'), findsNothing);
@@ -265,8 +419,8 @@ void main() {
       await submit(tester);
 
       expect(submitted, hasLength(2));
-      expect(submitted[0].cbeTransactionId, 'MOCK-CBE-$first');
-      expect(submitted[1].cbeTransactionId, 'MOCK-CBE-$second');
+      expect(submitted[0].cbeTransactionId, 'MOCK-TBR-$first');
+      expect(submitted[1].cbeTransactionId, 'MOCK-TBR-$second');
     });
 
     testWidgets('a legacy web order id is shown whole and unchanged',
@@ -280,7 +434,8 @@ void main() {
 
     testWidgets('a blank transaction id sends MOCK-CBE-{orderId}',
         (tester) async {
-      await open(tester);
+      await open(tester, cbeAccount: realAccount);
+      await chooseCbe(tester);
       await submit(tester);
 
       final payment = submitted.single;
@@ -294,7 +449,6 @@ void main() {
     testWidgets('Telebirr with no reference sends MOCK-TBR-{orderId}',
         (tester) async {
       await open(tester);
-      await chooseTelebirr(tester);
       await submit(tester);
 
       final payment = submitted.single;
@@ -305,7 +459,8 @@ void main() {
 
     testWidgets('an entered transaction id is sent trimmed, as typed',
         (tester) async {
-      await open(tester);
+      await open(tester, cbeAccount: realAccount);
+      await chooseCbe(tester);
       await tester.enterText(find.byType(TextField), '  FT26274ABC9  ');
       await submit(tester);
 
@@ -330,6 +485,15 @@ void main() {
       );
 
       await open(tester);
+      await tester.ensureVisible(copyButtonFor(defaultOrderId));
+      // BUG-L16: the icon-only button has a name.
+      expect(
+        find.ancestor(
+          of: copyButtonFor(defaultOrderId),
+          matching: find.byTooltip('Copy'),
+        ),
+        findsOneWidget,
+      );
       await tester.tap(copyButtonFor(defaultOrderId));
       await tester.pump();
 
@@ -389,7 +553,7 @@ void main() {
       expect(find.text('CBE Transaction ID (optional)'), findsNothing);
       expect(find.text(defaultOrderId), findsNothing);
       expect(find.text('Submit Payment'), findsNothing);
-      expect(find.textContaining('94500.00 ETB'), findsWidgets);
+      expect(find.textContaining('94,500 ETB'), findsWidgets);
     });
 
     testWidgets('sends a Telebirr payment with no reference', (tester) async {
@@ -417,6 +581,58 @@ void main() {
         expect(button.onPressed, isNull);
       });
     }
+
+    // PaymentM: the pill names the method only after the buyer confirmed.
+    testWidgets('Fayda confirmed for this payment: the pill says so',
+        (tester) async {
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<OrderBloc>.value(value: bloc),
+            BlocProvider<EscrowBloc>.value(value: escrowBloc),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('en'),
+            home: PaymentInstructionsScreen(
+              order: order()..orderTotal = 94500,
+              telebirrLive: true,
+              kycVerificationScreen: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('fayda screen'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final pill = find.byKey(const Key('checkout_confirmed_with'));
+      // Nothing is named before the server asks and the buyer answers.
+      expect(pill, findsNothing);
+
+      await tester.tap(find.text('Pay with Telebirr'));
+      await tester.pump();
+      states.add(
+        const OrderError(
+          message: "AUTH_041: Confirm it's you with Fayda",
+          code: AppErrorCode.faydaStepUpRequired,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(pill, findsNothing);
+
+      await tester.tap(find.byKey(const Key('fayda_step_up_verify_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('fayda screen'));
+      await tester.pumpAndSettle();
+
+      expect(submitted, hasLength(2));
+      expect(find.text('Confirmed with Fayda'), findsOneWidget);
+      SecurityEvents.instance.clearKeptRejections();
+    });
 
     testWidgets('once submitted, the checkout screen takes over',
         (tester) async {

@@ -1,6 +1,7 @@
 using System.Globalization;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
+using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Data;
@@ -20,6 +21,18 @@ namespace WeredaConnect.Server.Data;
 ///   GSI ListingIdIndex: listingId + createdAt
 ///   GSI TripIdIndex: tripId + createdAt
 ///   GSI AdminQueueIndex (sparse, ESC-06): adminQueue + adminQueuedAt
+///   GSI DeadlineIndex (sparse, ESC-16): deadlineShard + nextDeadlineAt
+///
+/// ESC-16: every write that can change what is due on an order (the versioned update, the fenced and
+/// the linked update, the funding, the status advance and the stamp) also writes its next deadline
+/// (<see cref="OrderDeadlines"/>) in the same request, derived from the row as it will be after the
+/// write (the row read before it plus the fields set), or removes it when nothing is pending. Where
+/// the write returns the row (or reads it back), the deadline is checked against it and corrected
+/// with one more write conditioned on the version just written: only a stale read before the write
+/// can make them differ. A failure there never fails the write; it logs
+/// <c>ORDER_DEADLINE_STAMP_FAILED</c> and the cron's daily repair walk stamps the row. The create and
+/// <c>payment_submitted -> payment_failed</c> leave it alone: no deadline of the index is pending
+/// before funding.
 /// </summary>
 public sealed class OrderRepository : IOrderRepository
 {
@@ -98,21 +111,49 @@ public sealed class OrderRepository : IOrderRepository
                 404, "SYNC_VALIDATION", "Order not found.", "orderId");
         }
 
-        var request = BuildUpdateRequest(orderId, existing["createdAt"].S, data, expectedVersion);
+        var request = BuildUpdateRequest(orderId, existing, data, expectedVersion);
+        Dictionary<string, object> result;
         try
         {
             var response = await _dynamoDb.UpdateItemAsync(request);
-            var result = DynamoDbHelper.FromItem(response.Attributes);
-            return AuthResult<Dictionary<string, object>>.Success(result);
+            result = DynamoDbHelper.FromItem(response.Attributes);
         }
         catch (ConditionalCheckFailedException)
         {
             return VersionConflict(existing, expectedVersion);
         }
+
+        // ESC-16: the read above is eventually consistent, so check the deadline against the row written.
+        await EnsureDeadlineAsync(result);
+        return AuthResult<Dictionary<string, object>>.Success(result);
     }
 
     /// <summary>FRD-03: the failure code of <see cref="UpdateUnlessEscrowHeldAsync"/> when the order's escrow is held.</summary>
     public const string EscrowHeldCode = "ESCROW_HELD";
+
+    /// <summary>
+    /// FRD-03: the transaction item that refuses a write while the order's escrow is <c>held</c>, for
+    /// callers that build their own order transaction (ESC-15: the trucker's accept with the trip
+    /// booking). <see cref="UpdateUnlessEscrowHeldAsync"/> uses the same condition.
+    /// </summary>
+    public static TransactWriteItem EscrowNotHeldCheck(EscrowRowKey escrow) => new()
+    {
+        ConditionCheck = new ConditionCheck
+        {
+            TableName = escrow.TableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "escrowId", new AttributeValue { S = escrow.EscrowId } },
+                { "createdAt", new AttributeValue { S = escrow.CreatedAt } }
+            },
+            ConditionExpression = "attribute_not_exists(#status) OR #status <> :held",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#status", "status" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":held", new AttributeValue { S = EscrowHoldFields.Status } }
+            }
+        }
+    };
 
     /// <inheritdoc />
     public async Task<AuthResult<Dictionary<string, object>>> UpdateUnlessEscrowHeldAsync(
@@ -125,7 +166,7 @@ public sealed class OrderRepository : IOrderRepository
                 404, "SYNC_VALIDATION", "Order not found.", "orderId");
         }
 
-        var update = BuildUpdateRequest(orderId, existing["createdAt"].S, data, expectedVersion);
+        var update = BuildUpdateRequest(orderId, existing, data, expectedVersion);
         try
         {
             await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest
@@ -184,9 +225,14 @@ public sealed class OrderRepository : IOrderRepository
         }
 
         var written = await GetItemAsync(orderId, consistentRead: true);
-        return written != null
-            ? AuthResult<Dictionary<string, object>>.Success(DynamoDbHelper.FromItem(written))
-            : AuthResult<Dictionary<string, object>>.Failure(404, "SYNC_VALIDATION", "Order not found.", "orderId");
+        if (written == null)
+        {
+            return AuthResult<Dictionary<string, object>>.Failure(404, "SYNC_VALIDATION", "Order not found.", "orderId");
+        }
+
+        var row = DynamoDbHelper.FromItem(written);
+        await EnsureDeadlineAsync(row);
+        return AuthResult<Dictionary<string, object>>.Success(row);
     }
 
     private static AuthResult<Dictionary<string, object>> VersionConflict(
@@ -199,15 +245,21 @@ public sealed class OrderRepository : IOrderRepository
                 Message = $"Version conflict: server has version {existing["version"].N}, client expected {expectedVersion}."
             });
 
-    /// <summary>The versioned order update of <see cref="UpdateAsync"/>, shared with the fenced write.</summary>
+    /// <summary>
+    /// The versioned order update of <see cref="UpdateAsync"/>, shared with the fenced write. ESC-16: it
+    /// also sets (or removes) the next deadline of the row as <paramref name="existing"/> plus
+    /// <paramref name="data"/>.
+    /// </summary>
     private UpdateItemRequest BuildUpdateRequest(
-        string orderId, string createdAt, Dictionary<string, object> data, int expectedVersion)
+        string orderId, Dictionary<string, AttributeValue> existing, Dictionary<string, object> data, int expectedVersion)
     {
+        var createdAt = existing["createdAt"].S;
         var now = DateTime.UtcNow.ToString("o");
         var newVersion = expectedVersion + 1;
 
         // Build update expression from data fields
         var updateParts = new List<string> { "#updated = :updated", "#v = :newVersion" };
+        var removeParts = new List<string>();
         var attrNames = new Dictionary<string, string>
         {
             { "#updated", "updatedAt" },
@@ -223,7 +275,7 @@ public sealed class OrderRepository : IOrderRepository
         var i = 0;
         foreach (var kvp in data)
         {
-            if (kvp.Key is "orderId" or "version" or "createdAt" or "updatedAt")
+            if (kvp.Key is "orderId" or "version" or "createdAt" or "updatedAt" || OrderDeadlines.IsDeadlineField(kvp.Key))
             {
                 continue;
             }
@@ -236,6 +288,8 @@ public sealed class OrderRepository : IOrderRepository
             i++;
         }
 
+        AppendDeadline(AfterWrite(existing, data), updateParts, removeParts, attrNames, attrValues);
+
         return new UpdateItemRequest
         {
             TableName = _tableName,
@@ -244,11 +298,65 @@ public sealed class OrderRepository : IOrderRepository
                 { "orderId", new AttributeValue { S = orderId } },
                 { "createdAt", new AttributeValue { S = createdAt } }
             },
-            UpdateExpression = "SET " + string.Join(", ", updateParts),
+            UpdateExpression = UpdateExpression(updateParts, removeParts),
             ConditionExpression = "#v = :expectedVersion",
             ExpressionAttributeNames = attrNames,
             ExpressionAttributeValues = attrValues,
             ReturnValues = ReturnValue.ALL_NEW
+        };
+    }
+
+    /// <inheritdoc />
+    public TransactWriteItem BuildNotClosedCheck(string orderId, string createdAt) => new()
+    {
+        ConditionCheck = new ConditionCheck
+        {
+            TableName = _tableName,
+            Key = new Dictionary<string, AttributeValue>
+            {
+                { "orderId", new AttributeValue { S = orderId } },
+                { "createdAt", new AttributeValue { S = createdAt } }
+            },
+            ConditionExpression = "attribute_exists(#orderId) AND #status <> :cancelled AND #status <> :rejected",
+            ExpressionAttributeNames = new Dictionary<string, string> { { "#orderId", "orderId" }, { "#status", "status" } },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":cancelled", new AttributeValue { S = "cancelled" } },
+                { ":rejected", new AttributeValue { S = "rejected" } }
+            }
+        }
+    };
+
+    /// <inheritdoc />
+    public TransactWriteItem BuildAdminQueueEntryCheck(string orderId, string createdAt, string queuedAt, string? escrowId)
+    {
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":open", new AttributeValue { S = AdminQueueFields.MarkerOpen } },
+            { ":queuedAt", new AttributeValue { S = queuedAt } }
+        };
+        var escrowCondition = "attribute_not_exists(#escrowId)";
+        if (escrowId != null)
+        {
+            escrowCondition = "#escrowId = :escrowId";
+            values[":escrowId"] = new AttributeValue { S = escrowId };
+        }
+
+        return new TransactWriteItem
+        {
+            ConditionCheck = new ConditionCheck
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, createdAt),
+                ConditionExpression = $"#marker = :open AND #queuedAt = :queuedAt AND {escrowCondition}",
+                ExpressionAttributeNames = new Dictionary<string, string>
+                {
+                    { "#marker", AdminQueueFields.Marker },
+                    { "#queuedAt", AdminQueueFields.QueuedAt },
+                    { "#escrowId", AdminQueueFields.EscrowId }
+                },
+                ExpressionAttributeValues = values
+            }
         };
     }
 
@@ -291,7 +399,7 @@ public sealed class OrderRepository : IOrderRepository
         var i = 0;
         foreach (var kvp in data)
         {
-            if (kvp.Key is "orderId" or "version" or "createdAt" or "updatedAt")
+            if (kvp.Key is "orderId" or "version" or "createdAt" or "updatedAt" || OrderDeadlines.IsDeadlineField(kvp.Key))
             {
                 continue;
             }
@@ -302,6 +410,19 @@ public sealed class OrderRepository : IOrderRepository
             updateParts.Add($"#f{i} = :f{i}");
             written[kvp.Key] = value;
             i++;
+        }
+
+        // ESC-16: the read above is consistent and the write checks the version, so the deadline is
+        // derived from the row as written, except for a marker stamp (no version bump) that lands
+        // between the read and the write. No check after the write: such a row is due early at worst,
+        // and the sweep re-reads it and sets its correct deadline when it comes due. A `watch` entry
+        // (FUP-170) left on a row that moved on that way is never swept; the daily repair's watch walk
+        // removes it, and the admin listing drops it meanwhile.
+        var removeParts = new List<string>();
+        var deadline = AppendDeadline(DynamoDbHelper.FromItem(written), updateParts, removeParts, attrNames, attrValues);
+        if (deadline.Added)
+        {
+            ApplyDeadline(written, deadline.Next);
         }
 
         var items = new List<TransactWriteItem>
@@ -316,7 +437,7 @@ public sealed class OrderRepository : IOrderRepository
                         { "orderId", new AttributeValue { S = orderId } },
                         { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
                     },
-                    UpdateExpression = "SET " + string.Join(", ", updateParts),
+                    UpdateExpression = UpdateExpression(updateParts, removeParts),
                     ConditionExpression = "#v = :expectedVersion AND #expectedStatusName = :expectedStatus",
                     ExpressionAttributeNames = attrNames,
                     ExpressionAttributeValues = attrValues
@@ -351,6 +472,188 @@ public sealed class OrderRepository : IOrderRepository
         }
 
         return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written, DynamoDbHelper.FromItem(written));
+    }
+
+    /// <inheritdoc />
+    public async Task<OrderLinkedWriteResult> TryUpdateGuardedAsync(
+        string orderId,
+        Dictionary<string, object> set,
+        IReadOnlyCollection<string> remove,
+        int expectedVersion,
+        IReadOnlyDictionary<string, string> expectedStrings,
+        IReadOnlyCollection<string> expectedAbsent,
+        IReadOnlyList<TransactWriteItem> linkedItems)
+    {
+        var existing = await GetItemAsync(orderId, consistentRead: true);
+        if (existing == null)
+        {
+            return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderNotFound);
+        }
+
+        var now = DateTime.UtcNow.ToString("o");
+        var written = new Dictionary<string, AttributeValue>(existing)
+        {
+            ["updatedAt"] = new AttributeValue { S = now },
+            ["version"] = new AttributeValue { N = (expectedVersion + 1).ToString(CultureInfo.InvariantCulture) }
+        };
+
+        var updateParts = new List<string> { "#updated = :updated", "#v = :newVersion" };
+        var removeParts = new List<string>();
+        var attrNames = new Dictionary<string, string> { { "#updated", "updatedAt" }, { "#v", "version" } };
+        var attrValues = new Dictionary<string, AttributeValue>
+        {
+            { ":updated", written["updatedAt"] },
+            { ":newVersion", written["version"] },
+            { ":expectedVersion", new AttributeValue { N = expectedVersion.ToString(CultureInfo.InvariantCulture) } }
+        };
+
+        var i = 0;
+        foreach (var kvp in set)
+        {
+            if (IsKeyOrWriteOwned(kvp.Key))
+            {
+                continue;
+            }
+
+            var value = DynamoDbHelper.ToAttributeValue(kvp.Value);
+            attrNames[$"#f{i}"] = kvp.Key;
+            attrValues[$":f{i}"] = value;
+            updateParts.Add($"#f{i} = :f{i}");
+            written[kvp.Key] = value;
+            i++;
+        }
+
+        var r = 0;
+        foreach (var key in remove)
+        {
+            if (IsKeyOrWriteOwned(key) || set.ContainsKey(key))
+            {
+                continue;
+            }
+
+            attrNames[$"#r{r}"] = key;
+            removeParts.Add($"#r{r}");
+            written.Remove(key);
+            r++;
+        }
+
+        var conditions = new List<string> { "#v = :expectedVersion" };
+        var c = 0;
+        foreach (var (key, value) in expectedStrings)
+        {
+            attrNames[$"#c{c}"] = key;
+            attrValues[$":c{c}"] = new AttributeValue { S = value };
+            conditions.Add($"#c{c} = :c{c}");
+            c++;
+        }
+
+        var a = 0;
+        foreach (var key in expectedAbsent)
+        {
+            attrNames[$"#a{a}"] = key;
+            conditions.Add($"attribute_not_exists(#a{a})");
+            a++;
+        }
+
+        // ESC-16: the read above is consistent and the write checks the version and the fields written without
+        // a bump, so the deadline is derived from the row as written (as in TryUpdateWithAsync).
+        var deadline = AppendDeadline(DynamoDbHelper.FromItem(written), updateParts, removeParts, attrNames, attrValues);
+        if (deadline.Added)
+        {
+            ApplyDeadline(written, deadline.Next);
+        }
+
+        var items = new List<TransactWriteItem>
+        {
+            new()
+            {
+                Update = new Update
+                {
+                    TableName = _tableName,
+                    Key = OrderKey(orderId, existing["createdAt"].S),
+                    UpdateExpression = UpdateExpression(updateParts, removeParts),
+                    ConditionExpression = string.Join(" AND ", conditions),
+                    ExpressionAttributeNames = attrNames,
+                    ExpressionAttributeValues = attrValues
+                }
+            }
+        };
+        items.AddRange(linkedItems);
+
+        try
+        {
+            await _dynamoDb.TransactWriteItemsAsync(new TransactWriteItemsRequest { TransactItems = items });
+        }
+        catch (TransactionCanceledException ex)
+        {
+            // As in TryUpdateWithAsync: a linked item that refused decides over the order's own condition.
+            for (var index = 1; index < items.Count; index++)
+            {
+                if (IsConditionFailure(ex.CancellationReasons, index))
+                {
+                    return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.LinkedItemRefused);
+                }
+            }
+
+            if (IsConditionFailure(ex.CancellationReasons, 0))
+            {
+                return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.OrderChanged);
+            }
+
+            throw;
+        }
+
+        return new OrderLinkedWriteResult(OrderLinkedWriteOutcome.Written, DynamoDbHelper.FromItem(written));
+    }
+
+    /// <summary>FUP-287: the keys and the attributes every versioned write owns (never taken from a caller's set or remove).</summary>
+    private static bool IsKeyOrWriteOwned(string key)
+        => key is "orderId" or "version" or "createdAt" or "updatedAt" || OrderDeadlines.IsDeadlineField(key);
+
+    /// <summary>
+    /// FUP-287: the transaction item that lets the admin's re-open of a judged pickup land only while the order's
+    /// escrow still holds the money as the judgement left it (<see cref="PickupReopen.HoldsMoney"/>): <c>escrowed</c>,
+    /// no refund armed, no settlement lock, no delivery confirmed, never in the manual payout queue (the escrow
+    /// sweep's plain-hold condition, plus the delivery stamp). With <paramref name="notHoldCapped"/> also while the
+    /// escrow has not reached its hold cap (<c>holdCapReachedAt</c>), the state read when the re-open removes the
+    /// queue entry the cap would wait on.
+    /// </summary>
+    public static TransactWriteItem EscrowHoldsMoneyCheck(EscrowRowKey escrow, bool notHoldCapped = false)
+    {
+        var names = new Dictionary<string, string>
+        {
+            { "#status", "status" },
+            { "#refundReason", "refundReason" },
+            { "#lock", SettlementLockFields.Lock },
+            { "#manualPayout", ManualPayoutFields.Marker },
+            { "#confirmed", "deliveryConfirmedAt" }
+        };
+        var condition = "#status = :escrowed AND attribute_not_exists(#refundReason) AND attribute_not_exists(#lock) "
+                        + "AND attribute_not_exists(#manualPayout) AND attribute_not_exists(#confirmed)";
+        if (notHoldCapped)
+        {
+            names["#holdCap"] = AdminQueueFields.HoldCapReachedAt;
+            condition += " AND attribute_not_exists(#holdCap)";
+        }
+
+        return new TransactWriteItem
+        {
+            ConditionCheck = new ConditionCheck
+            {
+                TableName = escrow.TableName,
+                Key = new Dictionary<string, AttributeValue>
+                {
+                    { "escrowId", new AttributeValue { S = escrow.EscrowId } },
+                    { "createdAt", new AttributeValue { S = escrow.CreatedAt } }
+                },
+                ConditionExpression = condition,
+                ExpressionAttributeNames = names,
+                ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+                {
+                    { ":escrowed", new AttributeValue { S = "escrowed" } }
+                }
+            }
+        };
     }
 
     /// <inheritdoc />
@@ -395,7 +698,7 @@ public sealed class OrderRepository : IOrderRepository
         var i = 0;
         foreach (var kvp in fields)
         {
-            if (kvp.Key is "orderId" or "createdAt" or "updatedAt" or "version" or "status")
+            if (kvp.Key is "orderId" or "createdAt" or "updatedAt" or "version" or "status" || OrderDeadlines.IsDeadlineField(kvp.Key))
             {
                 continue;
             }
@@ -406,6 +709,10 @@ public sealed class OrderRepository : IOrderRepository
             i++;
         }
 
+        // ESC-16: the farmer's request (T3) starts with the funding.
+        var removeParts = new List<string>();
+        AppendDeadline(AfterWrite(existing, fields, "funded"), setParts, removeParts, attrNames, attrValues);
+
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
@@ -414,22 +721,26 @@ public sealed class OrderRepository : IOrderRepository
                 { "orderId", new AttributeValue { S = orderId } },
                 { "createdAt", new AttributeValue { S = existing["createdAt"].S } }
             },
-            UpdateExpression = "SET " + string.Join(", ", setParts) + " ADD #v :one",
+            UpdateExpression = UpdateExpression(setParts, removeParts, "#v :one"),
             ConditionExpression = "#status = :submitted",
             ExpressionAttributeNames = attrNames,
             ExpressionAttributeValues = attrValues,
             ReturnValues = ReturnValue.ALL_NEW
         };
 
+        Dictionary<string, object> funded;
         try
         {
             var response = await _dynamoDb.UpdateItemAsync(request);
-            return DynamoDbHelper.FromItem(response.Attributes);
+            funded = DynamoDbHelper.FromItem(response.Attributes);
         }
         catch (ConditionalCheckFailedException)
         {
             return null;
         }
+
+        await EnsureDeadlineAsync(funded);
+        return funded;
     }
 
     /// <inheritdoc />
@@ -534,6 +845,44 @@ public sealed class OrderRepository : IOrderRepository
         while (response.LastEvaluatedKey?.Count > 0);
 
         return result;
+    }
+
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryByStatusCreatedSinceAsync(
+        string status, string createdSince, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
+    {
+        if (limit < 1 || limit > 100)
+        {
+            limit = 100;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = "StatusCreatedAtIndex",
+            KeyConditionExpression = "#status = :status AND #created >= :since",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#status", "status" },
+                { "#created", "createdAt" }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":status", new AttributeValue { S = status } },
+                { ":since", new AttributeValue { S = createdSince } }
+            },
+            Limit = limit,
+            ScanIndexForward = false // newest first
+        };
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = response.Items.Select(DynamoDbHelper.FromItem).ToList();
+        return (items, response.LastEvaluatedKey?.Count > 0 ? response.LastEvaluatedKey : null);
     }
 
     /// <inheritdoc />
@@ -861,7 +1210,19 @@ public sealed class OrderRepository : IOrderRepository
     }
 
     /// <inheritdoc />
-    public async Task<Dictionary<string, object>?> TryAdvanceStatusAsync(string orderId, string fromStatus, string toStatus)
+    public Task<Dictionary<string, object>?> TryAdvanceStatusAsync(
+        string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields = null)
+        => AdvanceStatusCoreAsync(orderId, fromStatus, toStatus, extraFields, unless: null);
+
+    /// <inheritdoc />
+    public Task<Dictionary<string, object>?> TryAdvanceStatusUnlessAsync(
+        string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields,
+        string unlessField, string unlessValue)
+        => AdvanceStatusCoreAsync(orderId, fromStatus, toStatus, extraFields, (unlessField, unlessValue));
+
+    private async Task<Dictionary<string, object>?> AdvanceStatusCoreAsync(
+        string orderId, string fromStatus, string toStatus, Dictionary<string, object>? extraFields,
+        (string Field, string Value)? unless)
     {
         var existing = await GetItemAsync(orderId, consistentRead: true);
         if (existing == null)
@@ -869,38 +1230,570 @@ public sealed class OrderRepository : IOrderRepository
             return null;
         }
 
+        var setParts = new List<string> { "#status = :to", "#updated = :updated" };
+        var attrNames = new Dictionary<string, string>
+        {
+            { "#status", "status" },
+            { "#updated", "updatedAt" },
+            { "#v", "version" }
+        };
+        var attrValues = new Dictionary<string, AttributeValue>
+        {
+            { ":to", new AttributeValue { S = toStatus } },
+            { ":from", new AttributeValue { S = fromStatus } },
+            { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
+            { ":one", new AttributeValue { N = "1" } }
+        };
+
+        if (extraFields != null)
+        {
+            var i = 0;
+            foreach (var kvp in extraFields)
+            {
+                if (IsProtectedOrderField(kvp.Key))
+                {
+                    continue;
+                }
+
+                attrNames[$"#f{i}"] = kvp.Key;
+                attrValues[$":f{i}"] = DynamoDbHelper.ToAttributeValue(kvp.Value);
+                setParts.Add($"#f{i} = :f{i}");
+                i++;
+            }
+        }
+
+        var condition = "attribute_exists(orderId) AND #status = :from";
+        if (unless != null)
+        {
+            attrNames["#unless"] = unless.Value.Field;
+            attrValues[":unless"] = new AttributeValue { S = unless.Value.Value };
+            condition += " AND (attribute_not_exists(#unless) OR #unless <> :unless)";
+        }
+
+        var removeParts = new List<string>();
+        AppendDeadline(AfterWrite(existing, extraFields, toStatus), setParts, removeParts, attrNames, attrValues);
+
         var request = new UpdateItemRequest
         {
             TableName = _tableName,
             Key = OrderKey(orderId, existing["createdAt"].S),
-            UpdateExpression = "SET #status = :to, #updated = :updated ADD #v :one",
-            ConditionExpression = "attribute_exists(orderId) AND #status = :from",
-            ExpressionAttributeNames = new Dictionary<string, string>
-            {
-                { "#status", "status" },
-                { "#updated", "updatedAt" },
-                { "#v", "version" }
-            },
-            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-            {
-                { ":to", new AttributeValue { S = toStatus } },
-                { ":from", new AttributeValue { S = fromStatus } },
-                { ":updated", new AttributeValue { S = DateTime.UtcNow.ToString("o") } },
-                { ":one", new AttributeValue { N = "1" } }
-            },
+            UpdateExpression = UpdateExpression(setParts, removeParts, "#v :one"),
+            ConditionExpression = condition,
+            ExpressionAttributeNames = attrNames,
+            ExpressionAttributeValues = attrValues,
             ReturnValues = ReturnValue.ALL_NEW
         };
 
+        Dictionary<string, object> advanced;
         try
         {
             var response = await _dynamoDb.UpdateItemAsync(request);
-            return DynamoDbHelper.FromItem(response.Attributes);
+            advanced = DynamoDbHelper.FromItem(response.Attributes);
         }
         catch (ConditionalCheckFailedException)
         {
             return null;
         }
+
+        await EnsureDeadlineAsync(advanced);
+        return advanced;
     }
+
+    /// <inheritdoc />
+    public Task<List<Dictionary<string, object>>> QueryByTripAsync(string tripId)
+        => QueryAllByIndexAsync("TripIdIndex", "tripId", tripId);
+
+    /// <inheritdoc />
+    public Task<List<Dictionary<string, object>>> QueryByListingAsync(string listingId)
+        => QueryAllByIndexAsync("ListingIdIndex", "listingId", listingId);
+
+    /// <summary>Every order under one key of a GSI (all pages, oldest first).</summary>
+    private async Task<List<Dictionary<string, object>>> QueryAllByIndexAsync(string indexName, string keyName, string keyValue)
+    {
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = indexName,
+            KeyConditionExpression = $"#{keyName} = :{keyName}",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { $"#{keyName}", keyName }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { $":{keyName}", new AttributeValue { S = keyValue } }
+            },
+            ScanIndexForward = true // oldest first
+        };
+
+        var result = new List<Dictionary<string, object>>();
+        QueryResponse? response = null;
+
+        do
+        {
+            if (response?.LastEvaluatedKey?.Count > 0)
+            {
+                request.ExclusiveStartKey = response.LastEvaluatedKey;
+            }
+
+            response = await _dynamoDb.QueryAsync(request);
+            result.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
+        }
+        while (response.LastEvaluatedKey?.Count > 0);
+
+        return result;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryStampAsync(
+        string orderId, Dictionary<string, object> fields, IReadOnlyDictionary<string, string> expectedStrings)
+    {
+        var setParts = new List<string>();
+        var attrNames = new Dictionary<string, string>();
+        var attrValues = new Dictionary<string, AttributeValue>();
+
+        var i = 0;
+        foreach (var kvp in fields)
+        {
+            if (IsProtectedOrderField(kvp.Key))
+            {
+                continue;
+            }
+
+            attrNames[$"#f{i}"] = kvp.Key;
+            attrValues[$":f{i}"] = DynamoDbHelper.ToAttributeValue(kvp.Value);
+            setParts.Add($"#f{i} = :f{i}");
+            i++;
+        }
+
+        if (setParts.Count == 0)
+        {
+            throw new ArgumentException("A stamp needs at least one field that is not a key, version, updatedAt or status.", nameof(fields));
+        }
+
+        var conditionParts = new List<string> { "attribute_exists(orderId)" };
+        var c = 0;
+        foreach (var kvp in expectedStrings)
+        {
+            attrNames[$"#c{c}"] = kvp.Key;
+            attrValues[$":c{c}"] = new AttributeValue { S = kvp.Value };
+            conditionParts.Add($"#c{c} = :c{c}");
+            c++;
+        }
+
+        var existing = await GetItemAsync(orderId, consistentRead: true);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        // ESC-16: a marker can end what was due (a reminder stamped), so the deadline moves with it.
+        // A stamp never sets the status, so a status in the fields is left out here too.
+        var removeParts = new List<string>();
+        AppendDeadline(AfterWrite(existing, fields.Where(f => f.Key != "status")), setParts, removeParts, attrNames, attrValues);
+
+        Dictionary<string, object> stamped;
+        try
+        {
+            var response = await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, existing["createdAt"].S),
+                UpdateExpression = UpdateExpression(setParts, removeParts),
+                ConditionExpression = string.Join(" AND ", conditionParts),
+                ExpressionAttributeNames = attrNames,
+                ExpressionAttributeValues = attrValues,
+                ReturnValues = ReturnValue.ALL_NEW
+            });
+            stamped = DynamoDbHelper.FromItem(response.Attributes ?? new Dictionary<string, AttributeValue>());
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+
+        await EnsureDeadlineAsync(stamped);
+        return true;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryRecordCheckInAsync(
+        string orderId, string createdAt, string kind, Dictionary<string, object> entry, bool whileOpen)
+    {
+        var names = new Dictionary<string, string>
+        {
+            { "#ci", PickupJudgement.CheckInsField },
+            { "#kind", kind }
+        };
+        var values = new Dictionary<string, AttributeValue>
+        {
+            { ":entry", DynamoDbHelper.ToAttributeValue(entry) }
+        };
+        var open = string.Empty;
+        if (whileOpen)
+        {
+            names["#status"] = "status";
+            names["#pj"] = PickupJudgement.Field;
+            values[":accepted"] = new AttributeValue { S = "accepted" };
+            values[":pending"] = new AttributeValue { S = PickupJudgement.Outcome.Pending };
+            open = " AND #status = :accepted AND #pj = :pending";
+        }
+
+        // The map is stamped (empty) with pickupJudgement, so the entry goes into it. A row whose map is
+        // missing gets the map with this one entry instead; a document path into a missing map would fail.
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, createdAt),
+                UpdateExpression = "SET #ci.#kind = :entry",
+                ConditionExpression = "attribute_exists(orderId) AND attribute_exists(#ci) AND attribute_not_exists(#ci.#kind)" + open,
+                ExpressionAttributeNames = names,
+                ExpressionAttributeValues = values
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            // The kind is taken, the order moved on, or the map is missing: try the last one only.
+        }
+
+        var withMap = new Dictionary<string, AttributeValue>(values)
+        {
+            [":map"] = DynamoDbHelper.ToAttributeValue(new Dictionary<string, object> { { kind, entry } })
+        };
+        withMap.Remove(":entry");
+        var mapNames = new Dictionary<string, string>(names);
+        mapNames.Remove("#kind");
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, createdAt),
+                UpdateExpression = "SET #ci = :map",
+                ConditionExpression = "attribute_exists(orderId) AND attribute_not_exists(#ci)" + open,
+                ExpressionAttributeNames = mapNames,
+                ExpressionAttributeValues = withMap
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public Task<bool> TryRecordDropoffCheckInAsync(string orderId, Dictionary<string, object> entry, bool whileOpen)
+        => RecordDropoffEntryAsync(orderId, DropoffJudgement.CheckInField, entry, whileOpen);
+
+    /// <inheritdoc />
+    public Task<bool> TryRecordDropoffAttemptAsync(string orderId, Dictionary<string, object> entry)
+        => RecordDropoffEntryAsync(orderId, DropoffJudgement.AttemptField, entry, whileOpen: true);
+
+    /// <inheritdoc />
+    public Task<bool> TryRecordLateDropoffAttemptAsync(string orderId, Dictionary<string, object> entry)
+        => RecordDropoffEntryAsync(orderId, DropoffJudgement.AttemptField, entry, whileOpen: false);
+
+    /// <summary>ESC-36: the first entry of <paramref name="field"/>, with the deadline it gives, no version bump.</summary>
+    private async Task<bool> RecordDropoffEntryAsync(string orderId, string field, Dictionary<string, object> entry, bool whileOpen)
+    {
+        var existing = await GetItemAsync(orderId, consistentRead: true);
+        if (existing == null)
+        {
+            return false;
+        }
+
+        var setParts = new List<string> { "#dc = :entry" };
+        var removeParts = new List<string>();
+        var attrNames = new Dictionary<string, string> { { "#dc", field } };
+        var attrValues = new Dictionary<string, AttributeValue> { { ":entry", DynamoDbHelper.ToAttributeValue(entry) } };
+        var condition = "attribute_exists(orderId) AND attribute_not_exists(#dc)";
+        if (whileOpen)
+        {
+            attrNames["#status"] = "status";
+            attrNames["#dj"] = DropoffJudgement.Field;
+            attrValues[":pickedUp"] = new AttributeValue { S = "pickup_confirmed" };
+            attrValues[":inTransit"] = new AttributeValue { S = "in_transit" };
+            attrValues[":pending"] = new AttributeValue { S = DropoffJudgement.Outcome.Pending };
+            condition += " AND #status IN (:pickedUp, :inTransit) AND #dj = :pending";
+        }
+
+        // A counted check-in moves the order's next deadline from T8 to T9 in the same write; an attempt moves none.
+        AppendDeadline(
+            AfterWrite(existing, new[] { new KeyValuePair<string, object>(field, entry) }),
+            setParts, removeParts, attrNames, attrValues);
+
+        Dictionary<string, object> written;
+        try
+        {
+            var response = await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, existing["createdAt"].S),
+                UpdateExpression = UpdateExpression(setParts, removeParts),
+                ConditionExpression = condition,
+                ExpressionAttributeNames = attrNames,
+                ExpressionAttributeValues = attrValues,
+                ReturnValues = ReturnValue.ALL_NEW
+            });
+            written = DynamoDbHelper.FromItem(response.Attributes ?? new Dictionary<string, AttributeValue>());
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+
+        await EnsureDeadlineAsync(written);
+        return true;
+    }
+
+    /// <summary>
+    /// Order attributes a status or stamp write never takes from its caller's field map: the keys,
+    /// the version and timestamp the write owns, the status (set by the write itself or not at all),
+    /// and (ESC-16) the deadline attributes, which the write derives itself.
+    /// </summary>
+    private static bool IsProtectedOrderField(string key)
+        => key is "orderId" or "createdAt" or "updatedAt" or "version" or "status" || OrderDeadlines.IsDeadlineField(key);
+
+    // ──────────────────────────────────────────────
+    // ESC-16: the next deadline (DeadlineIndex)
+    // ──────────────────────────────────────────────
+
+    /// <summary>The token of a deadline the write could not keep in step (the repair walk fixes the row).</summary>
+    internal const string DeadlineStampFailedToken = "ORDER_DEADLINE_STAMP_FAILED";
+
+    /// <inheritdoc />
+    public Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDueDeadlinesAsync(
+        string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
+        => QueryDeadlinePartitionAsync(OrderDeadlines.Shard, dueBefore, limit, exclusiveStartKey);
+
+    /// <inheritdoc />
+    public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryDeadlinePartitionAsync(
+        string shard, string dueBefore, int limit, Dictionary<string, AttributeValue>? exclusiveStartKey)
+    {
+        if (limit < 1 || limit > 100)
+        {
+            limit = 100;
+        }
+
+        var request = new QueryRequest
+        {
+            TableName = _tableName,
+            IndexName = OrderDeadlines.IndexName,
+            KeyConditionExpression = "#shard = :shard AND #at < :due",
+            ExpressionAttributeNames = new Dictionary<string, string>
+            {
+                { "#shard", OrderDeadlines.ShardField },
+                { "#at", OrderDeadlines.AtField }
+            },
+            ExpressionAttributeValues = new Dictionary<string, AttributeValue>
+            {
+                { ":shard", new AttributeValue { S = shard } },
+                { ":due", new AttributeValue { S = dueBefore } }
+            },
+            Limit = limit,
+            ScanIndexForward = true // oldest deadline first
+        };
+
+        if (exclusiveStartKey != null)
+        {
+            request.ExclusiveStartKey = exclusiveStartKey;
+        }
+
+        var response = await _dynamoDb.QueryAsync(request);
+        var items = (response.Items ?? new List<Dictionary<string, AttributeValue>>()).Select(DynamoDbHelper.FromItem).ToList();
+        return (items, response.LastEvaluatedKey?.Count > 0 ? response.LastEvaluatedKey : null);
+    }
+
+    /// <inheritdoc />
+    public Task<bool> TrySetDeadlineAsync(string orderId, string createdAt, int expectedVersion, OrderDeadline? deadline)
+        => SetDeadlineCoreAsync(orderId, createdAt, expectedVersion, deadline);
+
+    private async Task<bool> SetDeadlineCoreAsync(string orderId, string createdAt, int expectedVersion, OrderDeadline? deadline)
+    {
+        var setParts = new List<string>();
+        var removeParts = new List<string>();
+        var attrNames = new Dictionary<string, string> { { "#v", "version" } };
+        var attrValues = new Dictionary<string, AttributeValue>
+        {
+            { ":v", new AttributeValue { N = expectedVersion.ToString(CultureInfo.InvariantCulture) } }
+        };
+        AddDeadlineParts(deadline, setParts, removeParts, attrNames, attrValues);
+
+        try
+        {
+            await _dynamoDb.UpdateItemAsync(new UpdateItemRequest
+            {
+                TableName = _tableName,
+                Key = OrderKey(orderId, createdAt),
+                UpdateExpression = setParts.Count > 0
+                    ? "SET " + string.Join(", ", setParts)
+                    : "REMOVE " + string.Join(", ", removeParts),
+                ConditionExpression = "attribute_exists(orderId) AND #v = :v",
+                ExpressionAttributeNames = attrNames,
+                ExpressionAttributeValues = attrValues
+            });
+            return true;
+        }
+        catch (ConditionalCheckFailedException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The row as it will be after a write of <paramref name="changes"/> (and <paramref name="status"/>).</summary>
+    private static Dictionary<string, object> AfterWrite(
+        Dictionary<string, AttributeValue> existing, IEnumerable<KeyValuePair<string, object>>? changes, string? status = null)
+    {
+        var row = DynamoDbHelper.FromItem(existing);
+        if (changes != null)
+        {
+            foreach (var (key, value) in changes)
+            {
+                // The status is set by the caller's fields (UpdateAsync) or by status below.
+                if (!IsProtectedOrderField(key) || key == "status")
+                {
+                    row[key] = value;
+                }
+            }
+        }
+
+        if (status != null)
+        {
+            row["status"] = status;
+        }
+
+        return row;
+    }
+
+    /// <summary>
+    /// Adds the next deadline of <paramref name="after"/> to an update: the three attributes set, or
+    /// removed when nothing is pending. Nothing is added when the row already carries it (a write
+    /// that changes nothing due, or a row that never had a deadline, keeps its old expression). When
+    /// the deadline cannot be derived nothing is added either, the row keeps what it has and
+    /// <see cref="DeadlineStampFailedToken"/> is logged. <c>Added</c> is false only then.
+    /// </summary>
+    private static (bool Added, OrderDeadline? Next) AppendDeadline(
+        Dictionary<string, object> after, List<string> setParts, List<string> removeParts,
+        Dictionary<string, string> attrNames, Dictionary<string, AttributeValue> attrValues)
+    {
+        OrderDeadline? next;
+        try
+        {
+            next = OrderDeadlines.Next(after);
+        }
+        catch (Exception ex)
+        {
+            LogStampFailed(after, ex);
+            return (false, null);
+        }
+
+        if (!OrderDeadlines.IsStored(after, next))
+        {
+            AddDeadlineParts(next, setParts, removeParts, attrNames, attrValues);
+        }
+
+        return (true, next);
+    }
+
+    private static void AddDeadlineParts(
+        OrderDeadline? next, List<string> setParts, List<string> removeParts,
+        Dictionary<string, string> attrNames, Dictionary<string, AttributeValue> attrValues)
+    {
+        attrNames["#ndAt"] = OrderDeadlines.AtField;
+        attrNames["#ndKind"] = OrderDeadlines.KindField;
+        attrNames["#ndShard"] = OrderDeadlines.ShardField;
+        if (next is { } due)
+        {
+            attrValues[":ndAt"] = new AttributeValue { S = due.AtIso };
+            attrValues[":ndKind"] = new AttributeValue { S = due.Kind };
+            attrValues[":ndShard"] = new AttributeValue { S = due.Shard };
+            setParts.Add("#ndAt = :ndAt");
+            setParts.Add("#ndKind = :ndKind");
+            setParts.Add("#ndShard = :ndShard");
+        }
+        else
+        {
+            removeParts.Add("#ndAt");
+            removeParts.Add("#ndKind");
+            removeParts.Add("#ndShard");
+        }
+    }
+
+    private static string UpdateExpression(List<string> setParts, List<string> removeParts, string? addClause = null)
+        => "SET " + string.Join(", ", setParts)
+           + (removeParts.Count > 0 ? " REMOVE " + string.Join(", ", removeParts) : string.Empty)
+           + (addClause != null ? " ADD " + addClause : string.Empty);
+
+    /// <summary>
+    /// After a write whose row is known: when the deadline attributes are not the ones its state gives
+    /// (only a stale read before the write can cause it), write them, conditioned on the version
+    /// written, and update <paramref name="row"/> to match. Never throws: a failure is logged and the
+    /// repair walk fixes the row.
+    /// </summary>
+    private async Task EnsureDeadlineAsync(Dictionary<string, object> row)
+    {
+        try
+        {
+            var next = OrderDeadlines.Next(row);
+            if (OrderDeadlines.IsStored(row, next)
+                || !int.TryParse(Str(row, "version"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var version))
+            {
+                return;
+            }
+
+            if (await SetDeadlineCoreAsync(Str(row, "orderId"), Str(row, "createdAt"), version, next))
+            {
+                ApplyDeadline(row, next);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogStampFailed(row, ex);
+        }
+    }
+
+    private static void LogStampFailed(IReadOnlyDictionary<string, object> row, Exception ex)
+        => Console.WriteLine(
+            $"{DeadlineStampFailedToken} orderId={MoneyAlarmLog.LogId(Str(row, "orderId"))} reason=[{ex.GetType().Name}]");
+
+    private static void ApplyDeadline(Dictionary<string, object> row, OrderDeadline? next)
+    {
+        if (next is { } due)
+        {
+            row[OrderDeadlines.AtField] = due.AtIso;
+            row[OrderDeadlines.KindField] = due.Kind;
+            row[OrderDeadlines.ShardField] = due.Shard;
+            return;
+        }
+
+        foreach (var field in OrderDeadlines.Fields)
+        {
+            row.Remove(field);
+        }
+    }
+
+    private static void ApplyDeadline(Dictionary<string, AttributeValue> row, OrderDeadline? next)
+    {
+        if (next is { } due)
+        {
+            row[OrderDeadlines.AtField] = new AttributeValue { S = due.AtIso };
+            row[OrderDeadlines.KindField] = new AttributeValue { S = due.Kind };
+            row[OrderDeadlines.ShardField] = new AttributeValue { S = due.Shard };
+            return;
+        }
+
+        foreach (var field in OrderDeadlines.Fields)
+        {
+            row.Remove(field);
+        }
+    }
+
+    private static string Str(IReadOnlyDictionary<string, object> row, string key)
+        => row.TryGetValue(key, out var value) ? value?.ToString() ?? string.Empty : string.Empty;
 
     /// <inheritdoc />
     public async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastEvaluatedKey)> QueryMoneySweepPageAsync(

@@ -3,6 +3,7 @@ using Amazon.DynamoDBv2.Model;
 using WeredaConnect.Server.Data;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
+using WeredaConnect.Server.Services;
 
 namespace WeredaConnect.Server.Functions;
 
@@ -47,6 +48,21 @@ public class TripFunction
         _tripRepo = tripRepo ?? throw new ArgumentNullException(nameof(tripRepo));
     }
 
+    /// <summary>
+    /// <c>COMMITMENTS_ENABLED</c>, the same flag the sync Lambda reads (tests set it). It only
+    /// decides the <c>orderLeadHours</c> the browse reports (FUP-122); the trip list is the same.
+    /// </summary>
+    public bool CommitmentsEnabled { get; init; } = OrderCommitment.IsEnabled;
+
+    /// <summary>
+    /// ESC-29 (reputation-api.md 8.3), <c>reputationPenalties</c>: a buyer's read leaves out rows
+    /// whose owner is restricted. Off by default.
+    /// </summary>
+    internal bool HideRestrictedOwners { get; init; } = ReputationFlags.PenaltiesEnabled;
+
+    /// <summary>ESC-29 (reputation-api.md section 7), <c>reputationPublicTags</c>: the owner fields are returned. Off by default.</summary>
+    internal bool ReputationPublicTags { get; init; } = ReputationFlags.PublicTagsEnabled;
+
     public async Task<APIGatewayProxyResponse> FunctionHandler(
         APIGatewayProxyRequest request,
         ILambdaContext context)
@@ -75,6 +91,16 @@ public class TripFunction
     ///
     /// SIM-31: cancelled or soft-deleted trips (the ones GET /trips/{id} answers with 404)
     /// are never listed, for any role; status=cancelled returns an empty page.
+    ///
+    /// L-7: the browse of open trips leaves out the ones whose Ethiopia day is over
+    /// (<see cref="ITripRepository.QueryTripsAsync"/>). A trucker's own list and
+    /// GET /trips/{id} still return them.
+    ///
+    /// FUP-122: every page carries <c>orderLeadHours</c>, the lead an order create needs.
+    ///
+    /// Paging (trip-listing-api 2.5.0, FUP-126): the page is filled through every filter and
+    /// <c>nextToken</c> and <c>hasMore</c> are absent when no trip follows it (a run of dropped
+    /// trips can end a page early with a token).
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleGetTripsAsync(
         APIGatewayProxyRequest request,
@@ -134,101 +160,103 @@ public class TripFunction
             }
         }
 
+        // Filters DynamoDB's FilterExpression does not apply. FUP-126: they run inside the page
+        // fill below, so they are read and checked before any read (a bad value is a 400 for
+        // status=cancelled too, as before).
+        queryParams.TryGetValue("minCapacity", out var minCapacityStr);
+        queryParams.TryGetValue("maxPrice", out var maxPriceStr);
+        queryParams.TryGetValue("departureDateFrom", out var departureDateFrom);
+        queryParams.TryGetValue("departureDateTo", out var departureDateTo);
+
+        double? minCapacity = null;
+        if (!string.IsNullOrEmpty(minCapacityStr))
+        {
+            if (!double.TryParse(minCapacityStr, out var parsedCapacity) || parsedCapacity < 0)
+            {
+                return LambdaResponse.Error(400, "TRIP_VALIDATION",
+                    "Invalid minCapacity parameter. Must be a non-negative number.");
+            }
+            minCapacity = parsedCapacity;
+        }
+
+        double? maxPrice = null;
+        if (!string.IsNullOrEmpty(maxPriceStr))
+        {
+            if (!double.TryParse(maxPriceStr, out var parsedPrice) || parsedPrice < 0)
+            {
+                return LambdaResponse.Error(400, "TRIP_VALIDATION",
+                    "Invalid maxPrice parameter. Must be a non-negative number.");
+            }
+            maxPrice = parsedPrice;
+        }
+
+        // SIM-31: drop every trip the detail endpoint hides (404), so list and detail agree.
+        // The repository only excludes deletedAt; a trip cancelled through a status update
+        // has no deletedAt and would otherwise still be listed.
+        // ESC-29 (reputation-api.md 8.3): a buyer's browse leaves out trips of a restricted trucker.
+        // Never for the trucker's own list or an admin.
+        var hideRestricted = HideRestrictedOwners && string.Equals(role, "buyer", StringComparison.OrdinalIgnoreCase);
+        bool Keep(Dictionary<string, object> i) =>
+            !IsCancelledOrDeleted(i)
+            && !(hideRestricted && OwnerReputationView.IsRestrictedOwner(i))
+            && (minCapacity == null || GetDouble(i, "capacity") >= minCapacity)
+            && (maxPrice == null || GetDouble(i, "pricePerQuintal") <= maxPrice)
+            && (string.IsNullOrEmpty(departureDateFrom)
+                || string.Compare(GetString(i, "departureDate"), departureDateFrom, StringComparison.Ordinal) >= 0)
+            && (string.IsNullOrEmpty(departureDateTo)
+                || string.Compare(GetString(i, "departureDate"), departureDateTo, StringComparison.Ordinal) <= 0);
+
         try
         {
             List<Dictionary<string, object>> items;
-            Dictionary<string, AttributeValue>? lastEvaluatedKey;
+            Dictionary<string, AttributeValue>? nextKey;
 
+            // FUP-126 (SIM-26 for crops): each read fills the page through the filters above and
+            // looks one trip ahead (PageFill), so a nextToken never leads to an empty last page.
             if (string.Equals(status, "cancelled", StringComparison.Ordinal))
             {
                 // SIM-31: cancelled trips are never listed, so do not read the cancelled
-                // partition at all. The post-filter validation below still runs.
+                // partition at all.
                 items = new List<Dictionary<string, object>>();
-                lastEvaluatedKey = null;
+                nextKey = null;
             }
             else if (!string.IsNullOrEmpty(truckerId))
             {
                 // Query by trucker using TruckerIdCreatedAtIndex GSI
-                var queryResult = await _tripRepo.QueryTripsByTruckerAsync(
-                    truckerId, status, limit, exclusiveStartKey);
-                items = queryResult.Items;
-                lastEvaluatedKey = queryResult.LastEvaluatedKey;
+                string ownTruckerId = truckerId;
+                (items, nextKey) = await PageFill.ReadAsync(
+                    (count, key) => _tripRepo.QueryTripsByTruckerAsync(ownTruckerId, status, count, key),
+                    limit,
+                    exclusiveStartKey,
+                    Keep);
             }
             else
             {
                 // Default: query by status using StatusDepartureDateIndex GSI
-                var queryResult = await _tripRepo.QueryTripsAsync(
-                    fromWoreda, toWoreda, status, limit, exclusiveStartKey);
-                items = queryResult.Items;
-                lastEvaluatedKey = queryResult.LastEvaluatedKey;
-            }
-
-            // SIM-31: drop every trip the detail endpoint hides (404), so list and detail agree.
-            // The repository only excludes deletedAt; a trip cancelled through a status update
-            // has no deletedAt and would otherwise still be listed.
-            items = items.Where(i => !IsCancelledOrDeleted(i)).ToList();
-
-            // Apply client-side filters that DynamoDB FilterExpression doesn't handle efficiently
-            queryParams.TryGetValue("minCapacity", out var minCapacityStr);
-            queryParams.TryGetValue("maxPrice", out var maxPriceStr);
-            queryParams.TryGetValue("departureDateFrom", out var departureDateFrom);
-            queryParams.TryGetValue("departureDateTo", out var departureDateTo);
-
-            if (!string.IsNullOrEmpty(minCapacityStr))
-            {
-                if (!double.TryParse(minCapacityStr, out var minCapacity) || minCapacity < 0)
-                {
-                    return LambdaResponse.Error(400, "TRIP_VALIDATION",
-                        "Invalid minCapacity parameter. Must be a non-negative number.");
-                }
-                items = items.Where(i => GetDouble(i, "capacity") >= minCapacity).ToList();
-            }
-
-            if (!string.IsNullOrEmpty(maxPriceStr))
-            {
-                if (!double.TryParse(maxPriceStr, out var maxPrice) || maxPrice < 0)
-                {
-                    return LambdaResponse.Error(400, "TRIP_VALIDATION",
-                        "Invalid maxPrice parameter. Must be a non-negative number.");
-                }
-                items = items.Where(i => GetDouble(i, "pricePerQuintal") <= maxPrice).ToList();
-            }
-
-            if (!string.IsNullOrEmpty(departureDateFrom))
-            {
-                items = items.Where(i =>
-                    string.Compare(GetString(i, "departureDate"), departureDateFrom, StringComparison.Ordinal) >= 0)
-                    .ToList();
-            }
-
-            if (!string.IsNullOrEmpty(departureDateTo))
-            {
-                items = items.Where(i =>
-                    string.Compare(GetString(i, "departureDate"), departureDateTo, StringComparison.Ordinal) <= 0)
-                    .ToList();
+                (items, nextKey) = await PageFill.ReadAsync(
+                    (count, key) => _tripRepo.QueryTripsAsync(fromWoreda, toWoreda, status, count, key),
+                    limit,
+                    exclusiveStartKey,
+                    Keep);
             }
 
             // ESC-48: the phone goes only to the trip's trucker and admins. A buyer browsing
             // could otherwise call the trucker and agree to trade off the platform.
             var isAdmin = AdminAuthHelper.IsAdmin(request);
             var trips = items
-                .Select(i => MapToTripDto(i, includePhone: isAdmin || IsOwner(i, authenticatedUserId)))
+                .Select(i => MapToTripDto(i, includePhone: isAdmin || IsOwner(i, authenticatedUserId), ReputationPublicTags))
                 .ToList();
-
-            // Encode nextToken if more results available
-            string? nextTokenResponse = null;
-            var hasMore = lastEvaluatedKey != null;
-            if (hasMore)
-            {
-                nextTokenResponse = PaginationTokenHelper.EncodeNextToken(lastEvaluatedKey!);
-            }
 
             var response = new GetTripsResponse
             {
                 Trips = trips,
-                NextToken = nextTokenResponse,
-                HasMore = hasMore,
-                Total = trips.Count
+                NextToken = nextKey != null ? PaginationTokenHelper.EncodeNextToken(nextKey) : null,
+                HasMore = nextKey != null,
+                // The trips on this page, not every match (trip-listing-api 2.5.0, FUP-126).
+                Total = trips.Count,
+                // FUP-122: lets the apps leave out of the match suggestions the trips an order
+                // create would refuse for the commitments lead.
+                OrderLeadHours = OrderCommitment.OrderLeadHours(CommitmentsEnabled)
             };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetTripsResponse);
@@ -293,7 +321,8 @@ public class TripFunction
             }
 
             var tripDto = MapToTripDto(trip,
-                includePhone: AdminAuthHelper.IsAdmin(request) || IsOwner(trip, AuthHelper.GetUserId(request)));
+                includePhone: AdminAuthHelper.IsAdmin(request) || IsOwner(trip, AuthHelper.GetUserId(request)),
+                ReputationPublicTags);
             var response = new GetTripResponse { Trip = tripDto };
 
             return LambdaResponse.Ok(response, AppJsonContext.Default.GetTripResponse);
@@ -322,10 +351,16 @@ public class TripFunction
     /// Handles type conversions from string/number representations.
     /// <paramref name="includePhone"/> is true only for the owning trucker and admins (ESC-48).
     /// </summary>
-    internal static TripDto MapToTripDto(Dictionary<string, object> item, bool includePhone)
+    internal static TripDto MapToTripDto(Dictionary<string, object> item, bool includePhone, bool publicTags = false)
     {
+        var owner = OwnerReputationView.Of(item, publicTags);
         return new TripDto
         {
+            OwnerTier = owner.Tier,
+            OwnerEffectiveRating = owner.EffectiveRating,
+            OwnerRatingCount = owner.RatingCount,
+            OwnerReliabilityPct = owner.ReliabilityPct,
+            OwnerReputationAt = owner.At,
             TripId = GetString(item, "tripId"),
             TruckerId = GetString(item, "truckerId"),
             TruckerName = GetString(item, "truckerName"),
@@ -336,6 +371,8 @@ public class TripFunction
             ToWoreda = GetString(item, "toWoreda"),
             DepartureDate = GetString(item, "departureDate"),
             Capacity = GetDouble(item, "capacity"),
+            BookedQuintals = GetDoubleOrNull(item, "bookedQuintals"),
+            RemainingQuintals = GetDoubleOrNull(item, "remainingQuintals"),
             PricePerQuintal = GetDouble(item, "pricePerQuintal"),
             Status = GetString(item, "status"),
             MatchedListings = GetStringList(item, "matchedListings"),
@@ -401,6 +438,13 @@ public class TripFunction
             _ => 0.0
         };
     }
+
+    /// <summary>
+    /// Get an optional double value from the item dictionary: null when the attribute is
+    /// absent (the client then applies its own default), like <see cref="GetDouble"/> otherwise.
+    /// </summary>
+    private static double? GetDoubleOrNull(Dictionary<string, object> item, string key)
+        => item.ContainsKey(key) ? GetDouble(item, key) : null;
 
     /// <summary>
     /// Get a string list from the item dictionary.

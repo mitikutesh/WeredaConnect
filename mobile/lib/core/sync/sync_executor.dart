@@ -12,6 +12,9 @@ import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
 import 'package:wereda_connect/core/sync/conflict_resolver.dart';
 import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
+import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
+import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
+import 'package:wereda_connect/core/sync/location_ping_rules.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/models/conflict_event.dart';
 import 'package:wereda_connect/features/conflict_resolution/data/services/conflict_notification_service.dart';
@@ -61,13 +64,56 @@ typedef PermanentRejectionHandler = Future<void> Function(
   String message,
 );
 
+/// Called once per trip when the server refused a check-in with
+/// `LOCATION_SHARING_ENDED` (every delivery of the trip left the road before
+/// it was captured): the phone stops sharing for that trip (LT-08).
+typedef LocationSharingEndedHandler = Future<void> Function(String tripId);
+
+/// Called when the server refused a delivery's pickup (`pickedUp`) for good,
+/// with the delivery id: the check-ins of its trip would otherwise wait as
+/// `deferred` for 7 days (LT-08).
+typedef PickupRejectedHandler = Future<void> Function(String deliveryId);
+
+/// Readies an operation just before it is sent and answers whether it can
+/// go. False keeps it pending, without using a retry, for the next sync run;
+/// the operations queued behind it for the same entity wait with it. Used to
+/// upload a crop listing's photos before its create (crop-listing-api.md
+/// 1.6.0, `CropPhotoSyncPreflight`).
+typedef OperationPreflight = Future<bool> Function(SyncOperation operation);
+
+/// Called after the server applied an operation (`success` or `duplicate`).
+/// Used to delete a handoff photo's file once it is attached (FRD-12,
+/// `DeliveryPhotoSyncPreflight.onSynced`).
+typedef OperationSyncedHandler = Future<void> Function(
+  SyncOperation operation,
+);
+
 /// The operation data the server gets. Keys the client keeps for itself
 /// (prefixed `_`, such as the order status a refused payment goes back to)
 /// are left out: the server refuses unknown fields.
-Object? wireOperationData(String data) {
+///
+/// FUP-08: a `delivery` operation queued by a build before SIM-60 may carry
+/// a photo file path in `pickupPhotoRef` or `dropoffPhotoRef`. The server
+/// refuses any value there that is not this delivery's upload key
+/// (`DELIVERY_INVALID_FIELD`, retried without end) and drops a valid key
+/// unwritten (`sync-protocol.md` 1.39.0), so such a value is left out and the
+/// rest of the operation goes through.
+Object? wireOperationData(
+  String data, {
+  String? entityType,
+  String? entityId,
+}) {
   final decoded = jsonDecode(data);
   if (decoded is Map<String, dynamic>) {
     decoded.removeWhere((key, _) => key.startsWith('_'));
+    if (entityType == 'delivery' && entityId != null) {
+      for (final field in deliveryOpPhotoRefFields) {
+        if (decoded.containsKey(field) &&
+            !isDeliveryPhotoKeyOf(decoded[field], entityId)) {
+          decoded.remove(field);
+        }
+      }
+    }
   }
   return decoded;
 }
@@ -213,11 +259,34 @@ class SyncBatchResult {
       failed: newFailed,
       deferred: newDeferred,
       stepUpRequired: stepUpRequired + other.stepUpRequired,
-      status: newFailed > 0 ? SyncBatchStatus.partial : SyncBatchStatus.success,
+      // FUP-107: accountDeleted is terminal (410 ACCOUNT_004); a preceding successful
+      // batch must not downgrade it to success/partial, or syncNow's aggregated status
+      // hides it.
+      status: (status == SyncBatchStatus.accountDeleted ||
+              other.status == SyncBatchStatus.accountDeleted)
+          ? SyncBatchStatus.accountDeleted
+          : newFailed > 0
+              ? SyncBatchStatus.partial
+              : SyncBatchStatus.success,
       errorMessage: other.errorMessage ?? errorMessage,
       operationErrors: {...operationErrors, ...other.operationErrors},
     );
   }
+
+  /// This result with [count] more operations held back before sending (an
+  /// [OperationPreflight] answered "not yet"): counted as deferred, the
+  /// status unchanged.
+  SyncBatchResult withHeldBack(int count) => SyncBatchResult(
+        total: total + count,
+        succeeded: succeeded,
+        conflicted: conflicted,
+        failed: failed,
+        deferred: deferred + count,
+        stepUpRequired: stepUpRequired,
+        status: status,
+        errorMessage: errorMessage,
+        operationErrors: operationErrors,
+      );
 
   @override
   String toString() => 'SyncBatchResult(status: $status, total: $total, '
@@ -245,33 +314,62 @@ class SyncBatchResult {
 /// - `duplicate` → already processed, mark synced
 /// - `error` with `AUTH_040` / `AUTH_041` (step-up) → keep pending, ask the
 ///   UI for the password or a Fayda login, retry after
-///   [SecurityEvents.stepUpCompleted]
+///   [SecurityEvents.stepUpCompleted]; the operation is named as the
+///   step-up's holder, and let go once it got any other answer or left the
+///   queue (FUP-24)
 /// - `error` with `ORDER_KYC_REQUIRED` → reject, undo the local change via
 ///   [KycRejectionHandler], ask the UI to offer Fayda verification
 /// - `error` with any other `ORDER_*` code, `FRAUD_*`, `SYNC_VALIDATION`,
 ///   `DELIVERY_ORDER_REQUIRED`, `DELIVERY_CANCEL_NOT_ALLOWED`,
 ///   `DELIVERY_DISPUTE_REFUSED`, `DELIVERY_DISPUTE_EXPIRED`,
 ///   `MESSAGE_CONTACT_LOCKED`, `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`,
-///   `TRIP_CAPACITY_EXCEEDED`, `CROP_HAS_ACTIVE_ORDERS`, or
-///   `APP_UPDATE_REQUIRED` on an order → reject (never retried) and explain
-///   through a [SyncOperationRejected] event; a refused order change, delivery
-///   cancel or delivery dispute, and a crop listing or trip change refused by
-///   one of the ESC-12 part B codes, is first undone via
+///   `TRIP_CAPACITY_EXCEEDED`, `CROP_HAS_ACTIVE_ORDERS`,
+///   `DELIVERY_NONCE_MISSING`, `DELIVERY_GPS_PROXIMITY` (FUP-439), any
+///   `*_UNAUTHORIZED` but a role gate, a rating of another user's order, a
+///   changed immutable field, or
+///   `APP_UPDATE_REQUIRED` on an order → reject (never retried) and explain through a
+///   [SyncOperationRejected] event; a refused order change, delivery cancel,
+///   dispute or handoff, and a crop listing or trip change refused by one of
+///   the codes that say what the server holds, is first undone via
 ///   [PermanentRejectionHandler]
 /// - `error` with `APP_UPDATE_REQUIRED` on anything but an order → keep it
 ///   pending without burning a retry and never undo it (the updated build
 ///   sends the same payload), explain it once, and do not send it, or the
 ///   operations queued behind it for the same entity, again while this
 ///   executor lives (an app update or restart starts a new one)
+/// - `error` with a `LOCATION_*` code (a check-in, LT-08) → reject, never
+///   retried and never announced; `LOCATION_SHARING_ENDED` also stops
+///   sharing for the trip ([LocationSharingEndedHandler]).
+///   `LOCATION_NOT_ACTIVE` comes as `deferred` and is re-queued like any
+///   deferral
+/// - `error` with a `CHECKIN_*` code on an arrival check-in (ESC-34,
+///   FUP-285), or the unsupported-entity answer a server with
+///   `pickupClassification` off gives it → reject, never retried, undo
+///   through [PermanentRejectionHandler] (which reads the order again) and
+///   announce
+/// - `error` with `CROP_VALIDATION` or `TRIP_VALIDATION` (FUP-74), but the
+///   profile texts an older server still sends under them → reject, never
+///   retried, not undone, announced
+/// - `error` with `USER_PROFILE_VALIDATION` or `AUTH_027` on a profile edit
+///   (`user`, FUP-315) → reject, never retried, undo through
+///   [PermanentRejectionHandler] (the server's profile goes back on the
+///   phone) and announce
 /// - `error` → mark failed (retry up to 3 times via [SyncQueue])
 ///
 /// A refused `create` also rejects the operations queued behind it for that
 /// entity: the server never stored it, so they could only loop on a
-/// transient "not found".
+/// transient "not found". A delivery pickup refused for good is reported
+/// through [PickupRejectedHandler], so its trip's check-ins can be dropped.
+///
+/// Check-ins (`location_ping`) fill a batch only after every other pending
+/// operation: a trip's check-ins can only be accepted once its pickup is,
+/// and check-ins that wait as `deferred` never hold back other writes.
 ///
 /// Error handling per HTTP error:
 /// - Network/timeout → revert to pending without retry count increment
 /// - 401 → revert (AuthInterceptor should have refreshed token)
+/// - 403 `AUTH_025` (account suspended) → revert without a retry and raise
+///   [SessionSignals.accountSuspended]; the queue stays for the next sign-in
 /// - 429 → revert (rate limited, try again later)
 /// - 410 `ACCOUNT_004` (account being or already deleted) → revert without a
 ///   retry, stop this sync and raise [SessionSignals.accountGone]; for a
@@ -298,6 +396,10 @@ class SyncExecutor {
   final SessionSignals _sessionSignals;
   final KycRejectionHandler? _onKycRequired;
   final PermanentRejectionHandler? _onPermanentRejection;
+  final LocationSharingEndedHandler? _onLocationSharingEnded;
+  final PickupRejectedHandler? _onPickupRejected;
+  final OperationPreflight? _preflight;
+  final OperationSyncedHandler? _onOperationSynced;
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   StreamSubscription<void>? _stepUpSubscription;
@@ -312,8 +414,9 @@ class SyncExecutor {
   /// answer, and an operation queued behind it for the same entity (an update
   /// after a held create) could only get a transient "not found" and burn its
   /// retries. So batches skip every pending operation of a held entity while
-  /// this executor lives. In memory, like [SecurityEvents.appUpdateRequired]:
-  /// a restart sends them once more. Only these wait: every other entity,
+  /// this executor lives. In memory only (unlike
+  /// [SecurityEvents.appUpdateRequired], kept per build since FUP-75): a
+  /// restart sends them once more. Only these wait: every other entity,
   /// delivery handoffs included, keeps syncing.
   final Set<String> _heldForUpdate = {};
 
@@ -323,6 +426,24 @@ class SyncExecutor {
   /// wipes the operations. A deletion still `in_progress` can abort, so it
   /// only stops the current sync.
   final Set<String?> _deletedAccounts = {};
+
+  /// Trips whose check-ins the server answered `deferred`
+  /// (`LOCATION_NOT_ACTIVE`, LT-08): their pickup is not on the road yet.
+  /// Each sync sends only one of their pings, the oldest, as a probe; the
+  /// rest wait until a probe is answered with anything but `deferred`, so a
+  /// pickup that stays deferred for days does not resend every waiting ping
+  /// on every sync. In memory: after a restart the first sync learns it
+  /// again.
+  final Set<String> _deferredPingTrips = {};
+
+  /// Trips of [_deferredPingTrips] already probed in the current sync run.
+  final Set<String> _probedPingTrips = {};
+
+  /// Entities (`entityType:entityId`) whose [OperationPreflight] answered
+  /// "not yet" in the current sync run (a listing whose photos could not be
+  /// uploaded). Their operations wait for the next run, so one sync tries an
+  /// upload once instead of on every batch.
+  final Set<String> _notReadyThisRun = {};
 
   static String _entityKey(SyncOperation op) =>
       '${op.entityType}:${op.entityId}';
@@ -378,6 +499,10 @@ class SyncExecutor {
     SessionSignals? sessionSignals,
     KycRejectionHandler? onKycRequired,
     PermanentRejectionHandler? onPermanentRejection,
+    LocationSharingEndedHandler? onLocationSharingEnded,
+    PickupRejectedHandler? onPickupRejected,
+    OperationPreflight? preflight,
+    OperationSyncedHandler? onOperationSynced,
   })  : _syncQueue = syncQueue,
         _connectivityMonitor = connectivityMonitor,
         _dio = dio,
@@ -390,7 +515,11 @@ class SyncExecutor {
         _securityEvents = securityEvents ?? SecurityEvents.instance,
         _sessionSignals = sessionSignals ?? SessionSignals.instance,
         _onKycRequired = onKycRequired,
-        _onPermanentRejection = onPermanentRejection;
+        _onPermanentRejection = onPermanentRejection,
+        _onLocationSharingEnded = onLocationSharingEnded,
+        _onPickupRejected = onPickupRejected,
+        _preflight = preflight,
+        _onOperationSynced = onOperationSynced;
 
   /// Stream of sync batch results for UI indicators.
   ///
@@ -454,6 +583,8 @@ class SyncExecutor {
     }
 
     _isSyncing = true;
+    _probedPingTrips.clear();
+    _notReadyThisRun.clear();
     var aggregated = const SyncBatchResult.empty();
     debugPrint('[SYNC] syncNow() started');
 
@@ -569,7 +700,40 @@ class SyncExecutor {
       }
       return result;
     } finally {
+      await _releaseDepartedStepUpHolds();
       _isSyncing = false;
+    }
+  }
+
+  /// Holder key prefix of this executor's operations in
+  /// [SecurityEvents.holdStepUp].
+  static const stepUpHolderPrefix = 'sync:';
+
+  static String _stepUpHolder(String operationId) =>
+      '$stepUpHolderPrefix$operationId';
+
+  /// Let go of the step-up holds whose operation no longer waits in the
+  /// queue (FUP-24): rejected with the entity whose `create` was refused,
+  /// out of retries, or removed. A held operation that was answered is let
+  /// go in [_processResponse]; this catches the ones that left unsent.
+  /// Never throws: a failed read keeps the holds for the next run.
+  Future<void> _releaseDepartedStepUpHolds() async {
+    final holders = _securityEvents.stepUpHolders(stepUpHolderPrefix);
+    if (holders.isEmpty) return;
+    try {
+      final departed = <String>[];
+      for (final holder in holders) {
+        final op = await _syncQueue.getOperation(
+          holder.substring(stepUpHolderPrefix.length),
+        );
+        final waits = op != null &&
+            (op.status == SyncStatus.pending ||
+                op.status == SyncStatus.syncing);
+        if (!waits) departed.add(holder);
+      }
+      _securityEvents.releaseStepUpHolds(departed);
+    } on Object catch (e) {
+      debugPrint('[SYNC] step-up hold check failed: $e');
     }
   }
 
@@ -580,21 +744,104 @@ class SyncExecutor {
   ///
   /// Returns [SyncBatchResult] with counts of succeeded/conflicted/failed.
   Future<SyncBatchResult> executeBatch() async {
+    // A batch sent outside syncNow is a sync run of its own (probes, LT-08).
+    if (!_isSyncing) {
+      _probedPingTrips.clear();
+      _notReadyThisRun.clear();
+    }
     final currentUserId = await _getCurrentUserId?.call();
     if (_deletedAccounts.contains(currentUserId)) {
       return const SyncBatchResult(status: SyncBatchStatus.accountDeleted);
     }
     // While an entity is held, read past its operations (the queue holds at
-    // most maxQueueSize) so they cannot starve newer ones.
+    // most maxQueueSize) so they cannot starve newer ones. Check-ins come
+    // after every other operation (LT-08): they depend on the trip's pickup,
+    // and a run of deferred ones must not hold back other writes.
+    final readLimit =
+        _heldForUpdate.isEmpty ? batchSize : SyncQueue.maxQueueSize;
     final pending = (await _syncQueue.getPendingOperationsForUser(
       userId: currentUserId,
-      limit: _heldForUpdate.isEmpty ? batchSize : SyncQueue.maxQueueSize,
+      limit: readLimit,
+      exceptEntityType: locationPingEntityType,
     ))
         .where((op) => !_heldForUpdate.contains(_entityKey(op)))
         .take(batchSize)
         .toList();
-    if (pending.isEmpty) return const SyncBatchResult.empty();
+    if (pending.length < batchSize) {
+      // A trip whose pings were deferred sends one probe per sync run; read
+      // past its other pings so the pings of another trip still go.
+      final pings = await _syncQueue.getPendingOperationsForUser(
+        userId: currentUserId,
+        limit: _deferredPingTrips.isEmpty ? readLimit : SyncQueue.maxQueueSize,
+        onlyEntityType: locationPingEntityType,
+      );
+      for (final op in pings) {
+        if (pending.length >= batchSize) break;
+        if (_heldForUpdate.contains(_entityKey(op))) continue;
+        final tripId = tripIdOfLocationPing(op.entityId);
+        if (tripId != null &&
+            _deferredPingTrips.contains(tripId) &&
+            !_probedPingTrips.add(tripId)) {
+          continue;
+        }
+        pending.add(op);
+      }
+    }
+    final held = await _holdNotReady(pending);
+    if (pending.isEmpty) {
+      // Only operations still being readied: they count as deferred, so the
+      // run stops without backoff or a failure and tries again next time.
+      return held == 0
+          ? const SyncBatchResult.empty()
+          : SyncBatchResult(total: held, deferred: held);
+    }
+    final result = await _sendBatch(pending, currentUserId);
+    return held == 0 ? result : result.withHeldBack(held);
+  }
 
+  /// Runs the [OperationPreflight] over [pending] in queue order and removes
+  /// the operations that cannot go yet, with every later operation of the
+  /// same entity. Returns how many were held back. A preflight that throws
+  /// counts as "not yet".
+  Future<int> _holdNotReady(List<SyncOperation> pending) async {
+    final preflight = _preflight;
+    if (preflight == null || pending.isEmpty) return 0;
+    var held = 0;
+    final ready = <SyncOperation>[];
+    for (final op in pending) {
+      final key = _entityKey(op);
+      var go = !_notReadyThisRun.contains(key);
+      if (go) {
+        try {
+          go = await preflight(op);
+        } on Object catch (e) {
+          debugPrint('[SYNC] preflight failed for ${op.entityType}: $e');
+          go = false;
+        }
+      }
+      if (go) {
+        ready.add(op);
+      } else {
+        // FUP-336: a drop-off check-in waits only for its arrival photo,
+        // which this run's batch may attach: it is asked again in the next
+        // batch instead of waiting for the next run.
+        if (op.entityType != handoffCheckInEntityType) {
+          _notReadyThisRun.add(key);
+        }
+        held++;
+      }
+    }
+    pending
+      ..clear()
+      ..addAll(ready);
+    return held;
+  }
+
+  /// Sends [pending] as one `POST /sync` batch and settles each result.
+  Future<SyncBatchResult> _sendBatch(
+    List<SyncOperation> pending,
+    String? currentUserId,
+  ) async {
     // Mark all as syncing to prevent concurrent processing
     for (final op in pending) {
       await _syncQueue.markAsSyncing(op.operationId);
@@ -653,8 +900,13 @@ class SyncExecutor {
               'entityType': op.entityType,
               'entityId': op.entityId,
               'action': op.action,
-              'data': wireOperationData(op.data),
+              'data': wireOperationData(
+                op.data,
+                entityType: op.entityType,
+                entityId: op.entityId,
+              ),
               'timestamp': op.createdAt.toIso8601String(),
+              'platform': SyncQueue.platform,
             },
           )
           .toList(),
@@ -674,10 +926,13 @@ class SyncExecutor {
     var failed = 0;
     var deferred = 0;
     var stepUpRequired = 0;
-    var faydaStepUpRequired = false;
+    final stepUpWaiting = <StepUpRequired>[];
     final operationErrors = <String, String>{};
     final rejected = <(SyncOperation, String?)>[];
     final heldForUpdate = <(SyncOperation, String)>[];
+    final stepUpHeld = <String>{};
+    final conflictedDeliveries = <(SyncOperation, Map<String, dynamic>)>[];
+    final behindRefusedPickup = <SyncOperation>[];
 
     // Build lookup map for O(1) access by operationId
     final opMap = {for (final op in operations) op.operationId: op};
@@ -698,9 +953,15 @@ class SyncExecutor {
       final serverData = result['serverData'] as Map<String, dynamic>?;
       final serverVersion = result['serverVersion'] as int?;
 
+      if (operation.entityType == locationPingEntityType) {
+        _notePingAnswer(operation, status, message);
+      }
+
       switch (status) {
         case 'success':
           await _syncQueue.markAsSynced(operationId);
+          await _notifySynced(operation);
+          _noteAccepted(operation);
           succeeded++;
 
         case 'conflict':
@@ -737,6 +998,9 @@ class SyncExecutor {
             else if (_onConflict != null) {
               await _onConflict(operation, serverData, serverVersion ?? 0);
             }
+            if (operation.entityType == 'delivery') {
+              conflictedDeliveries.add((operation, serverData));
+            }
           }
           await _syncQueue.markAsSynced(operationId);
           conflicted++;
@@ -744,6 +1008,8 @@ class SyncExecutor {
         case 'duplicate':
           // Already processed by server — safe to remove from queue
           await _syncQueue.markAsSynced(operationId);
+          await _notifySynced(operation);
+          _noteAccepted(operation);
           succeeded++;
 
         case 'deferred':
@@ -757,13 +1023,23 @@ class SyncExecutor {
           deferred++;
 
         default:
-          // Step-up (AUTH_040 password, AUTH_041 Fayda above 10,000 ETB): the
+          // Step-up (AUTH_040 password, AUTH_041 Fayda for higher-risk payments): the
           // op is valid, so keep it pending WITHOUT burning a retry and never
           // mark it failed; it goes again after the user re-authenticates.
           if (status == 'error' && isStepUpRequiredMessage(message)) {
             await _syncQueue.revertToPending(operationId);
             stepUpRequired++;
-            faydaStepUpRequired |= isFaydaStepUpRequiredMessage(message);
+            final waiting = StepUpRequired(
+              withFayda: isFaydaStepUpRequiredMessage(message),
+              kind: _stepUpKindOf(operation),
+            );
+            stepUpWaiting.add(waiting);
+            stepUpHeld.add(operationId);
+            _securityEvents.holdStepUp(
+              _stepUpHolder(operationId),
+              withFayda: waiting.withFayda,
+              kind: waiting.kind,
+            );
             continue;
           }
           // Minimum-version gate (ESC-25, spec K1): it is meant for order
@@ -801,10 +1077,25 @@ class SyncExecutor {
           if (message != null) {
             operationErrors[operationId] = message;
           }
+          // FUP-493: a status change sent on top of a pickup the server
+          // refused for good, answered while the server still holds the
+          // delivery `pending`, goes with that pickup, whenever it was
+          // tapped (also while the pickup's own sync ran) and even if the
+          // app died before the pickup's refusal was settled.
+          if (status == 'error' &&
+              await _isBehindRefusedPickup(operation, message, {
+                for (final (refused, _) in rejected) refused.operationId,
+              })) {
+            await _syncQueue.markAsRejected(operationId);
+            behindRefusedPickup.add(operation);
+            failed++;
+            continue;
+          }
           // Permanent server rejections (fraud, validation, ORDER_*) will
           // never succeed on retry, so mark them rejected (retryFailed()
           // skips them); they are settled after the batch.
-          if (_isPermanentRejection(message)) {
+          if (_isPermanentRejection(message) ||
+              _isRefusedProfileEdit(operation, message)) {
             await _syncQueue.markAsRejected(operationId);
             rejected.add((operation, message));
           } else {
@@ -825,12 +1116,25 @@ class SyncExecutor {
     }
 
     await _settleRejections(rejected);
+    await _settleBehindRefusedPickup(behindRefusedPickup);
+    await _settleConflictedHandoffs(conflictedDeliveries);
     _announceHeldForUpdate(heldForUpdate);
+
+    // An operation held for a step-up that got any other answer now (sent,
+    // refused, failed) no longer waits for it (FUP-24). One the response
+    // left out is still unanswered and keeps its hold.
+    _securityEvents.releaseStepUpHolds([
+      for (final id in processed)
+        if (!stepUpHeld.contains(id)) _stepUpHolder(id),
+    ]);
+    // Operations rejected along with a refused create left without an answer.
+    await _releaseDepartedStepUpHolds();
 
     if (stepUpRequired > 0) {
       // One prompt for the batch. Fayda wins: after a Fayda login the
       // password-tier ops still need a password, and the retry asks again.
-      _securityEvents.emit(StepUpRequired(withFayda: faydaStepUpRequired));
+      // It names what its ops are (FUP-181).
+      _securityEvents.emit(StepUpRequired.forAll(stepUpWaiting));
     }
 
     // Use the first fraud-related error as the batch error message for UI
@@ -854,6 +1158,28 @@ class SyncExecutor {
       errorMessage: fraudError,
       operationErrors: operationErrors,
     );
+  }
+
+  /// Track which trips' check-ins wait as `deferred` (see
+  /// [_deferredPingTrips]). A deferral puts the trip in probe mode (and
+  /// counts as this run's probe). A stored ping or a `LOCATION_*` refusal
+  /// ends it: the server decided, so the trip's other pings go from the next
+  /// batch on. A transient error tells nothing and keeps it.
+  void _notePingAnswer(
+    SyncOperation operation,
+    String? status,
+    String? message,
+  ) {
+    final tripId = tripIdOfLocationPing(operation.entityId);
+    if (tripId == null) return;
+    if (status == 'deferred') {
+      _deferredPingTrips.add(tripId);
+      _probedPingTrips.add(tripId);
+    } else if (status == 'success' ||
+        status == 'duplicate' ||
+        (status == 'error' && isLocationRejectionMessage(message))) {
+      if (_deferredPingTrips.remove(tripId)) _probedPingTrips.remove(tripId);
+    }
   }
 
   /// Handle Dio-level errors (network, auth, rate limit, server errors).
@@ -903,6 +1229,12 @@ class SyncExecutor {
           // If we still got 401, the refresh failed.
           // Revert to pending (don't burn retry count — auth is transient).
           await _revertBatchToPending(operations);
+          // 403 AUTH_025 (sync-protocol.md 1.48.0): the account is suspended
+          // and nothing was applied. End the session now, as a rejected
+          // refresh does; the queue stays for the next sign-in.
+          if (isAccountSuspended(statusCode, error.response?.data)) {
+            _sessionSignals.accountSuspended();
+          }
           return SyncBatchResult(
             total: operations.length,
             failed: operations.length,
@@ -990,7 +1322,22 @@ class SyncExecutor {
   /// full trip, a listing with active orders, and an order command from an
   /// app below the minimum version (any other operation refused for the app
   /// version was held back earlier), and a crop listing or trip whose text
-  /// holds a phone number (1.23.0, FUP-49).
+  /// holds a phone number (1.23.0, FUP-49), every `LOCATION_*` refusal
+  /// of a check-in (1.31.0, LT-08), every `DELIVERY_PHOTO_*` refusal of a
+  /// handoff photo (1.39.0, FRD-12), a handoff without the farmer's QR nonce
+  /// (`DELIVERY_NONCE_MISSING`, FUP-138), a change to a delivery already
+  /// cancelled or a trip already over (`DELIVERY_ALREADY_CANCELLED`,
+  /// `TRIP_TERMINAL_STATE`, `TRIP_ALREADY_CANCELLED`, 1.45.0, FUP-128), a
+  /// pickup or delivery confirm refused for its GPS (`DELIVERY_GPS_PROXIMITY`,
+  /// 1.62.0, FUP-439; reverted like a refused typed code), and
+  /// the FRD-08 refusals no retry
+  /// can pass: every `*_UNAUTHORIZED` code but a role gate, a rating of
+  /// another user's order and a changed immutable field (1.27.0, FUP-110).
+  /// A role gate also answers a token without the role claim, so it retries
+  /// ([isUnretryableFraudSignalMessage]). Since 1.72.0 (FUP-74) every
+  /// `CROP_VALIDATION` and `TRIP_VALIDATION` is permanent too, but the
+  /// profile texts an older server still sends under them
+  /// ([isListingValidationMessage]).
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
@@ -1001,11 +1348,24 @@ class SyncExecutor {
         isContactLockedMessage(message) ||
         isReputationRestrictedMessage(message) ||
         isTripHasBookingsMessage(message) ||
+        isTripOverMessage(message) ||
         isTripCapacityExceededMessage(message) ||
         isCropHasActiveOrdersMessage(message) ||
         isAppUpdateRequiredMessage(message) ||
-        isContactInTextMessage(message);
+        isContactInTextMessage(message) ||
+        isLocationRejectionMessage(message) ||
+        isDeliveryPhotoRejectionMessage(message) ||
+        isCheckInRefusalMessage(message) ||
+        isUnretryableFraudSignalMessage(message) ||
+        isListingValidationMessage(message);
   }
+
+  /// FUP-315 (sync-protocol.md 1.72.0): a profile edit refused for its values
+  /// ([isProfileEditRefusalMessage]) gets the same answer every time; the
+  /// phone's copy of the profile goes back to the server's. Only on a `user`
+  /// operation: elsewhere these codes mean nothing to the queue.
+  static bool _isRefusedProfileEdit(SyncOperation operation, String? message) =>
+      operation.entityType == 'user' && isProfileEditRefusalMessage(message);
 
   /// Whether a crop listing or trip refusal undoes the local change
   /// (sync-protocol.md 1.17.0). Only the codes that say what the server
@@ -1022,36 +1382,71 @@ class SyncExecutor {
 
   /// Whether the client undoes the local change of a refused [operation]
   /// through [PermanentRejectionHandler]: any order refusal, any `ORDER_*`
-  /// code, a refused delivery cancel or dispute, a message into a closed
-  /// thread, and a crop listing or trip refused by an ESC-12 part B code.
+  /// code, a refused delivery cancel, dispute or handoff, a message into a
+  /// closed thread, a crop listing or trip refused by a code that says
+  /// what the server holds, any refused arrival check-in (FUP-285: its
+  /// mark is the operation itself, gone once rejected; the handler reads
+  /// the order again, which shows a late one kept for review), and a profile
+  /// edit refused for its values (FUP-315: the handler puts the server's
+  /// profile back).
   static bool _revertsLocalChange(SyncOperation operation, String? message) =>
       operation.entityType == 'order' ||
+      operation.entityType == handoffCheckInEntityType ||
       isRevertableRejectionMessage(message) ||
       isRevertableDeliveryRejectionMessage(message) ||
       isContactLockedMessage(message) ||
-      _isRevertableListingOrTripRejection(operation.entityType, message);
+      _isRevertableListingOrTripRejection(operation.entityType, message) ||
+      _isRefusedProfileEdit(operation, message);
 
-  /// Background operations the user never made (matching analytics): a
-  /// refusal is not announced.
-  static const _unannouncedEntityTypes = {'match_event'};
+  /// Whether a reverted [operation] leaves the "Sync failed" count
+  /// ([SyncQueue.markRevertedFor]) once [PermanentRejectionHandler] returned:
+  /// its local row went back to the server's view or was removed, and the
+  /// user was told why, so nothing is left to act on. A crop listing or trip
+  /// for the codes its revert undoes, every delivery the handler gets (it is
+  /// always put back, FUP-25), a message refused because its thread is
+  /// closed (removed), a refused arrival check-in (nothing local to put
+  /// back, FUP-285) and a refused profile edit (FUP-315). Orders never count.
+  static bool _leavesFailedCount(SyncOperation operation, String? message) =>
+      switch (operation.entityType) {
+        'delivery' => true,
+        handoffCheckInEntityType => true,
+        'message' => isContactLockedMessage(message),
+        'user' => isProfileEditRefusalMessage(message),
+        _ => _isRevertableListingOrTripRejection(operation.entityType, message),
+      };
+
+  /// Background operations the user never made (matching analytics,
+  /// check-ins): a refusal is not announced. A refused check-in has no local
+  /// row to put back and only leaves a gap in the trail (sync-protocol.md
+  /// Location pings). A refused handoff photo (FRD-12) is optional evidence
+  /// the handoff did not need: nothing to retry, and only the arrival photo
+  /// has a kept file path to forget ([_isArrivalPhoto]).
+  static const _unannouncedEntityTypes = {
+    'match_event',
+    locationPingEntityType,
+    deliveryPhotoEntityType,
+  };
+
+  /// The trucker's `{deliveryId}#arrival` photo (ESC-36): refused for good,
+  /// it still goes through [PermanentRejectionHandler] (unannounced), which
+  /// forgets the file path the phone kept on the delivery (FUP-373).
+  static bool _isArrivalPhoto(SyncOperation operation) =>
+      operation.entityType == deliveryPhotoEntityType &&
+      parseDeliveryPhotoEntityId(operation.entityId)?.type == arrivalPhotoType;
 
   /// The UI event for a refused (or, for `APP_UPDATE_REQUIRED`, held)
-  /// operation. The idempotency key starts with its user's id, the same
-  /// prefix the queue uses to keep users apart (getPendingOperationsForUser).
+  /// operation, for its user ([_userOf]).
   static SyncOperationRejected _rejectionEvent(
     SyncOperation operation,
     String message,
-  ) {
-    final key = operation.idempotencyKey;
-    final separator = key.indexOf(':');
-    return SyncOperationRejected(
-      entityType: operation.entityType,
-      entityId: operation.entityId,
-      action: operation.action,
-      message: message,
-      userId: separator > 0 ? key.substring(0, separator) : null,
-    );
-  }
+  ) =>
+      SyncOperationRejected(
+        entityType: operation.entityType,
+        entityId: operation.entityId,
+        action: operation.action,
+        message: message,
+        userId: _userOf(operation),
+      );
 
   /// Tell the user, once per entity, that operations were held for an app
   /// update (this also raises [SecurityEvents.appUpdateRequired]).
@@ -1066,18 +1461,35 @@ class SyncExecutor {
     }
   }
 
+  /// FUP-75: the server's minimum-version gate runs first on every order
+  /// operation, so an accepted one proves this build passes it: the "update
+  /// the app" flag goes ([SecurityEvents.clearAppUpdateRequired]).
+  void _noteAccepted(SyncOperation operation) {
+    if (operation.entityType == 'order') {
+      _securityEvents.clearAppUpdateRequired();
+    }
+  }
+
   /// Settle the operations a batch just rejected for good ([message] is null
   /// when the whole batch was refused):
   /// - a refused `create` rejects the operations queued behind it for that
   ///   entity, which could only loop on a transient "not found";
+  /// - a refused handoff rejects its photo waiting behind it (FRD-12), and a
+  ///   pickup refused by a code that undoes it the trucker's drop-off code
+  ///   registration (FUP-439) and the same user's status changes queued
+  ///   after it (FUP-456);
   /// - a refused order change (or any `ORDER_*` refusal), a delivery cancel
-  ///   refused after pickup, a refused delivery dispute, a message refused
-  ///   because its thread's contact is not open, and a crop listing or trip
-  ///   change refused by an ESC-12 part B code are undone through
-  ///   [PermanentRejectionHandler], once per entity, with the entity's first
-  ///   operation in the batch whose code undoes the change;
-  /// - a reverted crop listing or trip leaves the "Sync failed" count
-  ///   ([SyncQueue.markRevertedFor]) once the handler returned;
+  ///   refused after pickup, a refused delivery dispute or handoff, a message
+  ///   refused because its thread's contact is not open, and a crop listing
+  ///   or trip change refused by a code that says what the server holds are
+  ///   undone through [PermanentRejectionHandler], once per entity, with the
+  ///   entity's first operation in the batch whose code undoes the change;
+  /// - a reverted crop listing, trip, delivery or message leaves the "Sync
+  ///   failed" count ([SyncQueue.markRevertedFor]) once the handler returned
+  ///   ([_leavesFailedCount]);
+  /// - a refused arrival photo goes to [PermanentRejectionHandler] too, once
+  ///   per entity and never announced, so its kept file path is forgotten
+  ///   (FUP-373);
   /// - every refusal is announced as a [SyncOperationRejected] event, once
   ///   per entity. The batch's events go out together after every undo has
   ///   finished: a screen that reloads reads the reverted rows, and the UI
@@ -1086,19 +1498,69 @@ class SyncExecutor {
   Future<void> _settleRejections(
     List<(SyncOperation, String?)> rejected,
   ) async {
-    for (final (operation, _) in rejected) {
+    for (final (operation, message) in rejected) {
       if (operation.action == 'create') {
         await _syncQueue.rejectOpenOperationsFor(
           operation.entityType,
           operation.entityId,
         );
       }
+      // FRD-12: a handoff photo goes with its handoff. A refused delivery
+      // create, pickup or delivery confirm rejects the photo waiting behind
+      // it, which could otherwise only wait for a delivery or a handoff the
+      // server never took.
+      if (operation.entityType == 'delivery') {
+        for (final type in handoffPhotoTypesOf(
+          operation.action,
+          _statusOf(operation),
+        )) {
+          await _syncQueue.rejectOpenOperationsFor(
+            deliveryPhotoEntityType,
+            deliveryPhotoEntityId(operation.entityId, type),
+          );
+        }
+        // FUP-439: a pickup refused by a code that undoes it also rejects the
+        // trucker's drop-off code registration queued behind it (ESC-35).
+        // The server holds that back while the delivery is pending, so it
+        // could only wait, and while it waited the revert below left the
+        // phone's pickup in place (another upload for the delivery was on
+        // its way). The revert then flags it with the pickup, so it leaves
+        // the "Sync failed" count; a refusal that undoes nothing leaves it.
+        // FUP-456: the same for the trucker's own status changes queued
+        // behind the pickup ("Mark in transit"), which the server answers
+        // with a retried `DELIVERY_INVALID_TRANSITION` while it holds the
+        // delivery `pending`.
+        if (_isPickup(operation) && _revertsLocalChange(operation, message)) {
+          for (final waiting in await _syncQueue.waitingOperationsFor(
+            'delivery',
+            operation.entityId,
+          )) {
+            if (_registersDropoffCode(waiting) ||
+                _changesStatusAfter(waiting, operation)) {
+              await _syncQueue.markAsRejected(waiting.operationId);
+            }
+          }
+        }
+      }
     }
 
     final settled = <String>{};
     final announcements = <SyncOperationRejected>[];
     for (final (operation, message) in rejected) {
-      if (_unannouncedEntityTypes.contains(operation.entityType)) continue;
+      if (_unannouncedEntityTypes.contains(operation.entityType)) {
+        // FUP-373: a refused arrival photo is not announced either, but the
+        // handler forgets the file the phone kept on the delivery, so the
+        // next "Arrived at drop-off" takes a new photo.
+        if (_isArrivalPhoto(operation) &&
+            settled.add('${operation.entityType}:${operation.entityId}')) {
+          try {
+            await _onPermanentRejection?.call(operation, message ?? '');
+          } on Object catch (e) {
+            debugPrint('[SYNC] permanent rejection handler failed: $e');
+          }
+        }
+        continue;
+      }
       if (!settled.add('${operation.entityType}:${operation.entityId}')) {
         continue;
       }
@@ -1119,12 +1581,7 @@ class SyncExecutor {
           final handler = _onPermanentRejection;
           if (handler != null) {
             await handler(revertOp, revertMessage ?? '');
-            // Only crop listings and trips leave the failed count here; a
-            // reverted delivery still counts until FUP-25.
-            if (_isRevertableListingOrTripRejection(
-              revertOp.entityType,
-              revertMessage,
-            )) {
+            if (_leavesFailedCount(revertOp, revertMessage)) {
               await _syncQueue.markRevertedFor(
                 revertOp.entityType,
                 revertOp.entityId,
@@ -1138,6 +1595,229 @@ class SyncExecutor {
       announcements.add(_rejectionEvent(operation, message ?? ''));
     }
     announcements.forEach(_securityEvents.emit);
+
+    await _settleLiveTrip(rejected);
+  }
+
+  /// FUP-140: a `delivery` update answered `conflict` was not taken (server
+  /// wins). The handoff photo queued behind a pickup or delivery confirm
+  /// that the server's row does not show is rejected, silently, as behind a
+  /// refused handoff ([handoffPhotoTypesUndoneByConflict]): the server holds
+  /// a photo back until its handoff is on the row, so it could only wait.
+  /// Run after the batch, so a photo of the same batch that the server
+  /// answered `deferred` (and that went back to pending) goes too.
+  Future<void> _settleConflictedHandoffs(
+    List<(SyncOperation, Map<String, dynamic>)> conflicted,
+  ) async {
+    for (final (operation, serverData) in conflicted) {
+      for (final type in handoffPhotoTypesUndoneByConflict(
+        operation.action,
+        _statusOf(operation),
+        serverData,
+      )) {
+        await _syncQueue.rejectOpenOperationsFor(
+          deliveryPhotoEntityType,
+          deliveryPhotoEntityId(operation.entityId, type),
+        );
+      }
+    }
+  }
+
+  /// Tell the check-in engine (LT-08) what a batch's refusals mean for it:
+  /// sharing ended for a trip (`LOCATION_SHARING_ENDED`, once per trip), or a
+  /// delivery's pickup was refused for good (its trip's check-ins would wait
+  /// as `deferred` for 7 days).
+  Future<void> _settleLiveTrip(List<(SyncOperation, String?)> rejected) async {
+    final ended = <String>{};
+    final pickups = <String>{};
+    for (final (operation, message) in rejected) {
+      if (operation.entityType == locationPingEntityType &&
+          isLocationSharingEndedMessage(message)) {
+        final tripId = tripIdOfLocationPing(operation.entityId);
+        if (tripId != null) ended.add(tripId);
+      } else if (operation.entityType == 'delivery' && _isPickup(operation)) {
+        pickups.add(operation.entityId);
+      }
+    }
+    for (final tripId in ended) {
+      try {
+        await _onLocationSharingEnded?.call(tripId);
+      } on Object catch (e) {
+        debugPrint('[SYNC] sharing-ended handler failed: $e');
+      }
+    }
+    for (final deliveryId in pickups) {
+      try {
+        await _onPickupRejected?.call(deliveryId);
+      } on Object catch (e) {
+        debugPrint('[SYNC] pickup-rejected handler failed: $e');
+      }
+    }
+  }
+
+  /// Tell [OperationSyncedHandler] an operation was applied. A failing
+  /// handler never fails the batch.
+  Future<void> _notifySynced(SyncOperation operation) async {
+    try {
+      await _onOperationSynced?.call(operation);
+    } on Object catch (e) {
+      debugPrint('[SYNC] synced handler failed: $e');
+    }
+  }
+
+  /// The `status` an operation's payload sets, if any.
+  static Object? _statusOf(SyncOperation operation) {
+    try {
+      final data = jsonDecode(operation.data);
+      return data is Map ? data['status'] : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  /// What an operation held for a step-up is, for the prompt's words
+  /// (FUP-181). The server asks for one before an order's payment, a
+  /// delivery dispute, and a farmer or trucker dropping out of an order they
+  /// accepted (other).
+  static StepUpKind _stepUpKindOf(SyncOperation operation) {
+    final status = _statusOf(operation);
+    if (operation.entityType == 'order' && status == 'payment_submitted') {
+      return StepUpKind.payment;
+    }
+    if (status == 'disputed') return StepUpKind.dispute;
+    return StepUpKind.other;
+  }
+
+  /// Whether a delivery operation moves the delivery to `pickedUp`.
+  static bool _isPickup(SyncOperation operation) {
+    try {
+      final data = jsonDecode(operation.data);
+      return data is Map && data['status'] == 'pickedUp';
+    } on FormatException {
+      return false;
+    }
+  }
+
+  /// Whether a delivery operation registers the trucker's drop-off code
+  /// (ESC-35: an update carrying `dropoffQrNonce`).
+  static bool _registersDropoffCode(SyncOperation operation) {
+    try {
+      final data = jsonDecode(operation.data);
+      return data is Map && data['dropoffQrNonce'] is String;
+    } on FormatException {
+      return false;
+    }
+  }
+
+  /// FUP-456: whether a waiting delivery operation changes the status on top
+  /// of a refused [pickup]: a `status` in its payload, queued after the
+  /// pickup by the same user. On the trucker's phone that is "Mark in
+  /// transit" (a cancel needs a pending delivery, a dispute a delivered
+  /// one). It was sent at the pickup's version plus one, so while the server
+  /// holds the delivery `pending` it can only be refused. Another user's
+  /// status change (a buyer's confirm on a shared phone) and one queued
+  /// before the pickup (the delivery's create) are never matched.
+  static bool _changesStatusAfter(
+    SyncOperation waiting,
+    SyncOperation pickup,
+  ) {
+    final user = _userOf(pickup);
+    return user != null &&
+        _userOf(waiting) == user &&
+        waiting.createdAt.isAfter(pickup.createdAt) &&
+        _statusOf(waiting) is String;
+  }
+
+  /// FUP-493: whether a refused delivery [operation] is a status change sent
+  /// on top of a pickup the server refused for good: the server answered
+  /// `DELIVERY_INVALID_TRANSITION` from `pending` (it holds the delivery
+  /// where the refused pickup left it), and the queue still holds that
+  /// pickup, rejected, of the same user and queued before it
+  /// ([_changesStatusAfter]). Matched when the answer arrives, not when the
+  /// pickup was refused, so a "Mark in transit" tapped while the pickup's
+  /// sync ran, or left waiting by an app killed before the pickup's refusal
+  /// was settled, is matched too. A pickup refused in this same batch
+  /// ([refusedNow]) is left to [_settleRejections], which knows its code and
+  /// keeps FUP-456's rule (only a code that undoes the pickup takes the
+  /// operations behind it).
+  Future<bool> _isBehindRefusedPickup(
+    SyncOperation operation,
+    String? message,
+    Set<String> refusedNow,
+  ) async {
+    if (operation.entityType != 'delivery' ||
+        _statusOf(operation) is! String ||
+        message == null ||
+        !message.startsWith(_invalidTransitionFromPending)) {
+      return false;
+    }
+    final queued =
+        await _syncQueue.operationsFor('delivery', operation.entityId);
+    return queued.any(
+      (pickup) =>
+          _isPickup(pickup) &&
+          SyncQueue.isRejected(pickup) &&
+          !refusedNow.contains(pickup.operationId) &&
+          _changesStatusAfter(operation, pickup),
+    );
+  }
+
+  /// The start of the server's refusal of a delivery status change while
+  /// the delivery is `pending` (`SyncFunction`, delivery update).
+  static const _invalidTransitionFromPending =
+      "DELIVERY_INVALID_TRANSITION: Cannot transition from 'pending'";
+
+  /// FUP-493: settle the status changes a batch rejected as sent on top of a
+  /// refused pickup ([_isBehindRefusedPickup]), once per delivery: the
+  /// drop-off code registration and the other status changes still waiting
+  /// behind that pickup are rejected with them (FUP-439, FUP-456), the
+  /// delivery is put back to the server's view through
+  /// [PermanentRejectionHandler], and its rejected operations leave the
+  /// "Sync failed" count. Nothing is announced: the pickup's refusal is what
+  /// the user is told.
+  Future<void> _settleBehindRefusedPickup(List<SyncOperation> marks) async {
+    final settled = <String>{};
+    for (final mark in marks) {
+      if (!settled.add(mark.entityId)) continue;
+      final queued = await _syncQueue.operationsFor('delivery', mark.entityId);
+      final pickups = [
+        for (final op in queued)
+          if (_isPickup(op) &&
+              SyncQueue.isRejected(op) &&
+              _changesStatusAfter(mark, op))
+            op,
+      ];
+      for (final waiting in await _syncQueue.waitingOperationsFor(
+        'delivery',
+        mark.entityId,
+      )) {
+        if (pickups.any(
+          (pickup) =>
+              _registersDropoffCode(waiting) ||
+              _changesStatusAfter(waiting, pickup),
+        )) {
+          await _syncQueue.markAsRejected(waiting.operationId);
+        }
+      }
+      try {
+        final handler = _onPermanentRejection;
+        if (handler != null) {
+          await handler(mark, _invalidTransitionFromPending);
+          await _syncQueue.markRevertedFor('delivery', mark.entityId);
+        }
+      } on Object catch (e) {
+        debugPrint('[SYNC] permanent rejection handler failed: $e');
+      }
+    }
+  }
+
+  /// The user an operation belongs to: its idempotency key starts with the
+  /// user's id, the prefix the queue keeps users apart by
+  /// ([SyncQueue.getPendingOperationsForUser]).
+  static String? _userOf(SyncOperation operation) {
+    final key = operation.idempotencyKey;
+    final separator = key.indexOf(':');
+    return separator > 0 ? key.substring(0, separator) : null;
   }
 
   /// Mark all operations in a batch as failed (increments retry count).

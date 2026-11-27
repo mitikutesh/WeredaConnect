@@ -51,7 +51,7 @@ public class SyncFunctionRejectSignalTests
         }
 
         _fraud.GetUserRiskScoreAsync(Arg.Any<string>()).Returns(new RiskScoreResult { Score = 0, EnforcementScore = 0, Tier = RiskTier.Low });
-        _fraud.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>())
+        _fraud.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<ListingLot?>())
             .Returns(FraudCheckResult.Allowed());
 
         // A crop listing of the caller and one of another farmer.
@@ -105,20 +105,21 @@ public class SyncFunctionRejectSignalTests
 
     private static SyncOperationRequest Op(
         string entityType, string entityId, string action, Dictionary<string, object> data, string? opId = null) => new()
-    {
-        OperationId = opId ?? $"op-{entityId}-{action}",
-        IdempotencyKey = $"caller:{entityType}:{entityId}:{action}:{opId ?? "1"}",
-        EntityType = entityType,
-        EntityId = entityId,
-        Action = action,
-        Data = data
-    };
+        {
+            OperationId = opId ?? $"op-{entityId}-{action}",
+            IdempotencyKey = $"caller:{entityType}:{entityId}:{action}:{opId ?? "1"}",
+            EntityType = entityType,
+            EntityId = entityId,
+            Action = action,
+            Data = data
+        };
 
     private static SyncOperationRequest CropCreate(string entityId, string farmerId, string? opId = null) =>
         Op("crop_listing", entityId, "create", new Dictionary<string, object>
         {
             { "farmerId", farmerId }, { "cropType", "teff" }, { "quantity", 50 }, { "pricePerKg", 45.5 },
-            { "woreda", "Jimma" }, { "locationName", "Jimma" }, { "description", "White teff" }
+            { "woreda", "Jimma" }, { "locationName", "Jimma" }, { "description", "White teff" },
+            { "photoIds", CropPhotoFixtures.ValidPhotoIds() }
         }, opId);
 
     private static SyncOperationRequest CropUpdate(string entityId, Dictionary<string, object> data, string? opId = null) =>
@@ -236,6 +237,29 @@ public class SyncFunctionRejectSignalTests
         Result(body).GetProperty("status").GetString().Should().Be("conflict");
         Result(body).GetProperty("serverData").GetProperty("farmerId").GetString().Should().Be(FarmerId);
         await NoSignalAsync();
+    }
+
+    [Fact]
+    public async Task OwnersCreateRetry_UnderANewKey_NeverReachesTheListingFraudRules()
+    {
+        // Persona sim 2026-11-19, BUG-13: the duplicate rule saw the stored listing as a duplicate of
+        // the re-queued create and answered FRAUD_DUPLICATE_LISTING with a signal. The id check comes
+        // first now, so the rules are not asked at all (by name: their signature is not this test's).
+        _crops.CreateAsync("crop-own", Arg.Any<Dictionary<string, object>>())
+            .Returns(AuthResult<Dictionary<string, object>>.Failure(409, "CONFLICT", "exists"));
+
+        _crops.GetByIdConsistentAsync("crop-own").Returns(_ => Crop("crop-own", FarmerId));
+
+        var body = await SyncAsync(Request(FarmerId, "farmer", CropCreate("crop-own", FarmerId, opId: "requeued")));
+
+        Result(body).GetProperty("status").GetString().Should().Be("conflict");
+        Result(body).GetProperty("serverVersion").GetInt32().Should().Be(3);
+        Result(body).GetProperty("serverData").GetProperty("cropId").GetString().Should().Be("crop-own");
+        _fraud.ReceivedCalls().Select(call => call.GetMethodInfo().Name)
+            .Should().NotContain("CheckListingCreationAsync").And.NotContain("RecordListingCreatedAsync");
+        await NoSignalAsync();
+        // The lookup is the strongly consistent one: the retry may follow the first create at once.
+        await _crops.Received(1).GetByIdConsistentAsync("crop-own");
     }
 
     // ── Identity and money field changes (SIM-02, SIM-06) ────────────────
@@ -484,7 +508,7 @@ public class SyncFunctionRejectSignalTests
 
         var failing = Substitute.For<IFraudDetectionService>();
         failing.GetUserRiskScoreAsync(Arg.Any<string>()).Returns(new RiskScoreResult { Score = 0, EnforcementScore = 0, Tier = RiskTier.Low });
-        failing.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>())
+        failing.CheckListingCreationAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<decimal>(), Arg.Any<ListingLot?>())
             .Returns(FraudCheckResult.Allowed());
         failing.RecordFraudSignalAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<string?>())

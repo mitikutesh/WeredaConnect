@@ -1,16 +1,21 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { LocaleProvider } from "@/hooks/useLocale";
-import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import { LocaleProvider } from "@/hooks/LocaleProvider";
+import { AuthProvider } from "@/hooks/AuthProvider";
+import { useAuth } from "@/hooks/useAuth";
 import { AppShell } from "@/components/layout/AppShell";
 import { LoginPage } from "@/pages/LoginPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { EscrowsPage } from "@/pages/EscrowsPage";
 import { EscrowDetailPage } from "@/pages/EscrowDetailPage";
 import { DisputesPage } from "@/pages/DisputesPage";
+import { DisputeDetailPage } from "@/pages/DisputeDetailPage";
 import { ManualPayoutsPage } from "@/pages/ManualPayoutsPage";
+import { StuckOrdersPage } from "@/pages/StuckOrdersPage";
 import { UnappliedPaymentsPage } from "@/pages/UnappliedPaymentsPage";
 import { FraudReviewPage } from "@/pages/FraudReviewPage";
+import { ListingReportsPage } from "@/pages/ListingReportsPage";
+import { ReputationAppealsPage } from "@/pages/ReputationAppealsPage";
 import { UsersPage } from "@/pages/UsersPage";
 import { UserDetailPage } from "@/pages/UserDetailPage";
 import { RevenuePage } from "@/pages/RevenuePage";
@@ -36,7 +41,7 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center text-text-muted">
+      <div className="flex h-screen items-center justify-center text-slate">
         Loading...
       </div>
     );
@@ -69,9 +74,13 @@ function AppRoutes() {
         <Route path="escrows" element={<EscrowsPage />} />
         <Route path="escrows/:id" element={<EscrowDetailPage />} />
         <Route path="disputes" element={<DisputesPage />} />
+        <Route path="disputes/:id" element={<DisputeDetailPage />} />
         <Route path="payouts" element={<ManualPayoutsPage />} />
+        <Route path="stuck-orders" element={<StuckOrdersPage />} />
         <Route path="unapplied-payments" element={<UnappliedPaymentsPage />} />
         <Route path="fraud-review" element={<FraudReviewPage />} />
+        <Route path="listing-reports" element={<ListingReportsPage />} />
+        <Route path="reputation-appeals" element={<ReputationAppealsPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="users/:id" element={<UserDetailPage />} />
         <Route path="revenue" element={<RevenuePage />} />

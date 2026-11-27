@@ -16,6 +16,7 @@ import 'package:wereda_connect/core/sync/connectivity_monitor.dart';
 import 'package:wereda_connect/core/sync/sync_executor.dart';
 import 'package:wereda_connect/core/sync/sync_queue.dart';
 import 'package:wereda_connect/features/crop_listing/data/repositories/crop_listing_repository.dart';
+import '../test/helpers/crop_photo_fixtures.dart';
 
 /// Manual stress test for offline sync flow.
 ///
@@ -61,6 +62,7 @@ void main() {
 
     syncQueue = SyncQueue(isar);
     repository = CropListingRepository(
+      photoFiles: tempCropPhotoFileStore(),
       isar: isar,
       syncQueue: syncQueue,
     );
@@ -123,6 +125,7 @@ void main() {
 
         for (var j = 0; j < operationsInCycle; j++) {
           await repository.createListing(
+            photos: testCropPhotos(),
             farmerId: testUserId,
             cropType: _randomCropType(i, j),
             quantity: (i % 10 + 1).toDouble(),

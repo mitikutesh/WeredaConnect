@@ -1,8 +1,446 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 
+/// A location platform whose answers each test sets. A null [answer] or
+/// [fix] never comes, like the web plugin's prompt and fix under its
+/// microsecond time limit (FUP-441).
+class _FakeGeolocator extends GeolocatorPlatform
+    with MockPlatformInterfaceMixin {
+  /// The permission as checked (on web: the site's state).
+  LocationPermission state = LocationPermission.whileInUse;
+
+  /// What a request answers. `geolocator_web` answers deniedForever for any
+  /// error of its request, a dismissed prompt included.
+  LocationPermission? answer = LocationPermission.whileInUse;
+
+  /// The state once a request ran; unchanged when null.
+  LocationPermission? stateAfterRequest;
+
+  Position? fix = _position();
+  Object? checkError;
+  int checks = 0;
+  int requests = 0;
+  LocationSettings? settings;
+
+  /// Location switched on on the phone (a browser always says so).
+  bool servicesOn = true;
+
+  /// What the Android accuracy check answers; null never answers, and an
+  /// [accuracyError] throws instead (FUP-440).
+  LocationAccuracyStatus? accuracyStatus = LocationAccuracyStatus.precise;
+  Object? accuracyError;
+  int accuracyChecks = 0;
+
+  @override
+  Future<bool> isLocationServiceEnabled() async => servicesOn;
+
+  @override
+  Future<LocationPermission> checkPermission() async {
+    checks++;
+    final error = checkError;
+    if (error != null) throw error;
+    return state;
+  }
+
+  @override
+  Future<LocationPermission> requestPermission() {
+    requests++;
+    state = stateAfterRequest ?? state;
+    final answer = this.answer;
+    return answer == null
+        ? Completer<LocationPermission>().future
+        : Future.value(answer);
+  }
+
+  @override
+  Future<LocationAccuracyStatus> getLocationAccuracy() {
+    accuracyChecks++;
+    final error = accuracyError;
+    if (error != null) return Future.error(error);
+    final status = accuracyStatus;
+    return status == null
+        ? Completer<LocationAccuracyStatus>().future
+        : Future.value(status);
+  }
+
+  @override
+  Future<Position> getCurrentPosition({LocationSettings? locationSettings}) {
+    settings = locationSettings;
+    final fix = this.fix;
+    return fix == null ? Completer<Position>().future : Future.value(fix);
+  }
+}
+
+Position _position() => Position(
+      latitude: 9.03,
+      longitude: 38.74,
+      timestamp: DateTime.utc(2026, 11, 13, 6),
+      accuracy: 12,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: 0,
+      headingAccuracy: 0,
+      speed: 0,
+      speedAccuracy: 0,
+    );
+
 void main() {
+  group('captureCurrentPosition (FUP-441)', () {
+    const limit = Duration(milliseconds: 50);
+    late _FakeGeolocator platform;
+
+    setUp(() {
+      platform = _FakeGeolocator();
+      GeolocatorPlatform.instance = platform;
+    });
+
+    GpsCaptureService web() => GpsCaptureService(isWeb: true, timeLimit: limit);
+    GpsCaptureService phone() =>
+        GpsCaptureService(isWeb: false, timeLimit: limit);
+
+    // A capture that does not end fails the test here, not after hours.
+    Future<GpsCaptureResult> capture(GpsCaptureService service) =>
+        service.captureCurrentPosition().timeout(const Duration(seconds: 5));
+
+    test('takes a high accuracy fix with its time limit', () async {
+      final result = await capture(web());
+
+      expect(result.isAvailable, isTrue);
+      expect(result.latitude, 9.03);
+      expect(result.longitude, 38.74);
+      expect(result.accuracy, 12);
+      expect(platform.settings?.accuracy, LocationAccuracy.high);
+      expect(platform.settings?.timeLimit, limit);
+      expect(platform.requests, 0);
+    });
+
+    test('a fix that never comes ends within the limit, web and phone',
+        () async {
+      platform.fix = null;
+
+      for (final service in [web(), phone()]) {
+        final result = await capture(service);
+        expect(result.isAvailable, isFalse);
+        expect(result.unavailableReason, 'GPS signal not available');
+        expect(result.permissionDeniedForever, isFalse);
+      }
+    });
+
+    test('web: a dismissed prompt is not blocked and is asked again', () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isFalse);
+      expect(result.permissionDeniedForever, isFalse);
+      expect(result.unavailableReason, 'Location permission denied');
+      expect(platform.checks, 2, reason: 'the site state is read again');
+
+      await capture(web());
+      expect(platform.requests, 2);
+    });
+
+    test('web: a blocked site still reads as blocked', () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever
+        ..stateAfterRequest = LocationPermission.deniedForever;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isFalse);
+      expect(result.permissionDeniedForever, isTrue);
+    });
+
+    test('web: a granted site whose first position failed takes the fix',
+        () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever
+        ..stateAfterRequest = LocationPermission.whileInUse;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isTrue);
+    });
+
+    test('web: a prompt nobody answers ends within the limit, asked again',
+        () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = null;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isFalse);
+      expect(result.permissionDeniedForever, isFalse);
+      expect(result.unavailableReason, 'Location permission denied');
+
+      await capture(web());
+      expect(platform.requests, 2);
+    });
+
+    test('web: "Allow" with a slow first fix still takes the fix', () async {
+      // The request ends only after a first fix: past the limit it is still
+      // running, but the site is already granted.
+      platform
+        ..state = LocationPermission.denied
+        ..answer = null
+        ..stateAfterRequest = LocationPermission.whileInUse;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isTrue);
+      expect(result.latitude, 9.03);
+    });
+
+    test('web: without the Permissions API the re-read is not blocked',
+        () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever
+        ..stateAfterRequest = LocationPermission.unableToDetermine;
+
+      final result = await capture(web());
+
+      expect(result.isAvailable, isFalse);
+      expect(result.permissionDeniedForever, isFalse);
+      expect(result.unavailableReason, 'Location permission denied');
+    });
+
+    test('phone: a request denied for good is believed as it is', () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.deniedForever;
+
+      final result = await capture(phone());
+
+      expect(result.permissionDeniedForever, isTrue);
+      expect(platform.checks, 1);
+    });
+
+    test('a failing platform call ends as unavailable, never throws', () async {
+      platform.checkError = const PermissionDefinitionsNotFoundException(
+        'no permission in the manifest',
+      );
+
+      final result = await capture(phone());
+
+      expect(result.isAvailable, isFalse);
+      expect(result.unavailableReason, 'GPS signal not available');
+    });
+  });
+
+  // FUP-138: the self-pickup scan says why there is no fix.
+  group('unavailableCause (FUP-138)', () {
+    const limit = Duration(milliseconds: 50);
+    late _FakeGeolocator platform;
+
+    setUp(() {
+      platform = _FakeGeolocator();
+      GeolocatorPlatform.instance = platform;
+    });
+
+    Future<GpsCaptureResult> capture() =>
+        GpsCaptureService(isWeb: false, timeLimit: limit)
+            .captureCurrentPosition()
+            .timeout(const Duration(seconds: 5));
+
+    test('a fix has no cause', () async {
+      expect((await capture()).unavailableCause, isNull);
+    });
+
+    test('location switched off', () async {
+      platform.servicesOn = false;
+
+      final result = await capture();
+
+      expect(result.unavailableCause, GpsUnavailableCause.locationOff);
+      expect(platform.checks, 0, reason: 'no permission asked');
+    });
+
+    test('a permission refused this time', () async {
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.denied;
+
+      final result = await capture();
+
+      expect(result.unavailableCause, GpsUnavailableCause.permissionDenied);
+    });
+
+    test('a permission denied for good', () async {
+      platform.state = LocationPermission.deniedForever;
+
+      final result = await capture();
+
+      expect(result.unavailableCause, GpsUnavailableCause.deniedForever);
+      expect(result.permissionDeniedForever, isTrue);
+    });
+
+    test('no fix in time', () async {
+      platform.fix = null;
+
+      final result = await capture();
+
+      expect(result.unavailableCause, GpsUnavailableCause.noSignal);
+    });
+
+    test('a reason it does not know reads as no signal', () {
+      expect(
+        const GpsCaptureResult.unavailable('timeout').unavailableCause,
+        GpsUnavailableCause.noSignal,
+      );
+    });
+  });
+
+  // FUP-440: what a handoff confirm sends about its fix.
+  group('handoff evidence (FUP-440)', () {
+    const limit = Duration(milliseconds: 50);
+    late _FakeGeolocator platform;
+
+    setUp(() {
+      platform = _FakeGeolocator();
+      GeolocatorPlatform.instance = platform;
+    });
+
+    tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    Future<GpsCaptureResult> capture({bool isWeb = false}) =>
+        GpsCaptureService(isWeb: isWeb, timeLimit: limit)
+            .captureCurrentPosition()
+            .timeout(const Duration(seconds: 5));
+
+    test('a fix keeps its own time (UTC) and accuracy', () async {
+      final result = await capture();
+
+      expect(result.gpsStatus, 'fix');
+      expect(result.approximate, isFalse);
+      expect(result.capturedAt, DateTime.utc(2026, 11, 13, 6));
+      expect(result.capturedAt!.isUtc, isTrue);
+      expect(result.pointEvidence, {
+        'capturedAt': '2026-11-13T06:00:00.000Z',
+        'accuracyM': 12.0,
+      });
+      expect(platform.accuracyChecks, 1);
+    });
+
+    test('Android with approximate location only reads as approximate',
+        () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      platform.accuracyStatus = LocationAccuracyStatus.reduced;
+
+      final result = await capture();
+
+      expect(result.isAvailable, isTrue);
+      expect(result.approximate, isTrue);
+      expect(result.gpsStatus, 'approximate');
+      expect(result.pointEvidence['accuracyM'], 12.0);
+    });
+
+    test('web never asks for the accuracy', () async {
+      platform.accuracyStatus = LocationAccuracyStatus.reduced;
+
+      final result = await capture(isWeb: true);
+
+      expect(result.gpsStatus, 'fix');
+      expect(platform.accuracyChecks, 0);
+    });
+
+    test('only Android is asked for the accuracy', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      platform.accuracyStatus = LocationAccuracyStatus.reduced;
+
+      final result = await capture();
+
+      expect(result.gpsStatus, 'fix');
+      expect(platform.accuracyChecks, 0);
+    });
+
+    test('a failing accuracy check keeps the fix', () async {
+      platform.accuracyError = PlatformException(code: 'ERROR');
+
+      final result = await capture();
+
+      expect(result.isAvailable, isTrue);
+      expect(result.gpsStatus, 'fix');
+    });
+
+    test('an accuracy check that never answers keeps the fix', () async {
+      platform.accuracyStatus = null;
+
+      final result = await capture();
+
+      expect(result.isAvailable, isTrue);
+      expect(result.gpsStatus, 'fix');
+    });
+
+    test('each reason for no fix maps to its status, with no point', () {
+      const cases = {
+        GpsCaptureResult.locationOffReason: 'services_off',
+        GpsCaptureResult.permissionDeniedReason: 'denied',
+        GpsCaptureResult.permanentlyDeniedReason: 'denied_forever',
+        GpsCaptureResult.noSignalReason: 'timeout',
+        'timeout': 'timeout',
+      };
+      for (final entry in cases.entries) {
+        final result = GpsCaptureResult.unavailable(entry.key);
+        expect(result.gpsStatus, entry.value, reason: entry.key);
+        expect(result.pointEvidence, isEmpty, reason: entry.key);
+        expect(result.capturedAt, isNull);
+        expect(result.approximate, isFalse);
+      }
+    });
+
+    test('the captures report the status they found', () async {
+      platform.servicesOn = false;
+      expect((await capture()).gpsStatus, 'services_off');
+
+      platform
+        ..servicesOn = true
+        ..state = LocationPermission.deniedForever;
+      expect((await capture()).gpsStatus, 'denied_forever');
+
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.denied;
+      expect((await capture()).gpsStatus, 'denied');
+
+      platform
+        ..state = LocationPermission.whileInUse
+        ..fix = null;
+      expect((await capture()).gpsStatus, 'timeout');
+    });
+
+    test('an unknown time or accuracy is left out of the point', () {
+      const noAccuracy = GpsCaptureResult.success(
+        latitude: 9.03,
+        longitude: 38.74,
+        accuracy: 0,
+      );
+      expect(noAccuracy.pointEvidence, isEmpty);
+
+      final localTime = GpsCaptureResult.success(
+        latitude: 9.03,
+        longitude: 38.74,
+        accuracy: null,
+        capturedAt: DateTime.utc(2026, 11, 13, 6).toLocal(),
+      );
+      expect(localTime.pointEvidence, {
+        'capturedAt': '2026-11-13T06:00:00.000Z',
+      });
+    });
+  });
+
   group('GpsCaptureService', () {
     late GpsCaptureService service;
 

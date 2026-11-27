@@ -1,6 +1,10 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/core/models/order_check_in.dart';
+import 'package:wereda_connect/core/network/api_exception.dart';
+import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
 import 'package:wereda_connect/core/sync/marketplace_sync.dart';
 import 'package:wereda_connect/features/order/domain/repositories/base_order_repository.dart';
 import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
@@ -39,9 +43,15 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     on<FilterOrders>(_onFilterOrders);
     on<AcceptOrder>(_onAcceptOrder);
     on<RejectOrder>(_onRejectOrder);
+    on<TruckerAcceptOrder>(_onTruckerAcceptOrder);
+    on<TruckerDeclineOrder>(_onTruckerDeclineOrder);
     on<CreateOrder>(_onCreateOrder);
     on<SubmitPayment>(_onSubmitPayment);
     on<CancelOrder>(_onCancelOrder);
+    on<UpdateDropoffNote>(_onUpdateDropoffNote);
+    on<UpdateDeliveryLocation>(_onUpdateDeliveryLocation);
+    on<CheckInAtPickup>(_onCheckInAtPickup);
+    on<CheckInAtDropoff>(_onCheckInAtDropoff);
     on<LoadOrderById>(_onLoadOrderById);
   }
 
@@ -69,12 +79,25 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     emit(const OrderLoading());
     try {
       await _refreshOrders(event.userId, event.role);
+      final yourTurn = event.statusFilter == ordersFilterYourTurn;
       final orders = await _repository.getOrdersByUser(
         event.userId,
         role: event.role,
-        statusFilter: event.statusFilter,
+        statusFilter: yourTurn ? 'funded' : event.statusFilter,
       );
-      emit(OrdersLoaded(orders: orders, statusFilter: event.statusFilter));
+      emit(
+        OrdersLoaded(
+          orders: yourTurn
+              ? [
+                  for (final order in orders)
+                    if (canFarmerRespond(order, event.userId) ||
+                        canTruckerRespond(order, event.userId))
+                      order,
+                ]
+              : orders,
+          statusFilter: event.statusFilter,
+        ),
+      );
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }
@@ -117,8 +140,44 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
         event.orderId,
         event.farmerId,
         reason: event.reason,
+        declineReason: event.declineReason,
       );
       emit(const OrderRejected());
+    } on Object catch (e) {
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  Future<void> _onTruckerAcceptOrder(
+    TruckerAcceptOrder event,
+    Emitter<OrderState> emit,
+  ) async {
+    emit(const OrderLoading());
+    try {
+      await _repository.respondAsTrucker(
+        event.orderId,
+        event.truckerId,
+        accept: true,
+      );
+      emit(const TruckerResponded(accepted: true));
+    } on Object catch (e) {
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  Future<void> _onTruckerDeclineOrder(
+    TruckerDeclineOrder event,
+    Emitter<OrderState> emit,
+  ) async {
+    emit(const OrderLoading());
+    try {
+      await _repository.respondAsTrucker(
+        event.orderId,
+        event.truckerId,
+        accept: false,
+        declineReason: event.declineReason,
+      );
+      emit(const TruckerResponded(accepted: false));
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }
@@ -144,6 +203,8 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
         truckerName: event.truckerName,
         transportCost: event.transportCost,
         commissionRate: event.commissionRate,
+        dropoffNote: event.dropoffNote,
+        deliveryPoint: event.deliveryPoint,
       );
       emit(OrderCreated(order: order));
     } on Object catch (e) {
@@ -196,10 +257,111 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     }
   }
 
+  Future<void> _onUpdateDropoffNote(
+    UpdateDropoffNote event,
+    Emitter<OrderState> emit,
+  ) async {
+    emit(const OrderLoading());
+    try {
+      await _repository.updateDropoffNote(
+        event.orderId,
+        event.buyerId,
+        event.dropoffNote,
+      );
+      emit(const DropoffNoteSaved());
+    } on Object catch (e) {
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  Future<void> _onUpdateDeliveryLocation(
+    UpdateDeliveryLocation event,
+    Emitter<OrderState> emit,
+  ) async {
+    emit(const OrderLoading());
+    try {
+      await _repository.updateDeliveryLocation(
+        event.orderId,
+        event.buyerId,
+        event.point,
+      );
+      emit(const DeliveryLocationSaved());
+    } on Object catch (e) {
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  /// ESC-34 (FUP-285): the arrival check-in. A repeat sends nothing and
+  /// says it was already given. A refusal on web (sent at once) is said
+  /// through its `CHECKIN_*` code, then the order is read again quietly: a
+  /// late check-in the server kept for review shows on it.
+  Future<void> _onCheckInAtPickup(
+    CheckInAtPickup event,
+    Emitter<OrderState> emit,
+  ) async {
+    emit(const OrderLoading());
+    try {
+      final sent = await _repository.checkIn(
+        event.orderId,
+        event.userId,
+        kind: event.kind,
+        fix: event.fix,
+      );
+      emit(CheckInSaved(kind: event.kind, alreadyGiven: !sent));
+    } on Object catch (e) {
+      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+      if (e is SyncRejectedException) {
+        await _onReloadOrderQuietly(
+          LoadOrderById(orderId: event.orderId, quiet: true),
+          emit,
+        );
+      }
+    }
+  }
+
+  /// ESC-36 (FUP-336): the trucker's drop-off check-in, after the arrival
+  /// photo. As for the arrival check-in: a repeat sends nothing and says so,
+  /// and a refusal on web is said with the drop-off texts of its `CHECKIN_*`
+  /// code, then the order is read again quietly.
+  Future<void> _onCheckInAtDropoff(
+    CheckInAtDropoff event,
+    Emitter<OrderState> emit,
+  ) async {
+    emit(const OrderLoading());
+    try {
+      final sent = await _repository.checkInAtDropoff(
+        event.orderId,
+        event.userId,
+        deliveryId: event.deliveryId,
+        fix: event.fix,
+        arrivalPhotoRef: event.arrivalPhotoRef,
+      );
+      emit(
+        CheckInSaved(kind: CheckInKind.arrivedDropoff, alreadyGiven: !sent),
+      );
+    } on Object catch (e) {
+      final code =
+          e is SyncRejectedException && isCheckInRefusalMessage(e.message)
+              ? checkInErrorCode(e.message, kind: CheckInKind.arrivedDropoff)
+              : mapErrorToCode(e);
+      emit(OrderError(message: e.toString(), code: code));
+      if (e is SyncRejectedException) {
+        await _onReloadOrderQuietly(
+          LoadOrderById(orderId: event.orderId, quiet: true),
+          emit,
+        );
+      }
+    }
+  }
+
   Future<void> _onLoadOrderById(
     LoadOrderById event,
     Emitter<OrderState> emit,
   ) async {
+    if (event.quiet) {
+      await _onReloadOrderQuietly(event, emit);
+      return;
+    }
     emit(const OrderLoading());
     try {
       final order = await _repository.getOrderById(event.orderId);
@@ -215,6 +377,22 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       }
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+    }
+  }
+
+  /// ESC-23: the quiet reload of [LoadOrderById]. The order on screen stays
+  /// when the read fails or finds nothing, and while an action or another
+  /// load runs (its own result settles the screen).
+  Future<void> _onReloadOrderQuietly(
+    LoadOrderById event,
+    Emitter<OrderState> emit,
+  ) async {
+    try {
+      final order = await _repository.getOrderById(event.orderId);
+      if (order == null || state is OrderLoading) return;
+      emit(SingleOrderLoaded(order: order));
+    } on Object {
+      // The order already shown stays.
     }
   }
 }

@@ -1,27 +1,39 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:intl/intl.dart';
 
+import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/trip.dart';
-import 'package:wereda_connect/core/utils/ethiopia_time.dart';
+import 'package:wereda_connect/core/models/trip_capacity.dart';
+import 'package:wereda_connect/core/models/trip_departure.dart';
+import 'package:wereda_connect/core/models/user.dart';
+import 'package:wereda_connect/core/sync/listing_report_rules.dart';
+import 'package:wereda_connect/core/utils/board_day.dart';
+import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_bloc.dart';
 import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
-import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
+import 'package:wereda_connect/features/listing_report/presentation/report_listing_sheet.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_event.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
-import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_bookings_section.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_buyer_actions.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_pickup_scans.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/widgets/trip_status_kind.dart';
-import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
-import 'package:wereda_connect/shared/widgets/status_chip.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/contact_locked_note.dart';
+import 'package:wereda_connect/shared/widgets/fieldway.dart';
+import 'package:wereda_connect/shared/widgets/fw_detail_header.dart';
+import 'package:wereda_connect/shared/widgets/offline_banner.dart';
+import 'package:wereda_connect/shared/widgets/status_chip.dart';
 
-/// Screen showing full details of a single trip.
-///
-/// Displays route, departure date, capacity, price, trucker info,
-/// status badge, and a cancel button for the trip owner.
-/// Follows the same pattern as crop listing detail views.
+/// One trip, as the Trucker · Trip and bookings board draws it (TripDetailM,
+/// white ground): the header names the trip (day, price per 100 kg, route),
+/// the raised card under it shows how much of the truck is booked,
+/// kilograms first; the owner then sees the booked orders with the one to
+/// answer first, the black pickup note with its Open link, and Start trip
+/// or Cancel trip pinned at the foot. A buyer browsing the trip sees the trucker's name and when
+/// contact opens instead (ESC-48).
 class TripDetailScreen extends StatelessWidget {
   final Trip trip;
 
@@ -30,8 +42,12 @@ class TripDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
-    final dateFormat = DateFormat.yMMMd();
+    final authState = context.read<AuthBloc>().state;
+    final isOwner =
+        authState is AuthAuthenticated && authState.userId == trip.truckerId;
+    // B-2: a buyer may use the trip; a farmer or another trucker only reads.
+    final isBuyer =
+        authState is AuthAuthenticated && authState.role == UserRole.buyer;
 
     return BlocListener<TripListingBloc, TripListingState>(
       listener: (context, state) {
@@ -61,258 +77,256 @@ class TripDetailScreen extends StatelessWidget {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(l10n.tripDetails),
-          elevation: 0,
-        ),
         body: SafeArea(
+          bottom: false,
           child: Column(
             children: [
               const OfflineBanner(),
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Route header
-                      _RouteHeader(trip: trip),
-                      const SizedBox(height: 24),
-
-                      // Status badge
-                      _TripDetailStatusBadge(status: trip.status),
-                      const SizedBox(height: 24),
-
-                      // Trip info cards
-                      _InfoRow(
-                        icon: Icons.calendar_today,
-                        label: l10n.departureDate,
-                        value: dateFormat
-                            .format(dayInEthiopia(trip.departureDate)),
-                      ),
-                      const SizedBox(height: 12),
-                      _InfoRow(
-                        icon: Icons.local_shipping,
-                        label: l10n.capacity,
-                        value: '${trip.capacity} ${l10n.quintals}',
-                      ),
-                      const SizedBox(height: 12),
-                      _InfoRow(
-                        icon: Icons.payments,
-                        label: l10n.pricePerQuintal,
-                        value: l10n.etbCurrency(
-                          trip.pricePerQuintal.toStringAsFixed(2),
+                  child: FwContentWidth(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _RouteHeader(trip: trip),
+                        if (trip.capacity > 0)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                            child: _BookedBox(trip: trip),
+                          ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                          child: isOwner
+                              ? _OwnerBody(trip: trip)
+                              : _VisitorBody(
+                                  trip: trip,
+                                  // FUP-67: only a buyer reports: a farmer
+                                  // or another trucker sees only their own
+                                  // listings.
+                                  reporterId: isBuyer ? authState.userId : null,
+                                ),
                         ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Trucker contact section
-                      Text(
-                        l10n.truckerContact,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _InfoRow(
-                        icon: Icons.person,
-                        label: l10n.truckerName,
-                        value: trip.truckerName,
-                      ),
-                      // ESC-48: only the trip's own trucker sees the phone
-                      // here. A buyer reaches the trucker from the order once
-                      // the farmer accepted it, never before any order.
-                      Builder(
-                        builder: (context) {
-                          final authState = context.read<AuthBloc>().state;
-                          final me = authState is AuthAuthenticated
-                              ? authState.userId
-                              : '';
-                          if (me.isNotEmpty && me == trip.truckerId) {
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 12),
-                              child: _InfoRow(
-                                icon: Icons.phone,
-                                label: l10n.truckerPhone,
-                                value: trip.truckerPhone,
-                              ),
-                            );
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 16),
-                            child: ContactLockedNote(
-                              text: l10n.contactAfterEscrowNote,
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 32),
-
-                      // Contextual action buttons based on trip status
-                      BlocBuilder<TripListingBloc, TripListingState>(
-                        builder: (context, state) {
-                          // Owner-only actions: hide Start/Mark Delivered/Cancel
-                          // for non-owners (e.g. Buyers browsing all open trips).
-                          final authState = context.read<AuthBloc>().state;
-                          final isOwner = authState is AuthAuthenticated &&
-                              authState.userId == trip.truckerId;
-                          if (!isOwner) {
-                            return const SizedBox.shrink();
-                          }
-                          final isLoading = state is TripListingLoading;
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              // Start Trip (matched trips)
-                              if (trip.status == TripStatus.matched)
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton.icon(
-                                    onPressed: isLoading
-                                        ? null
-                                        : () => _showStartTripConfirmation(
-                                              context,
-                                              l10n,
-                                            ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.statusSuccess,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 16,
-                                      ),
-                                      minimumSize: const Size.fromHeight(56),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    icon: isLoading
-                                        ? const SizedBox(
-                                            height: 20,
-                                            width: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor:
-                                                  AlwaysStoppedAnimation<Color>(
-                                                Colors.white,
-                                              ),
-                                            ),
-                                          )
-                                        : const Icon(Icons.play_arrow),
-                                    label: Text(
-                                      l10n.startTrip,
-                                      style: const TextStyle(fontSize: 16),
-                                    ),
-                                  ),
-                                ),
-                              // Mark Delivered (inTransit trips)
-                              if (trip.status == TripStatus.inTransit)
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton.icon(
-                                    onPressed: isLoading
-                                        ? null
-                                        : () => _showMarkDeliveredConfirmation(
-                                              context,
-                                              l10n,
-                                            ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.statusSuccess,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 16,
-                                      ),
-                                      minimumSize: const Size.fromHeight(56),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    icon: isLoading
-                                        ? const SizedBox(
-                                            height: 20,
-                                            width: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor:
-                                                  AlwaysStoppedAnimation<Color>(
-                                                Colors.white,
-                                              ),
-                                            ),
-                                          )
-                                        : const Icon(
-                                            Icons.check_circle_outline,
-                                          ),
-                                    label: Text(
-                                      l10n.markDelivered,
-                                      style: const TextStyle(fontSize: 16),
-                                    ),
-                                  ),
-                                ),
-                              // Cancel button (open/matched trips)
-                              if (trip.status == TripStatus.open ||
-                                  trip.status == TripStatus.matched) ...[
-                                if (trip.status == TripStatus.matched)
-                                  const SizedBox(height: 12),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton.icon(
-                                    onPressed: isLoading
-                                        ? null
-                                        : () => _showCancelConfirmation(
-                                              context,
-                                              l10n,
-                                            ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.statusError,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 16,
-                                      ),
-                                      minimumSize: const Size.fromHeight(56),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    icon: isLoading
-                                        ? const SizedBox(
-                                            height: 20,
-                                            width: 20,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor:
-                                                  AlwaysStoppedAnimation<Color>(
-                                                Colors.white,
-                                              ),
-                                            ),
-                                          )
-                                        : const Icon(Icons.cancel_outlined),
-                                    label: Text(
-                                      l10n.cancelTrip,
-                                      style: const TextStyle(fontSize: 16),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          );
-                        },
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ],
           ),
         ),
+        bottomNavigationBar: isOwner
+            ? _OwnerActions(trip: trip)
+            : (isBuyer ? TripBuyerActions(trip: trip) : null),
       ),
     );
   }
+}
 
-  void _showTripConfirmation(
+/// The owner's page: the booked orders, then the black pickup note: what
+/// to do with each farmer's QR on the day (before pickup) and an Open link
+/// to the scan of each pickup still waiting (T-2).
+class _OwnerBody extends StatelessWidget {
+  final Trip trip;
+
+  const _OwnerBody({required this.trip});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final beforePickup =
+        trip.status == TripStatus.open || trip.status == TripStatus.matched;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TripBookingsSection(trip: trip),
+        TripPickupScans(
+          trip: trip,
+          note: beforePickup && tripHasBookings(trip)
+              ? l10n.tripScanAtPickupNote
+              : null,
+        ),
+      ],
+    );
+  }
+}
+
+/// A buyer's view of someone else's trip: who drives, and that the phone
+/// opens on the order once the farmer accepted it (ESC-48), never before.
+class _VisitorBody extends StatelessWidget {
+  final Trip trip;
+
+  /// The signed-in buyer, who may report the trip (FUP-67); null for anyone
+  /// else.
+  final String? reporterId;
+
+  const _VisitorBody({required this.trip, this.reporterId});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FwCard(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: context.roleColors.tint,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  Icons.local_shipping_outlined,
+                  color: context.roleColors.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      trip.truckerName,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      l10n.trucker,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.slate,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        ContactLockedNote(text: l10n.contactAfterEscrowNote),
+        if (reporterId case final reporter?) ...[
+          const SizedBox(height: 8),
+          ReportListingButton(
+            listingType: ReportedListingType.trip,
+            listingId: trip.tripId,
+            reporterId: reporter,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// The owner's actions pinned at the foot: Start trip once orders are
+/// booked, Mark delivered on the road, Cancel trip before pickup with what
+/// a cancel does to the booked orders.
+class _OwnerActions extends StatelessWidget {
+  final Trip trip;
+
+  const _OwnerActions({required this.trip});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    // ESC-15: a trip stays open while it has room, so one with bookings may
+    // start too (matched = full).
+    final canStart = trip.status == TripStatus.matched ||
+        (trip.status == TripStatus.open && tripHasBookings(trip));
+    final canDeliver = trip.status == TripStatus.inTransit;
+    final canCancel =
+        trip.status == TripStatus.open || trip.status == TripStatus.matched;
+    if (!canStart && !canDeliver && !canCancel) {
+      return const SizedBox.shrink();
+    }
+    return BlocBuilder<TripListingBloc, TripListingState>(
+      builder: (context, state) {
+        final isLoading = state is TripListingLoading;
+        return FwBottomActions(
+          children: [
+            const SizedBox(height: 4),
+            if (canStart)
+              _PrimaryAction(
+                label: l10n.startTrip,
+                icon: Icons.play_arrow,
+                busy: isLoading,
+                onPressed: () => _confirm(
+                  context,
+                  title: l10n.startTrip,
+                  body: l10n.startTripConfirmation,
+                  confirmLabel: l10n.startTrip,
+                  confirmColor: null,
+                  eventFactory: (truckerId) =>
+                      StartTrip(tripId: trip.tripId, truckerId: truckerId),
+                ),
+              ),
+            if (canDeliver)
+              _PrimaryAction(
+                label: l10n.markDelivered,
+                icon: Icons.check_circle_outline,
+                busy: isLoading,
+                onPressed: () => _confirm(
+                  context,
+                  title: l10n.markDelivered,
+                  body: l10n.markDeliveredConfirmation,
+                  confirmLabel: l10n.markDelivered,
+                  confirmColor: null,
+                  eventFactory: (truckerId) => MarkTripDelivered(
+                    tripId: trip.tripId,
+                    truckerId: truckerId,
+                  ),
+                ),
+              ),
+            if (canCancel) ...[
+              if (canStart) const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: isLoading
+                    ? null
+                    : () => _confirm(
+                          context,
+                          title: l10n.cancelTrip,
+                          body: l10n.cancelTripConfirmation,
+                          confirmLabel: l10n.cancelTrip,
+                          confirmColor: AppTheme.statusError,
+                          eventFactory: (truckerId) => CancelTrip(
+                            tripId: trip.tripId,
+                            truckerId: truckerId,
+                          ),
+                        ),
+                // The board's outlined pill, as tall as the primary.
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(54),
+                ),
+                child: isLoading && !canStart && !canDeliver
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(l10n.cancelTrip),
+              ),
+              if (tripHasBookings(trip))
+                FwActionNote(l10n.tripCancelBookedNote),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  void _confirm(
     BuildContext context, {
     required String title,
     required String body,
     required String confirmLabel,
-    required Color confirmColor,
+    required Color? confirmColor,
     required TripListingEvent Function(String truckerId) eventFactory,
   }) {
     final l10n = AppLocalizations.of(context)!;
@@ -337,7 +351,10 @@ class TripDetailScreen extends StatelessWidget {
                       .add(eventFactory(authState.userId));
                 }
               },
-              style: TextButton.styleFrom(foregroundColor: confirmColor),
+              // The theme's link colour unless the action destroys.
+              style: confirmColor == null
+                  ? null
+                  : TextButton.styleFrom(foregroundColor: confirmColor),
               child: Text(confirmLabel),
             ),
           ],
@@ -345,51 +362,51 @@ class TripDetailScreen extends StatelessWidget {
       },
     );
   }
+}
 
-  void _showStartTripConfirmation(
-    BuildContext context,
-    AppLocalizations l10n,
-  ) {
-    _showTripConfirmation(
-      context,
-      title: l10n.startTrip,
-      body: l10n.startTripConfirmation,
-      confirmLabel: l10n.startTrip,
-      confirmColor: AppTheme.statusSuccess,
-      eventFactory: (truckerId) =>
-          StartTrip(tripId: trip.tripId, truckerId: truckerId),
-    );
-  }
+/// Start trip and Mark delivered: black with white ink, the second
+/// strongest button. The page's one orange action is Accept transport on a
+/// booking that waits for the trucker, so the foot never competes with it.
+/// Shows a spinner while the trip's change is on its way.
+class _PrimaryAction extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool busy;
+  final VoidCallback onPressed;
 
-  void _showMarkDeliveredConfirmation(
-    BuildContext context,
-    AppLocalizations l10n,
-  ) {
-    _showTripConfirmation(
-      context,
-      title: l10n.markDelivered,
-      body: l10n.markDeliveredConfirmation,
-      confirmLabel: l10n.markDelivered,
-      confirmColor: AppTheme.statusSuccess,
-      eventFactory: (truckerId) =>
-          MarkTripDelivered(tripId: trip.tripId, truckerId: truckerId),
-    );
-  }
+  const _PrimaryAction({
+    required this.label,
+    required this.icon,
+    required this.busy,
+    required this.onPressed,
+  });
 
-  void _showCancelConfirmation(BuildContext context, AppLocalizations l10n) {
-    _showTripConfirmation(
-      context,
-      title: l10n.cancelTrip,
-      body: l10n.cancelTripConfirmation,
-      confirmLabel: l10n.cancelTrip,
-      confirmColor: AppTheme.statusError,
-      eventFactory: (truckerId) =>
-          CancelTrip(tripId: trip.tripId, truckerId: truckerId),
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: busy ? null : onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: AppTheme.ink,
+        foregroundColor: Colors.white,
+      ),
+      icon: busy
+          ? const SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : Icon(icon),
+      label: Text(label),
     );
   }
 }
 
-/// Large route display at the top of the detail screen.
+/// The trip's header on the white page (TripDetailM): Back beside the day
+/// and the price per 100 kg over the route, and the status when the trip is
+/// no longer open.
 class _RouteHeader extends StatelessWidget {
   final Trip trip;
 
@@ -397,121 +414,149 @@ class _RouteHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(16),
-      ),
+    final l10n = AppLocalizations.of(context)!;
+    final day = boardDayInEthiopia(trip.departureDate);
+    final price = l10n.tripPricePer100KgValue(
+      formatEtbAmount(trip.pricePerQuintal),
+    );
+    // L-7: as the My Trips card, an open or matched trip whose day is over.
+    final datePassed =
+        (trip.status == TripStatus.open || trip.status == TripStatus.matched) &&
+            tripHasLeft(trip, DateTime.now());
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
       child: Row(
         children: [
-          Icon(
-            Icons.local_shipping,
-            size: 40,
-            color: theme.colorScheme.primary,
-          ),
-          const SizedBox(width: 16),
+          const FwBackButton(),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // "Thu 30 Oct · 150 ETB per 100 kg (quintal)".
                 Text(
-                  trip.fromWoreda,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+                  '$day · $price ${l10n.quintalInParens}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.slate,
                   ),
                 ),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.arrow_downward,
-                      size: 16,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                const SizedBox(height: 2),
+                Semantics(
+                  header: true,
+                  child: Text(
+                    '${trip.fromWoreda} → ${trip.toWoreda}',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -1,
+                      height: 1.05,
+                      color: AppTheme.ink,
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      trip.toWoreda,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ],
             ),
           ),
+          if (trip.status != TripStatus.open || datePassed) ...[
+            const SizedBox(width: 12),
+            StatusChip(
+              label: datePassed
+                  ? l10n.tripStatusDatePassed
+                  : tripStatusLabel(trip.status, l10n),
+              kind:
+                  datePassed ? StatusKind.warning : tripStatusKind(trip.status),
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-/// Status badge for the detail screen (larger than card version).
-///
-/// Uses the shared status vocabulary — same kind mapping as the trip card,
-/// so the detail screen can never show a different color for the same state.
-class _TripDetailStatusBadge extends StatelessWidget {
-  final TripStatus status;
+/// Whole kilograms of a load kept in quintals, with grouped thousands.
+String _kgOf(double quintals) => wholeNumber((quintals * kgPerQuintal).round());
 
-  const _TripDetailStatusBadge({required this.status});
+/// How much of the truck is booked, kilograms first (TripDetailM): "4,700
+/// of 5,000 kg · 300 kg left" in the role's colour, the load bar, the same
+/// in quintals in parentheses, and the terms a booking fixes once there is
+/// one.
+class _BookedBox extends StatelessWidget {
+  final Trip trip;
+
+  const _BookedBox({required this.trip});
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-
-    return StatusChip(
-      label: tripStatusLabel(status, l10n),
-      kind: tripStatusKind(status),
-      large: true,
-    );
-  }
-}
-
-/// Reusable row showing icon + label + value.
-class _InfoRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _InfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Row(
-      children: [
-        Icon(
-          icon,
-          size: 20,
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-        ),
-        const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+    final capacity = trip.capacity;
+    final left = tripRoomLeft(trip).clamp(0, capacity).toDouble();
+    final booked = (capacity - left).clamp(0, capacity).toDouble();
+    final kilograms = '${l10n.tripKgOfKg(_kgOf(booked), _kgOf(capacity))} · '
+        '${l10n.tripKgLeft(_kgOf(left))}';
+    final quintals = '(${l10n.detailBookedOf(
+      quintalsNumberText(booked),
+      quintalsNumberText(capacity),
+    )} · ${l10n.detailLeft(quintalsNumberText(left))})';
+    return FwCard(
+      key: const Key('trip_detail_booked'),
+      raised: true,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 10,
+            runSpacing: 2,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                l10n.detailBooked,
+                style: const TextStyle(fontSize: 13, color: AppTheme.slate),
+              ),
+              Text(
+                kilograms,
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
+                  color: context.roleColors.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: booked / capacity,
+              minHeight: 6,
+              backgroundColor: AppTheme.track,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                context.roleColors.primary,
               ),
             ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            quintals,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.slate,
+            ),
+          ),
+          if (tripHasBookings(trip)) ...[
+            const SizedBox(height: 10),
             Text(
-              value,
-              style: theme.textTheme.bodyLarge?.copyWith(
-                fontWeight: FontWeight.w500,
-              ),
+              l10n.tripBookedTermsNote,
+              style: const TextStyle(fontSize: 14, color: AppTheme.slate),
             ),
           ],
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

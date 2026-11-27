@@ -13,6 +13,7 @@ import 'package:wereda_connect/features/auth/bloc/auth_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_state.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/screens/create_trip_screen.dart';
+import 'package:wereda_connect/features/trip_listing/presentation/widgets/route_preview_card.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/services/place_repository.dart';
 
@@ -95,12 +96,15 @@ void main() {
     );
   }
 
-  final fromField = find.widgetWithText(TextFormField, 'From (Origin)');
-  final toField = find.widgetWithText(TextFormField, 'To (Destination)');
-  final dateField = find.ancestor(
-    of: find.text('Select departure date'),
-    matching: find.byType(InputDecorator),
+  final fromField = find.descendant(
+    of: find.byKey(const Key('create_trip_from')),
+    matching: find.byType(TextFormField),
   );
+  final toField = find.descendant(
+    of: find.byKey(const Key('create_trip_to')),
+    matching: find.byType(TextFormField),
+  );
+  final dateField = find.byKey(const Key('create_trip_departure_date'));
 
   String textOf(WidgetTester tester, Finder field) =>
       tester.widget<TextFormField>(field).controller!.text;
@@ -119,9 +123,14 @@ void main() {
 
   /// The suggestion tile whose Amharic line is [amharic] (the English name
   /// can also appear as a region label, so it is not a unique finder).
-  Finder suggestion(String amharic) => find
-      .ancestor(of: find.text(amharic), matching: find.byType(InkWell))
-      .first;
+  // The option tile is the InkWell that never takes focus (SIM-59); the
+  // order of `find.ancestor` results differs between Flutter versions, so
+  // `.first` is not a safe way to pick the nearest one.
+  Finder suggestion(String amharic) => find.ancestor(
+        of: find.text(amharic),
+        matching:
+            find.byWidgetPredicate((w) => w is InkWell && !w.canRequestFocus),
+      );
 
   SemanticsNode? webClickTarget(WidgetTester tester, Offset point) {
     final root = tester.getSemantics(find.byType(Scaffold)).owner!;
@@ -227,7 +236,15 @@ void main() {
     await tester.pumpAndSettle();
 
     await typeQuery(tester, toField, 'Ad');
-    final node = tester.getSemantics(suggestion('አዳማ'));
+    // Looked up by its label in the tree: on some Flutter versions
+    // tester.getSemantics cannot reach a widget inside the options overlay
+    // and answers the root node.
+    final root = tester.getSemantics(find.byType(Scaffold)).owner!;
+    // The tile reads both names; the To field's own label mentions Adama too.
+    final node = _nodeWhere(root.rootSemanticsNode!, (n) {
+      final label = n.getSemanticsData().label;
+      return label.contains('Adama') && label.contains('አዳማ');
+    })!;
     final data = node.getSemanticsData();
     expect(data.hasAction(SemanticsAction.tap), isTrue);
     expect(data.hasAction(SemanticsAction.focus), isFalse);
@@ -239,4 +256,48 @@ void main() {
     expect(textOf(tester, toField), 'Adama');
     expect(find.byType(DatePickerDialog), findsNothing);
   });
+
+  // Trucker · Create trip board: once both ends are picked places with
+  // coordinates, the page draws the route and says how far it is.
+  testWidgets('picking both places shows the route preview', (tester) async {
+    tester.view.physicalSize = const Size(500, 1800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(buildTestWidget());
+    await tester.pumpAndSettle();
+    expect(find.byType(RoutePreviewCard), findsNothing);
+
+    await typeQuery(tester, fromField, 'Mek');
+    await tester.tap(suggestion('መቂ'));
+    await tester.pumpAndSettle();
+    expect(find.byType(RoutePreviewCard), findsNothing);
+
+    await typeQuery(tester, toField, 'Ad');
+    await tester.tap(suggestion('አዲስ አበባ'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(RoutePreviewCard), findsOneWidget);
+    expect(
+      find.textContaining('km in a straight line, drawn on your phone'),
+      findsOneWidget,
+    );
+    expect(
+      find.bySemanticsLabel(RegExp('Route preview from .* to Addis Ababa')),
+      findsOneWidget,
+    );
+  });
+}
+
+/// The first node under [node] (depth first) that [test] accepts.
+SemanticsNode? _nodeWhere(
+  SemanticsNode node,
+  bool Function(SemanticsNode) test,
+) {
+  if (test(node)) return node;
+  SemanticsNode? found;
+  node.visitChildren((child) {
+    found ??= _nodeWhere(child, test);
+    return found == null;
+  });
+  return found;
 }

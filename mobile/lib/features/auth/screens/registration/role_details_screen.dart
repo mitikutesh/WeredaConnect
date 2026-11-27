@@ -8,12 +8,20 @@ import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/utils/contact_in_text.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 import 'package:wereda_connect/shared/theme/app_theme.dart';
+import 'package:wereda_connect/shared/widgets/join_chrome.dart';
+import 'package:wereda_connect/shared/widgets/labeled_field.dart';
 
-/// Step 3: Role-specific fields.
+/// Step 3: Role-specific fields (the RegisterRoleDetails board).
 ///
-/// - Trucker: Driving license scan (required)
+/// - Trucker: Driving license scan (required). The camera frame and the
+///   amber note scroll; "Scan License" sits at the foot until a photo
+///   exists, then the flow's Continue takes its place and "Retake License
+///   Photo" and "Remove License Photo" move under the frame. Remove clears
+///   the photo (FUP-118), so the frame and Scan License come back.
 /// - Buyer: Private/Company selection + company name
 /// - Farmer: Skipped
+///
+/// The flow above draws the step header with the Identity Verified pill.
 class RoleDetailsScreen extends StatefulWidget {
   final UserRole role;
   final String? drivingLicensePath;
@@ -22,6 +30,9 @@ class RoleDetailsScreen extends StatefulWidget {
   final ValueChanged<String?> onDrivingLicenseChanged;
   final ValueChanged<String> onBuyerTypeChanged;
   final ValueChanged<String> onCompanyNameChanged;
+
+  /// Test seam: the camera picker for the license photo.
+  final ImagePicker? imagePicker;
 
   const RoleDetailsScreen({
     required this.role,
@@ -32,6 +43,7 @@ class RoleDetailsScreen extends StatefulWidget {
     this.drivingLicensePath,
     this.buyerType,
     this.companyName,
+    this.imagePicker,
   });
 
   @override
@@ -40,7 +52,9 @@ class RoleDetailsScreen extends StatefulWidget {
 
 class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
   late TextEditingController _companyController;
-  final _picker = ImagePicker();
+  late final _picker = widget.imagePicker ?? ImagePicker();
+
+  static const _stepPadding = EdgeInsets.fromLTRB(20, 16, 20, 16);
 
   @override
   void initState() {
@@ -83,257 +97,290 @@ class _RoleDetailsScreenState extends State<RoleDetailsScreen> {
   Widget _buildTruckerFields(AppLocalizations l10n) {
     final hasImage = widget.drivingLicensePath != null;
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                l10n.drivingLicense,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textDark,
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: _stepPadding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                JoinTitle(
+                  title: l10n.drivingLicense,
+                  subtitle: l10n.drivingLicenseInstructions,
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                l10n.drivingLicenseInstructions,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textMuted,
-                ),
-              ),
-              const SizedBox(height: 24),
-              // License scan
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
+                const SizedBox(height: 20),
+                _CameraFrame(
+                  imagePath: widget.drivingLicensePath,
+                  placeholder: l10n.placeLicenseHere,
                   onTap: _pickLicenseImage,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    width: double.infinity,
-                    height: 160,
-                    decoration: BoxDecoration(
-                      color: hasImage
-                          ? AppTheme.statusSuccess.withAlpha(15)
-                          : AppTheme.surfaceWhite,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: hasImage
-                            ? AppTheme.statusSuccess
-                            : AppTheme.borderLight,
-                      ),
+                ),
+                const SizedBox(height: 18),
+                JoinNote.warning(text: l10n.drivingLicenseRequired),
+                if (hasImage) ...[
+                  const SizedBox(height: 14),
+                  OutlinedButton.icon(
+                    onPressed: _pickLicenseImage,
+                    icon: const Icon(Icons.camera_alt_outlined, size: 20),
+                    label: Text(l10n.retakeLicensePhoto),
+                  ),
+                  const SizedBox(height: 4),
+                  // FUP-118: back to the empty frame; the flow's gate then
+                  // hides Continue and Scan License returns.
+                  TextButton.icon(
+                    onPressed: () => widget.onDrivingLicenseChanged(null),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppTheme.statusError,
+                      minimumSize: const Size.fromHeight(48),
                     ),
-                    child: hasImage
-                        ? Stack(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(11),
-                                // dart:io File is unavailable on web (throws at
-                                // runtime). On web the picker yields a blob URL, so
-                                // render it via Image.network; File path only on IO.
-                                child: kIsWeb
-                                    ? Image.network(
-                                        widget.drivingLicensePath!,
-                                        fit: BoxFit.cover,
-                                        width: double.infinity,
-                                        height: double.infinity,
-                                        errorBuilder: (_, __, ___) =>
-                                            const Icon(Icons.broken_image),
-                                      )
-                                    : Image.file(
-                                        File(widget.drivingLicensePath!),
-                                        fit: BoxFit.cover,
-                                        width: double.infinity,
-                                        height: double.infinity,
-                                      ),
-                              ),
-                              Positioned(
-                                top: 8,
-                                right: 8,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(
-                                    color: AppTheme.statusSuccess,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.check,
-                                    size: 16,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          )
-                        : Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(
-                                Icons.camera_alt_outlined,
-                                size: 40,
-                                color: AppTheme.textMuted,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                l10n.scanLicense,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: AppTheme.textMuted,
-                                ),
-                              ),
-                            ],
-                          ),
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    label: Text(l10n.removeLicensePhoto),
                   ),
-                ),
-              ),
-              if (!hasImage) ...[
-                const SizedBox(height: 12),
-                Text(
-                  l10n.drivingLicenseRequired,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppTheme.textMuted,
-                  ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
-      ),
+        if (!hasImage)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+            child: SizedBox(
+              width: double.infinity,
+              // The orange pill (the theme's button).
+              child: FilledButton.icon(
+                onPressed: _pickLicenseImage,
+                icon: const Icon(Icons.camera_alt_outlined, size: 20),
+                label: Text(l10n.scanLicense),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
   Widget _buildBuyerFields(AppLocalizations l10n) {
     final buyerType = widget.buyerType ?? 'private';
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                l10n.buyerType,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.textDark,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                l10n.buyerTypeDescription,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: AppTheme.textMuted,
-                ),
-              ),
-              const SizedBox(height: 24),
-              // Private / Company radio
-              _BuyerTypeOption(
-                title: l10n.privateBuyer,
-                icon: Icons.person_outline,
-                isSelected: buyerType == 'private',
-                onTap: () => widget.onBuyerTypeChanged('private'),
-              ),
-              const SizedBox(height: 12),
-              _BuyerTypeOption(
-                title: l10n.companyBuyer,
-                icon: Icons.business,
-                isSelected: buyerType == 'company',
-                onTap: () => widget.onBuyerTypeChanged('company'),
-              ),
-              if (buyerType == 'company') ...[
-                const SizedBox(height: 20),
-                TextField(
-                  controller: _companyController,
-                  decoration: InputDecoration(
-                    labelText: l10n.companyName,
-                    prefixIcon: const Icon(Icons.business_outlined),
-                    helperText: _companyController.text.trim().isEmpty
-                        ? l10n.companyNameRequired
-                        : null,
-                    // FUP-52: the server refuses a phone number here.
-                    errorText: containsPhoneNumber(_companyController.text)
-                        ? l10n.errorContactInText
-                        : null,
-                    errorMaxLines: 3,
-                  ),
-                  onChanged: widget.onCompanyNameChanged,
-                ),
-              ],
-            ],
+    return SingleChildScrollView(
+      padding: _stepPadding,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          JoinTitle(
+            title: l10n.buyerType,
+            subtitle: l10n.buyerTypeDescription,
           ),
+          const SizedBox(height: 20),
+          // Private / Company options, drawn like the role cards.
+          JoinChoiceCard(
+            title: l10n.privateBuyer,
+            icon: Icon(
+              Icons.person_outline,
+              size: 26,
+              color: context.roleColors.primary,
+            ),
+            iconBackground: context.roleColors.tint,
+            selected: buyerType == 'private',
+            onTap: () => widget.onBuyerTypeChanged('private'),
+          ),
+          const SizedBox(height: 12),
+          JoinChoiceCard(
+            title: l10n.companyBuyer,
+            icon: Icon(
+              Icons.business_outlined,
+              size: 26,
+              color: context.roleColors.primary,
+            ),
+            iconBackground: context.roleColors.tint,
+            selected: buyerType == 'company',
+            onTap: () => widget.onBuyerTypeChanged('company'),
+          ),
+          if (buyerType == 'company') ...[
+            const SizedBox(height: 20),
+            LabeledField(
+              label: l10n.companyName,
+              field: TextField(
+                controller: _companyController,
+                decoration: labeledFieldDecoration().copyWith(
+                  helperText: _companyController.text.trim().isEmpty
+                      ? l10n.companyNameRequired
+                      : null,
+                  // FUP-52: the server refuses a phone number here.
+                  errorText: containsPhoneNumber(_companyController.text)
+                      ? l10n.errorContactInText
+                      : null,
+                  errorMaxLines: 3,
+                ),
+                textCapitalization: TextCapitalization.words,
+                onChanged: widget.onCompanyNameChanged,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// The board's camera frame: a black panel, 230 tall, raised on the soft
+/// shadow, with a dashed guide and orange corner brackets; shows the photo
+/// once one is taken.
+class _CameraFrame extends StatelessWidget {
+  final String? imagePath;
+  final String placeholder;
+  final VoidCallback onTap;
+
+  const _CameraFrame({
+    required this.imagePath,
+    required this.placeholder,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final path = imagePath;
+    return Semantics(
+      button: true,
+      label: placeholder,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          height: 230,
+          decoration: BoxDecoration(
+            color: AppTheme.ink,
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: joinRaisedShadow,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: path != null
+              ? (kIsWeb
+                  ? Image.network(
+                      path,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.broken_image,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Image.file(File(path), fit: BoxFit.cover))
+              : Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Dashed guide in the middle.
+                    CustomPaint(
+                      painter: const _DashedRoundedRectPainter(
+                        color: AppTheme.fieldBorder,
+                        radius: 16,
+                      ),
+                      child: SizedBox(
+                        width: 260,
+                        height: 160,
+                        child: Center(
+                          child: Text(
+                            placeholder,
+                            style: const TextStyle(
+                              color: AppTheme.track,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Orange corner brackets.
+                    const Positioned(
+                      left: 44,
+                      top: 26,
+                      child: _Bracket(top: true, left: true),
+                    ),
+                    const Positioned(
+                      right: 44,
+                      top: 26,
+                      child: _Bracket(top: true, left: false),
+                    ),
+                    const Positioned(
+                      left: 44,
+                      bottom: 26,
+                      child: _Bracket(top: false, left: true),
+                    ),
+                    const Positioned(
+                      right: 44,
+                      bottom: 26,
+                      child: _Bracket(top: false, left: false),
+                    ),
+                  ],
+                ),
         ),
       ),
     );
   }
 }
 
-class _BuyerTypeOption extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final bool isSelected;
-  final VoidCallback onTap;
+class _Bracket extends StatelessWidget {
+  final bool top;
+  final bool left;
 
-  const _BuyerTypeOption({
-    required this.title,
-    required this.icon,
-    required this.isSelected,
-    required this.onTap,
-  });
+  const _Bracket({required this.top, required this.left});
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? AppTheme.primaryGreen.withAlpha(15)
-                : AppTheme.surfaceWhite,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelected ? AppTheme.primaryGreen : AppTheme.borderLight,
-              width: isSelected ? 2 : 1,
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                color: isSelected ? AppTheme.primaryGreen : AppTheme.textMuted,
-              ),
-              const SizedBox(width: 12),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: isSelected ? AppTheme.primaryGreen : AppTheme.textDark,
-                ),
-              ),
-              const Spacer(),
-              if (isSelected)
-                const Icon(
-                  Icons.check_circle,
-                  color: AppTheme.primaryGreen,
-                ),
-            ],
-          ),
+    const side = BorderSide(color: AppTheme.orange, width: 4);
+    const corner = Radius.circular(8);
+    return Container(
+      width: 26,
+      height: 26,
+      decoration: BoxDecoration(
+        border: Border(
+          top: top ? side : BorderSide.none,
+          bottom: top ? BorderSide.none : side,
+          left: left ? side : BorderSide.none,
+          right: left ? BorderSide.none : side,
+        ),
+        borderRadius: BorderRadius.only(
+          topLeft: top && left ? corner : Radius.zero,
+          topRight: top && !left ? corner : Radius.zero,
+          bottomLeft: !top && left ? corner : Radius.zero,
+          bottomRight: !top && !left ? corner : Radius.zero,
         ),
       ),
     );
   }
+}
+
+/// A 1.5 px dashed rounded rectangle along the child's edge.
+class _DashedRoundedRectPainter extends CustomPainter {
+  final Color color;
+  final double radius;
+
+  const _DashedRoundedRectPainter({required this.color, required this.radius});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    final path = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(1, 1, size.width - 2, size.height - 2),
+          Radius.circular(radius),
+        ),
+      );
+    const dash = 6.0;
+    const gap = 5.0;
+    for (final metric in path.computeMetrics()) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final end = (distance + dash).clamp(0.0, metric.length);
+        canvas.drawPath(metric.extractPath(distance, end), paint);
+        distance += dash + gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedRoundedRectPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.radius != radius;
 }

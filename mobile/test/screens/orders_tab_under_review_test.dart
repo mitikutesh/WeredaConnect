@@ -19,6 +19,8 @@ import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart
 import 'package:wereda_connect/features/order/presentation/bloc/order_state.dart';
 import 'package:wereda_connect/screens/orders_tab_screen.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
+import 'package:wereda_connect/shared/layout/breakpoints.dart';
+import 'package:wereda_connect/shared/widgets/fieldway_lists.dart';
 
 class MockOrderBloc extends Mock implements OrderBloc {}
 
@@ -164,6 +166,26 @@ void main() {
     });
   }
 
+  testWidgets('the list ends clear of the floating create button (LT-01)',
+      (tester) async {
+    tallView(tester);
+    signIn(UserRole.buyer);
+
+    await tester.pumpWidget(screen());
+    await tester.pumpAndSettle();
+
+    final list = tester.widget<ListView>(
+      find.descendant(
+        of: find.byType(RefreshIndicator),
+        matching: find.byType(ListView),
+      ),
+    );
+    expect(
+      list.padding!.resolve(TextDirection.ltr).bottom,
+      Breakpoints.fabClearance,
+    );
+  });
+
   testWidgets('farmer: Accept is offered on the other order only',
       (tester) async {
     tallView(tester);
@@ -174,6 +196,39 @@ void main() {
 
     expect(find.text(en.rejectOrder), findsNWidgets(2));
     expect(find.text(en.acceptOrder), findsOneWidget);
+  });
+
+  // Farmer · Answer a new order board: a reject from the list asks why too.
+  testWidgets('farmer: Reject in the list asks why first', (tester) async {
+    tallView(tester);
+    signIn(UserRole.farmer);
+    when(() => orderBloc.isClosed).thenReturn(false);
+
+    await tester.pumpWidget(screen());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(en.rejectOrder).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text(en.farmerRejectRefundNote), findsOneWidget);
+    verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+
+    await tester.tap(find.text(en.declineReasonCropNotReady));
+    await tester.pumpAndSettle();
+
+    // FarmerRejectConfirmM: the reason alone rejects nothing; the farmer
+    // confirms on the red button.
+    expect(find.text(en.rejectConfirmTitle), findsOneWidget);
+    expect(
+      find.text(en.rejectConfirmReason(en.declineReasonCropNotReady)),
+      findsOneWidget,
+    );
+    verifyNever(() => orderBloc.add(any(that: isA<RejectOrder>())));
+    await tester.tap(find.text(en.rejectConfirmYes));
+    await tester.pumpAndSettle();
+    final sent = verify(
+      () => orderBloc.add(captureAny(that: isA<RejectOrder>())),
+    ).captured.single as RejectOrder;
+    expect(sent.declineReason, 'crop_not_ready');
   });
 
   void heldReadAnswers(Future<List<Payment>> Function() answer) => when(
@@ -249,7 +304,7 @@ void main() {
 
     await tester.pumpWidget(screen());
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilterChip, en.statusFunded).first);
+    await tester.tap(find.widgetWithText(FwFilterPill, en.statusFunded).first);
     await tester.pumpAndSettle();
 
     verify(

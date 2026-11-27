@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/delivery.dart';
@@ -7,6 +9,7 @@ import 'package:wereda_connect/features/delivery_verification/data/delivery_vali
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_event.dart';
 import 'package:wereda_connect/features/delivery_verification/presentation/bloc/delivery_state.dart';
+import 'package:wereda_connect/features/live_trip/domain/scan_check_in_sink.dart';
 
 /// BLoC for managing delivery verification state.
 ///
@@ -21,6 +24,10 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
   /// changes they did not author.
   final MarketplaceSync? _marketplaceSync;
 
+  /// The check-in engine (LT-08): told about each successful pickup or
+  /// drop-off scan so the trip records a `scan` fix. Null in tests.
+  final ScanCheckInSink? _scanCheckIns;
+
   /// Exposed for sub-screens that need to call repository methods directly
   /// (e.g., QrGenerateScreen persisting nonces).
   BaseDeliveryRepository get repository => _repository;
@@ -28,8 +35,10 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
   DeliveryBloc({
     required BaseDeliveryRepository repository,
     MarketplaceSync? marketplaceSync,
+    ScanCheckInSink? scanCheckIns,
   })  : _repository = repository,
         _marketplaceSync = marketplaceSync,
+        _scanCheckIns = scanCheckIns,
         super(const DeliveryInitial()) {
     on<LoadDeliveries>(_onLoadDeliveries);
     on<CreateDelivery>(_onCreateDelivery);
@@ -59,8 +68,8 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         code: DeliveryErrorCode.qrPending,
       );
     }
-    // Web calls /sync directly, so the server's cancel and dispute refusals
-    // arrive here.
+    // Web calls /sync directly, so the server's cancel, dispute, typed code
+    // (T-1) and GPS (FUP-439) refusals arrive here.
     if (e is SyncRejectedException) {
       final code = isDeliveryCancelRefusalMessage(e.message)
           ? DeliveryErrorCode.cancelNotAllowed
@@ -68,7 +77,8 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
               ? DeliveryErrorCode.disputeRefused
               : isDeliveryDisputeExpiredMessage(e.message)
                   ? DeliveryErrorCode.disputeExpired
-                  : null;
+                  : deliveryCodeErrorOf(e.message) ??
+                      deliveryGpsErrorOf(e.message);
       if (code != null) return DeliveryError(message: e.message, code: code);
     }
     return DeliveryError(
@@ -151,13 +161,24 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         deliveryId: event.deliveryId,
         truckerId: event.truckerId,
         gpsPickup: event.gpsPickup,
+        gpsCapture: event.gpsCapture,
         photoRef: event.photoRef,
         scannedQrNonce: event.scannedQrNonce,
+        scannedQrCode: event.scannedQrCode,
       );
+      _checkInAfterScan(event.tripId);
       emit(const PickupConfirmed());
     } on Object catch (e) {
       emit(_errorFromException(e));
     }
+  }
+
+  /// The scan succeeded: let the check-in engine record its place. Not
+  /// awaited (a fix can take up to a minute) and never fails the handoff.
+  void _checkInAfterScan(String? tripId) {
+    final sink = _scanCheckIns;
+    if (sink == null || tripId == null || tripId.isEmpty) return;
+    unawaited(sink.onScan(tripId));
   }
 
   Future<void> _onMarkInTransit(
@@ -188,9 +209,12 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
         deliveryId: event.deliveryId,
         buyerId: event.buyerId,
         gpsDropoff: event.gpsDropoff,
+        gpsCapture: event.gpsCapture,
         photoRef: event.photoRef,
         scannedQrNonce: event.scannedQrNonce,
+        scannedQrCode: event.scannedQrCode,
       );
+      _checkInAfterScan(event.tripId);
       emit(const DeliveryConfirmed());
     } on Object catch (e) {
       emit(_errorFromException(e));
@@ -216,8 +240,27 @@ class DeliveryBloc extends Bloc<DeliveryEvent, DeliveryState> {
       );
       emit(DeliveriesLoaded(deliveries: deliveries));
     } on Object catch (e) {
-      emit(_errorFromException(e));
+      // Web sends the dispute itself, so the password step-up (AUTH_040)
+      // arrives here; the dispute screen asks for the password and sends
+      // the same dispute again (FUP-43). Mobile queues the dispute and its
+      // sync queue prompts. AUTH_041 keeps the generic handling.
+      emit(
+        _needsPasswordStepUp(e)
+            ? DeliveryError(
+                message: e.toString(),
+                code: DeliveryErrorCode.stepUpRequired,
+              )
+            : _errorFromException(e),
+      );
     }
+  }
+
+  /// True for an `AUTH_040` refusal: as the /sync operation's error, or as
+  /// the request's own 403.
+  static bool _needsPasswordStepUp(Object e) {
+    if (e is StepUpRequiredException) return !e.requiresFayda;
+    return e is SyncRejectedException &&
+        e.message.startsWith(stepUpRequiredCode);
   }
 
   Future<void> _onCancelDelivery(

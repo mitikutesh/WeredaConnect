@@ -1,5 +1,9 @@
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/security/security_events.dart';
+import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
+import 'package:wereda_connect/core/sync/listing_report_rules.dart';
+import 'package:wereda_connect/core/utils/date_locale.dart';
+import 'package:wereda_connect/core/utils/ethiopia_time.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
 
 /// Stable, localizable error categories surfaced by BLoCs to the UI.
@@ -29,13 +33,23 @@ enum AppErrorCode {
   /// The server wants the user to re-enter their password (AUTH_040).
   stepUpRequired,
 
-  /// A payment above 10,000 ETB needs a fresh Fayda login (AUTH_041).
+  /// A higher-risk payment needs a fresh Fayda login (AUTH_041); at MEDIUM risk
+  /// above 10,000 ETB or at HIGH risk (FRD-04). A password prompt may follow.
   faydaStepUpRequired,
 
-  /// The payment needs the buyer's own Fayda KYC or verified phone
-  /// (ORDER_KYC_REQUIRED `buyer_fayda`, `buyer_phone`), so the buyer can fix
-  /// it by verifying with Fayda.
+  /// The payment needs the buyer's own Fayda KYC (ORDER_KYC_REQUIRED
+  /// `buyer_fayda`), so the buyer can fix it by verifying with Fayda.
   kycRequired,
+
+  /// The payment needs the buyer's own phone verified (ORDER_KYC_REQUIRED
+  /// `buyer_phone`). Fixed with Fayda like [kycRequired], but the text names
+  /// the phone, not the 10,000 ETB Fayda rule (FUP-83).
+  kycPhoneRequired,
+
+  /// A KYC refusal with a reason token this build does not know
+  /// (ORDER_KYC_REQUIRED `<new token>`). Explained only: nobody is sent to
+  /// verify, because it may be another party's check (FUP-83).
+  kycUnknownReason,
 
   /// The payment needs the farmer's verified phone or Fayda ID
   /// (ORDER_KYC_REQUIRED `farmer_phone`, `farmer_fayda`). The buyer cannot
@@ -83,9 +97,33 @@ enum AppErrorCode {
   /// (`DELIVERY_DISPUTE_EXPIRED`); the local dispute was undone.
   deliveryDisputeExpired,
 
+  /// T-1: the server refused a typed handoff code (`DELIVERY_CODE_MISMATCH`,
+  /// `DELIVERY_CODE_LOCKED`, `DELIVERY_CODE_GPS_REQUIRED`); the local pickup
+  /// or delivery was undone.
+  deliveryCodeMismatch,
+  deliveryCodeLocked,
+  deliveryCodeLockedDropoff,
+  deliveryCodeGpsRequired,
+
+  /// FUP-439: the server refused a handoff for its GPS
+  /// (`DELIVERY_GPS_PROXIMITY`), one per reason ([DeliveryGpsRefusal]); the
+  /// local pickup or delivery was undone. The trucker's pickup more than
+  /// 5 km from the farm, a self-pickup without a location, on a listing
+  /// without a farm point or more than 5 km from the farm, and a delivery
+  /// confirm more than 5 km from the drop-off point.
+  deliveryGpsPickupFar,
+  deliveryGpsSelfPickupNoFix,
+  deliveryGpsSelfPickupNoFarmPoint,
+  deliveryGpsSelfPickupFar,
+  deliveryGpsDropoffFar,
+
   /// ESC-06: an accepted order may be cancelled only after a transport
   /// failure (`ORDER_CANCEL_NOT_ALLOWED`, or the local guard); nothing changed.
   orderCancelNotAllowed,
+
+  /// A cancel refused because of the order's money: a dispute froze the
+  /// payment, or it is being settled or reviewed (FUP-77). Nothing changed.
+  orderCancelPaymentBusy,
 
   /// ESC-48: a message went into a thread whose contact is not open
   /// (`MESSAGE_CONTACT_LOCKED`); it was not sent.
@@ -95,6 +133,11 @@ enum AppErrorCode {
   /// (`ORDER_DEADLINE_PASSED`); nothing changed, or the local change was
   /// undone.
   deadlinePassed,
+
+  /// ESC-15: the farmer's or trucker's answer is not open
+  /// (`ORDER_RESPONSE_NOT_PENDING`): the farmer has not accepted yet, or the
+  /// request was already answered; the local change was undone.
+  responseNotPending,
 
   /// The trip an order names cannot take it (`ORDER_TRIP_NOT_ELIGIBLE`): the
   /// buyer chooses again.
@@ -120,6 +163,11 @@ enum AppErrorCode {
   /// its capacity (`TRIP_HAS_BOOKINGS`); the local change was undone.
   tripHasBookings,
 
+  /// The trucker already has an open trip on this route, departure day and
+  /// vehicle (`FRAUD_DUPLICATE_LISTING` on a trip create, trip-listing-api
+  /// 2.10.0); the new trip was not posted and its local copy was removed.
+  duplicateTrip,
+
   /// A listing with active orders cannot be removed or reduced
   /// (`CROP_HAS_ACTIVE_ORDERS`); the local change was undone.
   cropHasActiveOrders,
@@ -134,12 +182,95 @@ enum AppErrorCode {
   appUpdateRequiredKept,
 
   /// FUP-49: crop or trip text that buyers read held a phone number
-  /// (`CROP_CONTACT_IN_TEXT` / `TRIP_CONTACT_IN_TEXT`); nothing was saved.
+  /// (`CROP_CONTACT_IN_TEXT` / `TRIP_CONTACT_IN_TEXT`), and since LT-12 an
+  /// order's drop-off note (`ORDER_CONTACT_IN_TEXT`); nothing was saved.
   contactInText,
+
+  /// LT-12: the drop-off note changes only before pickup
+  /// (`ORDER_DROPOFF_NOTE_LOCKED`); the local change was undone.
+  dropoffNoteLocked,
+
+  /// FUP-67: the server refused a buyer's listing report for good (for
+  /// example the listing is gone); it was not sent.
+  reportNotSent,
+
+  /// FUP-67: the buyer reached the daily report limit
+  /// (`SYNC_VALIDATION: report limit reached`); the report was not sent.
+  reportLimitReached,
+
+  /// LT-14: the drop-off place changes only before pickup
+  /// (`ORDER_DELIVERY_LOCATION_LOCKED`); the local change was undone.
+  deliveryLocationLocked,
+
+  /// ESC-34 (FUP-285): the server refused an arrival check-in for good; the
+  /// local mark went back. `CHECKIN_NOT_OPEN`, or a server that takes no
+  /// check-ins (`pickupClassification` off).
+  checkInNotOpen,
+
+  /// `CHECKIN_NOT_PARTY`: not this user's check-in to give.
+  checkInNotParty,
+
+  /// `CHECKIN_TOO_EARLY`: before `pickupDate` minus 24 hours.
+  checkInTooEarly,
+
+  /// `CHECKIN_TOO_FAR`: an arrival more than 5 km from the farm.
+  checkInTooFar,
+
+  /// `CHECKIN_TOO_LATE`: it reached the server after the deadline; kept on
+  /// the order for review, never counted.
+  checkInTooLate,
+
+  /// `CHECKIN_VALIDATION`, or a `CHECKIN_*` code this build does not know.
+  checkInNotSaved,
+
+  /// The local guard: the pickup deadline passed on the device clock, so
+  /// no button is offered any more (FUP-285).
+  checkInClosed,
+
+  /// The local guard: an arrival without a usable GPS fix (FUP-285).
+  checkInNeedsLocation,
+
+  /// ESC-36 (FUP-336): the trucker's drop-off check-in, refused for good
+  /// (its local mark went back). `CHECKIN_PHOTO_REQUIRED`: the arrival photo
+  /// never reached the delivery; take it, then check in again.
+  checkInPhotoRequired,
+
+  /// `CHECKIN_NOT_OPEN` of a drop-off check-in (not stamped, judged, or the
+  /// delivery no longer on the road), the `CHECKIN_VALIDATION` of a server
+  /// that takes no drop-off check-ins now (FUP-373), or the local guard.
+  dropoffCheckInNotOpen,
+
+  /// `CHECKIN_NOT_PARTY` of a drop-off check-in: only the order's trucker.
+  dropoffCheckInNotParty,
+
+  /// `CHECKIN_TOO_FAR` at the drop-off: more than 5 km from it; check in
+  /// again closer.
+  dropoffCheckInTooFar,
+
+  /// `CHECKIN_TOO_FAR` at the drop-off whose attempt the server kept for
+  /// review (the first one with its photo, before T8).
+  dropoffCheckInTooFarKept,
+
+  /// `CHECKIN_TOO_LATE` at the drop-off: after T8, kept for review.
+  dropoffCheckInTooLate,
+
+  /// The local guard: T8 passed on the device clock.
+  dropoffCheckInClosed,
+
+  /// The local guard: a drop-off check-in without a usable GPS fix.
+  dropoffCheckInNeedsLocation,
 
   /// The server refused a queued change (not an order) for good, so it was
   /// never saved there.
   changeNotSaved,
+
+  /// `CROP_VALIDATION` on a queued crop listing change: the details the
+  /// farmer entered were not accepted (BUG-L9).
+  listingDetailsNotAccepted,
+
+  /// `TRIP_VALIDATION` on a queued trip change: the details the trucker
+  /// entered were not accepted (BUG-L9).
+  tripDetailsNotAccepted,
   unknown,
 }
 
@@ -159,6 +290,15 @@ class OrderActionNotAllowedException implements Exception {
 /// deadline has not passed. Surfaced as [AppErrorCode.orderCancelNotAllowed].
 class OrderCancelNotAllowedException extends OrderActionNotAllowedException {
   const OrderCancelNotAllowedException(super.message);
+}
+
+/// FUP-285: the local guard refused an arrival check-in before anything was
+/// queued or sent. Surfaced as [code], one of the check-in texts (not the
+/// generic [AppErrorCode.orderRefused]).
+class CheckInNotAllowedException extends OrderActionNotAllowedException {
+  const CheckInNotAllowedException(super.message, this.code);
+
+  final AppErrorCode code;
 }
 
 /// The server already holds this rating (one per order and ratee), so the
@@ -193,6 +333,9 @@ AppErrorCode mapErrorToCode(Object error) {
     // REST answers it as a 403 with the code (escrow routes).
     ApiException(code: fraudAccountHeldCode) => AppErrorCode.accountHeld,
     SyncRejectedException(:final message)
+        when isListingReportLimitMessage(message) =>
+      AppErrorCode.reportLimitReached,
+    SyncRejectedException(:final message)
         when isPaymentTotalOutOfRangeMessage(message) =>
       AppErrorCode.paymentTotalOutOfRange,
     SyncRejectedException(:final message)
@@ -222,14 +365,34 @@ AppErrorCode mapErrorToCode(Object error) {
         when isOrderDeadlinePassedMessage(message) =>
       AppErrorCode.deadlinePassed,
     SyncRejectedException(:final message)
+        when isOrderResponseNotPendingMessage(message) =>
+      AppErrorCode.responseNotPending,
+    SyncRejectedException(:final message)
         when isOrderTripNotEligibleMessage(message) =>
       AppErrorCode.tripNotEligible,
     SyncRejectedException(:final message)
         when isOrderTransportAttemptsExceededMessage(message) =>
       AppErrorCode.transportAttemptsExceeded,
     SyncRejectedException(:final message)
+        when isOrderCancelPaymentBusyMessage(message) =>
+      AppErrorCode.orderCancelPaymentBusy,
+    SyncRejectedException(:final message)
         when isOrderCancelNotAllowedMessage(message) =>
       AppErrorCode.orderCancelNotAllowed,
+    // LT-12: the drop-off note codes are ORDER_* too, with their own text.
+    SyncRejectedException(:final message)
+        when isDropoffNoteLockedMessage(message) =>
+      AppErrorCode.dropoffNoteLocked,
+    SyncRejectedException(:final message)
+        when isDeliveryLocationLockedMessage(message) =>
+      AppErrorCode.deliveryLocationLocked,
+    SyncRejectedException(:final message)
+        when isContactInTextMessage(message) =>
+      AppErrorCode.contactInText,
+    // FUP-285: a check-in refused on web (sent at once).
+    SyncRejectedException(:final message)
+        when isCheckInRefusalMessage(message) =>
+      checkInErrorCode(message),
     SyncRejectedException(:final message)
         when isRevertableRejectionMessage(message) =>
       AppErrorCode.orderRefused,
@@ -240,12 +403,16 @@ AppErrorCode mapErrorToCode(Object error) {
         when isDeliveryDisputeExpiredMessage(message) =>
       AppErrorCode.deliveryDisputeExpired,
     SyncRejectedException(:final message)
+        when isDeliveryCodeRejectionMessage(message) =>
+      _deliveryCodeErrorCode(message),
+    SyncRejectedException(:final message)
+        when isDeliveryGpsProximityMessage(message) =>
+      _deliveryGpsErrorCode(message),
+    SyncRejectedException(:final message)
         when isContactLockedMessage(message) =>
       AppErrorCode.contactLocked,
-    SyncRejectedException(:final message)
-        when isContactInTextMessage(message) =>
-      AppErrorCode.contactInText,
     OrderCancelNotAllowedException() => AppErrorCode.orderCancelNotAllowed,
+    CheckInNotAllowedException(:final code) => code,
     OrderActionNotAllowedException() => AppErrorCode.orderRefused,
     AlreadyRatedException() => AppErrorCode.alreadyRated,
     TimeoutException() => AppErrorCode.timeout,
@@ -267,7 +434,9 @@ AppErrorCode mapErrorToCode(Object error) {
 /// only a buyer-side reason may tell the buyer to verify (SIM-49).
 AppErrorCode _kycErrorCode(String message) =>
     switch (KycReason.fromMessage(message)) {
-      KycReason.buyerPhone || KycReason.buyerFayda => AppErrorCode.kycRequired,
+      KycReason.buyerFayda => AppErrorCode.kycRequired,
+      KycReason.buyerPhone => AppErrorCode.kycPhoneRequired,
+      KycReason.unknown => AppErrorCode.kycUnknownReason,
       KycReason.farmerPhone ||
       KycReason.farmerFayda =>
         AppErrorCode.kycFarmerRequired,
@@ -279,6 +448,8 @@ AppErrorCode _kycErrorCode(String message) =>
 /// reason from the message.
 bool isKycErrorCode(AppErrorCode code) =>
     code == AppErrorCode.kycRequired ||
+    code == AppErrorCode.kycPhoneRequired ||
+    code == AppErrorCode.kycUnknownReason ||
     code == AppErrorCode.kycFarmerRequired ||
     code == AppErrorCode.kycUnavailable;
 
@@ -287,7 +458,24 @@ bool isKycErrorCode(AppErrorCode code) =>
 /// Codes are collapsed onto a small set of phrased messages: connectivity and
 /// auth/conflict get their own actionable text; everything else falls back to
 /// the generic [AppLocalizations.errorOccurred].
-String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
+///
+/// [message] is the raw refusal text when the caller has it (a bloc's error
+/// state, a sync rejection). It is never shown; it only fills in a detail a
+/// code alone cannot carry: the end date of a reputation restriction
+/// (`REPUTATION_RESTRICTED: until=...`, ESC-31).
+String localizeErrorCode(
+  AppErrorCode code,
+  AppLocalizations l10n, {
+  String? message,
+}) {
+  if (code == AppErrorCode.reputationRestricted) {
+    final until = reputationRestrictedUntil(message);
+    if (until != null) {
+      return l10n.errorReputationRestrictedUntil(
+        formatDate(dayInEthiopia(until)),
+      );
+    }
+  }
   return switch (code) {
     AppErrorCode.network || AppErrorCode.timeout => l10n.noInternetConnection,
     AppErrorCode.auth => l10n.errorSessionExpired,
@@ -297,6 +485,8 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.stepUpRequired => l10n.stepUpRequiredMessage,
     AppErrorCode.faydaStepUpRequired => l10n.faydaStepUpMessage,
     AppErrorCode.kycRequired => l10n.kycRequiredFaydaMessage,
+    AppErrorCode.kycPhoneRequired => l10n.kycRequiredPhoneMessage,
+    AppErrorCode.kycUnknownReason => l10n.kycUnknownReasonMessage,
     AppErrorCode.kycFarmerRequired => l10n.kycFarmerNotVerifiedMessage,
     AppErrorCode.kycUnavailable => l10n.kycUnavailableMessage,
     AppErrorCode.accountHeld => l10n.fraudAccountHeld,
@@ -308,9 +498,23 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.deliveryCancelNotAllowed => l10n.deliveryErrorCancelNotAllowed,
     AppErrorCode.deliveryDisputeRefused => l10n.deliveryErrorDisputeRefused,
     AppErrorCode.deliveryDisputeExpired => l10n.deliveryErrorDisputeExpired,
+    AppErrorCode.deliveryCodeMismatch => l10n.deliveryErrorCodeMismatch,
+    AppErrorCode.deliveryCodeLocked => l10n.deliveryErrorCodeLocked,
+    AppErrorCode.deliveryCodeLockedDropoff =>
+      l10n.deliveryErrorCodeLockedDropoff,
+    AppErrorCode.deliveryCodeGpsRequired => l10n.deliveryErrorCodeGpsRequired,
+    AppErrorCode.deliveryGpsPickupFar => l10n.deliveryErrorGpsPickupFar,
+    AppErrorCode.deliveryGpsSelfPickupNoFix =>
+      l10n.deliveryErrorGpsSelfPickupNoFix,
+    AppErrorCode.deliveryGpsSelfPickupNoFarmPoint =>
+      l10n.deliveryErrorGpsSelfPickupNoFarmPoint,
+    AppErrorCode.deliveryGpsSelfPickupFar => l10n.deliveryErrorGpsSelfPickupFar,
+    AppErrorCode.deliveryGpsDropoffFar => l10n.deliveryErrorGpsDropoffFar,
     AppErrorCode.orderCancelNotAllowed => l10n.errorOrderCancelNotAllowed,
+    AppErrorCode.orderCancelPaymentBusy => l10n.errorOrderCancelPaymentBusy,
     AppErrorCode.contactLocked => l10n.contactClosedNote,
     AppErrorCode.deadlinePassed => l10n.errorDeadlinePassed,
+    AppErrorCode.responseNotPending => l10n.errorResponseNotPending,
     AppErrorCode.tripNotEligible => l10n.errorTripNotEligible,
     AppErrorCode.transportAttemptsExceeded =>
       l10n.errorTransportAttemptsExceeded,
@@ -318,11 +522,38 @@ String localizeErrorCode(AppErrorCode code, AppLocalizations l10n) {
     AppErrorCode.reputationRestricted => l10n.errorReputationRestricted,
     AppErrorCode.counterpartyRestricted => l10n.errorCounterpartyRestricted,
     AppErrorCode.tripHasBookings => l10n.errorTripHasBookings,
+    AppErrorCode.duplicateTrip => l10n.errorDuplicateTrip,
     AppErrorCode.cropHasActiveOrders => l10n.errorCropHasActiveOrders,
     AppErrorCode.appUpdateRequired => l10n.errorAppUpdateRequired,
     AppErrorCode.appUpdateRequiredKept => l10n.errorAppUpdateRequiredKept,
     AppErrorCode.contactInText => l10n.errorContactInText,
+    AppErrorCode.dropoffNoteLocked => l10n.errorDropoffNoteLocked,
+    AppErrorCode.reportNotSent => l10n.errorReportNotSent,
+    AppErrorCode.reportLimitReached => l10n.errorReportLimitReached(
+        listingReportDailyLimit,
+      ),
+    AppErrorCode.deliveryLocationLocked => l10n.errorDeliveryLocationLocked,
+    AppErrorCode.checkInNotOpen => l10n.errorCheckInNotOpen,
+    AppErrorCode.checkInNotParty => l10n.errorCheckInNotParty,
+    AppErrorCode.checkInTooEarly => l10n.errorCheckInTooEarly,
+    AppErrorCode.checkInTooFar => l10n.errorCheckInTooFar,
+    AppErrorCode.checkInTooLate => l10n.errorCheckInTooLate,
+    AppErrorCode.checkInNotSaved => l10n.errorCheckInValidation,
+    AppErrorCode.checkInClosed => l10n.errorCheckInClosed,
+    AppErrorCode.checkInNeedsLocation => l10n.checkInNeedsLocation,
+    AppErrorCode.checkInPhotoRequired => l10n.errorCheckInPhotoRequired,
+    AppErrorCode.dropoffCheckInNotOpen => l10n.errorDropoffCheckInNotOpen,
+    AppErrorCode.dropoffCheckInNotParty => l10n.errorDropoffCheckInNotParty,
+    AppErrorCode.dropoffCheckInTooFar => l10n.errorDropoffCheckInTooFar,
+    AppErrorCode.dropoffCheckInTooFarKept => l10n.errorDropoffCheckInTooFarKept,
+    AppErrorCode.dropoffCheckInTooLate => l10n.errorDropoffCheckInTooLate,
+    AppErrorCode.dropoffCheckInClosed => l10n.errorDropoffCheckInClosed,
+    AppErrorCode.dropoffCheckInNeedsLocation =>
+      l10n.dropoffCheckInNeedsLocation,
     AppErrorCode.changeNotSaved => l10n.errorChangeNotSaved,
+    AppErrorCode.listingDetailsNotAccepted =>
+      l10n.errorListingDetailsNotAccepted,
+    AppErrorCode.tripDetailsNotAccepted => l10n.errorTripDetailsNotAccepted,
     AppErrorCode.validation ||
     AppErrorCode.notFound ||
     AppErrorCode.server ||
@@ -346,6 +577,7 @@ AppErrorCode syncRejectionErrorCode({
   required String entityType,
   required String action,
   required String message,
+  String? entityId,
 }) {
   if (isAppUpdateRequiredMessage(message)) {
     // Only an order command is refused for the app version; anything else
@@ -356,6 +588,22 @@ AppErrorCode syncRejectionErrorCode({
   }
   // The real reason for any entity and action: the account is under review.
   if (isFraudAccountHeldMessage(message)) return AppErrorCode.accountHeld;
+  // FUP-67: a refused report says so; nothing local was changed.
+  if (entityType == listingReportEntityType) {
+    return isListingReportLimitMessage(message)
+        ? AppErrorCode.reportLimitReached
+        : AppErrorCode.reportNotSent;
+  }
+  // FUP-285: a refused arrival check-in says why; its mark went back. The
+  // kind in [entityId] picks the drop-off texts (FUP-336).
+  if (entityType == handoffCheckInEntityType &&
+      isCheckInRefusalMessage(message)) {
+    return checkInErrorCode(
+      message,
+      kind:
+          entityId == null ? null : parseHandoffCheckInEntityId(entityId)?.kind,
+    );
+  }
   if (entityType == 'order') {
     if (isReputationRestrictedMessage(message)) {
       // On a create the restricted party is the listing's or trip's owner
@@ -371,6 +619,9 @@ AppErrorCode syncRejectionErrorCode({
       return AppErrorCode.tripNotEligible;
     }
     if (action == 'create') return AppErrorCode.orderNotPlaced;
+    if (isOrderCancelPaymentBusyMessage(message)) {
+      return AppErrorCode.orderCancelPaymentBusy;
+    }
     if (isOrderCancelNotAllowedMessage(message)) {
       return AppErrorCode.orderCancelNotAllowed;
     }
@@ -380,9 +631,21 @@ AppErrorCode syncRejectionErrorCode({
     if (isOrderDeadlinePassedMessage(message)) {
       return AppErrorCode.deadlinePassed;
     }
+    if (isOrderResponseNotPendingMessage(message)) {
+      return AppErrorCode.responseNotPending;
+    }
     if (isOrderTransportAttemptsExceededMessage(message)) {
       return AppErrorCode.transportAttemptsExceeded;
     }
+    // LT-12: a drop-off note change (a refused create already said the
+    // order was not placed above).
+    if (isDropoffNoteLockedMessage(message)) {
+      return AppErrorCode.dropoffNoteLocked;
+    }
+    if (isDeliveryLocationLockedMessage(message)) {
+      return AppErrorCode.deliveryLocationLocked;
+    }
+    if (isContactInTextMessage(message)) return AppErrorCode.contactInText;
     return isPaymentTotalOutOfRangeMessage(message)
         ? AppErrorCode.paymentTotalOutOfRange
         : AppErrorCode.orderRefused;
@@ -392,6 +655,10 @@ AppErrorCode syncRejectionErrorCode({
   }
   if (isTripHasBookingsMessage(message)) {
     return AppErrorCode.tripHasBookings;
+  }
+  // The code is shared with crop listings, which keep the listing wording.
+  if (entityType == 'trip' && isDuplicateListingMessage(message)) {
+    return AppErrorCode.duplicateTrip;
   }
   if (isCropHasActiveOrdersMessage(message)) {
     return AppErrorCode.cropHasActiveOrders;
@@ -405,16 +672,116 @@ AppErrorCode syncRejectionErrorCode({
   if (isDeliveryDisputeExpiredMessage(message)) {
     return AppErrorCode.deliveryDisputeExpired;
   }
+  if (isDeliveryCodeRejectionMessage(message)) {
+    return _deliveryCodeErrorCode(message);
+  }
+  if (isDeliveryGpsProximityMessage(message)) {
+    return _deliveryGpsErrorCode(message);
+  }
   if (isContactLockedMessage(message)) {
     return AppErrorCode.contactLocked;
   }
   if (isContactInTextMessage(message)) {
     return AppErrorCode.contactInText;
   }
+  // BUG-L9: the listing or trip itself was refused; say what to check.
+  if (_isDetailsRefusal(message, 'CROP_VALIDATION')) {
+    return AppErrorCode.listingDetailsNotAccepted;
+  }
+  if (_isDetailsRefusal(message, 'TRIP_VALIDATION')) {
+    return AppErrorCode.tripDetailsNotAccepted;
+  }
   return isRevertableRejectionMessage(message)
       ? AppErrorCode.orderRefused
       : AppErrorCode.changeNotSaved;
 }
+
+/// Whether [message] is a [code] refusal (`CROP_VALIDATION`,
+/// `TRIP_VALIDATION`) for the details the user entered. Not the two the same
+/// codes also carry and no correction on the form can pass: a field the app
+/// never lets the user change, and the server failing to read the profile.
+bool _isDetailsRefusal(String message, String code) =>
+    message.startsWith('$code:') &&
+    !message.contains('is immutable and cannot be changed') &&
+    !message.contains('profile could not be read');
+
+/// The code of an arrival check-in refusal ([isCheckInRefusalMessage],
+/// FUP-285): one per `CHECKIN_*` code; the unsupported-entity answer of a
+/// server without check-ins reads as not open; an unknown code as not saved.
+/// A drop-off check-in ([kind] `arrived_dropoff`, ESC-36, FUP-336) has its own
+/// texts: the drop-off, not the farm.
+AppErrorCode checkInErrorCode(String message, {String? kind}) {
+  if (message.startsWith(CheckInRefusal.photoRequired)) {
+    return AppErrorCode.checkInPhotoRequired;
+  }
+  if (kind == dropoffCheckInKind) return _dropoffCheckInErrorCode(message);
+  if (isCheckInUnsupportedMessage(message) ||
+      message.startsWith(CheckInRefusal.notOpen)) {
+    return AppErrorCode.checkInNotOpen;
+  }
+  if (message.startsWith(CheckInRefusal.tooLate)) {
+    return AppErrorCode.checkInTooLate;
+  }
+  if (message.startsWith(CheckInRefusal.tooFar)) {
+    return AppErrorCode.checkInTooFar;
+  }
+  if (message.startsWith(CheckInRefusal.tooEarly)) {
+    return AppErrorCode.checkInTooEarly;
+  }
+  if (message.startsWith(CheckInRefusal.notParty)) {
+    return AppErrorCode.checkInNotParty;
+  }
+  return AppErrorCode.checkInNotSaved;
+}
+
+/// [checkInErrorCode] of a drop-off check-in. `CHECKIN_TOO_FAR` says whether
+/// the server kept the attempt for review; either way the trucker may check
+/// in again closer. A server whose drop-off flag was rolled back (the kind not
+/// taken, FUP-373) reads as not open, not as a fault of this build.
+AppErrorCode _dropoffCheckInErrorCode(String message) {
+  if (isCheckInUnsupportedMessage(message) ||
+      isDropoffKindNotTakenMessage(message) ||
+      message.startsWith(CheckInRefusal.notOpen)) {
+    return AppErrorCode.dropoffCheckInNotOpen;
+  }
+  if (message.startsWith(CheckInRefusal.tooLate)) {
+    return AppErrorCode.dropoffCheckInTooLate;
+  }
+  if (message.startsWith(CheckInRefusal.tooFar)) {
+    return isCheckInAttemptKeptMessage(message)
+        ? AppErrorCode.dropoffCheckInTooFarKept
+        : AppErrorCode.dropoffCheckInTooFar;
+  }
+  if (message.startsWith(CheckInRefusal.notParty)) {
+    return AppErrorCode.dropoffCheckInNotParty;
+  }
+  return AppErrorCode.checkInNotSaved;
+}
+
+/// The code of a typed handoff code refusal (T-1).
+AppErrorCode _deliveryCodeErrorCode(String message) =>
+    message.startsWith(deliveryCodeLockedDropoffCode)
+        ? AppErrorCode.deliveryCodeLockedDropoff
+        : message.startsWith(deliveryCodeLockedCode)
+            ? AppErrorCode.deliveryCodeLocked
+            : message.startsWith(deliveryCodeGpsRequiredCode)
+                ? AppErrorCode.deliveryCodeGpsRequired
+                : AppErrorCode.deliveryCodeMismatch;
+
+/// The code of a handoff refused for its GPS (FUP-439), read from its reason
+/// token, never its text. A reason this build does not know (a server before
+/// FUP-439, or a later reason) says only that the change was not saved.
+AppErrorCode _deliveryGpsErrorCode(String message) =>
+    switch (DeliveryGpsRefusal.fromMessage(message)) {
+      DeliveryGpsRefusal.pickupFar => AppErrorCode.deliveryGpsPickupFar,
+      DeliveryGpsRefusal.selfPickupNoFix =>
+        AppErrorCode.deliveryGpsSelfPickupNoFix,
+      DeliveryGpsRefusal.selfPickupNoFarmPoint =>
+        AppErrorCode.deliveryGpsSelfPickupNoFarmPoint,
+      DeliveryGpsRefusal.selfPickupFar => AppErrorCode.deliveryGpsSelfPickupFar,
+      DeliveryGpsRefusal.dropoffFar => AppErrorCode.deliveryGpsDropoffFar,
+      DeliveryGpsRefusal.unknown => AppErrorCode.changeNotSaved,
+    };
 
 /// Convenience: classify and localize in one step from a caught error.
 String localizeError(Object error, AppLocalizations l10n) =>

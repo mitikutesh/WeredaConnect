@@ -33,6 +33,12 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "Ref": "EscrowIdempotencyTableEB0B1AB5",
       },
     },
+    "EscrowLedgerTableName": {
+      "Description": "DynamoDB Escrow Ledger Table (ESC-20)",
+      "Value": {
+        "Ref": "EscrowLedgerTableF72590F7",
+      },
+    },
     "EscrowsTableName": {
       "Description": "DynamoDB Escrows Table",
       "Value": {
@@ -45,10 +51,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "Ref": "FraudSignalsTable0048AA89",
       },
     },
+    "ListingReportsTableName": {
+      "Description": "DynamoDB Listing Reports Table (buyers' reports, admin queue)",
+      "Value": {
+        "Ref": "ListingReportsTable0144C822",
+      },
+    },
     "MessagesTableName": {
       "Description": "DynamoDB Messages Table (in-app chat)",
       "Value": {
         "Ref": "MessagesTableA255D91E",
+      },
+    },
+    "NotificationsTableName": {
+      "Description": "DynamoDB Notifications Table (order notification inbox)",
+      "Value": {
+        "Ref": "NotificationsTable7330C64A",
       },
     },
     "OrdersTableName": {
@@ -75,10 +93,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "Ref": "RatingsTable70DFC9A0",
       },
     },
+    "ReputationEventsTableName": {
+      "Description": "DynamoDB Reputation Events Table (penalties, completions and system rows, ESC-28)",
+      "Value": {
+        "Ref": "ReputationEventsTable09C5651C",
+      },
+    },
     "SyncMetadataTableName": {
       "Description": "DynamoDB SyncMetadata Table",
       "Value": {
         "Ref": "SyncMetadataTable364BB44C",
+      },
+    },
+    "TripLocationsTableName": {
+      "Description": "DynamoDB Trip Locations Table (live trip check-ins)",
+      "Value": {
+        "Ref": "TripLocationsTable9D33FCFB",
       },
     },
     "TripsTableName": {
@@ -556,6 +586,9 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "PointInTimeRecoverySpecification": {
           "PointInTimeRecoveryEnabled": true,
         },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES",
+        },
         "TableName": "wereda-connect-dev-deliveries",
       },
       "Type": "AWS::DynamoDB::Table",
@@ -703,6 +736,64 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           "AttributeName": "expiresAt",
           "Enabled": true,
         },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "EscrowLedgerTableF72590F7": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "escrowId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "ref",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "openStatus",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "dueAt",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "LedgerOpenIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "openStatus",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "dueAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "escrowId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "ref",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-escrow-ledger",
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
@@ -884,6 +975,9 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         "PointInTimeRecoverySpecification": {
           "PointInTimeRecoveryEnabled": true,
         },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES",
+        },
         "TableName": "wereda-connect-dev-escrows",
       },
       "Type": "AWS::DynamoDB::Table",
@@ -901,8 +995,34 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
             "AttributeName": "signalKey",
             "AttributeType": "S",
           },
+          {
+            "AttributeName": "status",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "createdAt",
+            "AttributeType": "S",
+          },
         ],
         "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "StatusCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "status",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
         "KeySchema": [
           {
             "AttributeName": "userId",
@@ -975,6 +1095,68 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           "PointInTimeRecoveryEnabled": true,
         },
         "TableName": "wereda-connect-dev-intents",
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "ListingReportsTable0144C822": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "listingId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "reporterId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "status",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "createdAt",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "StatusCreatedAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "status",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "createdAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "listingId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "reporterId",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-listing-reports",
+        "TimeToLiveSpecification": {
+          "AttributeName": "expiresAt",
+          "Enabled": true,
+        },
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
@@ -1108,6 +1290,64 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
     },
+    "NotificationsTable7330C64A": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "userId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "sortKey",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "writtenAt",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "userId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "sortKey",
+            "KeyType": "RANGE",
+          },
+        ],
+        "LocalSecondaryIndexes": [
+          {
+            "IndexName": "WrittenAtIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "userId",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "writtenAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-notifications",
+        "TimeToLiveSpecification": {
+          "AttributeName": "expiresAt",
+          "Enabled": true,
+        },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
     "OrdersTableD407578C": {
       "DeletionPolicy": "Delete",
       "Properties": {
@@ -1150,6 +1390,14 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           },
           {
             "AttributeName": "adminQueuedAt",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "deadlineShard",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "nextDeadlineAt",
             "AttributeType": "S",
           },
         ],
@@ -1267,6 +1515,22 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
               "ProjectionType": "ALL",
             },
           },
+          {
+            "IndexName": "DeadlineIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "deadlineShard",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "nextDeadlineAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "KEYS_ONLY",
+            },
+          },
         ],
         "KeySchema": [
           {
@@ -1280,6 +1544,9 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
         ],
         "PointInTimeRecoverySpecification": {
           "PointInTimeRecoveryEnabled": true,
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_AND_OLD_IMAGES",
         },
         "TableName": "wereda-connect-dev-orders",
       },
@@ -1454,6 +1721,95 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
     },
+    "ReputationEventsTable09C5651C": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "userId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "eventId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "appealStatus",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "appealedAt",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "dueDay",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "dueAt",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "GlobalSecondaryIndexes": [
+          {
+            "IndexName": "AppealStatusIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "appealStatus",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "appealedAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "ALL",
+            },
+          },
+          {
+            "IndexName": "DueIndex",
+            "KeySchema": [
+              {
+                "AttributeName": "dueDay",
+                "KeyType": "HASH",
+              },
+              {
+                "AttributeName": "dueAt",
+                "KeyType": "RANGE",
+              },
+            ],
+            "Projection": {
+              "ProjectionType": "KEYS_ONLY",
+            },
+          },
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "userId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "eventId",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_IMAGE",
+        },
+        "TableName": "wereda-connect-dev-reputation-events",
+        "TimeToLiveSpecification": {
+          "AttributeName": "purgeAt",
+          "Enabled": true,
+        },
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
     "SyncMetadataTable364BB44C": {
       "DeletionPolicy": "Delete",
       "Properties": {
@@ -1540,6 +1896,42 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           "PointInTimeRecoveryEnabled": true,
         },
         "TableName": "wereda-connect-dev-transaction-audit",
+      },
+      "Type": "AWS::DynamoDB::Table",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "TripLocationsTable9D33FCFB": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "tripId",
+            "AttributeType": "S",
+          },
+          {
+            "AttributeName": "sortKey",
+            "AttributeType": "S",
+          },
+        ],
+        "BillingMode": "PAY_PER_REQUEST",
+        "KeySchema": [
+          {
+            "AttributeName": "tripId",
+            "KeyType": "HASH",
+          },
+          {
+            "AttributeName": "sortKey",
+            "KeyType": "RANGE",
+          },
+        ],
+        "PointInTimeRecoverySpecification": {
+          "PointInTimeRecoveryEnabled": true,
+        },
+        "TableName": "wereda-connect-dev-trip-locations",
+        "TimeToLiveSpecification": {
+          "AttributeName": "expiresAt",
+          "Enabled": true,
+        },
       },
       "Type": "AWS::DynamoDB::Table",
       "UpdateReplacePolicy": "Delete",
@@ -1635,6 +2027,30 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
           ],
         },
         "BucketName": "wereda-connect-dev-eu-north-1-uploads-123456789012",
+        "CorsConfiguration": {
+          "CorsRules": [
+            {
+              "AllowedHeaders": [
+                "Content-Type",
+              ],
+              "AllowedMethods": [
+                "PUT",
+                "GET",
+                "HEAD",
+              ],
+              "AllowedOrigins": [
+                "http://localhost:3000",
+                "http://localhost:4321",
+                "http://localhost:5173",
+                "http://localhost:8080",
+                "https://dev-app.weredaconnect.com",
+                "https://dev-admin.weredaconnect.com",
+                "https://d32f0lzad1ens5.cloudfront.net",
+              ],
+              "MaxAge": 3000,
+            },
+          ],
+        },
         "LifecycleConfiguration": {
           "Rules": [
             {
@@ -1643,14 +2059,13 @@ exports[`Database Stack Snapshot database stack matches snapshot 1`] = `
               "Status": "Enabled",
             },
             {
-              "Prefix": "photos/",
-              "Status": "Enabled",
-              "Transitions": [
-                {
-                  "StorageClass": "GLACIER",
-                  "TransitionInDays": 365,
-                },
-              ],
+              "ExpirationInDays": 30,
+              "Id": "DeliveryPhotoUploadsExpiry",
+              "NoncurrentVersionExpiration": {
+                "NoncurrentDays": 1,
+              },
+              "Prefix": "uploads/photos/",
+              "Status": "Disabled",
             },
           ],
         },

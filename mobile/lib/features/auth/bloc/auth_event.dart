@@ -232,8 +232,41 @@ class AuthStepUpSucceeded extends AuthEvent {
   List<Object?> get props => [tokens];
 }
 
+/// SIM-56: [userId]'s name or woreda changed (a profile edit, or a fresher
+/// server copy): the signed-in session shows the new ones. The caller
+/// already wrote them to the offline cache.
+class AuthProfileChanged extends AuthEvent {
+  final String userId;
+  final String userName;
+  final String woreda;
+
+  const AuthProfileChanged({
+    required this.userId,
+    required this.userName,
+    required this.woreda,
+  });
+
+  @override
+  List<Object?> get props => [userId, userName, woreda];
+}
+
 /// The server rejected the refresh token (400/401): sign the user out
 /// locally. Unsynced work stays queued for their next login.
 class AuthSessionExpired extends AuthEvent {
-  const AuthSessionExpired();
+  /// True when the server refused a signed-in write with `403 AUTH_025`
+  /// (the account is suspended): the sign-out is the same, and the login
+  /// screen says why.
+  final bool suspended;
+
+  const AuthSessionExpired({this.suspended = false});
+
+  @override
+  List<Object?> get props => [suspended];
+}
+
+/// The stored session belongs to another account (FUP-96: on web, another
+/// tab signed someone else in). Sign this app instance out without touching
+/// the stored session, which is that account's.
+class AuthOtherAccountSignedIn extends AuthEvent {
+  const AuthOtherAccountSignedIn();
 }
