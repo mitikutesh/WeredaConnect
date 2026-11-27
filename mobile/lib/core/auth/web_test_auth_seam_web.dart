@@ -16,9 +16,7 @@ external set _seedAuthGlobal(JSFunction value);
 
 // Same constructor as AuthBloc / OfflineAuthCache so the flutter_secure_storage
 // web `publicKey` prefix matches and the app reads back what we write.
-const FlutterSecureStorage _storage = FlutterSecureStorage(
-  aOptions: AndroidOptions(encryptedSharedPreferences: true),
-);
+const FlutterSecureStorage _storage = FlutterSecureStorage();
 
 /// Real (web-only) implementation of the F-37 test auth seam. Registers
 /// `window.__seedAuth(payloadJson)` — a Promise-returning hook the Playwright

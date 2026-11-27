@@ -93,10 +93,7 @@ class SecureDropoffHandoffStore implements DropoffHandoffStore {
   SecureDropoffHandoffStore({
     FlutterSecureStorage? storage,
     DateTime Function()? now,
-  })  : _storage = storage ??
-            const FlutterSecureStorage(
-              aOptions: AndroidOptions(encryptedSharedPreferences: true),
-            ),
+  })  : _storage = storage ?? const FlutterSecureStorage(),
         _now = now ?? DateTime.now;
 
   final FlutterSecureStorage _storage;

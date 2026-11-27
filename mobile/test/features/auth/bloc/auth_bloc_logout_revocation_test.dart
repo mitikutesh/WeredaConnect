@@ -558,9 +558,7 @@ void main() {
       refresh = buildRefreshTokenCallback(
         refreshDio: Dio(BaseOptions(baseUrl: 'https://api.test'))
           ..httpClientAdapter = refreshServer,
-        storage: const FlutterSecureStorage(
-          aOptions: AndroidOptions(encryptedSharedPreferences: true),
-        ),
+        storage: const FlutterSecureStorage(),
         signals: signals,
         writeCachedTokens: (phone, _) async => cacheWrites.add(phone),
       );

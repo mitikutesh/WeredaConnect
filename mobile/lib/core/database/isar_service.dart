@@ -76,12 +76,12 @@ class IsarService {
   static IsarService? _instance;
   Isar? _isar;
 
-  // Secure storage for encryption key (backed by Android Keystore)
-  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage(
-    aOptions: AndroidOptions(
-      encryptedSharedPreferences: true,
-    ),
-  );
+  // Secure storage for encryption key (backed by Android Keystore).
+  // flutter_secure_storage 10 moves a v9 EncryptedSharedPreferences store to
+  // its own cipher storage on first open (migrateOnAlgorithmChange defaults
+  // to true), so this key survives the upgrade. Keep this release on devices
+  // before taking 11, which can no longer read the old store.
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
 
   /// Secure-storage key for the AES encryption key bytes.
   static const String _keyName = 'isar_encryption_key';

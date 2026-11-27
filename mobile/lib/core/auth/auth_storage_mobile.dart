@@ -5,9 +5,7 @@ import 'package:wereda_connect/core/auth/auth_storage.dart';
 ///
 /// Uses Android EncryptedSharedPreferences / iOS Keychain.
 class MobileAuthStorage implements AuthStorage {
-  static const _storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  static const _storage = FlutterSecureStorage();
 
   const MobileAuthStorage();
 

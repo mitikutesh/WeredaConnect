@@ -13,10 +13,7 @@ import 'package:wereda_connect/core/security/local_auth_gate.dart';
 class AppLockService {
   AppLockService({LocalAuthGate? gate, FlutterSecureStorage? storage})
       : gate = gate ?? DeviceLocalAuthGate(),
-        _storage = storage ??
-            const FlutterSecureStorage(
-              aOptions: AndroidOptions(encryptedSharedPreferences: true),
-            );
+        _storage = storage ?? const FlutterSecureStorage();
 
   /// Secure storage key for the user's choice ('true' / 'false').
   static const enabledKey = 'app_lock_enabled';
