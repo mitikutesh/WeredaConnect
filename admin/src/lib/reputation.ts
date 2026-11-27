@@ -29,6 +29,10 @@ export interface ReputationSummary {
   completedOrders90d?: number;
   faultCancels90d?: number;
   noShows90d?: number;
+  /** GCR-07 (reputation-api.md 1.9): verified handoffs, a whole percent; absent below the minimum or when unread. */
+  verifiedPct?: number;
+  /** The counted orders of the last 90 days behind `verifiedPct` (0 included); absent when the stamps were not read. */
+  verifiedOrders90d?: number;
   restriction?: ReputationRestriction;
   override?: ReputationOverride;
   nextPointExpiryAt?: string;
@@ -152,6 +156,26 @@ export const REASON_MAX = 500;
 /** The furthest end the server takes when its policy is the default (it answers 400 past its own limit). */
 export const TAG_MAX_DAYS = 90;
 export const RESTRICT_MAX_DAYS = 365;
+
+/** GCR-04 (reputation-api.md 1.9): the counted orders below which the server sends no `verifiedPct` (a constant). */
+export const VERIFIED_MIN_ORDERS = 3;
+
+/**
+ * What the verified handoffs figure of a summary says: a percent; below the minimum of counted orders; enough
+ * counted orders that offered no step at all; or not read (neither field).
+ */
+export type VerifiedFigure =
+  | { kind: "pct"; pct: number; count?: number }
+  | { kind: "belowMinimum"; count: number }
+  | { kind: "noSteps"; count: number }
+  | { kind: "unavailable" };
+
+export function verifiedFigure(summary: Pick<ReputationSummary, "verifiedPct" | "verifiedOrders90d">): VerifiedFigure {
+  const { verifiedPct: pct, verifiedOrders90d: count } = summary;
+  if (pct !== undefined) return { kind: "pct", pct, count };
+  if (count === undefined) return { kind: "unavailable" };
+  return count < VERIFIED_MIN_ORDERS ? { kind: "belowMinimum", count } : { kind: "noSteps", count };
+}
 
 /** The codes that can carry points: the only rows an admin can excuse. */
 const PENALTY_CODES = new Set([

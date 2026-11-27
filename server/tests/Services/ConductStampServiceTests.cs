@@ -41,9 +41,17 @@ internal sealed class FakeConductStamps : IConductStampRepository
         return Task.FromResult<(IReadOnlyList<ConductStamp>, bool)>((matching.Take(cap).ToList(), matching.Count > cap));
     }
 
+    /// <summary>GCR-07: the users whose one-stamp read throws.</summary>
+    public HashSet<string> ThrowOnGetFor { get; } = new();
+
     public Task<ConductStamp?> GetStampAsync(string userId, string orderId)
     {
         Gets++;
+        if (ThrowOnGetFor.Contains(userId))
+        {
+            throw new InvalidOperationException("The stamp read failed.");
+        }
+
         return Task.FromResult(Rows.TryGetValue((userId, orderId), out var row) ? row : null);
     }
 

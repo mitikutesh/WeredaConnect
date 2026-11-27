@@ -206,20 +206,25 @@ public class ReputationFunction
     /// effort: a read that fails is logged (<see cref="ConductReadFailedToken"/>) and leaves both fields out, so the
     /// rest of the reputation still answers.
     /// </summary>
-    private async Task<ConductVerified?> VerifiedAsync(string userId, DateTime now, ILambdaContext context)
-    {
-        if (!ConductRewards || _stamps == null)
-        {
-            return null;
-        }
+    private Task<ConductVerified?> VerifiedAsync(string userId, DateTime now, ILambdaContext context)
+        => !ConductRewards || _stamps == null
+            ? Task.FromResult<ConductVerified?>(null)
+            : ReadVerifiedAsync(_stamps, userId, now, context.Logger);
 
+    /// <summary>
+    /// The read behind <see cref="VerifiedAsync"/>, with no flag check. GCR-07: the admin read (section 9.1) uses it
+    /// whatever <c>conductRewards</c> says. Null when the Query fails (logged as <see cref="ConductReadFailedToken"/>).
+    /// </summary>
+    internal static async Task<ConductVerified?> ReadVerifiedAsync(
+        IConductStampRepository stamps, string userId, DateTime now, ILambdaLogger logger)
+    {
         try
         {
-            var (rows, truncated) = await _stamps.QueryCountedStampsAsync(
+            var (rows, truncated) = await stamps.QueryCountedStampsAsync(
                 userId, now - ConductScoring.VerifiedWindow, ConductScoring.VerifiedReadCap);
             if (truncated)
             {
-                context.Logger.LogWarning(
+                logger.LogWarning(
                     $"{ConductReadTruncatedToken} user={MoneyAlarmLog.LogId(userId)} cap={ConductScoring.VerifiedReadCap}");
             }
 
@@ -227,7 +232,7 @@ public class ReputationFunction
         }
         catch (Exception ex)
         {
-            context.Logger.LogError($"{ConductReadFailedToken} user={MoneyAlarmLog.LogId(userId)} [{ex.GetType().Name}]");
+            logger.LogError($"{ConductReadFailedToken} user={MoneyAlarmLog.LogId(userId)} [{ex.GetType().Name}]");
             return null;
         }
     }

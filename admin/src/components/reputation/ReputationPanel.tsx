@@ -15,6 +15,7 @@ import {
   maxUntilDays,
   needsUntil,
   tierVariant,
+  verifiedFigure,
   type ReputationAction,
   type ReputationDecision,
   type ReputationEventRow,
@@ -166,6 +167,21 @@ export function ReputationPanel({ userId }: { userId: string }) {
     faults: String(reputation.faultCancels90d ?? 0),
     noShows: String(reputation.noShows90d ?? 0),
   });
+
+  // GCR-07: the verified handoffs figure, computed by the admin read whatever conductRewards says.
+  const verified = verifiedFigure(reputation);
+  const verifiedText =
+    verified.kind === "pct"
+      ? `${verified.pct}%`
+      : verified.kind === "belowMinimum"
+        ? t("reputation.verifiedBelowMinimum")
+        : verified.kind === "noSteps"
+          ? t("reputation.verifiedNoSteps")
+          : t("reputation.verifiedUnavailable");
+  const verifiedCount =
+    verified.kind !== "unavailable" && verified.count !== undefined
+      ? fill(t("reputation.verifiedDetail"), { count: String(verified.count) })
+      : "";
 
   function restrictionText(r: { since?: string; until?: string }) {
     return fill(t(r.until ? "reputation.restrictionUntil" : "reputation.restrictionReview"), {
@@ -425,6 +441,13 @@ export function ReputationPanel({ userId }: { userId: string }) {
             <dd className="text-right">
               {reputation.reliabilityPct === undefined ? t("reputation.reliabilityNone") : `${reputation.reliabilityPct}%`}
               <span className="ml-2 text-xs text-slate">{reliabilityCounts}</span>
+            </dd>
+          </div>
+          <div className="flex justify-between gap-4">
+            <dt className="text-slate">{t("reputation.verified")}</dt>
+            <dd className="text-right">
+              {verifiedText}
+              {verifiedCount && <span className="ml-2 text-xs text-slate">{verifiedCount}</span>}
             </dd>
           </div>
           {reputation.nextPointExpiryAt && (

@@ -59,6 +59,81 @@ public partial class AdminFunction
         init => _reputationRepo = value;
     }
 
+    private IConductStampRepository? _conductStamps;
+
+    /// <summary>
+    /// GCR-07: the conduct stamps (the <c>HANDOFF#</c> slots of the same table, reputation-api.md 1.8), read for the
+    /// verified figure of 9.1 and the transaction view's <c>conduct</c> (9.5) whatever <c>conductRewards</c> says.
+    /// Every read is a Query, which the admin Lambda already holds on the table. Null when the table is not
+    /// configured. Tests set it.
+    /// </summary>
+    internal IConductStampRepository? ConductStamps
+    {
+        get => _conductStamps ?? ReputationRepo as IConductStampRepository;
+        init => _conductStamps = value;
+    }
+
+    /// <summary>GCR-07: a party's stamp could not be read for the transaction view; the view goes out with <c>readFailed</c>.</summary>
+    public const string ConductStampReadFailedToken = "ADMIN_CONDUCT_READ_FAILED";
+
+    /// <summary>
+    /// GCR-07 (reputation-api.md 9.5): the stamp of each party of <paramref name="order"/> (one Query on the full key
+    /// per party, strongly consistent), or null when the stamps are not configured. A party whose read fails is
+    /// logged and left out, and the answer says <c>readFailed</c>, so the rest of the transaction still shows.
+    /// </summary>
+    private async Task<AdminConductDto?> ConductAsync(OrderDto order, ILambdaContext context)
+    {
+        if (ConductStamps is not { } stamps)
+        {
+            return null;
+        }
+
+        var parties = new List<AdminConductPartyDto>();
+        var failed = false;
+        foreach (var (party, userId) in new[]
+                 {
+                     (OrderCommitment.Party.Farmer, order.FarmerId),
+                     (OrderCommitment.Party.Trucker, order.TruckerId),
+                     (OrderCommitment.Party.Buyer, order.BuyerId)
+                 })
+        {
+            if (string.IsNullOrEmpty(userId))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (await stamps.GetStampAsync(userId, order.OrderId) is { } stamp)
+                {
+                    parties.Add(ConductPartyDto(stamp, party));
+                }
+            }
+            catch (Exception ex)
+            {
+                failed = true;
+                context.Logger.LogError(
+                    $"{ConductStampReadFailedToken} order={order.OrderId} party={party} [{ex.GetType().Name}]");
+            }
+        }
+
+        return new AdminConductDto { Parties = parties, ReadFailed = failed ? true : null };
+    }
+
+    private static AdminConductPartyDto ConductPartyDto(ConductStamp stamp, string party) => new()
+    {
+        Party = string.IsNullOrEmpty(stamp.Party) ? party : stamp.Party,
+        UserId = stamp.UserId,
+        Offered = stamp.Offered,
+        Earned = stamp.Earned,
+        Counted = stamp.Counted,
+        NotCountedReason = stamp.Counted ? null : stamp.NotCountedReason,
+        Steps = stamp.Steps,
+        OccurredAt = ReputationPolicy.Iso(stamp.OccurredAt),
+        RecordedAt = ReputationPolicy.Iso(stamp.RecordedAt),
+        ReevaluatedAt = stamp.ReevaluatedAt is { } at ? ReputationPolicy.Iso(at) : null
+    };
+
     /// <summary>
     /// The reputation service of the admin routes. The policy parameter is read only while the
     /// feature is on (reputation-api.md section 11); off, the reads show the stored state under the
@@ -150,7 +225,7 @@ public partial class AdminFunction
 
             return LambdaResponse.Ok(new AdminReputationResponse
             {
-                Reputation = AdminReputationDto(view.Read, service),
+                Reputation = await AdminReputationDtoAsync(view.Read, service, context),
                 Restrictions = view.Rows
                     .Where(e => e.Code == ReputationCodes.Restriction)
                     .OrderByDescending(e => e.Since ?? e.OccurredAt)
@@ -336,7 +411,7 @@ public partial class AdminFunction
             return LambdaResponse.Ok(new AdminReputationDecisionResponse
             {
                 Event = AdminEventDto(result.Event!, result.After!.AsOf, service.Settings, context),
-                Reputation = AdminReputationDto(result.After!, service),
+                Reputation = await AdminReputationDtoAsync(result.After!, service, context),
                 AlreadyDecided = !applied
             }, AppJsonContext.Default.AdminReputationDecisionResponse);
         }
@@ -427,7 +502,7 @@ public partial class AdminFunction
 
             return LambdaResponse.Ok(new AdminReputationActionResponse
             {
-                Reputation = AdminReputationDto(result.After!, service),
+                Reputation = await AdminReputationDtoAsync(result.After!, service, context),
                 AlreadyApplied = !applied
             }, AppJsonContext.Default.AdminReputationActionResponse);
         }
@@ -567,10 +642,16 @@ public partial class AdminFunction
     private static string ReputationAuditState(ReputationRead? read)
         => read == null ? string.Empty : $"tier={read.Aggregate.Tier};points={read.Aggregate.ActivePoints}";
 
-    /// <summary>Section 2's shape with <c>override.by</c> (9.1).</summary>
-    private ReputationDto AdminReputationDto(ReputationRead read, ReputationService service)
+    /// <summary>
+    /// Section 2's shape with <c>override.by</c> (9.1). GCR-07: plus <c>verifiedPct</c> and <c>verifiedOrders90d</c>
+    /// at the read's time, whatever <c>conductRewards</c> says; both absent when the stamps could not be read.
+    /// </summary>
+    private async Task<ReputationDto> AdminReputationDtoAsync(ReputationRead read, ReputationService service, ILambdaContext context)
     {
-        var dto = ReputationReadModels.Own(read, service.Settings, ReputationPenaltiesEnabled);
+        var conduct = ConductStamps is { } stamps
+            ? await ReputationFunction.ReadVerifiedAsync(stamps, read.User.UserId, read.AsOf, context.Logger)
+            : null;
+        var dto = ReputationReadModels.Own(read, service.Settings, ReputationPenaltiesEnabled, conduct);
         return dto.Override != null && read.Aggregate.Override?.By is { } by
             ? dto with { Override = dto.Override with { By = by } }
             : dto;

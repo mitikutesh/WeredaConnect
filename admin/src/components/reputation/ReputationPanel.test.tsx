@@ -219,6 +219,42 @@ describe("ReputationPanel", () => {
     expect(screen.queryByRole("button", { name: "Uphold REQUEST#ord-91c0" })).toBeNull();
   });
 
+  /* GCR-07: the verified handoffs figure next to the reliability. */
+  describe("verified handoffs", () => {
+    function verifiedRow() {
+      const term = within(screen.getByRole("region", { name: "Reputation" })).getByText("Verified handoffs");
+      return term.nextElementSibling?.textContent;
+    }
+
+    it("shows the percent with the counted orders of the last 90 days", () => {
+      setPages(page({ reputation: reputation({ verifiedPct: 92, verifiedOrders90d: 7 }) }));
+      renderPanel();
+
+      expect(verifiedRow()).toBe("92%7 counted order(s), last 90 days");
+    });
+
+    it("says it is not shown below the minimum, with the counted orders so far", () => {
+      setPages(page({ reputation: reputation({ verifiedOrders90d: 2 }) }));
+      renderPanel();
+
+      expect(verifiedRow()).toBe("Not shown below 3 counted orders2 counted order(s), last 90 days");
+    });
+
+    it("says when the counted orders offered no step", () => {
+      setPages(page({ reputation: reputation({ verifiedOrders90d: 4 }) }));
+      renderPanel();
+
+      expect(verifiedRow()).toBe("No step applied on the counted orders4 counted order(s), last 90 days");
+    });
+
+    it("says not available when the figure could not be read", () => {
+      setPages(page());
+      renderPanel();
+
+      expect(verifiedRow()).toBe("Not available");
+    });
+  });
+
   it("shows the restriction, the tag and the history, and offers lift instead of restrict", () => {
     setPages(
       page({

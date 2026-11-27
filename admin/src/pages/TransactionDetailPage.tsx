@@ -8,6 +8,7 @@ import { CancelDelivery } from "@/components/transactions/CancelDelivery";
 import { ChangeCommission } from "@/components/transactions/ChangeCommission";
 import { HandoffPhoto, TransactionTimeline } from "@/components/transactions/TransactionTimeline";
 import { PickupEvidenceCard } from "@/components/transactions/PickupEvidenceCard";
+import { ConductCard } from "@/components/transactions/ConductCard";
 import { useLocale } from "@/hooks/useLocale";
 import { useTransactionDetail } from "@/hooks/useQuery";
 import { formatETB, formatDateTime } from "@/lib/i18n";
@@ -31,6 +32,7 @@ import { fill } from "@/lib/trail";
 import { partyName } from "@/lib/user";
 import { formatRatePercent, isCommissionEditable } from "@/lib/commission";
 import type { PickupEvidence } from "@/lib/pickup";
+import type { TransactionConduct } from "@/lib/conduct";
 
 type Row = Record<string, unknown>;
 
@@ -66,6 +68,8 @@ export function TransactionDetailPage() {
   const timeline = (resp.timeline as Row[]) || [];
   // FUP-287: the pickup judgement with its check-ins, admin only; absent for an order never judged by check-ins.
   const pickupEvidence = resp.pickupEvidence as PickupEvidence | undefined;
+  // GCR-07: each party's conduct stamp; absent when the server has no reputation table configured.
+  const conduct = resp.conduct as TransactionConduct | undefined;
 
   const status = s(order.status);
   const stage = deriveStage(status);
@@ -296,6 +300,8 @@ export function TransactionDetailPage() {
         {pickupEvidence && (
           <PickupEvidenceCard orderId={s(order.orderId)} version={Number(order.version) || 0} evidence={pickupEvidence} />
         )}
+
+        {conduct && <ConductCard conduct={conduct} />}
 
         {/* Timeline */}
         <Card>

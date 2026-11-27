@@ -2992,7 +2992,8 @@ public partial class AdminFunction
             Escrow = escrow,
             Delivery = delivery,
             Timeline = BuildTimeline(order, delivery, escrow, auditEntries, unifiedEvents),
-            PickupEvidence = await PickupEvidenceAsync(orderRow, deliveryRow, escrowItem)
+            PickupEvidence = await PickupEvidenceAsync(orderRow, deliveryRow, escrowItem),
+            Conduct = await ConductAsync(order, context)
         };
 
         return LambdaResponse.Ok(response, AppJsonContext.Default.AdminTransactionDetailResponse);

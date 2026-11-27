@@ -887,6 +887,8 @@ describe('ESC-28 reputation alarms (MonitoringStack)', () => {
     ['REPUTATION_PARK_FAILED', 'ReputationParkFailed', 'reputation-park-failed', ['reputation-stream', 'order-cron'], 1, 300],
     // FUP-201: ESC-33's fraud hooks, run where reputation events are recorded.
     ['REPUTATION_FRAUD_HOOK_FAILED', 'ReputationFraudHookFailed', 'reputation-fraud-hook-failed', ['reputation-stream', 'order-cron'], 1, 300],
+    // FUP-576: the verified handoffs figure's stamps Query (GCR-04 reputation reads, GCR-07 admin read); a rate.
+    ['CONDUCT_READ_FAILED', 'ConductReadFailed', 'conduct-read-failed', ['reputation', 'admin'], 5, 3600],
   ] as const)('%s: a filter on each log group that can write it, and one alarm', (token, metricName, alarmSuffix, sources, threshold, period) => {
     const filters = Object.values(template.findResources('AWS::Logs::MetricFilter')).filter(
       (f) => f.Properties.MetricTransformations[0].MetricName === metricName,
@@ -906,5 +908,21 @@ describe('ESC-28 reputation alarms (MonitoringStack)', () => {
       TreatMissingData: 'notBreaching',
       AlarmDescription: Match.stringLikeRegexp(token),
     });
+  });
+
+  test('FUP-576: CONDUCT_READ_TRUNCATED is counted on the reputation and admin log groups, with no alarm', () => {
+    const filters = Object.values(template.findResources('AWS::Logs::MetricFilter')).filter(
+      (f) => f.Properties.MetricTransformations[0].MetricName === 'ConductReadTruncated',
+    );
+    expect(filters.map((f) => f.Properties.LogGroupName).sort()).toEqual([lg('admin'), lg('reputation')]);
+    for (const f of filters) {
+      expect(f.Properties.FilterPattern).toBe('"CONDUCT_READ_TRUNCATED"');
+      expect(f.Properties.MetricTransformations[0]).toMatchObject({ MetricNamespace: 'WeredaConnect/dev', MetricValue: '1' });
+      expect(f.Properties.MetricTransformations[0].DefaultValue).toBeUndefined();
+    }
+    const alarms = Object.values(template.findResources('AWS::CloudWatch::Alarm')).filter((a) =>
+      JSON.stringify(a.Properties).includes('ConductReadTruncated'),
+    );
+    expect(alarms).toHaveLength(0);
   });
 });

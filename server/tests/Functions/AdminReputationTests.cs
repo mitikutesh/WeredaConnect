@@ -34,7 +34,8 @@ public class AdminReputationTests
     private readonly IAmazonDynamoDB _dynamoDb = Substitute.For<IAmazonDynamoDB>();
     private readonly IAmazonS3 _s3 = Substitute.For<IAmazonS3>();
     private readonly IReputationCopyWriter _copies = Substitute.For<IReputationCopyWriter>();
-    private readonly TestLambdaContext _ctx = new();
+    private readonly TestLambdaContext _ctx = new() { Logger = new TestLambdaLogger() };
+    private readonly FakeConductStamps _stamps = new();
     private readonly List<PutItemRequest> _auditRows = new();
     private readonly List<(string User, OwnerReputationFields Fields)> _copied = new();
 
@@ -109,6 +110,7 @@ public class AdminReputationTests
             ReputationPenaltiesEnabled = penalties,
             ReputationRepo = _repo,
             ReputationSvc = Service(),
+            ConductStamps = _stamps,
             UploadsBucket = "uploads-bucket",
             DeliveryPhotoS3 = _s3,
             Clock = () => _clock.Now
@@ -295,6 +297,103 @@ public class AdminReputationTests
         await Error(Get("/admin/users/ghost/reputation"), 404, "REPUTATION_NOT_FOUND");
         _repo.Users["farmer-1"].DeletionState = "in_progress";
         await Error(Get("/admin/users/farmer-1/reputation"), 404, "REPUTATION_NOT_FOUND");
+    }
+
+    // ===== GCR-07: the verified figure on the admin read (reputation-api.md 1.12.0 section 9.1) =====
+
+    /// <summary>Counted stamps for <paramref name="userId"/>, each settled <c>DaysAgo</c> before <see cref="T0"/>.</summary>
+    private void Stamped(string userId, params (int Offered, int Earned, double DaysAgo)[] rows)
+    {
+        for (var i = 0; i < rows.Length; i++)
+        {
+            var (offered, earned, daysAgo) = rows[i];
+            var at = T0 - TimeSpan.FromDays(daysAgo);
+            _stamps.Rows[(userId, $"o-{i}")] = new ConductStamp
+            {
+                UserId = userId,
+                OrderId = $"o-{i}",
+                Party = _repo.Users[userId].Role,
+                FarmerId = "farmer-1",
+                TruckerId = "trucker-1",
+                BuyerId = "buyer-1",
+                Offered = offered,
+                Earned = earned,
+                Counted = true,
+                OccurredAt = at,
+                RecordedAt = at
+            };
+        }
+    }
+
+    [Fact]
+    public async Task Read_CarriesTheVerifiedFigure_WhateverConductRewardsSays()
+    {
+        // 9 of 12 steps in the window; the 120 day old stamp is outside it.
+        Stamped("farmer-1", (4, 3, 1), (4, 4, 20), (4, 2, 60), (4, 0, 120));
+
+        var reputation = (await Ok(Get("/admin/users/farmer-1/reputation"), penalties: false)).GetProperty("reputation");
+
+        reputation.GetProperty("verifiedPct").GetInt32().Should().Be(75);
+        reputation.GetProperty("verifiedOrders90d").GetInt32().Should().Be(3);
+        _stamps.CountedQueries.Should().ContainSingle()
+            .Which.Should().Be(("farmer-1", T0 - ConductScoring.VerifiedWindow, ConductScoring.VerifiedReadCap));
+    }
+
+    [Fact]
+    public async Task Read_BelowTheMinimum_HasTheCountButNoFigure()
+    {
+        Stamped("trucker-1", (4, 4, 1), (4, 4, 2));
+
+        var reputation = (await Ok(Get("/admin/users/trucker-1/reputation"))).GetProperty("reputation");
+
+        reputation.TryGetProperty("verifiedPct", out _).Should().BeFalse();
+        reputation.GetProperty("verifiedOrders90d").GetInt32().Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Read_WhenTheStampsCannotBeRead_LeavesBothOut_AndStillAnswers()
+    {
+        await Penalty("farmer-1", "CANCEL#o1", T0.AddDays(-1), ReputationCodes.LateCancel);
+        _stamps.ThrowOnCountedQuery = new ProvisionedThroughputExceededException("throttled");
+
+        var body = await Ok(Get("/admin/users/farmer-1/reputation"));
+
+        var reputation = body.GetProperty("reputation");
+        reputation.TryGetProperty("verifiedPct", out _).Should().BeFalse();
+        reputation.TryGetProperty("verifiedOrders90d", out _).Should().BeFalse();
+        reputation.GetProperty("activePoints").GetInt32().Should().Be(4);
+        body.GetProperty("events").GetArrayLength().Should().BeGreaterThan(0);
+        ((TestLambdaLogger)_ctx.Logger).Buffer.ToString().Should().Contain(ReputationFunction.ConductReadFailedToken);
+    }
+
+    [Fact]
+    public async Task AnAdminChange_AnswersWithTheVerifiedFigureToo()
+    {
+        Stamped("farmer-1", (2, 1, 1), (2, 2, 2), (2, 2, 3));
+
+        var body = await Ok(Post("/admin/users/farmer-1/reputation", Action("tag", until: T0.AddDays(30))));
+
+        body.GetProperty("reputation").GetProperty("verifiedPct").GetInt32().Should().Be(83);
+        body.GetProperty("reputation").GetProperty("verifiedOrders90d").GetInt32().Should().Be(3);
+    }
+
+    [Fact]
+    public async Task Read_WithoutTheStamps_IsAsBefore()
+    {
+        var fn = new AdminFunction(_dynamoDb, UsersTable, transactionAuditTable: AuditTable)
+        {
+            ReputationPenaltiesEnabled = true,
+            ReputationRepo = _repo,
+            ReputationSvc = Service(),
+            Clock = () => _clock.Now
+        };
+
+        var response = await fn.FunctionHandler(Get("/admin/users/farmer-1/reputation"), _ctx);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var reputation = JsonDocument.Parse(response.Body).RootElement.GetProperty("reputation");
+        reputation.TryGetProperty("verifiedPct", out _).Should().BeFalse();
+        reputation.TryGetProperty("verifiedOrders90d", out _).Should().BeFalse();
     }
 
     // ===== 9.2: the appeals queue =====

@@ -15,6 +15,7 @@ import {
   isSystemRow,
   maxUntilDays,
   needsUntil,
+  verifiedFigure,
   type ReputationEventRow,
 } from "./reputation";
 
@@ -113,6 +114,24 @@ describe("the reason and the end date of a reputation write", () => {
     expect(decisionPath("farmer 1", "CANCEL#ord-7f3a")).toBe(
       "/admin/users/farmer%201/reputation/events/CANCEL%23ord-7f3a/decision",
     );
+  });
+});
+
+/* GCR-07 (reputation-api.md 1.9): what the two verified fields of the admin read say together. */
+describe("verified handoffs figure", () => {
+  it("shows the percent with its counted orders", () => {
+    expect(verifiedFigure({ verifiedPct: 83, verifiedOrders90d: 7 })).toEqual({ kind: "pct", pct: 83, count: 7 });
+    expect(verifiedFigure({ verifiedPct: 0, verifiedOrders90d: 3 })).toEqual({ kind: "pct", pct: 0, count: 3 });
+  });
+
+  it("reads the count alone as below the minimum, or as counted orders that offered no step", () => {
+    expect(verifiedFigure({ verifiedOrders90d: 0 })).toEqual({ kind: "belowMinimum", count: 0 });
+    expect(verifiedFigure({ verifiedOrders90d: 2 })).toEqual({ kind: "belowMinimum", count: 2 });
+    expect(verifiedFigure({ verifiedOrders90d: 3 })).toEqual({ kind: "noSteps", count: 3 });
+  });
+
+  it("is unavailable when neither field came", () => {
+    expect(verifiedFigure({})).toEqual({ kind: "unavailable" });
   });
 });
 

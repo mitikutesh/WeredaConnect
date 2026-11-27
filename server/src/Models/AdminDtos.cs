@@ -578,6 +578,51 @@ public sealed record AdminTransactionDetailResponse
 
     /// <summary>FUP-287: the pickup judgement with its check-ins as evidence; absent for an order never stamped judgeable.</summary>
     public AdminPickupEvidenceDto? PickupEvidence { get; init; }
+
+    /// <summary>
+    /// GCR-07 (reputation-api.md 9.5): the conduct stamp of each party of the order; absent when the admin Lambda has
+    /// no reputation table configured.
+    /// </summary>
+    public AdminConductDto? Conduct { get; init; }
+}
+
+/// <summary>
+/// GCR-07 (reputation-api.md 9.5): the order's conduct stamps (section 1.8), one per party that has one, farmer, trucker,
+/// buyer in that order. <see cref="Parties"/> is empty before the settle writes them.
+/// </summary>
+public sealed record AdminConductDto
+{
+    public required List<AdminConductPartyDto> Parties { get; init; }
+
+    /// <summary>True when a party's stamp could not be read (the parties read are still listed); absent otherwise.</summary>
+    public bool? ReadFailed { get; init; }
+}
+
+/// <summary>GCR-07: one party's stamp as an admin sees it: what was offered and earned, every step, and whether it counts.</summary>
+public sealed record AdminConductPartyDto
+{
+    /// <summary><c>farmer</c>, <c>trucker</c> or <c>buyer</c>.</summary>
+    public required string Party { get; init; }
+
+    public required string UserId { get; init; }
+    public int Offered { get; init; }
+    public int Earned { get; init; }
+    public bool Counted { get; init; }
+
+    /// <summary>Only when <see cref="Counted"/> is false (section 1.8, "Which orders count").</summary>
+    public string? NotCountedReason { get; init; }
+
+    /// <summary>Every step with its result; a <c>left_out</c> step carries its reason.</summary>
+    public required IReadOnlyList<ConductStep> Steps { get; init; }
+
+    /// <summary>When the order settled.</summary>
+    public required string OccurredAt { get; init; }
+
+    /// <summary>When the stamp was first written.</summary>
+    public required string RecordedAt { get; init; }
+
+    /// <summary>The one re-evaluation a late rating or photo caused; absent when there was none.</summary>
+    public string? ReevaluatedAt { get; init; }
 }
 
 // ──────────────────────────────────────────────

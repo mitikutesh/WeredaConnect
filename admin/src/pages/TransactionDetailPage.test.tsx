@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -610,5 +610,163 @@ describe("TransactionDetailPage commission change", () => {
 
     expect(screen.getByText(rateLabel)).toBeTruthy();
     expect(screen.getByRole("button", { name: action })).toBeTruthy();
+  });
+});
+
+/* GCR-07 (reputation-api.md 1.8): each party's conduct stamp, so an admin can see why the order scored as it did. */
+describe("TransactionDetailPage conduct stamp (GCR-07)", () => {
+  beforeEach(() => {
+    mocks.locale = "en";
+  });
+
+  function detail(conduct: Record<string, unknown> | undefined) {
+    return {
+      order: { orderId: "ord-5", status: "settled", buyerId: "buyer-5", farmerId: "farmer-5", truckerId: "trucker-5" },
+      escrow: null,
+      delivery: null,
+      timeline: [],
+      ...(conduct ? { conduct } : {}),
+    };
+  }
+
+  const times = { occurredAt: "2026-11-20T10:00:00.000Z", recordedAt: "2026-11-20T10:00:05.000Z" };
+
+  const farmer = {
+    party: "farmer",
+    userId: "farmer-5",
+    offered: 2,
+    earned: 2,
+    counted: true,
+    steps: [
+      { id: "as_described", result: "earned" },
+      { id: "stock_current", result: "earned" },
+    ],
+    ...times,
+  };
+
+  const trucker = {
+    party: "trucker",
+    userId: "trucker-5",
+    offered: 4,
+    earned: 3,
+    counted: false,
+    notCountedReason: "pair_cap",
+    steps: [
+      { id: "pickup_scanned", result: "earned" },
+      { id: "pickup_fix", result: "left_out", reason: "no_signal" },
+      { id: "pickup_photo", result: "missed" },
+      { id: "picked_up_on_day", result: "earned" },
+      { id: "trip_shared", result: "earned" },
+    ],
+    ...times,
+  };
+
+  const buyer = {
+    party: "buyer",
+    userId: "buyer-5",
+    offered: 3,
+    earned: 2,
+    counted: true,
+    steps: [
+      { id: "confirmed_in_person", result: "earned" },
+      { id: "dropoff_photo", result: "left_out", reason: "web" },
+      { id: "rated_parties", result: "missed" },
+      { id: "farm_point_measured", result: "earned" },
+    ],
+    ...times,
+    reevaluatedAt: "2026-11-21T08:00:00.000Z",
+  };
+
+  it("shows each party's score, whether it counts, and every step with its result and why it was left out", () => {
+    mocks.detail.data = detail({ parties: [farmer, trucker, buyer] });
+
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "Handoff conduct" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    const farmerStamp = screen.getByRole("region", { name: "Farmer" });
+    expect(farmerStamp.textContent).toContain("2 of 2 steps taken");
+    expect(within(farmerStamp).getByText("Verified handoffs").nextElementSibling?.textContent).toBe("Counted");
+    expect(within(farmerStamp).getByRole("link", { name: "farmer-5" }).getAttribute("href")).toBe("/users/farmer-5");
+    expect(within(farmerStamp).getByText("Settled")).toBeTruthy();
+    expect(within(farmerStamp).getByText("Stamped")).toBeTruthy();
+    expect(within(farmerStamp).queryByText("Re-evaluated (late rating or photo)")).toBeNull();
+    expect(within(farmerStamp).getByText("Goods as described")).toBeTruthy();
+
+    const truckerStamp = screen.getByRole("region", { name: "Trucker" });
+    expect(truckerStamp.textContent).toContain("3 of 4 steps taken");
+    expect(within(truckerStamp).getByText("Verified handoffs").nextElementSibling?.textContent).toBe(
+      "Not countedAlready 2 counted orders with the same party within 30 days",
+    );
+    const steps = within(truckerStamp).getByRole("table", { name: "Trucker: steps" });
+    expect(within(steps).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Step", "Result", "Why left out"]);
+    const cells = (label: string) =>
+      Array.from(within(steps).getByText(label).closest("tr")?.querySelectorAll("td") ?? []).map((td) => td.textContent);
+    expect(cells("GPS fix at pickup")).toEqual(["GPS fix at pickup", "Left out", "No GPS signal in time"]);
+    expect(cells("Pickup photo")).toEqual(["Pickup photo", "Missed", ""]);
+    expect(cells("Pickup QR scanned, not typed")).toEqual(["Pickup QR scanned, not typed", "Earned", ""]);
+
+    const buyerStamp = screen.getByRole("region", { name: "Buyer" });
+    expect(buyerStamp.textContent).toContain("2 of 3 steps taken");
+    expect(within(buyerStamp).getByText("Re-evaluated (late rating or photo)")).toBeTruthy();
+    expect(within(buyerStamp).getByText("The web app cannot take this step")).toBeTruthy();
+    // A step the admin has no label for yet reads as its id.
+    expect(within(buyerStamp).getByText("farm_point_measured")).toBeTruthy();
+
+    // Farmer, trucker, buyer, in the order the server lists them.
+    expect(screen.getAllByRole("region").map((r) => r.getAttribute("aria-label"))).toEqual(["Farmer", "Trucker", "Buyer"]);
+  });
+
+  it("says the order is not stamped yet when no party has a stamp", () => {
+    mocks.detail.data = detail({ parties: [] });
+
+    renderPage();
+
+    expect(screen.getByText("Not stamped yet: the stamp is written when the order settles.")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("warns when some stamps could not be read and still lists the ones read", () => {
+    mocks.detail.data = detail({ parties: [farmer], readFailed: true });
+
+    renderPage();
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Some parties' stamps could not be read, so they are missing here. Reload the page to try again.",
+    );
+    expect(screen.getByRole("region", { name: "Farmer" })).toBeTruthy();
+  });
+
+  it("does not call an order unstamped when no stamp could be read", () => {
+    mocks.detail.data = detail({ parties: [], readFailed: true });
+
+    renderPage();
+
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByText(/Not stamped yet/)).toBeNull();
+  });
+
+  it("shows no conduct card when the server sends no conduct", () => {
+    mocks.detail.data = detail(undefined);
+
+    renderPage();
+
+    expect(screen.queryByRole("heading", { name: "Handoff conduct" })).toBeNull();
+  });
+
+  it.each([
+    ["am", "የርክክብ ስነ ምግባር", "ገበሬ", "በመውሰጃ የGPS ቦታ", "በጊዜው የGPS ምልክት አልተገኘም"],
+    ["om", "Amala walharkaan qaqqabsiisuu", "Qonnaan bulaa", "Bakka GPS fudhannaa irratti", "Mallattoon GPS yeroodhaan hin argamne"],
+  ] as const)("uses the admin's language in %s", (locale, title, farmerLabel, step, reason) => {
+    mocks.locale = locale;
+    mocks.detail.data = detail({ parties: [farmer, trucker] });
+
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: title })).toBeTruthy();
+    expect(screen.getByRole("region", { name: farmerLabel })).toBeTruthy();
+    expect(screen.getByText(step)).toBeTruthy();
+    expect(screen.getByText(reason)).toBeTruthy();
   });
 });
