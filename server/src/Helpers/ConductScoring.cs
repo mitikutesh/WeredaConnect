@@ -109,9 +109,10 @@ public sealed record ConductPings(bool Read, int Fixes, bool AnyMocked, bool Cov
 /// GCR-03 (good-conduct-rewards.md sections 4 and 5, reputation-api.md 1.9.0 section 1.8): the conduct stamp of one
 /// party of one settled order as pure functions. Each step is <c>earned</c>, <c>missed</c> or <c>left_out</c> (the
 /// party could not take it, or the server has no record of it); <c>offered</c> counts the steps not left out,
-/// <c>earned</c> the steps taken. Reward only: nothing here costs a point, restricts or hides anyone, and nothing
-/// reads it back yet (GCR-04 does). Not scored here: the farm point (FUP-442), the check-ins (GCR-13), the
-/// identity step (once per window, GCR-04), the listing kept current and the drop-off code made ready (FUP-550).
+/// <c>earned</c> the steps taken. Reward only: nothing here costs a point, restricts or hides anyone. GCR-04 reads the
+/// stamps back into the verified figure (<see cref="Verified"/>, behind <c>conductRewards</c>). Not scored here: the
+/// farm point (FUP-442), the check-ins (GCR-13), the identity step (once per window, not per order: FUP-575), the
+/// listing kept current and the drop-off code made ready (FUP-560).
 /// </summary>
 public static class ConductScoring
 {
@@ -584,6 +585,43 @@ public static class ConductScoring
     /// <summary>Whether a stamp may still take its one re-evaluation at <paramref name="now"/>.</summary>
     public static bool CanReevaluate(ConductStamp? stamp, DateTime now)
         => stamp != null && stamp.ReevaluatedAt == null && now - stamp.RecordedAt <= ReevaluationWindow;
+
+    // ===== the figure (GCR-04, reputation-api.md 1.10.0 section 1.9) =====
+
+    /// <summary>Spec 5: the figure reads the orders settled in the last 90 days, the window of <c>reliabilityPct</c>.</summary>
+    public static TimeSpan VerifiedWindow => ReputationPolicy.ReliabilityWindow;
+
+    /// <summary>
+    /// Spec 5: the figure is absent below this many counted orders ("like <c>reliabilityPct</c>"). A constant, not the
+    /// policy's <c>reliabilityMinOrders</c>: that parameter is read only while <c>reputationPenalties</c> is on, and
+    /// <c>conductRewards</c> is independent of it.
+    /// </summary>
+    public const int VerifiedMinOrders = 3;
+
+    /// <summary>A party's counted stamps read for the figure, at most (more than 11 counted orders a day for 90 days).</summary>
+    public const int VerifiedReadCap = 1000;
+
+    /// <summary>
+    /// Spec 5: <c>verifiedPct = round(100 x sum(earned) / sum(offered))</c>, a whole percent rounded half up, over the
+    /// party's counted stamps that settled in the window (<c>occurredAt</c> after <paramref name="now"/> minus
+    /// <see cref="VerifiedWindow"/>, and not after <paramref name="now"/>: the bounds of <c>reliabilityPct</c>). Null
+    /// below <see cref="VerifiedMinOrders"/> such stamps, or when they offered no step. A stamp's <c>earned</c> is
+    /// taken at most at its <c>offered</c>, so the figure never passes 100. Stamps that do not count are ignored
+    /// whatever the caller passes.
+    /// </summary>
+    public static ConductVerified Verified(IEnumerable<ConductStamp> stamps, DateTime now)
+    {
+        var windowStart = now - VerifiedWindow;
+        var counted = stamps
+            .Where(s => s.Counted && s.OccurredAt > windowStart && s.OccurredAt <= now)
+            .ToList();
+        var offered = counted.Sum(s => (long)Math.Max(0, s.Offered));
+        var earned = counted.Sum(s => (long)Math.Clamp(s.Earned, 0, Math.Max(0, s.Offered)));
+        int? pct = counted.Count >= VerifiedMinOrders && offered > 0
+            ? (int)Math.Round(100m * earned / offered, 0, MidpointRounding.AwayFromZero)
+            : null;
+        return new ConductVerified(pct, counted.Count);
+    }
 
     /// <summary>The server's time in a photo key (<c>.../{type}-{ms}.{ext}</c>), or null.</summary>
     internal static DateTime? PhotoKeyTime(string? key)

@@ -347,9 +347,12 @@ class SyncBatchResult {
 ///   `pickupClassification` off gives it → reject, never retried, undo
 ///   through [PermanentRejectionHandler] (which reads the order again) and
 ///   announce
-/// - `error` with `CROP_VALIDATION` or `TRIP_VALIDATION` (FUP-74), but the
-///   profile texts an older server still sends under them → reject, never
-///   retried, not undone, announced
+/// - `error` with `CROP_VALIDATION` or `TRIP_VALIDATION` (FUP-74), or
+///   `DELIVERY_VALIDATION` (FUP-553), but the profile texts an older server
+///   still sends under them → reject, never retried, not undone, announced
+/// - `error` with `ORDER_PROFILE_UNAVAILABLE` or `ORDER_PROFILE_INCOMPLETE`
+///   (FUP-553), or the same texts under an older server's `ORDER_VALIDATION`
+///   → mark failed and retry like an unnamed code: the local order is kept
 /// - `error` with `USER_PROFILE_VALIDATION` or `AUTH_027` on a profile edit
 ///   (`user`, FUP-315) → reject, never retried, undo through
 ///   [PermanentRejectionHandler] (the server's profile goes back on the
@@ -1335,9 +1338,11 @@ class SyncExecutor {
   /// another user's order and a changed immutable field (1.27.0, FUP-110).
   /// A role gate also answers a token without the role claim, so it retries
   /// ([isUnretryableFraudSignalMessage]). Since 1.72.0 (FUP-74) every
-  /// `CROP_VALIDATION` and `TRIP_VALIDATION` is permanent too, but the
-  /// profile texts an older server still sends under them
-  /// ([isListingValidationMessage]).
+  /// `CROP_VALIDATION` and `TRIP_VALIDATION` is permanent too, and since
+  /// 1.73.0 (FUP-553) every `DELIVERY_VALIDATION`, but the profile texts an
+  /// older server still sends under them ([isListingValidationMessage],
+  /// [isDeliveryValidationMessage]). The order create's profile refusals are
+  /// not `ORDER_*` refusals here ([isRevertableRejectionMessage]): retried.
   static bool _isPermanentRejection(String? message) {
     if (message == null) return false;
     return message.startsWith('FRAUD_') ||
@@ -1357,7 +1362,8 @@ class SyncExecutor {
         isDeliveryPhotoRejectionMessage(message) ||
         isCheckInRefusalMessage(message) ||
         isUnretryableFraudSignalMessage(message) ||
-        isListingValidationMessage(message);
+        isListingValidationMessage(message) ||
+        isDeliveryValidationMessage(message);
   }
 
   /// FUP-315 (sync-protocol.md 1.72.0): a profile edit refused for its values

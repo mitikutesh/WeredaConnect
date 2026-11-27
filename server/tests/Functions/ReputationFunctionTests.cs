@@ -32,6 +32,9 @@ public class ReputationFunctionTests
     private readonly TestLambdaContext _ctx = new();
     private readonly List<Dictionary<string, object>> _auditRows = new();
 
+    /// <summary>GCR-04: the conduct stamps in the same table, wired as the Lambda wires them.</summary>
+    private readonly FakeConductStamps _stamps = new();
+
     public ReputationFunctionTests()
     {
         _repo.AddUser("farmer-1");
@@ -48,11 +51,12 @@ public class ReputationFunctionTests
     private ReputationService Service()
         => new(_repo, ReputationPolicySettings.Defaults, Substitute.For<IFraudDetectionService>(), _clock, _ => Task.CompletedTask);
 
-    private ReputationFunction Function(bool penalties = true, bool publicTags = true)
-        => new(_repo, Service(), _audit, _s3, "uploads-bucket")
+    private ReputationFunction Function(bool penalties = true, bool publicTags = true, bool conduct = false)
+        => new(_repo, Service(), _audit, _s3, "uploads-bucket", _stamps)
         {
             PenaltiesEnabled = penalties,
             PublicTags = publicTags,
+            ConductRewards = conduct,
             Clock = () => _clock.Now
         };
 
@@ -594,6 +598,224 @@ public class ReputationFunctionTests
         await Error(Get("/reputation/me", "farmer-1", "farmer"), 500, "REPUTATION_SERVER_ERROR");
     }
 
+    // ===== GCR-04: the verified figure behind conductRewards (reputation-api.md 1.10.0 section 1.9) =====
+
+    /// <summary>Stamps for <paramref name="userId"/>, each settled <c>DaysAgo</c> before <see cref="T0"/>.</summary>
+    private void Stamped(string userId, params (int Offered, int Earned, double DaysAgo, bool Counted)[] rows)
+    {
+        for (var i = 0; i < rows.Length; i++)
+        {
+            var (offered, earned, daysAgo, counted) = rows[i];
+            var orderId = $"o-{userId}-{i}";
+            var at = T0 - TimeSpan.FromDays(daysAgo);
+            _stamps.Rows[(userId, orderId)] = new ConductStamp
+            {
+                UserId = userId,
+                OrderId = orderId,
+                Party = _repo.Users[userId].Role,
+                FarmerId = "farmer-1",
+                TruckerId = "trucker-1",
+                BuyerId = "buyer-1",
+                Offered = offered,
+                Earned = earned,
+                Counted = counted,
+                NotCountedReason = counted ? null : "pair_cap",
+                OccurredAt = at,
+                RecordedAt = at
+            };
+        }
+    }
+
+    /// <summary>A farmer with ratings, a penalty and four counted stamps (13 of 16 steps) plus two that must not count.</summary>
+    private async Task FarmerWithStamps()
+    {
+        _repo.Users["farmer-1"].RatingSum = 48;
+        _repo.Users["farmer-1"].RatingCount = 10;
+        await Penalty("farmer-1", "CANCEL#o1", T0.AddDays(-2), ReputationCodes.LateCancel);
+        Stamped("farmer-1", (4, 4, 1, true), (4, 3, 10, true), (4, 4, 30, true), (4, 2, 89, true),
+            (4, 0, 5, false), (4, 0, 91, true));
+    }
+
+    private static readonly string[] VerifiedKeys = { "verifiedPct", "verifiedOrders90d" };
+
+    /// <summary>
+    /// The answers as built before GCR-04 (ESC-29), pinned byte for byte: with <c>conductRewards</c> off, stamps or no
+    /// stamps, nothing changes and no stamp is read.
+    /// </summary>
+    private const string OwnSnapshot =
+        """{"reputation":{"userId":"farmer-1","role":"farmer","tier":"warning","activePoints":4,"thresholds":{"warning":3,"low":6,"restricted":10},"ratingAverage":4.8,"ratingCount":10,"ratingDeduction":0.4,"effectiveRating":4.4,"completedOrders90d":0,"faultCancels90d":1,"noShows90d":0,"nextPointExpiryAt":"2027-02-03T09:00:00.000Z","penaltiesEnabled":true,"asOf":"2026-11-07T09:00:00.000Z"}}""";
+
+    private const string PublicSnapshot =
+        """{"reputation":{"userId":"farmer-1","role":"farmer","tier":"good","ratingAverage":4.8,"ratingCount":10,"effectiveRating":4.4,"completedOrders90d":0,"totalOrders90d":1,"asOf":"2026-11-07T09:00:00.000Z"}}""";
+
+    private const string PublicTagsOffSnapshot =
+        """{"reputation":{"userId":"farmer-1","role":"farmer","ratingAverage":4.8,"ratingCount":10,"asOf":"2026-11-07T09:00:00.000Z"}}""";
+
+    [Fact]
+    public async Task ConductRewardsOff_NoAnswerChanges_AndNoStampIsRead()
+    {
+        await FarmerWithStamps();
+
+        var own = await OkText(Get("/reputation/me", "farmer-1", "farmer"));
+        var pub = await OkText(Get("/reputation/farmer-1", "buyer-1", "buyer"));
+        var pubTagsOff = await OkText(Get("/reputation/farmer-1", "buyer-1", "buyer"), publicTags: false);
+
+        own.Should().Be(OwnSnapshot);
+        pub.Should().Be(PublicSnapshot);
+        pubTagsOff.Should().Be(PublicTagsOffSnapshot);
+        foreach (var body in new[] { own, pub, pubTagsOff })
+        {
+            body.Should().NotContain("verified");
+        }
+
+        _stamps.CountedQueries.Should().BeEmpty("off, the stamps are never read");
+
+        // And the same as a Lambda wired with no stamp store at all.
+        var unwired = new ReputationFunction(_repo, Service(), _audit, _s3, "uploads-bucket")
+        {
+            PenaltiesEnabled = true,
+            PublicTags = true,
+            Clock = () => _clock.Now
+        };
+        (await unwired.FunctionHandler(Get("/reputation/me", "farmer-1", "farmer"), _ctx)).Body.Should().Be(own);
+        (await unwired.FunctionHandler(Get("/reputation/farmer-1", "buyer-1", "buyer"), _ctx)).Body.Should().Be(pub);
+    }
+
+    [Theory]
+    [InlineData("farmer-1")]
+    [InlineData("trucker-1")]
+    public async Task ConductRewardsOn_TheOwnView_CarriesTheFigure_AndNothingElseChanges(string userId)
+    {
+        var role = _repo.Users[userId].Role;
+        // 13 of 16 steps over the four counted orders of the window (81.25%): the uncounted and the 91 day old stamps are ignored.
+        Stamped(userId, (4, 4, 1, true), (4, 3, 10, true), (4, 4, 30, true), (4, 2, 89, true), (4, 0, 5, false), (4, 0, 91, true));
+
+        var off = await OkText(Get("/reputation/me", userId, role));
+        var on = (await Ok(Get("/reputation/me", userId, role), conduct: true)).GetProperty("reputation");
+
+        on.GetProperty("verifiedPct").GetInt32().Should().Be(81);
+        on.GetProperty("verifiedOrders90d").GetInt32().Should().Be(4);
+        WithoutVerified(on).Should().BeEquivalentTo(WithoutVerified(JsonDocument.Parse(off).RootElement.GetProperty("reputation")));
+        _stamps.CountedQueries.Should().ContainSingle()
+            .Which.Should().Be((userId, T0 - TimeSpan.FromDays(90), ConductScoring.VerifiedReadCap));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ConductRewardsOn_ThePublicSummary_CarriesTheFigure_WhateverPublicTagsSays(bool publicTags)
+    {
+        await FarmerWithStamps();
+
+        var r = (await Ok(Get("/reputation/farmer-1", "buyer-1", "buyer"), publicTags: publicTags, conduct: true)).GetProperty("reputation");
+
+        r.GetProperty("verifiedPct").GetInt32().Should().Be(81);
+        r.GetProperty("verifiedOrders90d").GetInt32().Should().Be(4);
+        r.TryGetProperty("tier", out _).Should().Be(publicTags, "reputationPublicTags still decides the tier");
+        r.TryGetProperty("activePoints", out _).Should().BeFalse("the public summary never shows points");
+
+        // A farmer reading how buyers see them gets the same figure.
+        var self = (await Ok(Get("/reputation/farmer-1", "farmer-1", "farmer"), conduct: true)).GetProperty("reputation");
+        self.GetProperty("verifiedPct").GetInt32().Should().Be(81);
+    }
+
+    [Fact]
+    public async Task ConductRewardsOn_BelowThreeCountedOrders_OnlyTheCountShows()
+    {
+        Stamped("farmer-1", (4, 4, 1, true), (4, 4, 2, true), (4, 4, 3, false), (4, 4, 4, false));
+
+        var r = (await Ok(Get("/reputation/me", "farmer-1", "farmer"), conduct: true)).GetProperty("reputation");
+        r.TryGetProperty("verifiedPct", out _).Should().BeFalse("absent below 3 counted orders, like reliabilityPct");
+        r.GetProperty("verifiedOrders90d").GetInt32().Should().Be(2);
+
+        // No stamp at all: a count of 0, still no figure.
+        var trucker = (await Ok(Get("/reputation/me", "trucker-1", "trucker"), conduct: true)).GetProperty("reputation");
+        trucker.TryGetProperty("verifiedPct", out _).Should().BeFalse();
+        trucker.GetProperty("verifiedOrders90d").GetInt32().Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ConductRewardsOn_TheWindowIs90DaysBeforeTheRead()
+    {
+        // Two inside, one settled exactly 90 days before the read: out, so no figure yet.
+        Stamped("farmer-1", (2, 2, 1, true), (2, 2, 2, true), (2, 0, 90, true));
+        var atEdge = (await Ok(Get("/reputation/me", "farmer-1", "farmer"), conduct: true)).GetProperty("reputation");
+        atEdge.TryGetProperty("verifiedPct", out _).Should().BeFalse();
+        atEdge.GetProperty("verifiedOrders90d").GetInt32().Should().Be(2);
+
+        // Settled one millisecond after that edge: in.
+        _stamps.Rows[("farmer-1", "o-farmer-1-2")] = _stamps.Rows[("farmer-1", "o-farmer-1-2")] with
+        {
+            OccurredAt = T0 - TimeSpan.FromDays(90) + TimeSpan.FromMilliseconds(1)
+        };
+        var inside = (await Ok(Get("/reputation/me", "farmer-1", "farmer"), conduct: true)).GetProperty("reputation");
+        inside.GetProperty("verifiedPct").GetInt32().Should().Be(67, "4 of 6 steps");
+        inside.GetProperty("verifiedOrders90d").GetInt32().Should().Be(3);
+
+        // A day on, the oldest order leaves the window with no write: the read time moves it.
+        _clock.Now = T0.AddDays(1);
+        var later = (await Ok(Get("/reputation/me", "farmer-1", "farmer"), conduct: true)).GetProperty("reputation");
+        later.TryGetProperty("verifiedPct", out _).Should().BeFalse();
+        later.GetProperty("verifiedOrders90d").GetInt32().Should().Be(2);
+    }
+
+    [Fact]
+    public async Task ConductRewardsOn_TheRoleRulesAreUnchanged_AndNoStampIsReadForARefusal()
+    {
+        Stamped("farmer-2", (4, 4, 1, true), (4, 4, 2, true), (4, 4, 3, true));
+        Stamped("buyer-2", (4, 4, 1, true), (4, 4, 2, true), (4, 4, 3, true));
+
+        // A buyer has stamps but no reputation; a farmer or trucker never reads anyone else's.
+        await Error(Get("/reputation/me", "buyer-2", "buyer"), 403, "REPUTATION_FORBIDDEN", conduct: true);
+        await Error(Get("/reputation/buyer-2", "buyer-1", "buyer"), 404, "REPUTATION_NOT_FOUND", conduct: true);
+        await Error(Get("/reputation/farmer-2", "farmer-1", "farmer"), 403, "REPUTATION_FORBIDDEN", conduct: true);
+        await Error(Get("/reputation/farmer-2", "trucker-1", "trucker"), 403, "REPUTATION_FORBIDDEN", conduct: true);
+        _stamps.CountedQueries.Should().BeEmpty();
+
+        // The events list never carries the figure or a stamp.
+        var events = await OkText(Get("/reputation/me/events", "farmer-2", "farmer"), conduct: true);
+        events.Should().NotContain("verified").And.NotContain("HANDOFF");
+        _stamps.CountedQueries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ConductRewardsOn_AFailedStampRead_LeavesTheFigureOut_AndTheRestAnswers()
+    {
+        await FarmerWithStamps();
+        var off = await OkText(Get("/reputation/me", "farmer-1", "farmer"));
+        _stamps.ThrowOnCountedQuery = new InvalidOperationException("throttled");
+
+        var on = await OkText(Get("/reputation/me", "farmer-1", "farmer"), conduct: true);
+
+        on.Should().Be(off);
+        ((TestLambdaLogger)_ctx.Logger).Buffer.ToString().Should().Contain(ReputationFunction.ConductReadFailedToken)
+            .And.Contain("InvalidOperationException").And.NotContain("throttled", "only the exception's type is logged");
+    }
+
+    [Fact]
+    public async Task ConductRewardsOn_MoreStampsThanTheCap_IsLogged()
+    {
+        for (var i = 0; i <= ConductScoring.VerifiedReadCap; i++)
+        {
+            _stamps.Rows[("farmer-1", $"o-{i}")] = new ConductStamp
+            {
+                UserId = "farmer-1", OrderId = $"o-{i}", Party = "farmer", FarmerId = "farmer-1", BuyerId = $"buyer-{i}",
+                Offered = 2, Earned = 1, Counted = true, OccurredAt = T0.AddMinutes(-i), RecordedAt = T0.AddMinutes(-i)
+            };
+        }
+
+        var r = (await Ok(Get("/reputation/me", "farmer-1", "farmer"), conduct: true)).GetProperty("reputation");
+
+        r.GetProperty("verifiedPct").GetInt32().Should().Be(50);
+        r.GetProperty("verifiedOrders90d").GetInt32().Should().Be(ConductScoring.VerifiedReadCap);
+        ((TestLambdaLogger)_ctx.Logger).Buffer.ToString().Should().Contain(ReputationFunction.ConductReadTruncatedToken);
+    }
+
+    private static Dictionary<string, string> WithoutVerified(JsonElement reputation)
+        => reputation.EnumerateObject()
+            .Where(p => !VerifiedKeys.Contains(p.Name))
+            .ToDictionary(p => p.Name, p => p.Value.GetRawText());
+
     // ===== helpers =====
 
     private static APIGatewayProxyRequest Get(string path, string userId, string? role, Dictionary<string, string>? query = null)
@@ -621,19 +843,19 @@ public class ReputationFunctionTests
         };
     }
 
-    private async Task<string> OkText(APIGatewayProxyRequest request, bool penalties = true, bool publicTags = true)
+    private async Task<string> OkText(APIGatewayProxyRequest request, bool penalties = true, bool publicTags = true, bool conduct = false)
     {
-        var response = await Function(penalties, publicTags).FunctionHandler(request, _ctx);
+        var response = await Function(penalties, publicTags, conduct).FunctionHandler(request, _ctx);
         response.StatusCode.Should().Be(200, response.Body);
         return response.Body;
     }
 
-    private async Task<JsonElement> Ok(APIGatewayProxyRequest request, bool penalties = true, bool publicTags = true)
-        => JsonDocument.Parse(await OkText(request, penalties, publicTags)).RootElement.Clone();
+    private async Task<JsonElement> Ok(APIGatewayProxyRequest request, bool penalties = true, bool publicTags = true, bool conduct = false)
+        => JsonDocument.Parse(await OkText(request, penalties, publicTags, conduct)).RootElement.Clone();
 
-    private async Task Error(APIGatewayProxyRequest request, int status, string code, bool penalties = true)
+    private async Task Error(APIGatewayProxyRequest request, int status, string code, bool penalties = true, bool conduct = false)
     {
-        var response = await Function(penalties).FunctionHandler(request, _ctx);
+        var response = await Function(penalties, conduct: conduct).FunctionHandler(request, _ctx);
         response.StatusCode.Should().Be(status, response.Body);
         JsonDocument.Parse(response.Body).RootElement.GetProperty("error").GetProperty("code").GetString().Should().Be(code);
     }

@@ -103,8 +103,10 @@ public sealed class OrderRepository : IOrderRepository
         Dictionary<string, object> data,
         int expectedVersion)
     {
-        // First, get the current item to know its sort key
-        var existing = await GetItemAsync(orderId);
+        // First, get the current item to know its sort key. FUP-76: strongly consistent (a Query of the
+        // table, no index), so an update right behind its create in one batch finds the row, and a
+        // conflict names the version stored now.
+        var existing = await GetItemAsync(orderId, consistentRead: true);
         if (existing == null)
         {
             return AuthResult<Dictionary<string, object>>.Failure(
@@ -123,7 +125,7 @@ public sealed class OrderRepository : IOrderRepository
             return VersionConflict(existing, expectedVersion);
         }
 
-        // ESC-16: the read above is eventually consistent, so check the deadline against the row written.
+        // ESC-16: check the deadline against the row written.
         await EnsureDeadlineAsync(result);
         return AuthResult<Dictionary<string, object>>.Success(result);
     }
@@ -159,7 +161,8 @@ public sealed class OrderRepository : IOrderRepository
     public async Task<AuthResult<Dictionary<string, object>>> UpdateUnlessEscrowHeldAsync(
         string orderId, Dictionary<string, object> data, int expectedVersion, EscrowRowKey escrow)
     {
-        var existing = await GetItemAsync(orderId);
+        // FUP-76: strongly consistent, as in UpdateAsync.
+        var existing = await GetItemAsync(orderId, consistentRead: true);
         if (existing == null)
         {
             return AuthResult<Dictionary<string, object>>.Failure(

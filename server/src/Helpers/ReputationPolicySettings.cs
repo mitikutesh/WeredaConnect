@@ -220,7 +220,7 @@ public sealed record ReputationPolicySettings
     public TimeSpan PointsLife => TimeSpan.FromDays(PointsLifeDays);
 }
 
-/// <summary>ESC-28: the two reputation flags (reputation-api.md section 11), env vars set by the CDK.</summary>
+/// <summary>ESC-28: the reputation flags (reputation-api.md section 11), env vars set by the CDK.</summary>
 public static class ReputationFlags
 {
     public const string PenaltiesEnv = "REPUTATION_PENALTIES_ENABLED";
@@ -239,6 +239,15 @@ public static class ReputationFlags
 
     /// <summary><c>timeoutPenalties</c>: <c>RESPONSE_EXPIRED</c> carries its point. Off by default.</summary>
     public static bool TimeoutPenaltiesEnabled => IsOn(TimeoutPenaltiesEnv);
+
+    public const string ConductRewardsEnv = "CONDUCT_REWARDS_ENABLED";
+
+    /// <summary>
+    /// GCR-04, <c>conductRewards</c>: the reputation reads carry <c>verifiedPct</c> and <c>verifiedOrders90d</c> from
+    /// the conduct stamps (reputation-api.md 1.10.0 sections 1.9, 2 and 3). Independent of the other three flags
+    /// (good-conduct-rewards.md section 8 item 7). Off by default.
+    /// </summary>
+    public static bool ConductRewardsEnabled => IsOn(ConductRewardsEnv);
 
     private static bool IsOn(string env)
         => string.Equals(Environment.GetEnvironmentVariable(env), "true", StringComparison.OrdinalIgnoreCase);

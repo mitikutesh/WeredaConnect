@@ -3978,6 +3978,54 @@ public partial class SyncFunctionTests
         Assert.Equal("Real Buyer", _createdOrder!["buyerName"]);
     }
 
+    // FUP-553 (sync-protocol.md 1.73.0): the buyer's profile decides these, not the operation, and a
+    // retry can pass both, so they are not ORDER_VALIDATION, which clients treat as permanent and
+    // revert (the local order removed).
+    [Fact]
+    public async Task OrderCreate_BuyerProfileMissing_AnswersTheProfileUnavailableCode()
+    {
+        SetupListing();
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns((UserDto?)null);
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp());
+
+        Assert.Equal(
+            "ORDER_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.",
+            FirstResultMessage(body));
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_BuyerProfileWithoutAnyName_AnswersTheProfileIncompleteCode()
+    {
+        SetupListing();
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns(new UserDto
+        {
+            UserId = "buyer-001",
+            PhoneNumber = "+251933333333",
+            DisplayName = "  ",
+            FullName = null,
+            Role = "buyer",
+            Woreda = "Jimma",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "buyerName", "Client Name" }
+        }));
+
+        Assert.Equal(
+            "ORDER_PROFILE_INCOMPLETE: Add your name to your profile before placing an order.",
+            FirstResultMessage(body));
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
     [Fact]
     public async Task OrderCreate_ListingNotFound_ReturnsValidationError()
     {
@@ -4305,8 +4353,8 @@ public partial class SyncFunctionTests
             { "commissionAmount", 113.75 }, { "orderTotal", 2448.75 },
             { "status", status }, { "version", version.ToString() }
         };
-        // Both read modes: order updates read it strongly consistent (FUP-21), the delivery
-        // paths that advance or size the order still read it eventually consistent.
+        // Both read modes: order updates (FUP-21) and the delivery's order advance (FUP-76) read it
+        // strongly consistent, other delivery paths that size the order still read it eventually consistent.
         _mockOrderRepo.GetByIdAsync("order-001").Returns(order);
         _mockOrderRepo.GetByIdAsync("order-001", true).Returns(order);
         return order;
@@ -5471,8 +5519,12 @@ public partial class SyncFunctionTests
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
 
-        Assert.Contains("DELIVERY_VALIDATION", response.Body);
-        Assert.Contains("farmer has no name", response.Body);
+        // FUP-553 (sync-protocol.md 1.73.0): the same create passes once the farmer adds a name,
+        // so not DELIVERY_VALIDATION, which clients treat as permanent.
+        Assert.Equal(
+            "DELIVERY_PROFILE_INCOMPLETE: The farmer has no name on their profile. "
+                + "Ask them to add one before creating a delivery.",
+            FirstResultMessage(response.Body));
         await DidNotWriteDelivery();
     }
 
@@ -5487,8 +5539,27 @@ public partial class SyncFunctionTests
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
 
-        Assert.Contains("DELIVERY_VALIDATION", response.Body);
-        Assert.Contains("farmer profile could not be read", response.Body);
+        // FUP-553: the profile decides it, not the operation.
+        Assert.Equal(
+            "DELIVERY_PROFILE_UNAVAILABLE: The farmer profile could not be read. Please try again later.",
+            FirstResultMessage(response.Body));
+        await DidNotWriteDelivery();
+    }
+
+    // FUP-553: the trucker's own profile (the trucker flow's third party) gets the same code.
+    [Fact]
+    public async Task DeliveryCreate_TruckerWithoutAnyName_IsRejectedWithTheProfileCode()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles();
+        _mockUserRepo.GetUserByIdAsync(TestTruckerId)
+            .Returns(PartyProfile(TestTruckerId, "trucker", "+251900100002", null));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        var message = FirstResultMessage(response.Body);
+        Assert.StartsWith("DELIVERY_PROFILE_INCOMPLETE: The trucker has no name", message);
         await DidNotWriteDelivery();
     }
 
@@ -5775,6 +5846,74 @@ public partial class SyncFunctionTests
         Assert.Contains("success", response.Body);
         await _mockOrderRepo.Received(1).UpdateAsync("order-001",
             Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "in_transit"), 1);
+    }
+
+    // FUP-76: the trucker's pickedUp then inTransit in one batch. An eventually consistent read of the order
+    // still shows it accepted at version 1 after the pickup advanced it, so an advance on that read conflicts
+    // and leaves the order one step behind. The advance reads the order strongly consistent.
+    [Fact]
+    public async Task DeliveryUpdates_PickedUpThenInTransitInOneBatch_TheOrderFollowsBothSteps()
+    {
+        var stale = SetupExistingOrder(status: "accepted");
+        var stored = new Dictionary<string, object>(stale);
+        _mockOrderRepo.GetByIdAsync("order-001").Returns(_ => new Dictionary<string, object>(stale));
+        _mockOrderRepo.GetByIdAsync("order-001", true).Returns(_ => new Dictionary<string, object>(stored));
+        _mockOrderRepo.UpdateAsync("order-001", Arg.Any<Dictionary<string, object>>(), Arg.Any<int>())
+            .Returns(ci =>
+            {
+                var expected = ci.ArgAt<int>(2);
+                if (stored["version"].ToString() != expected.ToString())
+                {
+                    return AuthResult<Dictionary<string, object>>.Failure(409, "SYNC_CONFLICT", "Version conflict.");
+                }
+
+                stored["status"] = ci.ArgAt<Dictionary<string, object>>(1)["status"];
+                stored["version"] = (expected + 1).ToString();
+                return AuthResult<Dictionary<string, object>>.Success(new Dictionary<string, object>(stored));
+            });
+
+        // The delivery moves with each write: pending, then pickedUp at 2, then inTransit at 3.
+        var delivery = DeliveryItemWithFarmerNonce();
+        _mockDynamoDb.QueryAsync(Arg.Is<QueryRequest>(r => r.TableName == "test-deliveries-table"))
+            .Returns(_ => new QueryResponse { Items = new List<Dictionary<string, AttributeValue>> { new(delivery) } });
+        _mockDynamoDb.UpdateItemAsync(Arg.Any<UpdateItemRequest>())
+            .Returns(ci =>
+            {
+                var update = ci.ArgAt<UpdateItemRequest>(0);
+                var next = new[] { "pickedUp", "inTransit" }
+                    .FirstOrDefault(s => update.ExpressionAttributeValues.Values.Any(v => v.S == s));
+                if (update.TableName == "test-deliveries-table" && next != null)
+                {
+                    delivery = new Dictionary<string, AttributeValue>(delivery)
+                    {
+                        ["status"] = new AttributeValue { S = next },
+                        ["version"] = new AttributeValue { N = next == "pickedUp" ? "2" : "3" }
+                    };
+                }
+
+                return new UpdateItemResponse { Attributes = delivery };
+            });
+
+        var pickedUp = MakeDeliveryUpdateOp(new Dictionary<string, object>
+        {
+            { "status", "pickedUp" }, { "scannedQrNonce", LegacyFarmerNonce }, { "version", 1 }
+        });
+        var inTransit = MakeDeliveryUpdateOp(new Dictionary<string, object> { { "status", "inTransit" }, { "version", 2 } })
+            with
+        {
+            OperationId = "op-del-update-2",
+            IdempotencyKey = "user:delivery:del-001:update:12346"
+        };
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(pickedUp, inTransit), "trucker-001"), _context);
+
+        Assert.DoesNotContain("\"error\"", response.Body);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "pickup_confirmed"), 1);
+        await _mockOrderRepo.Received(1).UpdateAsync("order-001",
+            Arg.Is<Dictionary<string, object>>(d => d["status"].ToString() == "in_transit"), 2);
+        Assert.Equal("in_transit", stored["status"]);
     }
 
     [Theory]

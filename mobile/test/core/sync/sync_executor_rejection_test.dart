@@ -1745,6 +1745,137 @@ void main() {
     }
   });
 
+  // FUP-553 (sync-protocol.md 1.73.0): the buyer's or a delivery party's
+  // profile decides these, not the operation, so a retry can pass them; an
+  // older server still sends them under ORDER_VALIDATION and
+  // DELIVERY_VALIDATION. A refused order create keeps its local order.
+  group('order and delivery profile refusals keep retrying', () {
+    for (final (entityType, entityId, message) in [
+      (
+        'order',
+        'order-1',
+        'ORDER_PROFILE_UNAVAILABLE: Your profile could not be read. Please '
+            'try again later.',
+      ),
+      (
+        'order',
+        'order-1',
+        'ORDER_PROFILE_INCOMPLETE: Add your name to your profile before '
+            'placing an order.',
+      ),
+      (
+        'delivery',
+        'del-1',
+        'DELIVERY_PROFILE_UNAVAILABLE: The farmer profile could not be read. '
+            'Please try again later.',
+      ),
+      (
+        'delivery',
+        'del-1',
+        'DELIVERY_PROFILE_INCOMPLETE: The buyer has no name on their profile. '
+            'Ask them to add one before creating a delivery.',
+      ),
+      // An older server.
+      (
+        'order',
+        'order-1',
+        'ORDER_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+      ),
+      (
+        'order',
+        'order-1',
+        'ORDER_VALIDATION: Add your name to your profile before placing an '
+            'order.',
+      ),
+      (
+        'delivery',
+        'del-1',
+        'DELIVERY_VALIDATION: The trucker profile could not be read. Please '
+            'try again later.',
+      ),
+      (
+        'delivery',
+        'del-1',
+        'DELIVERY_VALIDATION: The farmer has no name on their profile. Ask '
+            'them to add one before creating a delivery.',
+      ),
+    ]) {
+      test(message, () async {
+        await enqueue(
+          'op-1',
+          entityType: entityType,
+          entityId: entityId,
+          action: 'create',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+
+        final op = await syncQueue.getOperation('op-1');
+        expect(op!.status, SyncStatus.pending);
+        expect(op.retryCount, 1);
+        expect(op.reverted, isFalse);
+        // The local order or delivery stays: nothing is undone or removed.
+        expect(reverts, isEmpty);
+        await Future<void>.delayed(Duration.zero);
+        expect(rejections(), isEmpty);
+      });
+    }
+  });
+
+  // FUP-553 (sync-protocol.md 1.73.0): with the party profile refusals out of
+  // it, DELIVERY_VALIDATION judges only the operation and the rows it names.
+  // Never resent, not reverted, still counted, explained as not saved.
+  group('DELIVERY_VALIDATION is permanent, not reverted', () {
+    for (final (action, message) in [
+      ('create', 'DELIVERY_VALIDATION: Unknown fields: gpsStatus'),
+      (
+        'create',
+        'DELIVERY_VALIDATION: Order is funded; no delivery can be created '
+            'until the farmer has accepted it (accepted, pickup_confirmed or '
+            'in_transit).',
+      ),
+      ('create', 'DELIVERY_VALIDATION: farmerId is required.'),
+      (
+        'update',
+        'DELIVERY_VALIDATION: gpsPickup requires numeric latitude and '
+            'longitude.',
+      ),
+    ]) {
+      test('$action: $message', () async {
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          action: action,
+          data: '{"version":2}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        await executor.syncNow();
+        expect(syncPosts, 1, reason: 'never resent');
+        expect(reverts, isEmpty);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+        expect(await syncQueue.getFailedCount(), 1);
+        expect(rejections().single.message, message);
+        expect(
+          syncRejectionErrorCode(
+            entityType: 'delivery',
+            action: action,
+            message: message,
+          ),
+          AppErrorCode.changeNotSaved,
+        );
+      });
+    }
+  });
+
   // FUP-315 (sync-protocol.md 1.72.0): a profile edit refused for its values
   // gets the same answer every time. Never resent, the handler puts the
   // server's profile back, and it leaves the "Sync failed" count.
@@ -2406,9 +2537,15 @@ void main() {
         'RATING_FORBIDDEN: You can only rate a delivered order (delivered, '
             'disbursing or settled).',
       ),
-      // CROP_VALIDATION and TRIP_VALIDATION are permanent since 1.72.0
-      // (FUP-74); DELIVERY_VALIDATION still carries a failed profile read.
-      ('delivery', 'del-1', 'DELIVERY_VALIDATION: Invalid gpsPickup.'),
+      // CROP_VALIDATION, TRIP_VALIDATION (1.72.0, FUP-74) and
+      // DELIVERY_VALIDATION (1.73.0, FUP-553) are permanent; a party's
+      // profile has its own code, which retries.
+      (
+        'delivery',
+        'del-1',
+        'DELIVERY_PROFILE_UNAVAILABLE: The farmer profile could not be read. '
+            'Please try again later.',
+      ),
       // Not an _UNAUTHORIZED code, only text that contains the word.
       ('delivery', 'del-1', 'Delivery update was UNAUTHORIZED somehow.'),
       // A role gate also answers a token without the role claim (a client
