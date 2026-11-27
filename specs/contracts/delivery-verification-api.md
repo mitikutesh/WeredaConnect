@@ -1,7 +1,7 @@
 # Delivery Verification API Contract
 
 ## Version
-2.19.0
+2.20.0
 
 ## Parties
 - **Mobile** (client) -- farmers, truckers, and buyers verifying delivery handoffs
@@ -1139,7 +1139,7 @@ phone under its key; offline and never cached, the tile says it shows when onlin
 4. **Farmer ID / Trucker ID / Buyer ID**:
    - Must reference existing users
    - Farmer must own the listing, trucker must own the trip
-   - On create the server stamps `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and (trucker flow only) `truckerName`/`truckerPhone` from the users table; values sent by the client are ignored. A party with no name on their profile keeps the order row's name, unless that is the party's id or any UUID (2.3.0, FUP-130: orders written before `order-lifecycle.md` 2.11.0 may hold the id where the name belongs), which is no name. The create is rejected with `DELIVERY_VALIDATION` when a party's profile cannot be read or no name is known at all; a self-pickup stores no trucker contact (v1.6.1, SIM-46)
+   - On create the server stamps `buyerName`/`buyerPhone`, `farmerName`/`farmerPhone` and (trucker flow only) `truckerName`/`truckerPhone` from the users table; values sent by the client are ignored. A party with no name on their profile keeps the order row's name, unless that is the party's id or any UUID (2.3.0, FUP-130: orders written before `order-lifecycle.md` 2.11.0 may hold the id where the name belongs), which is no name. The create is rejected when a party's profile cannot be read (`DELIVERY_PROFILE_UNAVAILABLE: The <party> profile could not be read. Please try again later.`) or no name is known at all (`DELIVERY_PROFILE_INCOMPLETE: The <party> has no name on their profile. Ask them to add one before creating a delivery.`); both were `DELIVERY_VALIDATION` before 2.20.0 (FUP-553), and clients retry them while every `DELIVERY_VALIDATION` is permanent on mobile (`sync-protocol.md` 1.73.0). A self-pickup stores no trucker contact (v1.6.1, SIM-46)
 5. **QR Token**:
    - Must be valid Base64url encoding
    - Decoded payload must contain all required fields
@@ -1155,7 +1155,8 @@ phone under its key; offline and never cached, the tile says it shows when onlin
      (0, 0) included. The check runs after the 5 km checks below, so where a reference point exists
      their `DELIVERY_GPS_PROXIMITY` refusal (permanent, the phone's handoff put back) still answers
      first; this one answers only where no reference point exists (a listing without a point, a trip
-     and order without a drop-off point). The clients retry it as any `DELIVERY_VALIDATION`; no shipped
+     and order without a drop-off point). Clients before `sync-protocol.md` 1.73.0 retry it as any
+     `DELIVERY_VALIDATION`; since 1.73.0 mobile treats it as permanent, not reverted (FUP-553). No shipped
      app sends such a point from a real fix in Ethiopia. Before 2.16.0 nothing checked it, so a crafted
      client could store (0, 0) or a point abroad on such a delivery
    - Pickup GPS must be within 5km of listing location
@@ -2135,6 +2136,7 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 
 | Version | Date | Change |
 |---------|------|--------|
+| 2.20.0 | 2026-11-27 | Party profile refusals of a create (FUP-553, `sync-protocol.md` 1.73.0; Validation Rules 4): a party whose profile cannot be read is `DELIVERY_PROFILE_UNAVAILABLE`, one with no name known `DELIVERY_PROFILE_INCOMPLETE`, with the same sentences (both were `DELIVERY_VALIDATION`). `DELIVERY_VALIDATION` now judges only the operation and the rows it names, and the mobile queue treats it as permanent, not reverted; the two profile codes, and the same texts from an older server, are retried. Web unchanged (a failure). Footer drift fixed (it still said 2.18.0). |
 | 2.19.0 | 2026-11-26 | Handoff evidence (FUP-440, GCR-01, GCR-02; SPK-01 sections 2 and 6, `good-conduct-rewards.md` section 8 items 1 to 3; `sync-protocol.md` 1.71.0, `escrow-protocol.md` 2.30.0, `data-models.md` 1.24.0, `account-deletion.md` 1.7.4). A handoff may send `gpsStatus` in `data`, `capturedAt` and `accuracyM` inside its point, and the operation's `platform`; the server stamps, server-only and in the transition's own write, `{leg}GpsStatus`, `{leg}GpsCapturedAt`, `{leg}GpsAccuracyM`, `{leg}Method` (`qr` or `code`, from the nonce check), `{leg}Platform` and `dropoffCapturedAt` (Create/Update Delivery "Handoff evidence"). A bad value is left out, never refused; old clients are accepted with only the method stamped; never returned to a client, and a client value is an unknown field. The stored point stays latitude and longitude. Deploy the server first: an older one refuses `gpsStatus` as an unknown field. |
 | 2.18.0 | 2026-11-19 | A pickup without a fix (persona simulation BUG-5, FUP-448; fraud spec 3.44.0): still accepted, with the weight 0 review flag `PICKUP_NO_FIX` on the trucker; the trucker's `GPS_ANOMALY` row judges the check-ins against the listing's point when no `gpsPickup` was stored. A dispute stamps the handoff evidence for admins (`escrow-protocol.md` 2.28.0). No wire or client change. |
 | 1.0.0 | 2026-02-17 | Initial contract: CRUD endpoints, QR verification, GPS validation, photo evidence, state machine, offline behavior, Ethiopian context |
@@ -2190,6 +2192,6 @@ the local pickup (the ticket adds the rule to `sync-protocol.md`).
 
 ---
 
-**Last Updated**: 2026-11-19
-**Version**: 2.18.0
+**Last Updated**: 2026-11-27
+**Version**: 2.20.0
 **Status**: Draft (Phase R4.2)

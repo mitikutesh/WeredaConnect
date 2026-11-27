@@ -146,6 +146,15 @@ export interface EnvironmentConfig {
    */
   readonly reputationPublicTags?: boolean;
   /**
+   * CONDUCT_REWARDS_ENABLED on the reputation Lambda (GCR-04, reputation-api.md 1.10.0 section 1.9). On,
+   * `GET /reputation/me` and the public summary carry `verifiedPct` and `verifiedOrders90d`, read from the
+   * `HANDOFF_QUALITY` conduct stamps (one more Query on the table the Lambda already queries); off, no stamp is
+   * read and no answer changes. Independent of the three reputation flags (good-conduct-rewards.md section 8
+   * item 7). Default false everywhere: turning it on is the owner's decision D1, after FUP-550 and two weeks of
+   * stamps per platform and region (TASK.md EPIC GCR).
+   */
+  readonly conductRewards?: boolean;
+  /**
    * PICKUP_CLASSIFICATION_ENABLED on the sync and order-cron Lambdas (ESC-34, delivery-verification-api.md
    * 2.6.0). On (and only with `commitmentsEnabled`), an order that becomes accepted is judged at its pickup
    * deadline by the arrival check-ins ("I have arrived", "Crops are ready"): a trucker no-show goes to
@@ -242,6 +251,8 @@ export const environments: Record<string, EnvironmentConfig> = {
     reputationPenalties: false,
     timeoutPenalties: false,
     reputationPublicTags: false,
+    // GCR-04: the verified handoffs figure stays off until the owner's decision D1 (good-conduct-rewards.md section 3).
+    conductRewards: false,
     // ESC-34: the pickup judgement by arrival check-ins stays off until its app build is the minimum.
     pickupClassification: false,
     dropoffClassification: false,
@@ -279,6 +290,8 @@ export const environments: Record<string, EnvironmentConfig> = {
     reputationPenalties: false,
     timeoutPenalties: false,
     reputationPublicTags: false,
+    // GCR-04: the verified handoffs figure stays off until the owner's decision D1 (good-conduct-rewards.md section 3).
+    conductRewards: false,
     // ESC-34: the pickup judgement by arrival check-ins stays off until its app build is the minimum.
     pickupClassification: false,
     dropoffClassification: false,
@@ -312,6 +325,8 @@ export const environments: Record<string, EnvironmentConfig> = {
     reputationPenalties: false,
     timeoutPenalties: false,
     reputationPublicTags: false,
+    // GCR-04: the verified handoffs figure stays off until the owner's decision D1 (good-conduct-rewards.md section 3).
+    conductRewards: false,
     // ESC-34: the pickup judgement by arrival check-ins stays off until its app build is the minimum.
     pickupClassification: false,
     dropoffClassification: false,

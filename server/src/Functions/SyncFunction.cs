@@ -4501,7 +4501,11 @@ public partial class SyncFunction
     /// SIM-40 does for listings. The name falls back to the order row (its farmerName
     /// and truckerName are themselves server-stamped) because the creator cannot fix
     /// another party's profile; the phone has no fallback since orders carry none.
-    /// Returns an error message when the profile cannot be read or no name is known.
+    /// Returns the refusal message: <c>DELIVERY_VALIDATION</c> for a missing party id (the
+    /// operation's), <c>DELIVERY_PROFILE_UNAVAILABLE</c> when the profile cannot be read and
+    /// <c>DELIVERY_PROFILE_INCOMPLETE</c> when no name is known. FUP-553 (sync-protocol.md 1.73.0):
+    /// the profile decides the last two, not the operation, and a retry can pass both, so they are
+    /// not <c>DELIVERY_VALIDATION</c>, which clients treat as permanent.
     /// </summary>
     private async Task<string?> StampDeliveryPartyContactAsync(
         Dictionary<string, object> data,
@@ -4515,19 +4519,19 @@ public partial class SyncFunction
     {
         if (string.IsNullOrWhiteSpace(partyId))
         {
-            return $"{partyLabel}Id is required.";
+            return $"DELIVERY_VALIDATION: {partyLabel}Id is required.";
         }
 
         if (_userRepo == null)
         {
             context.Logger.LogError($"Cannot stamp {phoneKey}: user repository not configured.");
-            return $"The {partyLabel} profile could not be read. Please try again later.";
+            return $"DELIVERY_PROFILE_UNAVAILABLE: The {partyLabel} profile could not be read. Please try again later.";
         }
 
         var party = preloaded ?? await _userRepo.GetUserByIdAsync(partyId);
         if (party == null)
         {
-            return $"The {partyLabel} profile could not be read. Please try again later.";
+            return $"DELIVERY_PROFILE_UNAVAILABLE: The {partyLabel} profile could not be read. Please try again later.";
         }
 
         // FUP-130: an order written before the fix may hold the party's id where the name
@@ -4539,7 +4543,7 @@ public partial class SyncFunction
             : null;
         if (name == null)
         {
-            return $"The {partyLabel} has no name on their profile. Ask them to add one before creating a delivery.";
+            return $"DELIVERY_PROFILE_INCOMPLETE: The {partyLabel} has no name on their profile. Ask them to add one before creating a delivery.";
         }
 
         data[nameKey] = name.Trim();
@@ -4978,7 +4982,8 @@ public partial class SyncFunction
 
                     // SIM-46: each party sees the others' name and phone on the delivery, so
                     // they come from the users table (name falling back to the order row),
-                    // never from the client. The ids were bound to the order above.
+                    // never from the client. The ids were bound to the order above. FUP-553: a
+                    // profile refusal carries its own DELIVERY_PROFILE_* code, which clients retry.
                     var createBuyerId = operation.Data.TryGetValue("buyerId", out var cbObj)
                         ? cbObj?.ToString() : null;
                     var createFarmerId = operation.Data.TryGetValue("farmerId", out var cfObj)
@@ -5002,7 +5007,7 @@ public partial class SyncFunction
                         {
                             OperationId = operation.OperationId,
                             Status = "error",
-                            Message = $"DELIVERY_VALIDATION: {partyContactError}"
+                            Message = partyContactError
                         };
                     }
 
@@ -7159,11 +7164,17 @@ public partial class SyncFunction
         // FUP-99: buyerName is shown to the farmer before escrow, so it comes from the
         // buyer's profile, never the client, which inherits the FUP-52 phone screen on the
         // profile fields. farmerName is stamped from the listing (BindOrderToListing) and
-        // truckerName from the trip (BindOrderToTrip).
+        // truckerName from the trip (BindOrderToTrip). FUP-553: the refusal carries its own
+        // ORDER_PROFILE_* code, which clients retry.
         var buyerNameError = await StampOrderBuyerNameAsync(operation.Data, authenticatedUserId!, context);
         if (buyerNameError != null)
         {
-            return OrderValidationError(operation, buyerNameError);
+            return new SyncOperationResult
+            {
+                OperationId = operation.OperationId,
+                Status = "error",
+                Message = buyerNameError
+            };
         }
 
         // SIM-05: the client's copy of the listing and trip is not trusted. Load both,
@@ -9158,8 +9169,11 @@ public partial class SyncFunction
     /// the client. This inherits the FUP-52 phone screen applied to the profile fields.
     /// Orders carry no buyerPhone, so only the name is set, plus the buyer's registered
     /// woreda as the order's drop-off place (order-lifecycle 2.2.0) from the same read.
-    /// Returns null when stamped, else a validation message. Mirrors
-    /// <see cref="StampOwnerContactAsync"/> for listings.
+    /// Returns null when stamped, else the refusal message: <c>ORDER_PROFILE_UNAVAILABLE</c> when
+    /// the profile cannot be read, <c>ORDER_PROFILE_INCOMPLETE</c> when it has no name. FUP-553
+    /// (sync-protocol.md 1.73.0): the profile decides these, not the operation, and a retry can pass
+    /// both, so they are not <c>ORDER_VALIDATION</c>, which clients treat as permanent and revert.
+    /// Mirrors <see cref="StampOwnerContactAsync"/> for listings.
     /// </summary>
     private async Task<string?> StampOrderBuyerNameAsync(
         Dictionary<string, object> data, string buyerId, ILambdaContext context)
@@ -9167,13 +9181,13 @@ public partial class SyncFunction
         if (_userRepo == null)
         {
             context.Logger.LogError("Cannot stamp buyerName: user repository not configured.");
-            return "Your profile could not be read. Please try again later.";
+            return "ORDER_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.";
         }
 
         var buyer = await _userRepo.GetUserByIdAsync(buyerId);
         if (buyer == null)
         {
-            return "Your profile could not be read. Please try again later.";
+            return "ORDER_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.";
         }
 
         var name = !string.IsNullOrWhiteSpace(buyer.DisplayName) ? buyer.DisplayName
@@ -9181,7 +9195,7 @@ public partial class SyncFunction
             : null;
         if (name == null)
         {
-            return "Add your name to your profile before placing an order.";
+            return "ORDER_PROFILE_INCOMPLETE: Add your name to your profile before placing an order.";
         }
 
         data["buyerName"] = name.Trim();

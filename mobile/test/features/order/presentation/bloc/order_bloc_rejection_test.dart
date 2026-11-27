@@ -331,6 +331,50 @@ void main() {
     });
   });
 
+  // FUP-552: web sends a cancel and a drop-out at once, so the server's
+  // AUTH_040 reaches the bloc. It is no payment: neutral words, and the
+  // event itself for the screen to send again after the password prompt.
+  group('AUTH_040 on a cancel or a drop-out', () {
+    const stepUp = SyncRejectedException(
+      'AUTH_040: Please sign in again to cancel an order you accepted.',
+    );
+
+    for (final action in ['cancel', 'truckerDecline']) {
+      test('$action: neutral, with the event to resend', () async {
+        final states = await run(action, stepUp);
+
+        expectError(states, AppErrorCode.stepUpOtherRequired);
+        expect((states.last as OrderError).stepUpRetry, actions[action]!.$1);
+      });
+
+      test('$action: any other refusal carries no resend', () async {
+        final states = await run(
+          action,
+          const SyncRejectedException('ORDER_VALIDATION: no'),
+        );
+
+        expectError(states, AppErrorCode.orderRefused);
+        expect((states.last as OrderError).stepUpRetry, isNull);
+      });
+    }
+
+    test('a payment keeps the payment words and no resend', () async {
+      final states = await run('submitPayment', stepUp);
+
+      expectError(states, AppErrorCode.stepUpRequired);
+      expect((states.last as OrderError).stepUpRetry, isNull);
+    });
+
+    for (final action in ['accept', 'reject', 'truckerAccept']) {
+      test('$action: unchanged, no resend', () async {
+        final states = await run(action, stepUp);
+
+        expectError(states, AppErrorCode.stepUpRequired);
+        expect((states.last as OrderError).stepUpRetry, isNull);
+      });
+    }
+  });
+
   group('ESC-15 trucker events', () {
     test('an accept sends accept and ends in TruckerResponded', () async {
       when(
