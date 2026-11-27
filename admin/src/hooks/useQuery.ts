@@ -76,8 +76,8 @@ export function useStuckOrders(source: StuckSource) {
   });
 }
 
-// Disputes. FUP-16: the server scans and then filters by status, so a page can come back short
-// with a nextToken; the disputes page loads the next one on demand.
+// Disputes. FUP-80: one page of the disputed partition of the escrows' status index; a full page
+// comes with a nextToken (the next may be empty), and the disputes page loads it on demand.
 export function useDisputes() {
   return useInfiniteQuery({
     queryKey: ["admin", "disputes"],
@@ -504,6 +504,44 @@ export function useReopenPickup() {
         // The trucker's NO_SHOW may have been excused.
         queryClient.invalidateQueries({ queryKey: ["admin", "reputation"] });
       }
+    },
+  });
+}
+
+/** The answer of a commission change (order-lifecycle.md 2.26.0). */
+export interface CommissionChangeResult {
+  orderId?: string;
+  status?: string;
+  commissionRate?: number;
+  commissionAmount?: number;
+  orderTotal?: number;
+  commissionRateBefore?: number;
+  orderTotalBefore?: number;
+  version?: number;
+  alreadyApplied?: boolean;
+  message?: string;
+}
+
+// An admin agrees another commission rate for one unpaid order (created or pending_payment). The transaction page,
+// the orders and the audit log reload either way, so a refusal (the order moved or took a payment) shows the order as
+// it is now.
+export function useChangeCommission() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      orderId,
+      ...body
+    }: {
+      orderId: string;
+      /** A fraction, 0 to 0.20, at most 4 decimals. */
+      commissionRate: number;
+      reason: string;
+      expectedVersion: number;
+    }) => api.post<CommissionChangeResult>(`/admin/orders/${encodeURIComponent(orderId)}/commission`, body),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "orders"] });
+      queryClient.invalidateQueries({ queryKey: ["admin", "audit"] });
     },
   });
 }

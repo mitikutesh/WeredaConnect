@@ -672,6 +672,29 @@ void main() {
       );
     });
 
+    // The rate is negotiable per order: the label carries the order's own
+    // rate, never a fixed 5%.
+    testWidgets('the commission row names the order\'s own rate',
+        (tester) async {
+      stubAuth(UserRole.buyer, _buyerId);
+      await tester.pumpWidget(
+        buildScreen(
+          pricedOrder()
+            ..commissionRate = 0.025
+            ..commissionAmount = 70
+            ..orderTotal = 2990,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<FwMoneyRow>(find.byKey(commissionKey)).label,
+        'Platform Commission · 2.5%',
+      );
+      expect(amountOf(tester, commissionKey), '70 ETB');
+      expect(find.textContaining('5%)'), findsNothing);
+    });
+
     testWidgets('buyer of a self-pickup order: no transport row',
         (tester) async {
       stubAuth(UserRole.buyer, _buyerId);

@@ -46,6 +46,7 @@ namespace WeredaConnect.Server.Functions;
 /// - GET  /admin/escrows/{id}/ledger   → the escrow's ledger rows, read only (ESC-24)
 /// - GET  /admin/orders/queue          → stuck orders: the admin queue or a passed deadline (ESC-24)
 /// - POST /admin/orders/{orderId}/reopen-pickup → re-open a judged pickup (admin group only, FUP-287)
+/// - POST /admin/orders/{orderId}/commission → another commission rate on an unpaid order (admin group only, order-lifecycle 2.26.0)
 /// - GET  /admin/users/{id}/reputation → a user's reputation, restrictions and events (admin group only, ESC-32)
 /// - POST /admin/users/{id}/reputation → tag, untag, restrict or lift (admin group only, ESC-32)
 /// - POST /admin/users/{id}/reputation/events/{eventId}/decision → excuse or uphold one event (admin group only, ESC-32)
@@ -314,13 +315,23 @@ public partial class AdminFunction
         queryParams.TryGetValue("nextToken", out var nextToken);
         var limit = ParseLimit(queryParams, 20);
 
-        Dictionary<string, AttributeValue>? startKey = null;
-        if (!string.IsNullOrEmpty(nextToken))
+        List<Dictionary<string, object>> items;
+        Dictionary<string, AttributeValue>? lastKey;
+        if (string.IsNullOrEmpty(status))
         {
-            startKey = PaginationTokenHelper.DecodeNextToken(nextToken);
+            var startKey = string.IsNullOrEmpty(nextToken) ? null : PaginationTokenHelper.DecodeNextToken(nextToken);
+            (items, lastKey) = await ScanItemsAsync(_escrowsTable, limit, startKey);
+        }
+        else
+        {
+            if (!TryReadIndexToken(queryParams, EscrowStatusIndexKeys, status, out var startKey))
+            {
+                return InvalidNextToken();
+            }
+
+            (items, lastKey) = await EscrowStatusPageAsync(status, limit, startKey);
         }
 
-        var (items, lastKey) = await ScanItemsAsync(_escrowsTable, status, "status", limit, startKey);
         var escrows = items.Select(MapToEscrowDto).ToList();
         await EnrichEscrowNamesAsync(escrows);
 
@@ -458,16 +469,13 @@ public partial class AdminFunction
         ILambdaContext context)
     {
         var queryParams = request.QueryStringParameters ?? new Dictionary<string, string>();
-        queryParams.TryGetValue("nextToken", out var nextToken);
         var limit = ParseLimit(queryParams, 20);
-
-        Dictionary<string, AttributeValue>? startKey = null;
-        if (!string.IsNullOrEmpty(nextToken))
+        if (!TryReadIndexToken(queryParams, EscrowStatusIndexKeys, "disputed", out var startKey))
         {
-            startKey = PaginationTokenHelper.DecodeNextToken(nextToken);
+            return InvalidNextToken();
         }
 
-        var (items, lastKey) = await ScanItemsAsync(_escrowsTable, "disputed", "status", limit, startKey);
+        var (items, lastKey) = await EscrowStatusPageAsync("disputed", limit, startKey);
         var disputes = items.Select(MapToEscrowDto).ToList();
         await EnrichEscrowNamesAsync(disputes);
 
@@ -2765,7 +2773,8 @@ public partial class AdminFunction
     /// derived lifecycle stage. Supports ?status= (exact order status), ?search=
     /// (order id / buyer / farmer name contains), and cursor pagination. The order
     /// status alone encodes the stage, and orders carry party names, so this is a
-    /// single scan with no per-row joins.
+    /// single scan with no per-row joins. FUP-80: with ?status= it reads that status
+    /// partition of <see cref="OrderStatusIndex"/> instead of the whole table.
     /// </summary>
     private async Task<APIGatewayProxyResponse> HandleListTransactionsAsync(
         APIGatewayProxyRequest request,
@@ -2789,11 +2798,20 @@ public partial class AdminFunction
         var attrNames = new Dictionary<string, string>();
         var attrValues = new Dictionary<string, AttributeValue>();
 
+        // FUP-80: a status is read as its partition of the orders' StatusCreatedAtIndex (every order carries
+        // status and createdAt), newest first, instead of a Scan of the whole table filtered by status.
+        QueryRequest? statusQuery = null;
         if (!string.IsNullOrEmpty(status))
         {
-            filterParts.Add("#status = :status");
             attrNames["#status"] = "status";
             attrValues[":status"] = new AttributeValue { S = status };
+            statusQuery = new QueryRequest
+            {
+                TableName = _ordersTable,
+                IndexName = OrderStatusIndex,
+                KeyConditionExpression = "#status = :status",
+                ScanIndexForward = false
+            };
         }
 
         if (!string.IsNullOrEmpty(search))
@@ -2812,6 +2830,13 @@ public partial class AdminFunction
             scanRequest.ExpressionAttributeValues = attrValues;
         }
 
+        if (statusQuery != null)
+        {
+            statusQuery.FilterExpression = scanRequest.FilterExpression;
+            statusQuery.ExpressionAttributeNames = attrNames;
+            statusQuery.ExpressionAttributeValues = attrValues;
+        }
+
         // Scan has no ordering and applies the filter AFTER the per-page read, so we
         // page through (bounded) collecting EVERY match — otherwise a search would
         // silently miss rows beyond an arbitrary first page. Sort newest-first in
@@ -2825,15 +2850,31 @@ public partial class AdminFunction
 
         do
         {
-            if (lastKey != null)
+            List<Dictionary<string, AttributeValue>> pageItems;
+            Dictionary<string, AttributeValue> pageKey;
+            if (statusQuery != null)
             {
-                scanRequest.ExclusiveStartKey = lastKey;
+                statusQuery.ExclusiveStartKey = lastKey;
+                var page = await _dynamoDb.QueryAsync(statusQuery);
+                scanned += page.ScannedCount;
+                pageItems = page.Items;
+                pageKey = page.LastEvaluatedKey;
+            }
+            else
+            {
+                if (lastKey != null)
+                {
+                    scanRequest.ExclusiveStartKey = lastKey;
+                }
+
+                var resp = await _dynamoDb.ScanAsync(scanRequest);
+                scanned += resp.ScannedCount;
+                pageItems = resp.Items;
+                pageKey = resp.LastEvaluatedKey;
             }
 
-            var resp = await _dynamoDb.ScanAsync(scanRequest);
-            scanned += resp.ScannedCount;
-            matched.AddRange(resp.Items.Select(DynamoDbHelper.FromItem));
-            lastKey = resp.LastEvaluatedKey.Count > 0 ? resp.LastEvaluatedKey : null;
+            matched.AddRange(pageItems.Select(DynamoDbHelper.FromItem));
+            lastKey = pageKey.Count > 0 ? pageKey : null;
 
             if (scanned >= MaxScanItems)
             {
@@ -3474,10 +3515,12 @@ public partial class AdminFunction
         return (totalVolume, totalCommissions);
     }
 
+    /// <summary>
+    /// One Scan page of an unfiltered list. FUP-80: the status-filtered lists read a status index instead
+    /// (<see cref="EscrowStatusPageAsync"/>), so no filter is applied here.
+    /// </summary>
     private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastKey)> ScanItemsAsync(
         string tableName,
-        string? filterValue,
-        string filterField,
         int limit,
         Dictionary<string, AttributeValue>? startKey)
     {
@@ -3486,50 +3529,34 @@ public partial class AdminFunction
             return (new List<Dictionary<string, object>>(), null);
         }
 
-        var filtered = !string.IsNullOrEmpty(filterValue);
-
-        var items = new List<Dictionary<string, object>>();
-        var lastKey = startKey;
-        var pages = 0;
-        do
+        var request = new ScanRequest
         {
-            var request = new ScanRequest
-            {
-                TableName = tableName,
-                Limit = limit
-            };
+            TableName = tableName,
+            Limit = limit
+        };
 
-            if (lastKey != null)
-            {
-                request.ExclusiveStartKey = lastKey;
-            }
-
-            if (!string.IsNullOrEmpty(filterValue))
-            {
-                request.FilterExpression = "#field = :value";
-                request.ExpressionAttributeNames = new Dictionary<string, string>
-                {
-                    { "#field", filterField }
-                };
-                request.ExpressionAttributeValues = new Dictionary<string, AttributeValue>
-                {
-                    { ":value", new AttributeValue { S = filterValue } }
-                };
-            }
-
-            var response = await _dynamoDb.ScanAsync(request);
-            items.AddRange(response.Items.Select(DynamoDbHelper.FromItem));
-            lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
-            pages++;
+        if (startKey != null)
+        {
+            request.ExclusiveStartKey = startKey;
         }
-        // FUP-16: DynamoDB applies the filter after the Limit, so one page of a filtered scan can hold
-        // few matches or none. Keep reading until `limit` matched (the last page may add up to
-        // limit - 1 more), the table ends, or the page budget is spent; the nextToken resumes after the
-        // last page read, so nothing is skipped or repeated.
-        while (filtered && items.Count < limit && lastKey != null && pages < MaxFilteredScanPages);
 
-        return (items, lastKey);
+        var response = await _dynamoDb.ScanAsync(request);
+        var lastKey = response.LastEvaluatedKey is { Count: > 0 } ? response.LastEvaluatedKey : null;
+        return (response.Items.Select(DynamoDbHelper.FromItem).ToList(), lastKey);
     }
+
+    /// <summary>
+    /// FUP-80: one page of the escrows in <paramref name="status"/> (<c>GET /admin/escrows?status=</c> and
+    /// <c>GET /admin/disputes</c>), a Query of that partition of <see cref="EscrowStatusIndex"/>, oldest
+    /// <c>expiresAt</c> first, never a Scan. Every escrow is written with <c>status</c> and <c>expiresAt</c>, so the
+    /// index holds them all (the settlement sweeps read it the same way). The next token is the index key of the
+    /// last row, so the next page starts right after it.
+    /// </summary>
+    private async Task<(List<Dictionary<string, object>> Items, Dictionary<string, AttributeValue>? LastKey)> EscrowStatusPageAsync(
+        string status, int limit, Dictionary<string, AttributeValue>? startKey) =>
+        string.IsNullOrEmpty(_escrowsTable)
+            ? (new List<Dictionary<string, object>>(), null)
+            : await QueryIndexPageAsync(_escrowsTable, EscrowStatusIndex, status, limit, startKey, newestFirst: false);
 
     // ──────────────────────────────────────────────
     // Status index queues (FRD-07)
@@ -3537,6 +3564,9 @@ public partial class AdminFunction
 
     /// <summary>FRD-07: the sparse status index of the fraud-signals table (<c>status</c>, <c>createdAt</c>).</summary>
     internal const string FraudStatusIndex = "StatusCreatedAtIndex";
+
+    /// <summary>FUP-80: the orders index by status (<c>status</c>, <c>createdAt</c>), which every order is on.</summary>
+    internal const string OrderStatusIndex = "StatusCreatedAtIndex";
 
     /// <summary>The key attributes of a <see cref="FraudStatusIndex"/> page's last evaluated key.</summary>
     private static readonly string[] FraudStatusIndexKeys = { "userId", "signalKey", "status", "createdAt" };
@@ -3918,6 +3948,8 @@ public partial class AdminFunction
             ReviewNotes = GetStringOrNull(item, "reviewNotes"),
             CreatedAt = GetString(item, "createdAt"),
             OrderId = SignalOrderId(GetStringOrNull(item, "entityType"), GetStringOrNull(item, "entityId")),
+            // FUP-202: who caused a row written onto another user (ESC-33); admin only, like the rest of the DTO.
+            SourceUserId = NullIfEmpty(GetStringOrNull(item, FraudDetectionService.SourceUserIdAttribute)),
             AiConcern = GetStringOrNull(item, "aiConcern"),
             AiModel = GetStringOrNull(item, "aiModel"),
             AiLabels = AdvisoryLabels(item)

@@ -86,6 +86,13 @@ public sealed record SyncOperationRequest
     /// value as data.version; when both are present this one wins (SIM-08).
     /// </summary>
     public int? ClientVersion { get; init; }
+
+    /// <summary>
+    /// GCR-02 (sync-protocol.md 1.71.0): the app the operation came from, <c>android</c> or <c>web</c>.
+    /// Optional; older apps send none. Read only by the handoff evidence stamp (Helpers.HandoffEvidence);
+    /// any other value is ignored.
+    /// </summary>
+    public string? Platform { get; init; }
 }
 
 /// <summary>

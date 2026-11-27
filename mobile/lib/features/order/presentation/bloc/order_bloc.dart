@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
 import 'package:wereda_connect/core/models/order_check_in.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/handoff_check_in_rules.dart';
@@ -78,12 +79,25 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
     emit(const OrderLoading());
     try {
       await _refreshOrders(event.userId, event.role);
+      final yourTurn = event.statusFilter == ordersFilterYourTurn;
       final orders = await _repository.getOrdersByUser(
         event.userId,
         role: event.role,
-        statusFilter: event.statusFilter,
+        statusFilter: yourTurn ? 'funded' : event.statusFilter,
       );
-      emit(OrdersLoaded(orders: orders, statusFilter: event.statusFilter));
+      emit(
+        OrdersLoaded(
+          orders: yourTurn
+              ? [
+                  for (final order in orders)
+                    if (canFarmerRespond(order, event.userId) ||
+                        canTruckerRespond(order, event.userId))
+                      order,
+                ]
+              : orders,
+          statusFilter: event.statusFilter,
+        ),
+      );
     } on Object catch (e) {
       emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
     }
@@ -165,7 +179,8 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       );
       emit(const TruckerResponded(accepted: false));
     } on Object catch (e) {
-      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+      // FUP-552: a drop-out of an accepted order may ask for a password.
+      emit(_stepUpOtherError(e, event));
     }
   }
 
@@ -239,8 +254,24 @@ class OrderBloc extends Bloc<OrderEvent, OrderState> {
       );
       emit(const OrderCancelled());
     } on Object catch (e) {
-      emit(OrderError(message: e.toString(), code: mapErrorToCode(e)));
+      emit(_stepUpOtherError(e, event));
     }
+  }
+
+  /// FUP-552: a cancel or a drop-out the server refused for a fresh password
+  /// (AUTH_040; web sends both at once, the phone queues them and its sync
+  /// prompts) is no payment: neutral words, and [event] to send again after
+  /// the prompt ([OrderError.stepUpRetry]). Any other failure as usual.
+  static OrderError _stepUpOtherError(Object error, OrderEvent event) {
+    final code = mapErrorToCode(error);
+    if (code != AppErrorCode.stepUpRequired) {
+      return OrderError(message: error.toString(), code: code);
+    }
+    return OrderError(
+      message: error.toString(),
+      code: AppErrorCode.stepUpOtherRequired,
+      stepUpRetry: event,
+    );
   }
 
   Future<void> _onUpdateDropoffNote(

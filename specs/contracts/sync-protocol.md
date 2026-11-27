@@ -1,7 +1,7 @@
 # Sync Protocol Contract
 
 ## Version
-1.70.0
+1.73.0
 
 ## Parties
 - **Mobile** (client) — enqueues operations offline, syncs when connected
@@ -39,7 +39,8 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
       "action": "create | update | delete",
       "clientVersion": 3,
       "data": { },
-      "timestamp": "2026-02-09T12:00:00Z"
+      "timestamp": "2026-02-09T12:00:00Z",
+      "platform": "android | web"
     }
   ]
 }
@@ -51,6 +52,8 @@ The sync protocol enables offline-first operation for WeredaConnect's Ethiopian 
 - `clientVersion`: the version the client had when making the change. The server accepts it here (op level, preferred) or as `data.version` (what the shipped mobile and web clients send); when both are present the op-level value wins. `order` updates REQUIRE one of them: a versionless order update is rejected with `ORDER_VALIDATION: version is required for order updates ...` and nothing is written. For other entity types a missing version is treated as 0, which yields a `conflict` against any stored entity (1.3.0, SIM-08).
 - `timestamp` — ISO 8601, UTC; used for display ordering, NOT for conflict resolution
 - `data` — entity-specific payload; schema defined per `entityType`
+- `platform` (optional, 1.71.0, GCR-02): the app the operation came from, `android` or `web`. Only a
+  handoff reads it (Handoff evidence); any other value, or none, is ignored, never refused
 
 **Missing members (1.64.0, FUP-148).** No member of the body is marked required for the reader; the
 server checks them itself, right after the body is read (before the caller, the rate limit or any
@@ -248,7 +251,7 @@ farmer's Home tiles run it too, after the stored numbers painted. No wire change
 | `SYNC_SUCCESS` | Operation applied | Remove from local queue |
 | `SYNC_CONFLICT` | Client version behind | Accept server data, re-queue if needed |
 | `SYNC_DUPLICATE` | Idempotency key already processed | Remove from local queue (already done) |
-| `SYNC_VALIDATION` | Payload failed validation, or (1.38.0) an idempotency key already used for a different payload | Fix data, re-queue with new idempotency key |
+| `SYNC_VALIDATION` | Payload failed validation, (1.38.0) an idempotency key already used for a different payload, or (1.72.0) an `entityType` the server does not route (`SYNC_VALIDATION: Unsupported entity type: '<type>'.`) | Fix data, re-queue with new idempotency key |
 | `SYNC_AUTH` | Authentication failed | Re-authenticate, retry |
 | `SYNC_RATE_LIMIT` | Too many requests | Back off, retry with exponential delay |
 | `SYNC_SERVER_ERROR` | Server failure | Retry with exponential backoff |
@@ -294,7 +297,7 @@ These rules must always hold:
 - 409 Conflict → Resolve conflict, mark as `synced` (not retry)
 - 422 Unprocessable Entity → Mark as `failed`, requires data fix
 - Fraud rejections (`FRAUD_*`, including `FRAUD_ACCOUNT_HELD` since 1.9.0, and `SYNC_VALIDATION`) → Mark as permanently rejected
-- Order rejections (every `ORDER_*` code except `ORDER_KYC_REQUIRED`, since 1.10.0) → Mark as permanently rejected and revert the local order (see Permanent order rejections)
+- Order rejections (every `ORDER_*` code except `ORDER_KYC_REQUIRED`, since 1.10.0, and except `ORDER_PROFILE_UNAVAILABLE` and `ORDER_PROFILE_INCOMPLETE`, since 1.73.0) → Mark as permanently rejected and revert the local order (see Permanent order rejections)
 - `DELIVERY_CANCEL_NOT_ALLOWED` (since 1.11.0) → Mark as permanently rejected and revert the local delivery (see Delivery cancel)
 - `DELIVERY_DISPUTE_REFUSED` and `DELIVERY_DISPUTE_EXPIRED` (since 1.12.0) → Mark as permanently rejected and revert the local delivery (see Delivery dispute); `DELIVERY_DISPUTE_RETRY` is transient and retried
 - `DELIVERY_CODE_MISMATCH`, `DELIVERY_CODE_LOCKED`, `DELIVERY_CODE_LOCKED_DROPOFF` and `DELIVERY_CODE_GPS_REQUIRED` (since 1.33.0) → Mark as permanently rejected and revert the local delivery (see Typed handoff code)
@@ -305,6 +308,9 @@ These rules must always hold:
 - Every `*_UNAUTHORIZED` code but a role gate (`... Only farmers can ...`, `truckers`, `buyers`), `RATING_FORBIDDEN: You can only rate your own orders.` and a `CROP_VALIDATION`, `TRIP_VALIDATION` or `DELIVERY_VALIDATION` `... is immutable and cannot be changed on update.` (since 1.43.0) → Mark as permanently rejected, not reverted (see Refusals no retry can pass)
 - `LOCATION_VALIDATION`, `LOCATION_NOT_TRUCKER`, `LOCATION_SHARING_ENDED`, `LOCATION_RATE_LIMITED` and `LOCATION_STALE` (since 1.31.0) → Mark as permanently rejected, not reverted (see Location pings); `LOCATION_NOT_ACTIVE` comes as `deferred`, not as an error
 - A refused `listing_report` (since 1.44.0, always `SYNC_VALIDATION`) → Mark as permanently rejected; nothing local to revert (see Listing reports)
+- `CROP_VALIDATION` and `TRIP_VALIDATION`, whatever the text (since 1.72.0), but the two profile texts a server before 1.72.0 still sends under them → Mark as permanently rejected, not reverted (see Profile refusals and the unsupported entity); `CROP_PROFILE_UNAVAILABLE`, `CROP_PROFILE_INCOMPLETE`, `TRIP_PROFILE_UNAVAILABLE` and `TRIP_PROFILE_INCOMPLETE` are retried
+- `USER_PROFILE_VALIDATION` and `AUTH_027` on a `user` operation (since 1.72.0) → Mark as permanently rejected and put the phone's copy of the profile back from `GET /user/profile` (see Profile text)
+- `DELIVERY_VALIDATION`, whatever the text (since 1.73.0), but the two profile texts a server before 1.73.0 still sends under it → Mark as permanently rejected, not reverted (see Order and delivery profile refusals); `DELIVERY_PROFILE_UNAVAILABLE` and `DELIVERY_PROFILE_INCOMPLETE` are retried, and so are `ORDER_PROFILE_UNAVAILABLE`, `ORDER_PROFILE_INCOMPLETE` and the same two texts under an older server's `ORDER_VALIDATION`, with the local order kept
 
 **Retry State Management**:
 - `retryCount` field in `SyncOperation` entity tracks attempts (only incremented by server errors, not network failures)
@@ -405,9 +411,23 @@ Example:
 ```
 
 Clients: the phone queues the operation (it works offline) after the form ran the same rules;
-web sends it alone to `/sync` and marks the fields an `AUTH_027` names. On the phone,
-`USER_PROFILE_VALIDATION` and `AUTH_027` stay retryable like before (only `USER_PROFILE_UNAUTHORIZED`
-is permanent, 1.43.0): the form never sends what they refuse.
+web sends it alone to `/sync` and marks the fields an `AUTH_027` names. The form never sends what
+they refuse, so a refusal comes only from a rule that changed on one side (the phone number detector
+of another app version) or a client that skips the form.
+
+Since 1.72.0 (FUP-315) `USER_PROFILE_VALIDATION` and `AUTH_027` on a `user` operation are permanent
+on the phone: the same values always get the same answer. Before, the queue sent the edit three times
+per sync, `retryFailed` put it back on every reconnect, and the phone showed the refused values until
+the edit screen read `GET /user/profile` again.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `USER_PROFILE_VALIDATION:` or `AUTH_027:` on a `user` operation | Rejected, never resent, not reset by a reconnect. The phone reads `GET /user/profile` and its copy of the profile (and the signed-in session the account sheet shows) takes the server's `displayName`, `woreda` and `companyName`, with the edits still waiting in the queue on top (their own answers settle them). When that read fails nothing changes; the edit screen reads the profile again when it opens and, with no edit waiting, shows the server's values. The operation leaves the "Sync failed" count once the handler returned. Explained with `errorChangeNotSaved`. | Unchanged: the save fails, nothing on the device or in the session changes (so the profile still shows the server's values), the form keeps the typed text and marks the fields an `AUTH_027` names, or says the details were not accepted. |
+| `USER_PROFILE_UNAUTHORIZED:` | Permanent, not reverted (1.43.0), as before. | Unchanged. |
+| `USER_PROFILE_CONFLICT:`, `USER_PROFILE_UNAVAILABLE:`, `USER_PROFILE_NOT_FOUND:` | Retried as before. | Unchanged. |
+
+The same codes on another entity mean nothing to the queue and are retried. No server change: every
+server since 1.57.0 sends these codes, so the client needs no older-server case.
 
 ## Create-conflict echo (1.4.0)
 
@@ -519,7 +539,10 @@ the same payload again gets the same answer. Today the server sends
 `ORDER_DROPOFF_NOTE_LOCKED:` (1.36.0, Drop-off landmark), `ORDER_TRIP_NOT_ELIGIBLE:` (1.34.0, on an
 order create naming a trip that has left); the planned `ORDER_ACTION_NOT_ALLOWED` and
 `ORDER_TRANSPORT_ATTEMPTS_EXCEEDED` (Transport choice, PLANNED) fall under the same rule. `ORDER_KYC_REQUIRED`
-keeps its own revert and Fayda prompt (1.4.0, 1.5.0).
+keeps its own revert and Fayda prompt (1.4.0, 1.5.0). Since 1.73.0 `ORDER_PROFILE_UNAVAILABLE` and
+`ORDER_PROFILE_INCOMPLETE` (an order create whose buyer profile cannot be read or has no name) are
+the other two exceptions: a retry can pass them, so clients retry them and keep the local order (Order
+and delivery profile refusals).
 
 Mobile client (sync queue):
 
@@ -541,7 +564,9 @@ rating `create` answered `conflict` means the rating already exists.
 
 Rules for server authors:
 - An `ORDER_*` operation error must be deterministic. A transient order failure uses no
-  `ORDER_` prefix: the unprefixed `Order not found.` on an update stays retryable.
+  `ORDER_` prefix: the unprefixed `Order not found.` on an update stays retryable. The only
+  `ORDER_*` codes a retry may pass are `ORDER_KYC_REQUIRED` and, since 1.73.0, the two
+  `ORDER_PROFILE_*` codes, which clients since 1.73.0 retry.
 - `ORDER_VALIDATION: Unknown fields: ...` is now permanent, so the server must accept a
   new order field before any client sends it.
 - `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS`, `TRIP_CAPACITY_EXCEEDED`,
@@ -734,11 +759,12 @@ Rules for server authors:
 - Send `REPUTATION_RESTRICTED`, `TRIP_HAS_BOOKINGS` and `CROP_HAS_ACTIVE_ORDERS` only to an app that
   sends `X-App-Build`; an app without it gets the sentence under `SYNC_VALIDATION` or
   `ORDER_VALIDATION` (1.52.0, Codes older apps do not know).
-- `CROP_VALIDATION` and `TRIP_VALIDATION` stay retryable: they also carry "The farmer profile
-  could not be read" when the users table read fails. Since 1.43.0 the client treats only their
-  immutable-field text (`... is immutable and cannot be changed on update.`) as permanent, and
-  `CROP_UNAUTHORIZED` and `TRIP_UNAUTHORIZED` as permanent except their role gate (Refusals no
-  retry can pass): never send those for a read that failed.
+- `CROP_VALIDATION` and `TRIP_VALIDATION` judge only the operation: since 1.72.0 the clients treat
+  them as permanent (Profile refusals and the unsupported entity). A refusal decided by the owner's
+  profile, which a retry can pass, uses `CROP_PROFILE_UNAVAILABLE` or `CROP_PROFILE_INCOMPLETE` (and
+  the `TRIP_` twins); a read that failed uses no `_VALIDATION` code. `CROP_UNAUTHORIZED` and
+  `TRIP_UNAUTHORIZED` are permanent except their role gate (Refusals no retry can pass, 1.43.0):
+  never send those for a read that failed either.
 
 Clients older than 1.17.0 retry the five codes like any other error (up to three tries per sync,
 and `retryFailed` puts the operation back on every reconnect) and keep their local change. An
@@ -765,7 +791,10 @@ takes the ordered quantity off and a listing at 0 becomes `reserved` (`order-lif
 | A `cropListing` operation an older build left in the queue | Removed at app start, whatever its status, before the sync executor runs: not sent, not counted as failed, not announced. While it was queued it kept its listing row out of the crop pull's stale delete, so a listing the server took off the market is now dropped by the next pull. A listing the server still returns was already overwritten by every pull. | Nothing is queued on web. |
 
 No server change: the server never applied a `cropListing` operation. Older builds keep sending
-theirs until they update, and the server answers each the same way.
+theirs until they update, and the server answers each the same way. Since 1.72.0 (FUP-74) that answer
+is `SYNC_VALIDATION: Unsupported entity type: 'cropListing'.`, which every mobile build since
+2026-03-02 treats as permanent: such a build stops resending it after the first refusal (shown once as
+a change that was not accepted). A build before 2026-03-02 still retries it.
 
 ---
 
@@ -920,7 +949,7 @@ saved. The code is checked when your phone is online." instead of "verified".
 | `success` | Synced. | Done. |
 | `DELIVERY_CODE_MISMATCH:` (not this delivery's code), `DELIVERY_CODE_LOCKED:` (five wrong codes for this leg; scan the QR, or the farmer regenerates), `DELIVERY_CODE_LOCKED_DROPOFF:` (the same at a trucker's drop-off, whose code cannot be renewed: scan the trucker's drop-off QR, or contact support; checked before `DELIVERY_CODE_LOCKED`, which it starts with) and `DELIVERY_CODE_GPS_REQUIRED:` (a paid delivery's typed code without the leg's GPS) | Permanent: mark the operation rejected (never resent, so the queue never spends more of the five tries) and revert the local delivery as for `DELIVERY_CANCEL_NOT_ALLOWED` (re-read `GET /deliveries/{id}`, server wins; else the lowest sent version). Explained in en, am and om, one text per code. | Shows the same message. |
 | `deferred` (`DELIVERY_NONCE_PENDING`) | Re-queued without a retry, as for a scan. | Shows its QR-pending text. |
-| `DELIVERY_VALIDATION: scannedQrCode ...` (not nine digits with a valid check digit) | Unchanged `DELIVERY_*` handling (the apps never send one). | Failure. |
+| `DELIVERY_VALIDATION: scannedQrCode ...` (not nine digits with a valid check digit) | Unchanged `DELIVERY_*` handling (the apps never send one); permanent, not reverted, since 1.73.0. | Failure. |
 
 A miss is counted once per operation id and code, so a resent operation cannot lock the code by
 itself, and a new code under a reused operation id still counts.
@@ -981,7 +1010,7 @@ returns them.
 | `ORDER_RESPONSE_NOT_PENDING:` (the party's answer is not pending: the farmer has not accepted yet, the request is closed, or the order was already answered) | Permanent under the `ORDER_*` rule (1.10.0): revert the local order and explain. | Failure with the same message. |
 | `ORDER_DEADLINE_PASSED:` (the farmer's or the trucker's deadline passed; the cron is ending the order) | Permanent: revert and explain (`errorDeadlinePassed`, shipped since 1.17.0). Like `ORDER_CANCEL_NOT_ALLOWED` it depends on the server clock, and the client never resends it. | Failure. |
 | `ORDER_CANCEL_NOT_ALLOWED:` on a buyer's `funded -> cancelled` ("The farmer and the trucker are deciding; you will be told as soon as they answer.") or on a committed cancel after pickup | Permanent (1.13.0): revert the local cancel. | Failure. |
-| `AUTH_040:` on a trucker `decline` from `accepted`, or a farmer `cancelled` from `accepted` (the drop-out needs a fresh sign-in) | Ask for the password and resend, as on a payment (`order-lifecycle.md` 1.5.0); not a permanent rejection. | Re-authenticate and retry. |
+| `AUTH_040:` on a trucker `decline` from `accepted`, or a farmer `cancelled` from `accepted` (the drop-out needs a fresh sign-in) | Ask for the password and resend, as on a payment (`order-lifecycle.md` 1.5.0); not a permanent rejection. | Re-authenticate and retry: since 1.73.0 the order screen asks for the password in neutral words and sends the change once more (Step-up leftovers on the clients, FUP-552). |
 | `TRIP_CAPACITY_EXCEEDED:` on an order create above the trip's `remainingQuintals`; `TRIP_HAS_BOOKINGS:` on a trip update or delete the bookings forbid | Permanent since 1.17.0 (ESC-12 part B): the order create is reverted, the trip change reverted with the trip rules. | Failure. |
 | `ORDER_VALIDATION: This trip is no longer available; place a new order.` on `payment_submitted` | Permanent: revert the local order (the trip left `open` / `matched`, lost the room, or departs in under 12 hours). | Failure. |
 | unprefixed error (a trip or escrow that could not be read) | Retried. | Failure (generic). |
@@ -1146,7 +1175,7 @@ tried each three times per sync and `retryFailed` put it back on every reconnect
 | Any `*_UNAUTHORIZED` code (`CROP_`, `TRIP_`, `DELIVERY_`, `INTENT_`, `RATING_`, `MESSAGE_`, `MATCH_EVENT_`, `USER_PROFILE_`; `ORDER_UNAUTHORIZED` was already permanent under the `ORDER_*` rule) except a role gate | Permanent: rejected, never resent, not reverted, still counted as failed, explained with `errorChangeNotSaved` (a match event is not announced). These compare the caller's id with the row or the payload: no read that can fail decides them. | Unchanged: a failure. |
 | A role gate: `CROP_UNAUTHORIZED: Only farmers can create crop listings.`, `TRIP_UNAUTHORIZED: Only truckers can create trip listings.`, `INTENT_UNAUTHORIZED: Only buyers can create purchase intents.`, `RATING_UNAUTHORIZED: Only buyers can rate counterparties.`, `MATCH_EVENT_UNAUTHORIZED: Only buyers can log match events.` | Retried as before: a token without the `custom:role` claim (an access token sent instead of the ID token, a client set-up problem the server does not score, 1.27.0) gets the same answer, and the same operation passes once the app sends the right token. | Unchanged. |
 | `RATING_FORBIDDEN: You can only rate your own orders.` | Same. `RATING_FORBIDDEN: You can only rate a delivered order ...` stays retryable: the order may still be delivered. | Unchanged. |
-| `CROP_VALIDATION`, `TRIP_VALIDATION` or `DELIVERY_VALIDATION` with `... is immutable and cannot be changed on update.` | Same. Any other text under these codes stays retryable. | Unchanged. |
+| `CROP_VALIDATION`, `TRIP_VALIDATION` or `DELIVERY_VALIDATION` with `... is immutable and cannot be changed on update.` | Same. Since 1.72.0 every `CROP_VALIDATION` and `TRIP_VALIDATION` is permanent (Profile refusals and the unsupported entity), and since 1.73.0 every `DELIVERY_VALIDATION` (Order and delivery profile refusals); before, any other `DELIVERY_VALIDATION` text was retried. | Unchanged. |
 | `DELIVERY_NONCE_MISSING:` (all three texts: a handoff without a scanned nonce or typed code while the server holds the farmer's nonce, and a pickup or paid drop-off whose farmer's nonce never reached the server within 14 days) | Permanent and reverted like a refused typed code (1.33.0): the delivery goes back to `GET /deliveries/{id}`, the photo waiting behind the handoff is rejected, a refused pickup drops its trip's waiting check-ins, and the operations leave the "Sync failed" count. Explained with `errorChangeNotSaved`. `DELIVERY_NONCE_MISMATCH`, `_REPLAY`, `_EXPIRED` stay retryable (a code regenerated offline passes once it syncs), and `DELIVERY_NONCE_PENDING` stays `deferred`. | Unchanged: a failure with the generic delivery text. |
 
 Reverted deliveries and messages (FUP-25): once the revert handler returned, a delivery refused for
@@ -1452,6 +1481,8 @@ Client only, no server change.
 
 **Delivery dispute on web (FUP-43).** Web sends the dispute straight to `/sync`. An `AUTH_040:` answer (as the operation's error, or as a `403` on the request) now opens the password prompt the payment screens use, and after a confirmed password the dispute is sent once more as the same operation (same `operationId`, `timestamp` and `idempotencyKey`, a fresh `syncBatchId`). A cancelled prompt, or a second `AUTH_040:` after the resend, leaves the dispute unsent with `deliveryDisputeNotConfirmed` (en, am, om). A reason changed in between is a new operation. `AUTH_041:` and every other answer keep their handling. Any party of the delivery (buyer, farmer, trucker) can dispute, so this holds for all three roles. Mobile is unchanged: the queue holds the operation and prompts.
 
+**Cancel and drop-out on web (1.73.0, FUP-552).** Web sends a farmer's cancel of an order they accepted and a trucker's drop-out (a `decline` from `accepted`) straight to `/sync`, and the server asks both for a fresh password (`AUTH_040:`, Order commitments). Before, the order screen showed the payment's step-up text ("before this payment") and nothing else. Now it opens the password prompt with the neutral `stepUpOtherMessage` (en, am, om, FUP-167) and, after a confirmed password, sends the same change once more (a new operation built from the same tap: the order's current version is read again). A cancelled prompt, or a second `AUTH_040:` after the resend, leaves the change unsent and says the same neutral text. Any other refusal, and the same answer to a payment, keep their handling. The buyer's cancel is never asked for a step-up. Mobile is unchanged: the queue holds the operation and its prompt already names neither a payment nor a dispute (FUP-181).
+
 ---
 
 ## Refusal texts the clients read (1.49.0, FUP-77, FUP-83)
@@ -1592,7 +1623,7 @@ check-ins and the pickup judgement"). A new create-only entity `handoff_check_in
   `crops_ready` (the order's farmer), GPS optional. `entityId` is `{orderId}#{kind}`. `version` may be
   echoed and is ignored.
 - With the flag off the entity does not exist: the answer is the unsupported entity error every
-  unknown `entityType` gets (`Unsupported entity type: 'handoff_check_in'.`), with no order read and no
+  unknown `entityType` gets (`Unsupported entity type: 'handoff_check_in'.`, prefixed `SYNC_VALIDATION: ` since 1.72.0), with no order read and no
   fraud signal, exactly as before 1.55.0.
 - Taken only on an order the server stamped `pickupJudgement: pending` at acceptance (the flag on),
   while it is `accepted`, from `pickupDate` minus 24 hours (a self-pickup order from acceptance) to
@@ -1631,7 +1662,7 @@ copy the order screen reads the order again after each sync, so a sent one says 
 gives its button back at once); web sends it at once. A repeat tap sends nothing and says the check-in
 was already given; the buttons come and go at the window's edges while the screen is open, and the
 local guard refuses with the same texts as the server. Every `CHECKIN_*` refusal, and the unsupported-entity answer of a
-server with the flag off (`Unsupported entity type: 'handoff_check_in'.`), is permanent: mobile rejects
+server with the flag off (`Unsupported entity type: 'handoff_check_in'.`, with or without the 1.72.0 `SYNC_VALIDATION: ` prefix), is permanent: mobile rejects
 the operation (never retried, so a stray check-in on a flag-off server cannot loop), takes the mark
 back, reads the order again (a late check-in kept for review shows on it) and says why with one text
 per code (`CHECKIN_TOO_LATE`: kept for review); web shows the same texts. An unprefixed error is
@@ -1746,7 +1777,7 @@ as before, and a trucker app that sends none keeps the 1.22.0 path (the farmer's
 | `success` with the current row and version, no `message` (stored, the same code again, or nothing to store: delivered, disputed) | Synced. The registration is queued right behind the pickup and again when the drop-off QR opens, never twice while the same code waits; a renewal drops the drop-off codes still waiting first. | Sent at once when the pickup is confirmed, on every open of the drop-off QR, and on a renewal. |
 | `success` with `message` `DROPOFF_CODE_SUPERSEDED: ...` (another code is stored and this was no renewal) or `DROPOFF_CODE_NOT_STORED: ...` (no farmer's nonce on the row) | Synced; nothing to retry (the phone cannot show it: its kept code may not work, and New drop-off code is the way out). | The drop-off QR says another phone or browser has the working code (`deliveryDropoffQrSuperseded`), or that the code is not on the server (`deliveryDropoffQrNotSent`). |
 | `deferred` `DELIVERY_NONCE_PENDING: Waiting for the pickup to sync. ...` (the delivery is still `pending` on the server) | Re-queued without a retry; the pickup ahead of it gets there first. | The drop-off QR says the code is not on the server yet and shows it anyway; the next open sends it again. |
-| `DELIVERY_VALIDATION: dropoffQrNonce must ...` or `DELIVERY_VALIDATION: The drop-off QR code can only be registered after the pickup.` (14 days without a pickup) | Unchanged `DELIVERY_*` handling (the apps never send a malformed one). | As for `deferred`. |
+| `DELIVERY_VALIDATION: dropoffQrNonce must ...` or `DELIVERY_VALIDATION: The drop-off QR code can only be registered after the pickup.` (14 days without a pickup) | Unchanged `DELIVERY_*` handling (the apps never send a malformed one); permanent, not reverted, since 1.73.0. | As for `deferred`. |
 | `DELIVERY_UNAUTHORIZED` (anyone but the trucker; the value is dropped first) | Unchanged. | Unchanged. |
 
 The buyer's confirm:
@@ -1842,10 +1873,158 @@ without a reason as permanent with the generic text.
 
 ---
 
+## Handoff evidence (1.71.0, FUP-440, GCR-01, GCR-02)
+
+The `delivery` update that confirms a handoff (the trucker's `pickedUp`, the buyer's `delivered`,
+the self-pickup confirm) may carry, all optional, as `delivery-verification-api.md` 2.19.0 sets out
+("Handoff evidence"):
+
+```json
+{
+  "operationId": "uuid-v4",
+  "entityType": "delivery",
+  "action": "update",
+  "timestamp": "2026-11-26T09:00:00Z",
+  "platform": "android",
+  "data": {
+    "status": "pickedUp",
+    "scannedQrNonce": "...",
+    "gpsStatus": "fix",
+    "gpsPickup": { "latitude": 9.0, "longitude": 38.7, "capturedAt": "2026-11-26T08:59:41Z", "accuracyM": 12.5 }
+  }
+}
+```
+
+- `platform` on the operation: `android` from the mobile queue, `web` from the web queue.
+- `gpsStatus` in `data`: `fix` or `approximate` with the point; `services_off`, `denied`,
+  `denied_forever` or `timeout` without one. Input only: the delivery's unknown field check accepts
+  it (as `scannedQrNonce` and `scannedQrCode`) and it is never stored as sent.
+- `capturedAt` (ISO 8601 UTC) and `accuracyM` (metres) inside `gpsPickup` or `gpsDropoff`: the fix's
+  own time and accuracy. The stored point stays `latitude` and `longitude`.
+
+The server stamps what passes its checks on the delivery, server-only, in the transition's own write
+(`{leg}GpsStatus`, `{leg}GpsCapturedAt`, `{leg}GpsAccuracyM`, `{leg}Method`, `{leg}Platform` and
+`dropoffCapturedAt`, leg `pickup` or `dropoff`); a value that fails is left out and the handoff is
+answered as without it. No stamp is in any result's `serverData`, and a `delivery` operation that
+sends one of these names in `data` is refused `DELIVERY_VALIDATION: Unknown fields: <field>` with
+nothing written (FUP-246's whitelist). Old clients send none of these and are answered unchanged.
+
+Rollout: server first. A server before 1.71.0 answers a handoff carrying `gpsStatus` with
+`DELIVERY_VALIDATION: Unknown fields: gpsStatus`, which no retry passes; it ignores `platform` (an
+unknown member of the operation is skipped by the reader) and the point's `capturedAt` and
+`accuracyM` (only `latitude` and `longitude` are read and stored).
+
+---
+
+## Profile refusals and the unsupported entity (1.72.0, FUP-74, FUP-315)
+
+A transient or profile-made refusal shared `CROP_VALIDATION` and `TRIP_VALIDATION` with the field
+rules, so the clients retried every text but the immutable-field one (1.43.0): an operation that broke
+a field rule was sent three times per sync and put back on every reconnect, without end. The server
+now gives the owner's profile its own codes, and the clients treat the field codes as permanent.
+
+Server (FUP-74; `crop-listing-api.md` 1.18.0, `trip-listing-api.md` 2.11.0):
+
+| Operation | Before 1.72.0 | Since 1.72.0 |
+|---|---|---|
+| `crop_listing` or `trip` `create` whose owner's profile cannot be read (no users row, or no users table configured) | `CROP_VALIDATION: Your profile could not be read. Please try again later.` (`TRIP_VALIDATION: ...` on a trip) | `CROP_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.` (`TRIP_PROFILE_UNAVAILABLE: ...`) |
+| The same, whose profile has neither a display name nor a Fayda name | `CROP_VALIDATION: Add your name to your profile before creating a listing.` (`TRIP_VALIDATION: ...`) | `CROP_PROFILE_INCOMPLETE: Add your name to your profile before creating a listing.` (`TRIP_PROFILE_INCOMPLETE: ...`) |
+| Any operation whose `entityType` the server does not route (`cropListing` from a build before FUP-18, `handoff_check_in` with both check-in flags off, any unknown type) | `Unsupported entity type: '<type>'.` | `SYNC_VALIDATION: Unsupported entity type: '<type>'.` |
+
+Nothing is written, as before. A users table read that throws is still answered `Internal server
+error.` and retried. Registration does not require a display name, so a profile with no name is
+real, and the same create passes once the user adds one (Profile text): the profile codes are retried.
+
+Every other `CROP_VALIDATION` and `TRIP_VALIDATION` of the sync path depends on the operation (the
+field rules, unknown fields, a changed immutable field, a client `matched`), on the row it updates, or
+on the server clock: a departure in the past, more than 30 days ahead or a `createdAt` more than a day
+ahead. The forms keep to the same bounds, so only a phone clock days off reaches the clock rules, and
+the user posts the listing or trip again. On a trip create the `truckerName` and `truckerPhone` rules
+read the values stamped from the profile: a registered phone always passes, and a name over 100
+characters can only be a Fayda name with no display name.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `CROP_VALIDATION:` or `TRIP_VALIDATION:` | Permanent: rejected, never resent, not reset by a reconnect. Not reverted (it says nothing the server holds): the local row stays and counts as failed, as for `SYNC_VALIDATION`. Explained with `errorListingDetailsNotAccepted` or `errorTripDetailsNotAccepted` (the immutable-field text with `errorChangeNotSaved`, as before). | Unchanged: a failure (no queue). |
+| The same with `profile could not be read` or `Add your name to your profile` (a server before 1.72.0) | Retried, as before. | Unchanged. |
+| `CROP_PROFILE_UNAVAILABLE:`, `CROP_PROFILE_INCOMPLETE:`, `TRIP_PROFILE_UNAVAILABLE:`, `TRIP_PROFILE_INCOMPLETE:` | Retried like any code no rule names (three tries per sync, again on reconnect), not announced. | A failure, like any refusal. |
+| `SYNC_VALIDATION: Unsupported entity type: ...` | Permanent under the `SYNC_VALIDATION` rule. A `cropListing` operation is no longer queued (1.20.0). A refused `handoff_check_in` still reads as check-ins not open: the check-in rules take the text with or without the prefix. | A refused check-in still says check-ins are not open. |
+
+Profile edits (FUP-315, mobile only, no wire change): see Profile text.
+
+Older clients: every shipped client retries the profile codes, as it retried the shared code, so
+nothing changes for them there. Every mobile build since 2026-03-02 treats `SYNC_VALIDATION` as
+permanent, so a build before FUP-18 stops resending its `cropListing` operation after one refusal; a
+build before 1.72.0 explains a `handoff_check_in` refused with the prefixed text as a change that was
+not accepted instead of check-ins not open (still permanent and reverted; both flags are off only after
+a rollback).
+
+Older servers: a client of 1.72.0 keeps retrying the two profile texts an older server sends under
+`CROP_VALIDATION` and `TRIP_VALIDATION` and treats every other text under them as permanent, which
+the same operation always got anyway. Either side may deploy first.
+
+---
+
+## Order and delivery profile refusals (1.73.0, FUP-553)
+
+The same split as 1.72.0, on the order and delivery creates. An order create stamps `buyerName` from
+the buyer's profile (FUP-99) and a delivery create stamps each party's name and phone (SIM-46); a read
+that found no profile, or a profile with no name, shared `ORDER_VALIDATION` and `DELIVERY_VALIDATION`
+with the field rules. Every client treats `ORDER_VALIDATION` as permanent and removes a refused order
+create, though a retry can pass both; every client retried every `DELIVERY_VALIDATION` but the
+immutable-field text, so a delivery that broke a field rule was resent without end.
+
+Server (`order-lifecycle.md` 2.27.0, `delivery-verification-api.md` 2.20.0):
+
+| Operation | Before 1.73.0 | Since 1.73.0 |
+|---|---|---|
+| `order` `create` whose buyer profile cannot be read (no users row, or no users table configured) | `ORDER_VALIDATION: Your profile could not be read. Please try again later.` | `ORDER_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.` |
+| The same, whose profile has neither a display name nor a Fayda name | `ORDER_VALIDATION: Add your name to your profile before placing an order.` | `ORDER_PROFILE_INCOMPLETE: Add your name to your profile before placing an order.` |
+| `delivery` `create` whose buyer, farmer or trucker profile cannot be read | `DELIVERY_VALIDATION: The <party> profile could not be read. Please try again later.` | `DELIVERY_PROFILE_UNAVAILABLE: The <party> profile could not be read. Please try again later.` |
+| The same, where no name is known for the party (profile and order row) | `DELIVERY_VALIDATION: The <party> has no name on their profile. Ask them to add one before creating a delivery.` | `DELIVERY_PROFILE_INCOMPLETE: The <party> has no name on their profile. Ask them to add one before creating a delivery.` |
+
+Nothing is written, as before; the checks run where they ran. A users table read that throws is still
+`Internal server error.` and retried. `DELIVERY_VALIDATION: <party>Id is required.` stays (the
+operation's), and so does `DELIVERY_VALIDATION: buyerId does not reference a valid user.`: it checks
+the payload's `buyerId` before the order binding (SEC-VULN-002). An honest client sends the order's
+buyer, whose row exists (the order create read it, and users rows are tombstoned, never removed).
+
+Every other `DELIVERY_VALIDATION` of the sync path depends on the operation (the field rules, unknown
+fields, a changed immutable field, a malformed typed code or drop-off code, GPS that is not a number
+or outside Ethiopia, a cancel with other fields) or on rows that only move one way: the order is not
+or no longer `accepted`, `pickup_confirmed` or `in_transit`, another delivery holds the order's slot,
+the referenced order, listing or trip is gone or deleted, a delivered row without `confirmedAt`, a
+drop-off code 14 days without a pickup. A retry of the same delivery create re-claims its own slot and
+gets the create-conflict echo, never the slot refusal. So the code now judges only the operation.
+
+| Server answer | Mobile client (sync queue) | Web client |
+|---|---|---|
+| `ORDER_PROFILE_UNAVAILABLE:`, `ORDER_PROFILE_INCOMPLETE:` | Retried like any code no rule names (three tries per sync, again on reconnect), not announced. The local order stays: they are not `ORDER_*` refusals (Permanent order rejections). | A failure, like any refusal (the generic error text). |
+| `ORDER_VALIDATION:` with `profile could not be read` or `Add your name to your profile` (a server before 1.73.0) | Retried the same way; before, rejected and the local order removed. | A failure (the generic error text; before, `errorOrderRefused`). |
+| Every other `ORDER_VALIDATION:` | Permanent and reverted, unchanged. | Unchanged. |
+| `DELIVERY_VALIDATION:` | Permanent: rejected, never resent, not reset by a reconnect. Not reverted (it says nothing the server holds): the local row stays and counts as failed, as for `CROP_VALIDATION`; a refused create also rejects the operations queued behind it (Permanent order rejections), a refused pickup or confirm the handoff photo waiting behind it (FRD-12), and the status changes sent on top of a refused pickup go with it (FUP-493). Explained with `errorChangeNotSaved`, as before. | Unchanged: a failure (no queue). |
+| The same with `profile could not be read` or `has no name on their profile` (a server before 1.73.0) | Retried, as before. | Unchanged. |
+| `DELIVERY_PROFILE_UNAVAILABLE:`, `DELIVERY_PROFILE_INCOMPLETE:` | Retried like any code no rule names, not announced. | A failure, like any refusal. |
+
+Older clients: every shipped client retries the delivery profile codes, as it retried the shared code.
+A client from 1.10.0 to 1.72.0 treats the `ORDER_PROFILE_*` codes as `ORDER_*` refusals (rejected, the
+local order removed), as it treated `ORDER_VALIDATION` before, so nothing changes for it; a client before
+1.10.0 retries them. No `X-App-Build` mapping is needed (Codes older apps do not know): no client resends
+them as an unknown code forever and gets something worse than before.
+
+Older servers: a client of 1.73.0 keeps retrying the profile texts an older server sends under
+`ORDER_VALIDATION` and `DELIVERY_VALIDATION`, and treats every other `DELIVERY_VALIDATION` as permanent,
+which the same operation always got anyway. Either side may deploy first.
+
+---
+
 ## Changelog
 
 | Version | Date | Change |
 |---------|------|--------|
+| 1.73.0 | 2026-11-27 | Order and delivery profile refusals (FUP-553; `order-lifecycle.md` 2.27.0, `delivery-verification-api.md` 2.20.0) and the web cancel and drop-out step-up (FUP-552). Server: an order create whose buyer profile cannot be read answers `ORDER_PROFILE_UNAVAILABLE`, one whose profile has no name `ORDER_PROFILE_INCOMPLETE` (both were `ORDER_VALIDATION`); a delivery create whose party profile cannot be read answers `DELIVERY_PROFILE_UNAVAILABLE`, one with no name known `DELIVERY_PROFILE_INCOMPLETE` (both were `DELIVERY_VALIDATION`). Mobile: the two order codes, and the same texts under an older server's `ORDER_VALIDATION`, are retried and the local order kept, the only `ORDER_*` refusals besides `ORDER_KYC_REQUIRED` that are; every `DELIVERY_VALIDATION` is permanent and not reverted, but the two profile texts of an older server; the delivery codes are retried. Web: a farmer's cancel of an accepted order or a trucker's drop-out answered `AUTH_040:` opens the password prompt in neutral words and is sent once more after it. Either side may deploy first. See Order and delivery profile refusals, and Step-up leftovers on the clients |
+| 1.72.0 | 2026-11-27 | Profile refusals and the unsupported entity (FUP-74, FUP-315; `crop-listing-api.md` 1.18.0, `trip-listing-api.md` 2.11.0). Server: a crop or trip create whose owner's profile cannot be read answers `CROP_PROFILE_UNAVAILABLE` or `TRIP_PROFILE_UNAVAILABLE`, one whose profile has no name `CROP_PROFILE_INCOMPLETE` or `TRIP_PROFILE_INCOMPLETE` (both were `CROP_VALIDATION` or `TRIP_VALIDATION`); an unrouted `entityType` answers `SYNC_VALIDATION: Unsupported entity type: '<type>'.` (was unprefixed), so a build before FUP-18 stops resending `cropListing`. Mobile: every `CROP_VALIDATION` and `TRIP_VALIDATION` is permanent and not reverted, but the two profile texts of an older server; `USER_PROFILE_VALIDATION` and `AUTH_027` on a `user` operation are permanent and put the phone's copy of the profile and the session back from `GET /user/profile`, with the edits still waiting on top; the check-in rules read the unsupported answer with or without the prefix. Web unchanged (a refused profile save changes nothing on the device). Either side may deploy first. See Profile refusals and the unsupported entity, and Profile text |
+| 1.71.0 | 2026-11-26 | Handoff evidence (FUP-440, GCR-01, GCR-02; `delivery-verification-api.md` 2.19.0): every operation may carry an optional `platform` (`android`, `web`); a handoff's `data` may carry the input-only `gpsStatus`, and its `gpsPickup` or `gpsDropoff` the fix's `capturedAt` and `accuracyM`, which are never stored in the point. The server stamps them server-only on the delivery with the leg's method and, for the drop-off, the phone's time of the operation; never in `serverData`; a client value of a stamp is an unknown field. A bad value is dropped, never refused; old clients unchanged. Server deploys first (an older server refuses `gpsStatus` as an unknown field). See Handoff evidence |
 | 1.70.0 | 2026-11-19 | Persona simulation fixes (server only, no client change; `order-lifecycle.md` 2.24.0, `delivery-verification-api.md` 2.17.0, `crop-listing-api.md` 1.17.0, `rating-api.md` 1.6.0): a `delivery` update from a caller who is no party is `DELIVERY_UNAUTHORIZED` before the transition, cancelled and dispute-window rules (conflict rule 10); an `order` or `delivery` update with nothing left to write answers `success` at the stored version and writes nothing (Updates with nothing to write); a `crop_listing` create for an existing id is answered by the create-conflict echo before the listing fraud rules; the delivery's buyer who sends `qrNonce` reads `DELIVERY_UNAUTHORIZED: Only the farmer sets the pickup code.`; a delivery confirm under a disputed escrow answers with the delivery as the dispute mirror left it (`disputed`); a `payment_submitted` for an order the listing can no longer fill is `ORDER_VALIDATION`; a rating of an order whose escrow is in dispute is `RATING_FORBIDDEN` |
 | 1.69.0 | 2026-11-19 | A refused duplicate trip create (persona simulation 2026-11-19 BUG-4, `trip-listing-api.md` 2.10.0 rule 14, fraud spec 3.43.0 Rule 6). Server: a trip `create` can now be answered `FRAUD_DUPLICATE_LISTING:` (the trucker already has an open trip on that route, departure day and vehicle), and a `crop_listing` `create` gets the same code for a lot the farmer already lists at any price (`crop-listing-api.md` 1.16.0 rule 13); both are permanent on every shipped client under the `FRAUD_*` rule. Clients: on mobile a trip create refused with it is reverted (the local trip is removed without a read, its operation leaves the failed count) and explained with its own sentence in en, am and om (`errorDuplicateTrip`); on web the create trip form shows the same sentence. A crop listing refused with the code is unchanged (not reverted, the listing-form wording) |
 | 1.68.0 | 2026-11-19 | Mobile client only, no wire change (persona simulation 2026-11-19). The farmer's own listings reach the phone (BUG-31, FUP-520): the own-listing pull of 1.67.2 now stores the rows it lists (every status, `reserved` and `sold` too), server wins, skipping a row with a `crop_listing` operation still on its way and a server copy older than the stored row, never a row of another farmer; it no longer returns before its request when the phone holds none of the farmer's listings. Early retries (BUG-32): a sync that did not reach the server while the phone has a network and operations wait is tried again after 10 s, 30 s, 1 min, 2 min and 5 min, stopping when the queue is empty or the phone is offline; the health check has a 10 s deadline, connecting included (BUG-35). See "Client-Side Conflict Resolution (Mobile)" and "Retry Logic and Exponential Backoff" |
@@ -1922,5 +2101,5 @@ without a reason as permanent with the generic text.
 
 ---
 
-**Last Updated**: 2026-11-19
-**Version**: 1.70.0
+**Last Updated**: 2026-11-27
+**Version**: 1.73.0

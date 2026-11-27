@@ -1018,9 +1018,10 @@ void main() {
         isRevertableListingRejectionMessage('FRAUD_DUPLICATE_LISTING: dup'),
         isFalse,
       );
-      // CROP_VALIDATION and TRIP_VALIDATION also wrap a failed profile read
-      // on the server, so a prefix alone is not deterministic, and the same
-      // payload goes through once the app is updated.
+      // CROP_VALIDATION and TRIP_VALIDATION say nothing the server holds
+      // (permanent, not undone, since 1.72.0) and an older server's carry a
+      // failed profile read, and the same payload goes through once the app
+      // is updated.
       for (final message in [
         null,
         '',
@@ -1116,6 +1117,160 @@ void main() {
       ]) {
         expect(
           isUnretryableFraudSignalMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+      }
+    });
+
+    // FUP-74 (sync-protocol.md 1.72.0): the profile refusals left
+    // CROP_VALIDATION and TRIP_VALIDATION; an older server's still keep
+    // retrying.
+    test('CROP_VALIDATION and TRIP_VALIDATION but the profile texts', () {
+      for (final message in [
+        'CROP_VALIDATION: Invalid cropType.',
+        'CROP_VALIDATION: Unknown fields: photos',
+        'CROP_VALIDATION: farmerId is immutable and cannot be changed on '
+            'update.',
+        'TRIP_VALIDATION: capacity is required and must be a number.',
+        "TRIP_VALIDATION: 'matched' is set by the server when the trip is "
+            'fully booked.',
+      ]) {
+        expect(isListingValidationMessage(message), isTrue, reason: message);
+      }
+      for (final message in [
+        null,
+        '',
+        'CROP_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+        'CROP_VALIDATION: The farmer profile could not be read.',
+        'CROP_VALIDATION: Add your name to your profile before creating a '
+            'listing.',
+        'TRIP_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+        'TRIP_VALIDATION: Add your name to your profile before creating a '
+            'listing.',
+        'CROP_PROFILE_UNAVAILABLE: Your profile could not be read. Please '
+            'try again later.',
+        'TRIP_PROFILE_INCOMPLETE: Add your name to your profile before '
+            'creating a listing.',
+        'DELIVERY_VALIDATION: Invalid gpsPickup.',
+        'ORDER_VALIDATION: x',
+        'CROP_VALIDATION',
+      ]) {
+        expect(
+          isListingValidationMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+      }
+    });
+
+    // FUP-553 (sync-protocol.md 1.73.0): the party profile refusals left
+    // DELIVERY_VALIDATION; an older server's still keep retrying.
+    test('DELIVERY_VALIDATION but the profile texts', () {
+      for (final message in [
+        'DELIVERY_VALIDATION: Unknown fields: gpsStatus',
+        'DELIVERY_VALIDATION: farmerId is required.',
+        'DELIVERY_VALIDATION: Referenced order not found.',
+        'DELIVERY_VALIDATION: buyerId does not reference a valid user.',
+        'DELIVERY_VALIDATION: The order already has an active delivery.',
+        'DELIVERY_VALIDATION: orderId is immutable and cannot be changed on '
+            'update.',
+      ]) {
+        expect(isDeliveryValidationMessage(message), isTrue, reason: message);
+      }
+      for (final message in [
+        null,
+        '',
+        'DELIVERY_VALIDATION: The buyer profile could not be read. Please '
+            'try again later.',
+        'DELIVERY_VALIDATION: The farmer has no name on their profile. Ask '
+            'them to add one before creating a delivery.',
+        'DELIVERY_PROFILE_UNAVAILABLE: The trucker profile could not be read. '
+            'Please try again later.',
+        'DELIVERY_PROFILE_INCOMPLETE: The farmer has no name on their '
+            'profile. Ask them to add one before creating a delivery.',
+        'DELIVERY_INVALID_TRANSITION: no',
+        'CROP_VALIDATION: Invalid cropType.',
+        'DELIVERY_VALIDATION',
+      ]) {
+        expect(
+          isDeliveryValidationMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+      }
+    });
+
+    // FUP-553 (sync-protocol.md 1.73.0): the order create's profile
+    // refusals are the ORDER_* codes a retry can pass.
+    test('an order create refused for the buyer profile is not reverted', () {
+      for (final message in [
+        'ORDER_PROFILE_UNAVAILABLE: Your profile could not be read. Please '
+            'try again later.',
+        'ORDER_PROFILE_INCOMPLETE: Add your name to your profile before '
+            'placing an order.',
+        // An older server.
+        'ORDER_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+        'ORDER_VALIDATION: Add your name to your profile before placing an '
+            'order.',
+      ]) {
+        expect(isOrderProfileRefusalMessage(message), isTrue, reason: message);
+        expect(
+          isRevertableRejectionMessage(message),
+          isFalse,
+          reason: message,
+        );
+        // Web: a failure like any refusal, not "this order action isn't
+        // allowed".
+        expect(
+          mapErrorToCode(SyncRejectedException(message)),
+          AppErrorCode.server,
+          reason: message,
+        );
+      }
+      for (final message in [
+        null,
+        '',
+        'ORDER_VALIDATION: Listing not found.',
+        'ORDER_KYC_REQUIRED: unavailable: The parties could not be read.',
+        'CROP_PROFILE_UNAVAILABLE: Your profile could not be read.',
+        'USER_PROFILE_UNAVAILABLE: try again.',
+      ]) {
+        expect(
+          isOrderProfileRefusalMessage(message),
+          isFalse,
+          reason: '$message',
+        );
+      }
+      expect(
+        isRevertableRejectionMessage('ORDER_VALIDATION: Listing not found.'),
+        isTrue,
+      );
+    });
+
+    // FUP-315 (sync-protocol.md 1.72.0).
+    test('a profile edit refused for its values', () {
+      for (final message in [
+        'USER_PROFILE_VALIDATION: displayName must not be empty.',
+        'AUTH_027: Remove the phone number from woreda. Contact opens after '
+            'payment is held in escrow.',
+      ]) {
+        expect(isProfileEditRefusalMessage(message), isTrue, reason: message);
+      }
+      for (final message in [
+        null,
+        '',
+        'USER_PROFILE_CONFLICT: try again.',
+        'USER_PROFILE_UNAVAILABLE: try again.',
+        'USER_PROFILE_NOT_FOUND: x',
+        'USER_PROFILE_UNAUTHORIZED: A user can only update their own profile.',
+        'AUTH_025: suspended',
+      ]) {
+        expect(
+          isProfileEditRefusalMessage(message),
           isFalse,
           reason: '$message',
         );

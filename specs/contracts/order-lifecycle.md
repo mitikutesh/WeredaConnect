@@ -1,7 +1,7 @@
 # Order Lifecycle Contract (Status Levels & Escrow Semantics)
 
 ## Version
-2.25.0
+2.27.0
 
 ## Parties
 - **Mobile / Web** (client) — displays the status timeline, requests buyer/farmer/logistics transitions via `POST /sync`
@@ -167,7 +167,9 @@ quintals out of it, so stock held by funded and later orders is never part of `q
 
 ## Order Create Validation (server-enforced, 1.2.0)
 
-`POST /sync` with `entityType: order`, `action: create` is bound to the server's own listing and trip records; the client's copy is checked, never trusted (SIM-05). Every failure is `ORDER_VALIDATION` (except `TRIP_CAPACITY_EXCEEDED`, 2.0.0, and `ORDER_TRIP_NOT_ELIGIBLE`, 2.3.0) and nothing is written. Client-sent money fields (`cropCost`, `commissionRate`, `commissionAmount`, `orderTotal`) are stripped before validation.
+`POST /sync` with `entityType: order`, `action: create` is bound to the server's own listing and trip records; the client's copy is checked, never trusted (SIM-05). Every failure is `ORDER_VALIDATION` (except `TRIP_CAPACITY_EXCEEDED`, 2.0.0, `ORDER_TRIP_NOT_ELIGIBLE`, 2.3.0, and the buyer profile codes below, 2.27.0) and nothing is written.
+
+Before the listing and trip reads, `buyerName` is stamped from the buyer's profile (display name, else the Fayda legal name; FUP-99), never kept from the client, and `dropoffPlace` from the same read (2.2.0). A profile that cannot be read (no users row, or no users table configured) is refused `ORDER_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.`, one with neither name `ORDER_PROFILE_INCOMPLETE: Add your name to your profile before placing an order.` (2.27.0, FUP-553; both were `ORDER_VALIDATION`). A retry can pass both, so clients retry them and keep the local order, unlike every other `ORDER_*` refusal (`sync-protocol.md` 1.73.0). Client-sent money fields (`cropCost`, `commissionRate`, `commissionAmount`, `orderTotal`) are stripped before validation.
 
 | Rule | Rejection message |
 |---|---|
@@ -467,7 +469,8 @@ caller's, read once per `/sync` batch; a score that could not be read is LOW at 
 ## Refused order changes (1.11.0, ESC-12 part A)
 
 Every `ORDER_*` error the server returns for an order operation, except
-`ORDER_KYC_REQUIRED`, is permanent: the same command gets the same answer. That
+`ORDER_KYC_REQUIRED` and, since 2.27.0, `ORDER_PROFILE_UNAVAILABLE` and `ORDER_PROFILE_INCOMPLETE`
+(Order Create Validation), is permanent: the same command gets the same answer. That
 includes the transition refusals above (`ORDER_VALIDATION`, `ORDER_UNAUTHORIZED`), the
 held-escrow refusal of an accept, the live payment range check and the live payment method
 refusal (`ORDER_PAYMENT_METHOD_UNAVAILABLE`, 1.19.0), and since 2.0.0 the commitment refusals
@@ -1131,8 +1134,71 @@ only with `COMMITMENTS_ENABLED`; before it goes on, the client FUP-336 and the b
   flag turned off while orders wait, a pending order's stamp is cleared when it falls due (stored as a null
   attribute) and the order leaves the index. With the flag off nothing here applies.
 
+## Admin commission change (2.26.0)
+
+The platform commission is negotiable and can differ from order to order. The order create
+stores the standard rate (SSM `commission-rate`, 5 % by default) on the order as
+`commissionRate`; before the buyer pays, an admin may agree another rate for that one order.
+
+`POST /admin/orders/{orderId}/commission`, admin pool, `admin` group only (as the money routes);
+the existing route `POST /admin/orders/{orderId}/{action}` carries it, so no infra change.
+
+```json
+{ "commissionRate": 0.025, "reason": "Agreed 2.5% with the buyer on the phone.", "expectedVersion": 4 }
+```
+
+| Field | Rule |
+|---|---|
+| `commissionRate` | A fraction from 0 to 0.20 (20 %), at most 4 decimals. 0 is allowed (no commission) |
+| `reason` | 10 to 500 characters once trimmed; goes to the transaction-audit row only |
+| `expectedVersion` | The order `version` the admin page read |
+
+**When.** Only while no money moved: the order is `created` or `pending_payment`, it has no
+`paymentVerifiedAt`, and the webhook's `paymentHoldUntil` (a verified payment of the order
+waiting in the webhook inbox) is absent or in the past. A checkout is only opened from
+`payment_submitted` and reads `orderTotal` then, so the buyer pays the new total. A payment opened
+for an older total is refused by the webhook as `order_changed` into the unapplied payments queue
+(`escrow-protocol.md`), never applied at the wrong amount.
+
+**What it writes.** One conditional update of the order: `commissionRate` (the new rate),
+`commissionAmount = round2(cropCost x rate)` (to the santim, halves away from zero, as at create)
+and `orderTotal = cropCost + transportCost + commissionAmount`; `cropCost` and `transportCost`
+never change, so the farmer's and the trucker's legs stay. It stamps the server-only map
+`commissionChange` (`at`, `fromRate`, `toRate`, `fromTotal`, `fromVersion`; no admin id, no
+reason), bumps `version` and `updatedAt`, and lands only while the version and the status are as
+read, `paymentVerifiedAt` is absent and `paymentHoldUntil` is as read (the webhook writes the hold
+without a version bump). A transaction-audit row `admin_commission_changed` (entity `order`, from
+and to the same status, metadata `fromRate`, `toRate`, `fromTotal`, `toTotal`, `reason`) shows on
+the admin transaction timeline and the Audit Log. The order then syncs to the parties as any
+server change (the pull carries `commissionRate`, `commissionAmount` and `orderTotal`); a buyer's
+queued change made on the older version meets the version check and the server copy wins.
+
+**Who is told.** The buyer only: `order_commission_changed` with the new rate and total
+(`notifications-api.md` 1.7.0). The apps show the order's own rate on every commission row
+("Platform Commission · 2.5%"), never a fixed 5 %; Place Order and the crop detail preview the
+standard rate before the order exists.
+
+| Answer | When |
+|---|---|
+| 200 `{orderId, status, commissionRate, commissionAmount, orderTotal, commissionRateBefore, orderTotalBefore, version, alreadyApplied: false, message}` | Written |
+| 200 with `alreadyApplied: true` | The same change (the same rate from the same `expectedVersion`) is already on the order, also when it landed first in a race; nothing is written again |
+| 400 `COMMISSION_CHANGE_INVALID` (`field`: `commissionRate`, `reason` or `expectedVersion`) | A field is missing or out of range; nothing is read |
+| 400 `ADMIN_005` | No body or not JSON |
+| 403 | Not in the `admin` group |
+| 404 `ADMIN_012` | No such order |
+| 409 `COMMISSION_CHANGE_NOT_ALLOWED` | The order is not `created` or `pending_payment`, its payment is verified or on its way, it has no crop cost, or it already has this rate (the message says which) |
+| 409 `COMMISSION_CHANGE_CHANGED` | The order moved since the page read it (another version, or the conditional write refused); nothing was written |
+
+The admin transaction page offers the change on an unpaid order with no escrow: the new rate in
+percent (0 to 20, two decimals), a preview of the new commission and total, the reason, then a
+confirm step naming the old and the new total.
+
+---
+
 ## Changelog
 
+- **2.27.0 (2026-11-27)**: Buyer profile refusals of an order create (FUP-553, `sync-protocol.md` 1.73.0): a create whose buyer profile cannot be read answers `ORDER_PROFILE_UNAVAILABLE`, one whose profile has no name `ORDER_PROFILE_INCOMPLETE`, with the same sentences (both were `ORDER_VALIDATION`). The mobile queue retries both and keeps the local order (before, the order was removed); web shows them as a failure. Nothing else changes. Also client only (FUP-552): on web a farmer's cancel of an order they accepted, or a trucker's drop-out, answered `AUTH_040` opens the password prompt in neutral words and is sent once more after it.
+- **2.26.0 (2026-11-26)**: Admin commission change (section above, `notifications-api.md` 1.7.0): the commission is negotiable per order. `POST /admin/orders/{orderId}/commission` (`admin` group, `commissionRate` 0 to 0.20 with at most 4 decimals, `reason` 10 to 500, `expectedVersion`) sets another rate on a `created` or `pending_payment` order with no verified or held payment, recomputes `commissionAmount` and `orderTotal` from the unchanged `cropCost` and `transportCost`, stamps the server-only `commissionChange`, writes the `admin_commission_changed` audit row and tells the buyer `order_commission_changed`. Errors `COMMISSION_CHANGE_INVALID`, `COMMISSION_CHANGE_NOT_ALLOWED`, `COMMISSION_CHANGE_CHANGED`. Clients: every commission row shows the order's own rate (no fixed 5 %); the admin transaction page has the form. Also client only: Home's Pending Orders tile counts the orders waiting for the farmer's answer and opens Orders on a "Waiting for you" chip (the Pending chip still means not paid yet), and the old web addresses `/marketplace` and `/listings` redirect to `/find-crops` and `/my-crops`.
 - **2.25.0 (2026-11-19)**: Persona simulation BUG-7 and BUG-8 (fraud spec 3.44.0 Rule 7, `escrow-protocol.md` 2.28.0). An order create on a trip whose `fromWoreda` is neither the listing's `woreda` nor its `locationName` (trimmed, case and inner spaces ignored) is accepted and records the weight 0 review flag `ORDER_ROUTE_MISMATCH` on the buyer. T8 (`dropoffDeadlineAt`, else `pickedUpAt` + `delivery-overdue-hours`) also opens the buyer's `not_delivered` escrow dispute of goods on the road. No wire change.
 - **2.24.2 (2026-11-19)**: Client only, no server change (persona simulation BUG-29): the demo payment screen defaults to Telebirr instead of the bank transfer, and offers the CBE transfer only when a real account number is configured; the placeholder `1000XXXXXXXXXX` is never shown. The reference stays the full order id (SIM-54). `ORDER_PAYMENT_METHOD_UNAVAILABLE` and the stored `cbe_transfer` default of the mobile order create are unchanged.
 - **2.24.1 (2026-11-19)**: Client only, no server change (persona simulation BUG-20): the place-order form no longer starts at the listing's whole stock. The quantity starts empty, the form names the kg that can be ordered and offers "All"; an order from a buying request still starts at the request's quantity (Units). A typed drop-off place that was not picked from the list now blocks Place Order instead of silently falling back to the trip's destination (BUG-18); an empty field still means the trip's destination.

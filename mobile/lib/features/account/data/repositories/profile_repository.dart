@@ -36,4 +36,28 @@ class ProfileRepository extends BaseProfileRepository {
   @override
   Future<bool> hasUnsentEdit(String userId) =>
       _syncQueue.hasOpenOperationsFor(userProfileEntityType, userId);
+
+  /// FUP-315 (sync-protocol.md 1.72.0): the server refused an edit of
+  /// [userId]'s profile for good, so the phone shows the server's profile
+  /// again (`GET /user/profile`), with the edits still waiting in the queue
+  /// on top: their own answers settle them. [apply] writes it to the phone's
+  /// copy and the session. When the read fails nothing changes, and the edit
+  /// screen reads the profile again when it opens.
+  Future<void> revertRefusedEdit(
+    String userId, {
+    required Future<void> Function(ProfileValues values) apply,
+  }) async {
+    final server = await fetch(userId);
+    if (server == null) return;
+    var values = server;
+    for (final waiting in await _syncQueue.waitingOperationsFor(
+      userProfileEntityType,
+      userId,
+    )) {
+      values = values.apply(
+        ProfileChanges.fromSyncData(jsonDecode(waiting.data)),
+      );
+    }
+    await apply(values);
+  }
 }

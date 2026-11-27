@@ -6,7 +6,7 @@ import { HandoffPhoto, TransactionTimeline } from "@/components/transactions/Tra
 import { useLocale } from "@/hooks/useLocale";
 import { useDisputeMessages } from "@/hooks/useQuery";
 import type { DisputeEvidence, EvidenceMessage, Handoff } from "@/lib/evidence";
-import { confirmContradictsReason, partiesOf } from "@/lib/evidence";
+import { confirmContradictsReason, noFixCause, partiesOf, sentLate } from "@/lib/evidence";
 import { formatDateTime } from "@/lib/i18n";
 import { formatGps } from "@/lib/transaction";
 import { fill } from "@/lib/trail";
@@ -52,7 +52,17 @@ function useWho(evidence: DisputeEvidence | undefined) {
   };
 }
 
-/** One handoff: when, how and by whom, where, and how far from the planned point. */
+/** FUP-440: why a handoff had no GPS fix when the phone said so, else the old "No GPS fix" line. */
+function noFixText(t: Translate, handoff: Handoff | undefined): string {
+  const cause = noFixCause(handoff);
+  return cause ? t(`evidence.gpsCause_${cause}`) : t("evidence.noGps");
+}
+
+/**
+ * One handoff: when, how and by whom, where, and how far from the planned point. FUP-440 and GCR-02: why there
+ * was no fix, the fix's own time and accuracy, an approximate fix, a handoff made offline and sent later, and
+ * the app it came from, each only when the server stored it.
+ */
 function HandoffItem({ handoff, who }: { handoff: Handoff; who: (id: string | undefined) => string }) {
   const { t } = useLocale();
   const by = who(handoff.actorId);
@@ -63,6 +73,12 @@ function HandoffItem({ handoff, who }: { handoff: Handoff; who: (id: string | un
     : t("evidence.whoUnknown");
   const place = formatGps(handoff.gps);
   const distanceKey = handoff.leg === "dropoff" ? "evidence.fromDestination" : "evidence.fromListing";
+  const fixFacts = [
+    handoff.gpsCapturedAt ? fill(t("evidence.gpsFixAt"), { time: formatDateTime(handoff.gpsCapturedAt) }) : "",
+    handoff.gpsAccuracyM != null ? fill(t("evidence.gpsAccuracy"), { meters: Math.round(handoff.gpsAccuracyM) }) : "",
+  ].filter(Boolean);
+  const late = sentLate(handoff);
+  const platform = handoff.platform === "android" || handoff.platform === "web" ? handoff.platform : undefined;
 
   return (
     <li className="rounded-[14px] border border-line p-3">
@@ -85,9 +101,17 @@ function HandoffItem({ handoff, who }: { handoff: Handoff; who: (id: string | un
               {fill(t(distanceKey), { km: handoff.distanceKm })}
             </Badge>
           )}
+          {handoff.gpsStatus === "approximate" && <Badge variant="warning">{t("evidence.gpsApproximate")}</Badge>}
         </p>
       ) : (
-        <p className="mt-1 text-sm text-slate">{t("evidence.noGps")}</p>
+        <p className="mt-1 text-sm text-slate">{noFixText(t, handoff)}</p>
+      )}
+      {place && fixFacts.length > 0 && <p className="text-xs text-slate">{fixFacts.join(" · ")}</p>}
+      {(late || platform) && (
+        <p className="mt-1 flex flex-wrap items-center gap-1">
+          {late && <Badge variant="warning">{t("evidence.sentLate")}</Badge>}
+          {platform && <Badge>{t(`evidence.platform_${platform}`)}</Badge>}
+        </p>
       )}
     </li>
   );
@@ -96,7 +120,10 @@ function HandoffItem({ handoff, who }: { handoff: Handoff; who: (id: string | un
 type Row = Record<string, unknown>;
 
 
-/** One leg of the stamped evidence: when, how and by whom, and whether a GPS fix was sent. */
+/**
+ * One leg of the stamped evidence: when, how and by whom, and whether a GPS fix was sent. Without one, the
+ * cause from the evidence read's handoff when the phone sent it (FUP-440).
+ */
 function StampedLeg({
   legKey,
   at,
@@ -105,6 +132,7 @@ function StampedLeg({
   fix,
   distanceKm,
   distanceKey,
+  handoff,
 }: {
   legKey: string;
   at: unknown;
@@ -113,6 +141,7 @@ function StampedLeg({
   fix: unknown;
   distanceKm?: number;
   distanceKey: string;
+  handoff?: Handoff;
 }) {
   const { t } = useLocale();
   const how = by
@@ -135,7 +164,7 @@ function StampedLeg({
             )}
           </>
         ) : (
-          <Badge variant="warning">{t("evidence.noGps")}</Badge>
+          <Badge variant="warning">{noFixText(t, handoff)}</Badge>
         )}
       </p>
     </li>
@@ -155,8 +184,8 @@ export function StampedHandoffEvidence({ escrow, evidence }: { escrow: Row; evid
   if (!stamped) return null;
 
   const selfPickup = stamped.selfPickup === true;
-  const distanceOf = (pickup: boolean) =>
-    evidence?.handoffs.find((h) => (pickup ? h.leg === "pickup" : h.leg !== "pickup"))?.distanceKm;
+  const handoffOf = (pickup: boolean) =>
+    evidence?.handoffs.find((h) => (pickup ? h.leg === "pickup" : h.leg !== "pickup"));
   const text = (value: unknown) => (typeof value === "string" ? value : undefined);
 
   return (
@@ -178,8 +207,9 @@ export function StampedHandoffEvidence({ escrow, evidence }: { escrow: Row; evid
             method={stamped.pickupMethod}
             by={who(text(stamped.pickupBy))}
             fix={stamped.pickupFix}
-            distanceKm={distanceOf(true)}
+            distanceKm={handoffOf(true)?.distanceKm}
             distanceKey="evidence.fromListing"
+            handoff={handoffOf(true)}
           />
         )}
         {text(stamped.confirmedAt) && (
@@ -189,8 +219,9 @@ export function StampedHandoffEvidence({ escrow, evidence }: { escrow: Row; evid
             method={stamped.confirmMethod}
             by={who(text(stamped.confirmedBy))}
             fix={stamped.dropoffFix}
-            distanceKm={distanceOf(false)}
+            distanceKm={handoffOf(false)?.distanceKm}
             distanceKey={selfPickup ? "evidence.fromListing" : "evidence.fromDestination"}
+            handoff={handoffOf(false)}
           />
         )}
       </ul>

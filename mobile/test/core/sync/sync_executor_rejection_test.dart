@@ -1600,18 +1600,63 @@ void main() {
     expect(await syncQueue.getFailedCount(), 0);
   });
 
+  // FUP-74 (sync-protocol.md 1.72.0): the owner's profile decides these, not
+  // the operation, so a retry can pass them; an older server still sends
+  // them under CROP_VALIDATION and TRIP_VALIDATION.
   group('part B: CROP_* and TRIP_* codes the client cannot trust keep retrying',
       () {
     for (final (entityType, entityId, message) in [
       (
         'crop_listing',
         'crop-1',
-        'CROP_VALIDATION: The farmer profile could not be read. Please try '
+        'CROP_PROFILE_UNAVAILABLE: Your profile could not be read. Please try '
             'again later.',
       ),
-      ('trip', 'trip-1', 'TRIP_VALIDATION: bad'),
+      (
+        'crop_listing',
+        'crop-1',
+        'CROP_PROFILE_INCOMPLETE: Add your name to your profile before '
+            'creating a listing.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'TRIP_PROFILE_UNAVAILABLE: Your profile could not be read. Please try '
+            'again later.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'TRIP_PROFILE_INCOMPLETE: Add your name to your profile before '
+            'creating a listing.',
+      ),
+      // An older server.
+      (
+        'crop_listing',
+        'crop-1',
+        'CROP_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+      ),
+      (
+        'crop_listing',
+        'crop-1',
+        'CROP_VALIDATION: Add your name to your profile before creating a '
+            'listing.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'TRIP_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+      ),
+      (
+        'trip',
+        'trip-1',
+        'TRIP_VALIDATION: Add your name to your profile before creating a '
+            'listing.',
+      ),
     ]) {
-      test(message.split(':').first, () async {
+      test(message, () async {
         await enqueue(
           'op-1',
           entityType: entityType,
@@ -1626,6 +1671,288 @@ void main() {
         expect(op!.status, SyncStatus.pending);
         expect(op.retryCount, 1);
         expect(op.reverted, isFalse);
+        expect(reverts, isEmpty);
+        expect(rejections(), isEmpty);
+      });
+    }
+  });
+
+  // FUP-74 (sync-protocol.md 1.72.0): with the profile refusals out of them,
+  // CROP_VALIDATION and TRIP_VALIDATION judge only the operation. Never
+  // resent, not reverted (they say nothing the server holds), still counted,
+  // explained with the details texts.
+  group('CROP_VALIDATION and TRIP_VALIDATION are permanent, not reverted', () {
+    for (final (entityType, entityId, action, message, code) in [
+      (
+        'crop_listing',
+        'crop-1',
+        'create',
+        'CROP_VALIDATION: Invalid cropType.',
+        AppErrorCode.listingDetailsNotAccepted,
+      ),
+      (
+        'crop_listing',
+        'crop-1',
+        'update',
+        'CROP_VALIDATION: Unknown fields: photos',
+        AppErrorCode.listingDetailsNotAccepted,
+      ),
+      (
+        'trip',
+        'trip-1',
+        'create',
+        'TRIP_VALIDATION: capacity is required and must be a number.',
+        AppErrorCode.tripDetailsNotAccepted,
+      ),
+      (
+        'trip',
+        'trip-1',
+        'update',
+        'TRIP_VALIDATION: departureDate must be in the future when changed.',
+        AppErrorCode.tripDetailsNotAccepted,
+      ),
+    ]) {
+      test('$entityType $action: $message', () async {
+        await enqueue(
+          'op-1',
+          entityType: entityType,
+          entityId: entityId,
+          action: action,
+          data: '{"version":2}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        await executor.syncNow();
+        expect(syncPosts, 1, reason: 'never resent');
+        expect(reverts, isEmpty);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+        expect(await syncQueue.getFailedCount(), 1);
+        expect(rejections().single.message, message);
+        expect(
+          syncRejectionErrorCode(
+            entityType: entityType,
+            action: action,
+            message: message,
+          ),
+          code,
+        );
+      });
+    }
+  });
+
+  // FUP-553 (sync-protocol.md 1.73.0): the buyer's or a delivery party's
+  // profile decides these, not the operation, so a retry can pass them; an
+  // older server still sends them under ORDER_VALIDATION and
+  // DELIVERY_VALIDATION. A refused order create keeps its local order.
+  group('order and delivery profile refusals keep retrying', () {
+    for (final (entityType, entityId, message) in [
+      (
+        'order',
+        'order-1',
+        'ORDER_PROFILE_UNAVAILABLE: Your profile could not be read. Please '
+            'try again later.',
+      ),
+      (
+        'order',
+        'order-1',
+        'ORDER_PROFILE_INCOMPLETE: Add your name to your profile before '
+            'placing an order.',
+      ),
+      (
+        'delivery',
+        'del-1',
+        'DELIVERY_PROFILE_UNAVAILABLE: The farmer profile could not be read. '
+            'Please try again later.',
+      ),
+      (
+        'delivery',
+        'del-1',
+        'DELIVERY_PROFILE_INCOMPLETE: The buyer has no name on their profile. '
+            'Ask them to add one before creating a delivery.',
+      ),
+      // An older server.
+      (
+        'order',
+        'order-1',
+        'ORDER_VALIDATION: Your profile could not be read. Please try again '
+            'later.',
+      ),
+      (
+        'order',
+        'order-1',
+        'ORDER_VALIDATION: Add your name to your profile before placing an '
+            'order.',
+      ),
+      (
+        'delivery',
+        'del-1',
+        'DELIVERY_VALIDATION: The trucker profile could not be read. Please '
+            'try again later.',
+      ),
+      (
+        'delivery',
+        'del-1',
+        'DELIVERY_VALIDATION: The farmer has no name on their profile. Ask '
+            'them to add one before creating a delivery.',
+      ),
+    ]) {
+      test(message, () async {
+        await enqueue(
+          'op-1',
+          entityType: entityType,
+          entityId: entityId,
+          action: 'create',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+
+        final op = await syncQueue.getOperation('op-1');
+        expect(op!.status, SyncStatus.pending);
+        expect(op.retryCount, 1);
+        expect(op.reverted, isFalse);
+        // The local order or delivery stays: nothing is undone or removed.
+        expect(reverts, isEmpty);
+        await Future<void>.delayed(Duration.zero);
+        expect(rejections(), isEmpty);
+      });
+    }
+  });
+
+  // FUP-553 (sync-protocol.md 1.73.0): with the party profile refusals out of
+  // it, DELIVERY_VALIDATION judges only the operation and the rows it names.
+  // Never resent, not reverted, still counted, explained as not saved.
+  group('DELIVERY_VALIDATION is permanent, not reverted', () {
+    for (final (action, message) in [
+      ('create', 'DELIVERY_VALIDATION: Unknown fields: gpsStatus'),
+      (
+        'create',
+        'DELIVERY_VALIDATION: Order is funded; no delivery can be created '
+            'until the farmer has accepted it (accepted, pickup_confirmed or '
+            'in_transit).',
+      ),
+      ('create', 'DELIVERY_VALIDATION: farmerId is required.'),
+      (
+        'update',
+        'DELIVERY_VALIDATION: gpsPickup requires numeric latitude and '
+            'longitude.',
+      ),
+    ]) {
+      test('$action: $message', () async {
+        await enqueue(
+          'op-1',
+          entityType: 'delivery',
+          entityId: 'del-1',
+          action: action,
+          data: '{"version":2}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        await executor.syncNow();
+        expect(syncPosts, 1, reason: 'never resent');
+        expect(reverts, isEmpty);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+        expect(await syncQueue.getFailedCount(), 1);
+        expect(rejections().single.message, message);
+        expect(
+          syncRejectionErrorCode(
+            entityType: 'delivery',
+            action: action,
+            message: message,
+          ),
+          AppErrorCode.changeNotSaved,
+        );
+      });
+    }
+  });
+
+  // FUP-315 (sync-protocol.md 1.72.0): a profile edit refused for its values
+  // gets the same answer every time. Never resent, the handler puts the
+  // server's profile back, and it leaves the "Sync failed" count.
+  group('a profile edit refused for its values', () {
+    for (final message in [
+      'USER_PROFILE_VALIDATION: displayName must be at most 100 characters.',
+      'AUTH_027: Remove the phone number from displayName, woreda. Contact '
+          'opens after payment is held in escrow.',
+    ]) {
+      test('${message.split(':').first} is permanent and reverted', () async {
+        await enqueue(
+          'op-1',
+          entityType: 'user',
+          entityId: 'farmer-1',
+          data: '{"displayName":"Abebe 0911223344"}',
+        );
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+        await waitFor(() => rejections().isNotEmpty);
+
+        expect(await isRejected('op-1'), isTrue);
+        expect(await syncQueue.retryFailed(), 0);
+        await executor.syncNow();
+        expect(syncPosts, 1, reason: 'never resent');
+        expect(reverts, hasLength(1));
+        expect(reverts.single.$1.operationId, 'op-1');
+        expect(reverts.single.$2, message);
+        expect((await syncQueue.getOperation('op-1'))!.reverted, isTrue);
+        expect(await syncQueue.getFailedCount(), 0);
+        final event = rejections().single;
+        expect(event.entityType, 'user');
+        expect(event.entityId, 'farmer-1');
+        expect(event.message, message);
+      });
+    }
+
+    test('a revert that threw keeps it counted', () async {
+      executor.dispose();
+      executor = buildExecutor(
+        securityEvents: events,
+        onPermanentRejection: (op, message) async => throw StateError('x'),
+      );
+      await enqueue(
+        'op-1',
+        entityType: 'user',
+        entityId: 'farmer-1',
+        data: '{"woreda":"Meki"}',
+      );
+      replyWith([error('op-1', 'USER_PROFILE_VALIDATION: woreda is empty.')]);
+
+      await executor.executeBatch();
+      await waitFor(() => rejections().isNotEmpty);
+
+      expect(await isRejected('op-1'), isTrue);
+      expect((await syncQueue.getOperation('op-1'))!.reverted, isFalse);
+      expect(await syncQueue.getFailedCount(), 1);
+    });
+
+    for (final (entityType, entityId, message) in [
+      // A rare concurrent write and a failed read: the same edit can pass.
+      ('user', 'farmer-1', 'USER_PROFILE_CONFLICT: try again.'),
+      ('user', 'farmer-1', 'USER_PROFILE_UNAVAILABLE: try again.'),
+      // The codes mean nothing to the queue on another entity.
+      ('crop_listing', 'crop-1', 'AUTH_027: Remove the phone number.'),
+      ('order', 'order-1', 'USER_PROFILE_VALIDATION: x'),
+    ]) {
+      test('$entityType "${message.split(':').first}" keeps retrying',
+          () async {
+        await enqueue('op-1', entityType: entityType, entityId: entityId);
+        replyWith([error('op-1', message)]);
+
+        await executor.executeBatch();
+
+        final op = await syncQueue.getOperation('op-1');
+        expect(op!.status, SyncStatus.pending);
+        expect(op.retryCount, 1);
         expect(reverts, isEmpty);
         expect(rejections(), isEmpty);
       });
@@ -2210,9 +2537,15 @@ void main() {
         'RATING_FORBIDDEN: You can only rate a delivered order (delivered, '
             'disbursing or settled).',
       ),
-      ('crop_listing', 'crop-1', 'CROP_VALIDATION: Invalid cropType.'),
-      ('trip', 'trip-1', 'TRIP_VALIDATION: capacity is required.'),
-      ('delivery', 'del-1', 'DELIVERY_VALIDATION: Invalid gpsPickup.'),
+      // CROP_VALIDATION, TRIP_VALIDATION (1.72.0, FUP-74) and
+      // DELIVERY_VALIDATION (1.73.0, FUP-553) are permanent; a party's
+      // profile has its own code, which retries.
+      (
+        'delivery',
+        'del-1',
+        'DELIVERY_PROFILE_UNAVAILABLE: The farmer profile could not be read. '
+            'Please try again later.',
+      ),
       // Not an _UNAUTHORIZED code, only text that contains the word.
       ('delivery', 'del-1', 'Delivery update was UNAUTHORIZED somehow.'),
       // A role gate also answers a token without the role claim (a client

@@ -540,25 +540,32 @@ public partial class SyncFunctionTests
         Assert.Contains("duplicate", response.Body);
     }
 
-    [Fact]
-    public async Task FunctionHandler_UnsupportedEntityType_ReturnsError()
+    // FUP-74 (sync-protocol.md 1.72.0): SYNC_VALIDATION, permanent on every client since March 2026,
+    // so the `cropListing` update a build before FUP-18 queued with a delivery is no longer resent.
+    [Theory]
+    [InlineData("unknown_entity", "create", "farmer-001", "farmer")]
+    [InlineData("cropListing", "update", "trucker-001", "trucker")]
+    [InlineData("cropListing", "update", "buyer-001", "buyer")]
+    public async Task FunctionHandler_UnsupportedEntityType_ReturnsError(
+        string entityType, string action, string userId, string role)
     {
         var badOp = new SyncOperationRequest
         {
             OperationId = "op-bad",
-            IdempotencyKey = "user:unknown:x:create:12345",
-            EntityType = "unknown_entity",
+            IdempotencyKey = $"{userId}:{entityType}:x-001:{action}:12345",
+            EntityType = entityType,
             EntityId = "x-001",
-            Action = "create",
-            Data = new Dictionary<string, object> { { "foo", "bar" } }
+            Action = action,
+            Data = new Dictionary<string, object> { { "status", "reserved" }, { "version", 2 } }
         };
 
-        var request = MakeAuthenticatedRequest(MakeSyncRequest(badOp), "farmer-001");
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(badOp), userId, role);
         var response = await _function.FunctionHandler(request, _context);
 
         Assert.Equal(200, response.StatusCode);
-        Assert.Contains("error", response.Body);
-        Assert.Contains("Unsupported entity type", response.Body);
+        var result = JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0];
+        Assert.Equal("error", result.GetProperty("status").GetString());
+        Assert.Equal($"SYNC_VALIDATION: Unsupported entity type: '{entityType}'.", result.GetProperty("message").GetString());
     }
 
     [Fact]
@@ -1572,6 +1579,8 @@ public partial class SyncFunctionTests
             && r.Item["truckerName"].S == "Chaltu Tolosa"));
     }
 
+    // FUP-74 (sync-protocol.md 1.72.0): the profile decides it, not the operation, so it is not
+    // TRIP_VALIDATION, which clients treat as permanent.
     [Fact]
     public async Task TripCreate_OwnerProfileMissing_IsRejected()
     {
@@ -1581,9 +1590,14 @@ public partial class SyncFunctionTests
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Contains("TRIP_VALIDATION", response.Body);
+        Assert.Equal(
+            "TRIP_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.",
+            FirstResultMessage(response.Body));
         await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
     }
+
+    private static string? FirstResultMessage(string body) =>
+        JsonDocument.Parse(body).RootElement.GetProperty("results")[0].GetProperty("message").GetString();
 
     private static UserDto ProfileWithNames(string userId, string? displayName, string? fullName) => new()
     {
@@ -1633,8 +1647,10 @@ public partial class SyncFunctionTests
         var request = MakeAuthenticatedRequest(MakeSyncRequest(op), "trucker-001", "trucker");
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Contains("TRIP_VALIDATION", response.Body);
-        Assert.Contains("Add your name to your profile", response.Body);
+        // FUP-74: the same operation passes once the trucker adds a name, so not TRIP_VALIDATION.
+        Assert.Equal(
+            "TRIP_PROFILE_INCOMPLETE: Add your name to your profile before creating a listing.",
+            FirstResultMessage(response.Body));
         await _mockDynamoDb.DidNotReceive().PutItemAsync(Arg.Any<PutItemRequest>());
     }
 
@@ -1646,7 +1662,23 @@ public partial class SyncFunctionTests
         var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
         var response = await _function.FunctionHandler(request, _context);
 
-        Assert.Contains("CROP_VALIDATION", response.Body);
+        Assert.Equal(
+            "CROP_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.",
+            FirstResultMessage(response.Body));
+        await _mockCropRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task CropCreate_ProfileWithoutAnyName_IsRejected()
+    {
+        _mockUserRepo.GetUserByIdAsync("farmer-001").Returns(ProfileWithNames("farmer-001", null, null));
+
+        var request = MakeAuthenticatedRequest(MakeSyncRequest(MakeCropCreateOp()), "farmer-001", "farmer");
+        var response = await _function.FunctionHandler(request, _context);
+
+        Assert.Equal(
+            "CROP_PROFILE_INCOMPLETE: Add your name to your profile before creating a listing.",
+            FirstResultMessage(response.Body));
         await _mockCropRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
     }
 
@@ -3946,6 +3978,54 @@ public partial class SyncFunctionTests
         Assert.Equal("Real Buyer", _createdOrder!["buyerName"]);
     }
 
+    // FUP-553 (sync-protocol.md 1.73.0): the buyer's profile decides these, not the operation, and a
+    // retry can pass both, so they are not ORDER_VALIDATION, which clients treat as permanent and
+    // revert (the local order removed).
+    [Fact]
+    public async Task OrderCreate_BuyerProfileMissing_AnswersTheProfileUnavailableCode()
+    {
+        SetupListing();
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns((UserDto?)null);
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp());
+
+        Assert.Equal(
+            "ORDER_PROFILE_UNAVAILABLE: Your profile could not be read. Please try again later.",
+            FirstResultMessage(body));
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
+    [Fact]
+    public async Task OrderCreate_BuyerProfileWithoutAnyName_AnswersTheProfileIncompleteCode()
+    {
+        SetupListing();
+        SetupOrderCreateSucceeds();
+        _mockUserRepo.GetUserByIdAsync("buyer-001").Returns(new UserDto
+        {
+            UserId = "buyer-001",
+            PhoneNumber = "+251933333333",
+            DisplayName = "  ",
+            FullName = null,
+            Role = "buyer",
+            Woreda = "Jimma",
+            IsPhoneVerified = true,
+            CreatedAt = "2026-02-16T10:00:00Z",
+            UpdatedAt = "2026-02-16T10:00:00Z",
+            Version = 1
+        });
+
+        var body = await CreateOrderAsBuyer(MakeOrderCreateOp(dataOverrides: new Dictionary<string, object>
+        {
+            { "buyerName", "Client Name" }
+        }));
+
+        Assert.Equal(
+            "ORDER_PROFILE_INCOMPLETE: Add your name to your profile before placing an order.",
+            FirstResultMessage(body));
+        await _mockOrderRepo.DidNotReceive().CreateAsync(Arg.Any<string>(), Arg.Any<Dictionary<string, object>>());
+    }
+
     [Fact]
     public async Task OrderCreate_ListingNotFound_ReturnsValidationError()
     {
@@ -5439,8 +5519,12 @@ public partial class SyncFunctionTests
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(op), TestTruckerId), _context);
 
-        Assert.Contains("DELIVERY_VALIDATION", response.Body);
-        Assert.Contains("farmer has no name", response.Body);
+        // FUP-553 (sync-protocol.md 1.73.0): the same create passes once the farmer adds a name,
+        // so not DELIVERY_VALIDATION, which clients treat as permanent.
+        Assert.Equal(
+            "DELIVERY_PROFILE_INCOMPLETE: The farmer has no name on their profile. "
+                + "Ask them to add one before creating a delivery.",
+            FirstResultMessage(response.Body));
         await DidNotWriteDelivery();
     }
 
@@ -5455,8 +5539,27 @@ public partial class SyncFunctionTests
         var response = await _function.FunctionHandler(
             MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
 
-        Assert.Contains("DELIVERY_VALIDATION", response.Body);
-        Assert.Contains("farmer profile could not be read", response.Body);
+        // FUP-553: the profile decides it, not the operation.
+        Assert.Equal(
+            "DELIVERY_PROFILE_UNAVAILABLE: The farmer profile could not be read. Please try again later.",
+            FirstResultMessage(response.Body));
+        await DidNotWriteDelivery();
+    }
+
+    // FUP-553: the trucker's own profile (the trucker flow's third party) gets the same code.
+    [Fact]
+    public async Task DeliveryCreate_TruckerWithoutAnyName_IsRejectedWithTheProfileCode()
+    {
+        SetupTruckOrder();
+        SetupDeliveryPartyProfiles();
+        _mockUserRepo.GetUserByIdAsync(TestTruckerId)
+            .Returns(PartyProfile(TestTruckerId, "trucker", "+251900100002", null));
+
+        var response = await _function.FunctionHandler(
+            MakeAuthenticatedRequest(MakeSyncRequest(MakeDeliveryCreateOp()), TestTruckerId), _context);
+
+        var message = FirstResultMessage(response.Body);
+        Assert.StartsWith("DELIVERY_PROFILE_INCOMPLETE: The trucker has no name", message);
         await DidNotWriteDelivery();
     }
 

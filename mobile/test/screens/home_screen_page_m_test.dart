@@ -31,6 +31,8 @@ import 'package:wereda_connect/shared/widgets/fieldway.dart';
 import 'package:wereda_connect/shared/widgets/home_cards.dart';
 import 'package:wereda_connect/shared/widgets/notification_bell.dart';
 import 'package:wereda_connect/shared/widgets/role_sketch.dart';
+import 'package:wereda_connect/core/models/order_commitment.dart';
+import 'package:wereda_connect/screens/orders_tab_screen.dart';
 
 import '../features/live_trip/live_trip_harness.dart';
 
@@ -305,7 +307,7 @@ void main() {
 
       expect(tileMaterial(tester, 'home_tile_myCrops').color, AppTheme.ink);
       for (final key in [
-        'home_tile_orders',
+        'home_tile_ordersYourTurn',
         'home_tile_payments',
         'home_tile_deliveries',
       ]) {
@@ -324,7 +326,8 @@ void main() {
       );
       // Two by two.
       final crops = tester.getRect(find.byKey(const Key('home_tile_myCrops')));
-      final orders = tester.getRect(find.byKey(const Key('home_tile_orders')));
+      final orders =
+          tester.getRect(find.byKey(const Key('home_tile_ordersYourTurn')));
       final escrow =
           tester.getRect(find.byKey(const Key('home_tile_payments')));
       expect(crops.top, orders.top);
@@ -350,11 +353,15 @@ void main() {
       await pumpHome(tester, UserRole.farmer);
 
       await tester.tap(find.byKey(const Key('home_tile_myCrops')));
-      await tester.tap(find.byKey(const Key('home_tile_orders')));
+      await tester.tap(find.byKey(const Key('home_tile_ordersYourTurn')));
       await tester.pump();
 
       // Farmer bar: Home, My Crops, Orders.
       expect(tabRequests, [1, 2]);
+      // Orders opens on what the tile counts: the orders waiting for the
+      // farmer's answer.
+      expect(ordersFilterRequest.value, ordersFilterYourTurn);
+      ordersFilterRequest.value = null;
     });
 
     testWidgets('the goods on the road show on the sand card with its pill',

@@ -384,6 +384,9 @@ void main() {
           'reached the server. It was kept for review.': en.errorCheckInTooLate,
       // pickupClassification off: the entity does not exist on the server.
       "Unsupported entity type: 'handoff_check_in'.": en.errorCheckInNotOpen,
+      // The same since sync-protocol.md 1.72.0 (FUP-74).
+      "SYNC_VALIDATION: Unsupported entity type: 'handoff_check_in'.":
+          en.errorCheckInNotOpen,
     };
 
     for (final MapEntry(key: message, value: text) in cases.entries) {

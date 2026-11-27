@@ -14,6 +14,7 @@ using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
+using WeredaConnect.Server.Tests.Services;
 using Xunit;
 
 namespace WeredaConnect.Server.Tests.Functions;
@@ -47,6 +48,7 @@ public sealed class SyncFunctionDeliveryPhotoTests
     private readonly ITransactionAuditRepository _audit = Substitute.For<ITransactionAuditRepository>();
     private readonly List<Dictionary<string, object>> _auditRows = new();
     private readonly TestLambdaContext _context = new();
+    private ConductStampService? _conduct;
 
     public SyncFunctionDeliveryPhotoTests()
     {
@@ -912,6 +914,7 @@ public sealed class SyncFunctionDeliveryPhotoTests
             DeliveryPhotoS3 = withBucket ? _s3 : null,
             CommitmentsEnabled = true,
             DropoffClassificationEnabled = dropoff,
+            ConductStamps = _conduct,
         };
 
         var request = new APIGatewayProxyRequest
@@ -946,5 +949,98 @@ public sealed class SyncFunctionDeliveryPhotoTests
         var response = await function.FunctionHandler(request, _context);
         response.StatusCode.Should().Be(200, response.Body);
         return JsonDocument.Parse(response.Body).RootElement.GetProperty("results")[0].Clone();
+    }
+
+    // ── GCR-03: a photo attached after the settle re-evaluates the conduct stamp once ──
+
+    private FakeConductStamps WithConduct(IOrderRepository orders, bool stamped = true)
+    {
+        var stamps = new FakeConductStamps();
+        if (stamped)
+        {
+            var recorded = DateTime.UtcNow.AddDays(-1);
+            foreach (var (user, party) in new[] { (BuyerId, "buyer"), (FarmerId, "farmer"), (TruckerId, "trucker") })
+            {
+                stamps.Rows[(user, "order-photo")] = new ConductStamp
+                {
+                    UserId = user, OrderId = "order-photo", Party = party, FarmerId = FarmerId, TruckerId = TruckerId,
+                    BuyerId = BuyerId, OccurredAt = recorded, RecordedAt = recorded
+                };
+            }
+        }
+
+        var deliveries = Substitute.For<IDeliveryRepository>();
+        deliveries.GetByIdAsync(DeliveryId, true).Returns(new Dictionary<string, object>
+        {
+            ["deliveryId"] = DeliveryId, ["orderId"] = "order-photo", ["status"] = "delivered", ["dropoffPhotoRef"] = DropoffKey,
+            ["dropoffPlatform"] = "android", ["confirmedAt"] = "2026-11-18T10:00:00.000Z"
+        });
+        _conduct = new ConductStampService(stamps, deliveries, orders, null, null, Substitute.For<IFraudDetectionService>());
+        return stamps;
+    }
+
+    private static IOrderRepository SettledOrder()
+    {
+        var orders = Substitute.For<IOrderRepository>();
+        orders.GetByIdAsync("order-photo", true).Returns(new Dictionary<string, object>
+        {
+            ["orderId"] = "order-photo", ["farmerId"] = FarmerId, ["buyerId"] = BuyerId, ["truckerId"] = TruckerId,
+            ["tripId"] = "trip-photo", ["fulfillment"] = "trucker", ["activeDeliveryId"] = DeliveryId, ["status"] = "settled",
+            ["orderTotal"] = "900", ["updatedAt"] = "2026-11-20T09:00:00.000Z"
+        });
+        return orders;
+    }
+
+    private static Dictionary<string, AttributeValue> DeliveredOf(string orderId)
+    {
+        var item = Delivery("delivered", confirmedAt: "2026-11-18T10:00:00.000Z");
+        item["orderId"] = new AttributeValue { S = orderId };
+        return item;
+    }
+
+    [Fact]
+    public async Task GCR03_ADropoffPhotoAttachedAfterTheSettle_ReevaluatesTheStampOnce()
+    {
+        var stamps = WithConduct(SettledOrder());
+        SetupDelivery(DeliveredOf("order-photo"));
+        SetupObject(DropoffKey, 2048);
+
+        var result = await SendAsync(BuyerId, "dropoff", DropoffKey);
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        var buyer = stamps.Rows[(BuyerId, "order-photo")];
+        buyer.ReevaluatedAt.Should().NotBeNull();
+        buyer.Steps.Single(s => s.Id == ConductScoring.Steps.DropoffPhoto).Result.Should().Be(ConductScoring.Results.Earned);
+        stamps.Rows.Values.Should().OnlyContain(r => r.ReevaluatedAt != null);
+    }
+
+    [Fact]
+    public async Task GCR03_APhotoBeforeTheSettle_ReadsOneStampAndChangesNothing()
+    {
+        var orders = SettledOrder();
+        var stamps = WithConduct(orders, stamped: false);
+        SetupDelivery(DeliveredOf("order-photo"));
+        SetupObject(DropoffKey, 2048);
+
+        var result = await SendAsync(BuyerId, "dropoff", DropoffKey);
+
+        result.GetProperty("status").GetString().Should().Be("success");
+        stamps.Gets.Should().Be(1);
+        await orders.DidNotReceiveWithAnyArgs().GetByIdAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task GCR03_AReevaluationThatFails_LeavesTheAttachASuccess()
+    {
+        var orders = Substitute.For<IOrderRepository>();
+        orders.GetByIdAsync("order-photo", true).Returns<Dictionary<string, object>?>(_ => throw new InvalidOperationException("down"));
+        var stamps = WithConduct(orders);
+        SetupDelivery(DeliveredOf("order-photo"));
+        SetupObject(DropoffKey, 2048);
+
+        var result = await SendAsync(BuyerId, "dropoff", DropoffKey);
+
+        result.GetProperty("status").GetString().Should().Be("success", result.ToString());
+        stamps.Rows.Values.Should().OnlyContain(r => r.ReevaluatedAt == null);
     }
 }

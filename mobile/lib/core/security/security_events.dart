@@ -14,15 +14,48 @@ sealed class SecurityEvent {
   const SecurityEvent();
 }
 
+/// What an operation waiting for a step-up is, so the prompt can name it
+/// (FUP-181).
+enum StepUpKind {
+  /// An order's payment or a queued delivery payment.
+  payment,
+
+  /// A delivery dispute.
+  dispute,
+
+  /// Anything else (a farmer or trucker dropping out of an order they
+  /// accepted), or operations of different kinds waiting together.
+  other,
+}
+
 /// The server wants the user to confirm it is them before a money action:
 /// a fresh password (AUTH_040), or for a payment above 10,000 ETB a fresh
 /// Fayda login (AUTH_041, [withFayda]).
 class StepUpRequired extends SecurityEvent {
-  const StepUpRequired({this.withFayda = false});
+  const StepUpRequired({this.withFayda = false, this.kind = StepUpKind.other});
+
+  /// One prompt for the operations [waiting] together. It asks for Fayda
+  /// when one of them does, and is then for those only: the Fayda login
+  /// comes first and the others ask again when they are retried. Its
+  /// [kind] is the one its operations share, else [StepUpKind.other].
+  factory StepUpRequired.forAll(Iterable<StepUpRequired> waiting) {
+    final withFayda = waiting.any((w) => w.withFayda);
+    final kinds = {
+      for (final w in waiting)
+        if (w.withFayda || !withFayda) w.kind,
+    };
+    return StepUpRequired(
+      withFayda: withFayda,
+      kind: kinds.length == 1 ? kinds.single : StepUpKind.other,
+    );
+  }
 
   /// True when only a Fayda login satisfies the server; the password
   /// prompt would not help.
   final bool withFayda;
+
+  /// What the prompt is for, so it names it (a payment, a dispute).
+  final StepUpKind kind;
 }
 
 /// How the user confirmed it is them at a step-up prompt.
@@ -238,8 +271,8 @@ class SecurityEvents {
   StepUpMethod? _lastStepUpMethod;
 
   /// The held operations behind [_pendingStepUp], by holder key, with
-  /// whether each needs a Fayda login.
-  final Map<String, bool> _stepUpHolds = <String, bool>{};
+  /// whether each needs a Fayda login and what it is.
+  final Map<String, StepUpRequired> _stepUpHolds = <String, StepUpRequired>{};
 
   /// How many undelivered [SyncOperationRejected] events are kept; the
   /// oldest is dropped beyond that.
@@ -440,9 +473,13 @@ class SecurityEvents {
 
   /// Name an operation that waits for the step-up about to be raised with
   /// [emit]. [holder] is unique per operation across workers (a prefix per
-  /// worker, then the operation's id).
-  void holdStepUp(String holder, {required bool withFayda}) =>
-      _stepUpHolds[holder] = withFayda;
+  /// worker, then the operation's id). [kind] says what the operation is.
+  void holdStepUp(
+    String holder, {
+    required bool withFayda,
+    StepUpKind kind = StepUpKind.other,
+  }) =>
+      _stepUpHolds[holder] = StepUpRequired(withFayda: withFayda, kind: kind);
 
   /// The holder keys starting with [prefix], for a worker to check which of
   /// its held operations still wait.
@@ -453,8 +490,9 @@ class SecurityEvents {
 
   /// The operations named by [holders] no longer wait for a step-up: they
   /// were sent, refused, dropped or removed. When the last held operation
-  /// is gone [pendingStepUp] clears; while others still wait it stays, and
-  /// asks for Fayda only if one of them does. A cancelled prompt releases
+  /// is gone [pendingStepUp] clears; while others still wait it stays, asks
+  /// for Fayda only if one of them does, and names what they are
+  /// ([StepUpRequired.forAll]). A cancelled prompt releases
   /// nothing, so the flag survives it (ESC-44). A step-up raised without a
   /// named operation is left alone.
   void releaseStepUpHolds(Iterable<String> holders) {
@@ -465,7 +503,7 @@ class SecurityEvents {
     if (!released || _pendingStepUp == null) return;
     _pendingStepUp = _stepUpHolds.isEmpty
         ? null
-        : StepUpRequired(withFayda: _stepUpHolds.values.any((fayda) => fayda));
+        : StepUpRequired.forAll(_stepUpHolds.values);
   }
 
   /// True while a cancelled step-up prompt keeps background re-prompts quiet.

@@ -1173,6 +1173,7 @@ class _EscrowPayButtonState extends State<_EscrowPayButton> {
             orderCropCost: _order?.cropCost,
             orderTransportCost: _order?.transportCost,
             orderCommission: _order?.commissionAmount,
+            orderCommissionRate: _order?.commissionRate,
           ),
         ),
       ),

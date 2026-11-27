@@ -6,6 +6,7 @@ import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/api_exception.dart';
 import 'package:wereda_connect/core/sync/delivery_photo_rules.dart';
 import 'package:wereda_connect/features/delivery_verification/data/delivery_constants.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 import 'package:wereda_connect/features/delivery_verification/domain/repositories/base_delivery_repository.dart';
 
 /// Web-only delivery repository.
@@ -267,6 +268,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String deliveryId,
     required String truckerId,
     LatLng? gpsPickup,
+    GpsCaptureResult? gpsCapture,
     String? photoRef,
     String? scannedQrNonce,
     String? scannedQrCode,
@@ -284,8 +286,11 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       data['gpsPickup'] = {
         'latitude': gpsPickup.latitude,
         'longitude': gpsPickup.longitude,
+        ...?gpsCapture?.pointEvidence,
       };
     }
+    // FUP-440: why there is no fix, or that there is one.
+    if (gpsCapture != null) data['gpsStatus'] = gpsCapture.gpsStatus;
     // The photo is attached after the handoff, by its own operation (FRD-12).
     if (scannedQrNonce != null) {
       data['scannedQrNonce'] = scannedQrNonce;
@@ -320,6 +325,7 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
     required String deliveryId,
     required String buyerId,
     LatLng? gpsDropoff,
+    GpsCaptureResult? gpsCapture,
     String? photoRef,
     String? scannedQrNonce,
     String? scannedQrCode,
@@ -335,8 +341,10 @@ class WebDeliveryRepository extends BaseDeliveryRepository {
       data['gpsDropoff'] = {
         'latitude': gpsDropoff.latitude,
         'longitude': gpsDropoff.longitude,
+        ...?gpsCapture?.pointEvidence,
       };
     }
+    if (gpsCapture != null) data['gpsStatus'] = gpsCapture.gpsStatus;
     if (scannedQrNonce != null) {
       data['scannedQrNonce'] = scannedQrNonce;
     } else if (scannedQrCode != null) {

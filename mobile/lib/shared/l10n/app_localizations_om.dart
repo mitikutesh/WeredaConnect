@@ -2266,9 +2266,6 @@ class AppLocalizationsOm extends AppLocalizations {
   String get transportCost => 'Baasii Geejjibaa';
 
   @override
-  String get platformCommission => 'Komishiinii Waltajjii (5%)';
-
-  @override
   String get orderTotal => 'Waliigala';
 
   @override
@@ -2542,9 +2539,6 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get transportCostLabel => 'Gatii Geejjibaa';
-
-  @override
-  String get commissionLabel => 'Komishinii (5%)';
 
   @override
   String syncedAgo(String time) {
@@ -3052,6 +3046,17 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get stepUpDone =>
       'Mirkanaa\'eera. Kaffaltii keessan irra deebi\'amaa jira.';
+
+  @override
+  String get stepUpOtherMessage =>
+      'Nageenya keessaniif, itti fufuu keessan dura isin ta\'uu keessan mirkaneessaa.';
+
+  @override
+  String get faydaStepUpOtherMessage =>
+      'Itti fufuuf isin ta\'uu keessan Faayidaadhaan mirkaneessaa. Jecha iccitii keessanis gaafatamuu dandeessu.';
+
+  @override
+  String get stepUpDoneRetrying => 'Mirkanaa\'eera. Irra deebi\'amaa jira.';
 
   @override
   String get faydaStateMismatch =>
@@ -3784,6 +3789,19 @@ class AppLocalizationsOm extends AppLocalizations {
   @override
   String get notifOrderExpiredUnpaidBody =>
       'Ajajni keessan yeroodhaan waan hin kaffalamneef cufameera. Ajaja haaraa galchuu dandeessu.';
+
+  @override
+  String get notifCommissionChangedTitle =>
+      'Waliigalli gatii ajajaa jijjiirameera';
+
+  @override
+  String notifCommissionChangedBody(String rate, String total) {
+    return 'Komishiiniin waltajjii ajaja kanaa amma $rate dha. Waliigala haaraa: $total. Hanga ammaatti homtuu hin kaffalamne.';
+  }
+
+  @override
+  String get notifCommissionChangedBodyNoTotal =>
+      'Komishiiniin waltajjii ajaja kanaa jijjiirameera. Osoo hin kaffalin dura waliigala haaraa ilaaluuf ajaja bani.';
 
   @override
   String get notifPaymentFailedTitle => 'Kaffaltiin hin milkoofne';
@@ -4975,6 +4993,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get homeTileWaitingForYou => 'isin eegaa jira';
+
+  @override
+  String get ordersFilterWaitingForYou => 'Isin kan eegan';
 
   @override
   String get homeTileHeldInEscrow => 'eeskiroo keessa qabamee jira';

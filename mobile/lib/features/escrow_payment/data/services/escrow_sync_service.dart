@@ -129,6 +129,7 @@ class EscrowSyncService {
             ..holdStepUp(
               _stepUpHolder(intent.id),
               withFayda: stepUp.withFayda,
+              kind: stepUp.kind,
             )
             ..emit(stepUp);
           break;
@@ -348,7 +349,10 @@ class EscrowSyncService {
           await _isar.paymentIntents.put(current);
         }
       });
-      return StepUpRequired(withFayda: e.requiresFayda);
+      return StepUpRequired(
+        withFayda: e.requiresFayda,
+        kind: StepUpKind.payment,
+      );
     } on ApiException catch (e) {
       if (e.code == fraudAccountHeldCode) {
         // The account is under review: the same payment gets the same

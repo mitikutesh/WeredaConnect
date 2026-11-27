@@ -2922,10 +2922,6 @@
   "@transportCost": {
     "description": "Label for transport cost in price breakdown"
   },
-  "platformCommission": "Platform Commission (5%)",
-  "@platformCommission": {
-    "description": "Label for platform commission in price breakdown"
-  },
   "orderTotal": "Total",
   "@orderTotal": {
     "description": "Label for total order amount"
@@ -3200,8 +3196,6 @@
   "@cropCostLabel": { "description": "Label for crop cost in price breakdown" },
   "transportCostLabel": "Transport Cost",
   "@transportCostLabel": { "description": "Label for transport cost in price breakdown" },
-  "commissionLabel": "Commission (5%)",
-  "@commissionLabel": { "description": "Label for commission in price breakdown" },
   "syncedAgo": "Updated {time} ago",
   "@syncedAgo": { "description": "Stale data indicator", "placeholders": { "time": { "type": "String" } } },
   "browseAllListings": "Browse All Listings",
@@ -3634,6 +3628,18 @@
   "stepUpDone": "Confirmed. Retrying your payment.",
   "@stepUpDone": {
     "description": "Snackbar after a successful step-up re-authentication"
+  },
+  "stepUpOtherMessage": "For your safety, confirm it's you before you continue.",
+  "@stepUpOtherMessage": {
+    "description": "Password step-up dialog (AUTH_040) when the action is neither a payment nor a dispute: a farmer or trucker dropping out of an accepted order, deleting the account, or several kinds waiting together (FUP-167, FUP-181). am and om machine drafted, native review owed"
+  },
+  "faydaStepUpOtherMessage": "Confirm it's you with Fayda to continue. You may also be asked for your password.",
+  "@faydaStepUpOtherMessage": {
+    "description": "Fayda step-up dialog (AUTH_041) when the waiting action is not a payment or a dispute (FUP-181). am and om machine drafted, native review owed"
+  },
+  "stepUpDoneRetrying": "Confirmed. Trying again.",
+  "@stepUpDoneRetrying": {
+    "description": "Snackbar after a successful background step-up for an action that is not a payment (a dispute, a drop-out), FUP-181. am and om machine drafted, native review owed"
   },
   "faydaStateMismatch": "The Fayda session expired. Please start verification again.",
   "@faydaStateMismatch": {
@@ -4312,6 +4318,12 @@
   "@notifOrderExpiredUnpaidTitle": {"description": "Inbox entry title, notification type order_expired_unpaid"},
   "notifOrderExpiredUnpaidBody": "Your order was closed because it was not paid in time. You can place a new order.",
   "@notifOrderExpiredUnpaidBody": {"description": "Inbox entry body, notification type order_expired_unpaid; names are display names"},
+  "notifCommissionChangedTitle": "Order total changed",
+  "@notifCommissionChangedTitle": {"description": "Inbox: an admin agreed another platform commission for the buyer's unpaid order (notifications-api.md order_commission_changed)"},
+  "notifCommissionChangedBody": "The platform commission on this order is now {rate}. New total: {total}. Nothing has been paid yet.",
+  "@notifCommissionChangedBody": {"description": "Inbox: an admin agreed another platform commission for the buyer's unpaid order (notifications-api.md order_commission_changed)", "placeholders": {"rate": {"type": "String"}, "total": {"type": "String"}}},
+  "notifCommissionChangedBodyNoTotal": "The platform commission on this order changed. Open the order to see the new total before you pay.",
+  "@notifCommissionChangedBodyNoTotal": {"description": "Inbox: an admin agreed another platform commission for the buyer's unpaid order (notifications-api.md order_commission_changed)"},
   "notifPaymentFailedTitle": "Payment failed",
   "@notifPaymentFailedTitle": {"description": "Inbox entry title, notification type payment_failed"},
   "notifPaymentFailedBody": "Your payment did not go through. Please try again.",
@@ -4926,6 +4938,8 @@
   "@homeTileActiveReserved": {"description": "Fieldway design alignment (specs/design-canvas). Farmer home My Crops tile: line under the count", "placeholders": {"active": {"type": "int"}, "reserved": {"type": "int"}}},
   "homeTileWaitingForYou": "waiting for you",
   "@homeTileWaitingForYou": {"description": "Fieldway design alignment (specs/design-canvas). Farmer home Pending Orders tile: line under the count"},
+  "ordersFilterWaitingForYou": "Waiting for you",
+  "@ordersFilterWaitingForYou": {"description": "Farmer Orders filter: the orders waiting for the farmer to accept or reject, what Home's Pending Orders tile counts"},
   "homeTileHeldInEscrow": "held in escrow",
   "@homeTileHeldInEscrow": {"description": "Fieldway design alignment (specs/design-canvas). Buyer home Escrow tile: line under the amount (the buyer's money in escrow)"},
   "homeTileInTransit": "in transit",

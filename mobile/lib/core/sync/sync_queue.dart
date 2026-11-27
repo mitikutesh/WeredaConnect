@@ -42,6 +42,12 @@ class SyncQueue {
   /// Age threshold for purging synced operations (30 days).
   static const Duration purgeThreshold = Duration(days: 30);
 
+  /// The `platform` every operation from this queue names when it is sent
+  /// (GCR-02), a sibling of `operationId`. Stamped where the batch is built
+  /// (`SyncExecutor`), so the stored operation does not change. Web's is
+  /// `sync_queue_web.dart`.
+  static const String platform = 'android';
+
   SyncQueue(this._isar);
 
   /// Enqueue a new sync operation.

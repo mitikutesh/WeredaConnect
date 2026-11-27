@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
@@ -30,6 +32,12 @@ class _FakeGeolocator extends GeolocatorPlatform
   /// Location switched on on the phone (a browser always says so).
   bool servicesOn = true;
 
+  /// What the Android accuracy check answers; null never answers, and an
+  /// [accuracyError] throws instead (FUP-440).
+  LocationAccuracyStatus? accuracyStatus = LocationAccuracyStatus.precise;
+  Object? accuracyError;
+  int accuracyChecks = 0;
+
   @override
   Future<bool> isLocationServiceEnabled() async => servicesOn;
 
@@ -49,6 +57,17 @@ class _FakeGeolocator extends GeolocatorPlatform
     return answer == null
         ? Completer<LocationPermission>().future
         : Future.value(answer);
+  }
+
+  @override
+  Future<LocationAccuracyStatus> getLocationAccuracy() {
+    accuracyChecks++;
+    final error = accuracyError;
+    if (error != null) return Future.error(error);
+    final status = accuracyStatus;
+    return status == null
+        ? Completer<LocationAccuracyStatus>().future
+        : Future.value(status);
   }
 
   @override
@@ -281,6 +300,144 @@ void main() {
         const GpsCaptureResult.unavailable('timeout').unavailableCause,
         GpsUnavailableCause.noSignal,
       );
+    });
+  });
+
+  // FUP-440: what a handoff confirm sends about its fix.
+  group('handoff evidence (FUP-440)', () {
+    const limit = Duration(milliseconds: 50);
+    late _FakeGeolocator platform;
+
+    setUp(() {
+      platform = _FakeGeolocator();
+      GeolocatorPlatform.instance = platform;
+    });
+
+    tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    Future<GpsCaptureResult> capture({bool isWeb = false}) =>
+        GpsCaptureService(isWeb: isWeb, timeLimit: limit)
+            .captureCurrentPosition()
+            .timeout(const Duration(seconds: 5));
+
+    test('a fix keeps its own time (UTC) and accuracy', () async {
+      final result = await capture();
+
+      expect(result.gpsStatus, 'fix');
+      expect(result.approximate, isFalse);
+      expect(result.capturedAt, DateTime.utc(2026, 11, 13, 6));
+      expect(result.capturedAt!.isUtc, isTrue);
+      expect(result.pointEvidence, {
+        'capturedAt': '2026-11-13T06:00:00.000Z',
+        'accuracyM': 12.0,
+      });
+      expect(platform.accuracyChecks, 1);
+    });
+
+    test('Android with approximate location only reads as approximate',
+        () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      platform.accuracyStatus = LocationAccuracyStatus.reduced;
+
+      final result = await capture();
+
+      expect(result.isAvailable, isTrue);
+      expect(result.approximate, isTrue);
+      expect(result.gpsStatus, 'approximate');
+      expect(result.pointEvidence['accuracyM'], 12.0);
+    });
+
+    test('web never asks for the accuracy', () async {
+      platform.accuracyStatus = LocationAccuracyStatus.reduced;
+
+      final result = await capture(isWeb: true);
+
+      expect(result.gpsStatus, 'fix');
+      expect(platform.accuracyChecks, 0);
+    });
+
+    test('only Android is asked for the accuracy', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      platform.accuracyStatus = LocationAccuracyStatus.reduced;
+
+      final result = await capture();
+
+      expect(result.gpsStatus, 'fix');
+      expect(platform.accuracyChecks, 0);
+    });
+
+    test('a failing accuracy check keeps the fix', () async {
+      platform.accuracyError = PlatformException(code: 'ERROR');
+
+      final result = await capture();
+
+      expect(result.isAvailable, isTrue);
+      expect(result.gpsStatus, 'fix');
+    });
+
+    test('an accuracy check that never answers keeps the fix', () async {
+      platform.accuracyStatus = null;
+
+      final result = await capture();
+
+      expect(result.isAvailable, isTrue);
+      expect(result.gpsStatus, 'fix');
+    });
+
+    test('each reason for no fix maps to its status, with no point', () {
+      const cases = {
+        GpsCaptureResult.locationOffReason: 'services_off',
+        GpsCaptureResult.permissionDeniedReason: 'denied',
+        GpsCaptureResult.permanentlyDeniedReason: 'denied_forever',
+        GpsCaptureResult.noSignalReason: 'timeout',
+        'timeout': 'timeout',
+      };
+      for (final entry in cases.entries) {
+        final result = GpsCaptureResult.unavailable(entry.key);
+        expect(result.gpsStatus, entry.value, reason: entry.key);
+        expect(result.pointEvidence, isEmpty, reason: entry.key);
+        expect(result.capturedAt, isNull);
+        expect(result.approximate, isFalse);
+      }
+    });
+
+    test('the captures report the status they found', () async {
+      platform.servicesOn = false;
+      expect((await capture()).gpsStatus, 'services_off');
+
+      platform
+        ..servicesOn = true
+        ..state = LocationPermission.deniedForever;
+      expect((await capture()).gpsStatus, 'denied_forever');
+
+      platform
+        ..state = LocationPermission.denied
+        ..answer = LocationPermission.denied;
+      expect((await capture()).gpsStatus, 'denied');
+
+      platform
+        ..state = LocationPermission.whileInUse
+        ..fix = null;
+      expect((await capture()).gpsStatus, 'timeout');
+    });
+
+    test('an unknown time or accuracy is left out of the point', () {
+      const noAccuracy = GpsCaptureResult.success(
+        latitude: 9.03,
+        longitude: 38.74,
+        accuracy: 0,
+      );
+      expect(noAccuracy.pointEvidence, isEmpty);
+
+      final localTime = GpsCaptureResult.success(
+        latitude: 9.03,
+        longitude: 38.74,
+        accuracy: null,
+        capturedAt: DateTime.utc(2026, 11, 13, 6).toLocal(),
+      );
+      expect(localTime.pointEvidence, {
+        'capturedAt': '2026-11-13T06:00:00.000Z',
+      });
     });
   });
 

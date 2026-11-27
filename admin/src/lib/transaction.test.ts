@@ -12,6 +12,7 @@ import {
   orderStatusVariant,
   partyLabel,
   stageLabel,
+  stateLabel,
   timelineActionLabel,
   timelineEntityLabel,
   transportFailureLabel,
@@ -142,5 +143,29 @@ describe("admin queue label (ESC-06)", () => {
       expect(tr("transactions.pickupDeadline")).not.toBe("transactions.pickupDeadline");
       expect(adminQueueLabel("t11_verdict", tr)).toBe("t11_verdict");
     }
+  });
+});
+
+describe("audit row states (FUP-80)", () => {
+  const en = (key: string) => translate(key, "en");
+
+  it("names a state by its leg's status label in every locale", () => {
+    expect(stateLabel("escrow", "escrowed", en)).toBe("Held in escrow");
+    expect(stateLabel("order", "payment_submitted", en)).toBe("Payment submitted");
+    expect(stateLabel("delivery", "pickedUp", en)).toBe("Picked up");
+    expect(stateLabel("escrow", "released", (key) => translate(key, "am"))).toBe("ተለቋል");
+    expect(stateLabel("order", "funded", (key) => translate(key, "om"))).toBe("Kaffalame");
+  });
+
+  it("reads a state that is a step, or of another leg, as words, never snake_case", () => {
+    // Escrow rows can store the step as their state (release_failed); it has an action label.
+    expect(stateLabel("escrow", "release_failed", en)).toBe("Release failed");
+    // An admin row's decision, or a state no label knows yet.
+    expect(stateLabel("label", "fraud_confirmed", en)).toBe("Fraud confirmed");
+    expect(stateLabel("order", "some_future_status", en)).toBe("Some future status");
+  });
+
+  it("keeps an empty state empty", () => {
+    expect(stateLabel("escrow", "", en)).toBe("");
   });
 });

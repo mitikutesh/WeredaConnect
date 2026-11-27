@@ -1,5 +1,6 @@
 import 'package:wereda_connect/core/models/crop_listing.dart';
 import 'package:wereda_connect/core/models/delivery.dart';
+import 'package:wereda_connect/features/delivery_verification/data/services/gps_capture_service.dart';
 
 /// Abstract base for delivery repositories.
 ///
@@ -53,20 +54,27 @@ abstract class BaseDeliveryRepository {
 
   /// [scannedQrNonce] from a scan, or [scannedQrCode], the typed fallback
   /// (T-1, sent as `scannedQrCode` and checked by the server).
+  /// [gpsCapture] is the capture the screen tried for this handoff, null
+  /// when it tried none: it sends `gpsStatus`, and with [gpsPickup] the
+  /// fix's own time and accuracy (FUP-440).
   Future<void> confirmPickup({
     required String deliveryId,
     required String truckerId,
     LatLng? gpsPickup,
+    GpsCaptureResult? gpsCapture,
     String? photoRef,
     String? scannedQrNonce,
     String? scannedQrCode,
   });
 
   /// [scannedQrNonce] from a scan, or [scannedQrCode], the typed fallback.
+  /// The drop-off and the self-pickup confirm both come here; [gpsCapture]
+  /// as in [confirmPickup], with [gpsDropoff].
   Future<void> confirmDelivery({
     required String deliveryId,
     required String buyerId,
     LatLng? gpsDropoff,
+    GpsCaptureResult? gpsCapture,
     String? photoRef,
     String? scannedQrNonce,
     String? scannedQrCode,

@@ -180,6 +180,14 @@ public sealed record FraudSignalDto
     public string? OrderId { get; init; }
 
     /// <summary>
+    /// FUP-202: on a row written onto a user other than the one whose request caused it (ESC-33,
+    /// fraud-detection-architecture.md section 14.3: the <c>GPS_ANOMALY</c> row on a delivery's trucker), the user
+    /// whose request did (the buyer whose confirm caused it). Null on every other row. Admin only: no party-facing
+    /// API returns a signal row.
+    /// </summary>
+    public string? SourceUserId { get; init; }
+
+    /// <summary>
     /// FRD-19: on an <c>AI_ADVISORY</c> row, the AI reviewer's concern (<c>none</c>, <c>low</c>, <c>medium</c> or
     /// <c>high</c>). Its explanation is the <see cref="Description"/>. Advice only (fraud-detection-architecture.md
     /// section 21): its weight is capped and never counts toward CRITICAL.
@@ -845,7 +853,10 @@ public sealed record AdminHandoffEvidenceDto
     /// <summary>The server's time of the handoff (<c>pickedUpAt</c> or <c>confirmedAt</c>).</summary>
     public string? At { get; init; }
 
-    /// <summary>The phone's time of the pickup scan (<c>pickupCapturedAt</c>), when recorded.</summary>
+    /// <summary>
+    /// The phone's time of the handoff's operation, when recorded: <c>pickupCapturedAt</c> for the pickup,
+    /// <c>dropoffCapturedAt</c> (escrow-protocol 2.30.0) for the drop-off or the self-pickup.
+    /// </summary>
     public string? CapturedAt { get; init; }
 
     /// <summary>Who made the handoff, from its audit row; null for a delivery older than that trail.</summary>
@@ -854,11 +865,30 @@ public sealed record AdminHandoffEvidenceDto
     /// <summary><c>buyer</c>, <c>farmer</c> or <c>trucker</c> when <see cref="ActorId"/> is one of the parties.</summary>
     public string? ActorRole { get; init; }
 
-    /// <summary><c>qr</c> (the QR scanned) or <c>code</c> (the typed code), from the audit row; null when not recorded.</summary>
+    /// <summary>
+    /// <c>qr</c> (the QR scanned) or <c>code</c> (the typed code): stamped on the delivery since 2.30.0, else
+    /// from the audit row; null when not recorded.
+    /// </summary>
     public string? Method { get; init; }
 
     /// <summary>The phone's position at the handoff, when it had a fix.</summary>
     public LatLngDto? Gps { get; init; }
+
+    /// <summary>
+    /// FUP-440 (2.30.0): what the phone said about its location at the handoff. With <see cref="Gps"/>:
+    /// <c>fix</c> or <c>approximate</c> (Android granted only coarse location). Without: <c>services_off</c>,
+    /// <c>denied</c>, <c>denied_forever</c> or <c>timeout</c>. Null for an older app or delivery.
+    /// </summary>
+    public string? GpsStatus { get; init; }
+
+    /// <summary>FUP-440: the fix's own time on the phone (ISO 8601 UTC), when sent.</summary>
+    public string? GpsCapturedAt { get; init; }
+
+    /// <summary>FUP-440: the fix's accuracy in metres, when sent.</summary>
+    public double? GpsAccuracyM { get; init; }
+
+    /// <summary>GCR-02: the app the handoff came from, <c>android</c> or <c>web</c>; null for an older app.</summary>
+    public string? Platform { get; init; }
 
     /// <summary>The planned point: the listing's location for a pickup, the trip's destination for a drop-off.</summary>
     public LatLngDto? Planned { get; init; }

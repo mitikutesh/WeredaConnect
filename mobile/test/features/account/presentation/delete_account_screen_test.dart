@@ -85,6 +85,7 @@ void main() {
   Future<void> pump(
     WidgetTester tester, {
     Locale locale = const Locale('en'),
+    bool appPasswordPrompt = false,
   }) async {
     tester.view.physicalSize = const Size(800, 2400);
     tester.view.devicePixelRatio = 1.0;
@@ -105,10 +106,12 @@ void main() {
           home: DeleteAccountScreen(
             repository: repository,
             isOnline: () async => online,
-            confirmPassword: (_) async {
-              passwordPrompts++;
-              return passwordConfirmed;
-            },
+            confirmPassword: appPasswordPrompt
+                ? null
+                : (_) async {
+                    passwordPrompts++;
+                    return passwordConfirmed;
+                  },
           ),
         ),
       ),
@@ -304,6 +307,32 @@ void main() {
         .called(1);
     expect(deletedWipes(), 0);
     expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+  });
+
+  testWidgets("step-up: the app's password prompt names no payment (FUP-167)",
+      (tester) async {
+    answer([const DeleteAccountStepUpRequired()]);
+    await pump(tester, appPasswordPrompt: true);
+
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    await tester.tap(confirm);
+    // The focused password field's cursor blinks for ever: no settle.
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(
+      find.text("For your safety, confirm it's you before you continue."),
+      findsOneWidget,
+    );
+    expect(find.textContaining('this payment'), findsNothing);
+
+    await tester.tap(find.text('Cancel'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(deletedWipes(), 0);
   });
 
   testWidgets('suspended: says contact support and stays disabled',

@@ -183,6 +183,43 @@ void main() {
       await settle(tester);
       expect(outcome, isFalse);
     });
+
+    // FUP-167: the caller's words replace the payment's.
+    Future<void> open(WidgetTester tester, {String? message}) async {
+      await tester.pumpWidget(
+        host(
+          Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showStepUpDialog(
+                context,
+                securityEvents: events,
+                message: message,
+              ),
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('go'));
+      await settle(tester);
+    }
+
+    testWidgets('names the payment when the caller gives no words',
+        (tester) async {
+      await open(tester);
+
+      expect(
+        find.text("For your safety, confirm it's you before this payment."),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets("says the caller's words, never the payment", (tester) async {
+      await open(tester, message: 'Before this dispute is sent.');
+
+      expect(find.text('Before this dispute is sent.'), findsOneWidget);
+      expect(find.textContaining('payment'), findsNothing);
+    });
   });
 
   /// Stands in for the Fayda screen: pops [result] when tapped.
@@ -280,9 +317,15 @@ void main() {
         ),
       );
 
-      events.emit(const StepUpRequired(withFayda: true));
+      events.emit(
+        const StepUpRequired(withFayda: true, kind: StepUpKind.payment),
+      );
       await settle(tester);
       expect(find.byKey(const Key('step_up_password_field')), findsNothing);
+      expect(
+        find.textContaining('Fayda to continue with this payment'),
+        findsOneWidget,
+      );
       await tester.tap(find.byKey(const Key('fayda_step_up_verify_button')));
       await settle(tester);
       await tester.tap(find.text('fayda screen'));
@@ -292,6 +335,48 @@ void main() {
       expect(find.text('Confirmed. Retrying your payment.'), findsOneWidget);
       unawaited(sub.cancel());
     });
+
+    // FUP-181: the background prompt names what waits for it.
+    for (final (kind, password, fayda) in [
+      (
+        StepUpKind.payment,
+        "For your safety, confirm it's you before this payment.",
+        "Confirm it's you with Fayda to continue with this payment. "
+            'You may also be asked for your password.',
+      ),
+      (
+        StepUpKind.dispute,
+        "For your safety, confirm it's you before this dispute is sent.",
+        "Confirm it's you with Fayda to send this dispute. "
+            'You may also be asked for your password.',
+      ),
+      (
+        StepUpKind.other,
+        "For your safety, confirm it's you before you continue.",
+        "Confirm it's you with Fayda to continue. "
+            'You may also be asked for your password.',
+      ),
+    ]) {
+      testWidgets('a background ${kind.name} step-up names it', (tester) async {
+        await tester.pumpWidget(
+          host(
+            SecurityPromptListener(events: events, child: const Text('app')),
+          ),
+        );
+
+        events.emit(StepUpRequired(kind: kind));
+        await settle(tester);
+        expect(find.text(password), findsOneWidget);
+        await tester.tap(find.text('Cancel'));
+        await settle(tester);
+
+        events
+          ..stepUpCompleted()
+          ..emit(StepUpRequired(withFayda: true, kind: kind));
+        await settle(tester);
+        expect(find.text(fayda), findsOneWidget);
+      });
+    }
 
     Future<void> tryFayda(WidgetTester tester, {required bool cancel}) async {
       events.emit(const StepUpRequired(withFayda: true));
@@ -626,8 +711,10 @@ void main() {
       expect(find.byType(AlertDialog), findsOneWidget);
     });
 
-    testWidgets('a confirmed step-up shows the retrying snackbar',
-        (tester) async {
+    Future<void> confirmInBackground(
+      WidgetTester tester,
+      StepUpKind kind,
+    ) async {
       final service = MockAuthService();
       when(() => bloc.authService).thenReturn(service);
       when(
@@ -640,7 +727,7 @@ void main() {
         host(SecurityPromptListener(events: events, child: const Text('app'))),
       );
 
-      events.emit(const StepUpRequired());
+      events.emit(StepUpRequired(kind: kind));
       await settle(tester);
       await tester.enterText(
         find.byKey(const Key('step_up_password_field')),
@@ -651,7 +738,21 @@ void main() {
       await settle(tester);
 
       expect(find.text("Confirm it's you"), findsNothing);
+    }
+
+    testWidgets('a confirmed step-up shows the retrying snackbar',
+        (tester) async {
+      await confirmInBackground(tester, StepUpKind.payment);
+
       expect(find.text('Confirmed. Retrying your payment.'), findsOneWidget);
+    });
+
+    testWidgets('a confirmed dispute or drop-out names no payment (FUP-181)',
+        (tester) async {
+      await confirmInBackground(tester, StepUpKind.dispute);
+
+      expect(find.text('Confirmed. Trying again.'), findsOneWidget);
+      expect(find.textContaining('payment'), findsNothing);
     });
 
     testWidgets('a cancelled prompt stays quiet for the cooldown',

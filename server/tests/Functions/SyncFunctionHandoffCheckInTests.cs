@@ -334,7 +334,7 @@ public sealed class SyncFunctionHandoffCheckInTests
         var result = await CheckInAsync(caller, Arrival());
 
         result.GetProperty("status").GetString().Should().Be("error");
-        MessageOf(result).Should().Be("Unsupported entity type: 'handoff_check_in'.");
+        MessageOf(result).Should().Be("SYNC_VALIDATION: Unsupported entity type: 'handoff_check_in'.");
         await _orders.DidNotReceive().GetByIdAsync(Arg.Any<string>(), Arg.Any<bool>());
         await _orders.DidNotReceive().GetByIdAsync(Arg.Any<string>());
         await NoWriteAsync();

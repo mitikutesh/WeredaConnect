@@ -258,6 +258,8 @@ public static class PushText
         "hint" => Pick(PayoutHints, language, Get(p, NotificationParams.Reason)),
         "km" => Distance(language, Get(p, NotificationParams.DistanceKm)),
         "minutes" => Minutes(Get(p, NotificationParams.Minutes)),
+        // Order-lifecycle 2.26.0: the agreed commission rate of order_commission_changed.
+        "rate" => Percent(Get(p, NotificationParams.CommissionRate)),
         // ESC-28: reputation pushes.
         "points" => Minutes(Get(p, NotificationParams.Points)),
         "total" => Count(Get(p, NotificationParams.ActivePoints)),
@@ -402,6 +404,12 @@ public static class PushText
     private static string Minutes(string? minutes)
         => int.TryParse(minutes, NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value > 0
             ? value.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
+
+    /// <summary>A rate fraction as a percent (<c>0.025</c> is <c>2.5%</c>, <c>0</c> is <c>0%</c>), else nothing.</summary>
+    private static string Percent(string? rate)
+        => decimal.TryParse(rate, NumberStyles.Number, CultureInfo.InvariantCulture, out var value) && value is >= 0m and <= 1m
+            ? (value * 100m).ToString("0.##", CultureInfo.InvariantCulture) + "%"
             : string.Empty;
 
     /// <summary>A whole number of 0 or more (ESC-28's point total), else nothing.</summary>
@@ -673,6 +681,9 @@ public static class PushText
         [NotificationTypes.OrderExpiredUnpaid] = new(
             "Order closed",
             "Your order[ of {qty} {crop}] was closed because it was not paid in time. You can place a new order."),
+        [NotificationTypes.OrderCommissionChanged] = new(
+            "Order total changed",
+            "The platform commission on your order[ of {qty} {crop}] changed.[ It is now {rate}.][ New total: {amount}.] Nothing has been paid yet."),
         [NotificationTypes.PaymentFailed] = new(
             "Payment failed",
             "Your payment[ of {amount}] did not go through. Please try again in the app."),
@@ -852,6 +863,9 @@ public static class PushText
         [NotificationTypes.OrderExpiredUnpaid] = new(
             "ትዕዛዙ ተዘግቷል",
             "[የ{qty} {crop} ]ትዕዛዝዎ በጊዜው ስላልተከፈለ ተዘግቷል። አዲስ ትዕዛዝ ማስገባት ይችላሉ።"),
+        [NotificationTypes.OrderCommissionChanged] = new(
+            "የትዕዛዙ ጠቅላላ ዋጋ ተቀይሯል",
+            "[የ{qty} {crop} ]ትዕዛዝዎ የመድረክ ኮሚሽን ተቀይሯል።[ አሁን {rate} ነው።][ አዲሱ ጠቅላላ፦ {amount}።] እስካሁን ምንም አልተከፈለም።"),
         [NotificationTypes.PaymentFailed] = new(
             "ክፍያው አልተሳካም",
             "ክፍያዎ[ {amount}] አልተሳካም። እባክዎ በመተግበሪያው እንደገና ይሞክሩ።"),
@@ -1022,6 +1036,9 @@ public static class PushText
         [NotificationTypes.OrderExpiredUnpaid] = new(
             "Ajajni cufameera",
             "Ajajni keessan[ {crop} {qty}] yeroodhaan waan hin kaffalamneef cufameera. Ajaja haaraa galchuu dandeessu."),
+        [NotificationTypes.OrderCommissionChanged] = new(
+            "Waliigalli gatii ajajaa jijjiirameera",
+            "Komishiiniin waltajjii ajaja keessanii[ {crop} {qty}] jijjiirameera.[ Amma {rate}.][ Waliigala haaraa: {amount}.] Homtuu hin kaffalamne."),
         [NotificationTypes.PaymentFailed] = new(
             "Kaffaltiin hin milkoofne",
             "Kaffaltiin keessan[ {amount}] hin milkoofne. Maaloo appii keessatti irra deebi'aa yaalaa."),

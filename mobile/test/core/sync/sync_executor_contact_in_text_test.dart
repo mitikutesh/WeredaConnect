@@ -175,7 +175,9 @@ void main() {
     expect(await syncQueue.getFailedCount(), 1);
   });
 
-  test('CROP_VALIDATION stays retryable', () async {
+  // FUP-74: an older server's failed profile read under CROP_VALIDATION.
+  test("an older server's CROP_VALIDATION profile read stays retryable",
+      () async {
     await enqueue(
       entityType: 'crop_listing',
       entityId: 'crop-1',

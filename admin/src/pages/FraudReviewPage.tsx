@@ -251,6 +251,8 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
   const fraudAction = useFraudAction();
 
   const groups = groupByUser(data?.pages ?? []);
+  // FUP-202: a source user named when the loaded pages carry their name (their own signals are listed too).
+  const displayNames = new Map(groups.map((g) => [g.userId, g.user?.displayName]));
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [result, setResult] = useState<FraudActionResult | null>(null);
@@ -315,6 +317,18 @@ function SignalsByUser({ status, t, locale }: { status: "pending" | "reviewed"; 
             <Link to={`/transactions/${String(row.orderId)}`} className="text-xs text-ink underline decoration-field underline-offset-2 hover:decoration-ink">
               {t("fraud.timeline")}
             </Link>
+          ) : null}
+          {/* FUP-202: a row written onto this user by another user's request (the buyer whose confirm caused it). */}
+          {row.sourceUserId ? (
+            <p className="text-xs">
+              {t("fraud.sourceUser")}:{" "}
+              <Link
+                to={`/users/${encodeURIComponent(String(row.sourceUserId))}`}
+                className="text-ink underline decoration-field underline-offset-2 hover:decoration-ink"
+              >
+                {partyName(displayNames.get(String(row.sourceUserId)), row.sourceUserId, locale)}
+              </Link>
+            </p>
           ) : null}
         </div>
       ),
