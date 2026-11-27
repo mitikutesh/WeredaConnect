@@ -1,7 +1,7 @@
 # Crop Listing API Contract
 
 ## Version
-1.18.0
+1.19.0
 
 ## Parties
 - **Mobile** (client) — farmers creating and browsing crop listings
@@ -351,7 +351,6 @@ The read endpoints return one flat object per listing (server `CropDto`). It dif
 | `location` | string | No | Legacy: a free-text place some older listings carry; `/sync` does not accept it |
 | `locationName` | string | No | The place the farmer entered for this listing; clients show it before `woreda` |
 | `deletedAt` | string (ISO 8601) | No | Soft-delete stamp, written by a `delete` and by an `update` to `status: deleted` (1.10.0); a deleted listing is never listed and `GET /crops/{id}` answers 404 for it. A row with `status: deleted` and no stamp is treated the same |
-| `farmerReliability` | number | No | Deprecated (1.12.0, ESC-30): no longer stamped at create and not used by matching (`ownerReliabilityPct` is); returned only for a listing that still stores one |
 | `ownerTier` | string | No | 1.11.0 (ESC-29, `reputation-api.md` section 7): the farmer's public reputation tier, `good` or `low`, copied onto the listing by the server. Returned only while `reputationPublicTags` is on; never taken from a client |
 | `ownerEffectiveRating` | number | No | The farmer's rating after the reputation deduction, 1.0 to 5.0 with one decimal; absent with no ratings |
 | `ownerRatingCount` | number | No | How many ratings the farmer has |
@@ -646,6 +645,7 @@ Users manually enter woreda/zone/region (not GPS-only) because:
 | 1.16.0 | 2026-11-19 | One listing per lot (new rule 13, persona simulation 2026-11-19 BUG-2, fraud spec 3.43.0 Rule 1): a `create` of a lot the farmer already lists (an active listing of the same crop type, quantity and place: the woreda, and within 1 km when both carry a point) is refused with `FRAUD_DUPLICATE_LISTING` at any price and age; the price band of the last hour stays. Another quantity, woreda or field, and a sold or deleted listing, pass. Server only; clients already treat the code as permanent and explain it |
 | 1.17.0 | 2026-11-19 | A create for an existing id is a conflict, not a fraud refusal (persona simulation BUG-13, rule 8, `sync-protocol.md` 1.70.0): the id is looked up before the fraud listing checks, which are skipped for an id that exists; the farmer's re-queued create gets the create-conflict echo with the row and no fraud signal. No client change. |
 | 1.18.0 | 2026-11-27 | The owner's profile has its own codes (FUP-74, `sync-protocol.md` 1.72.0): a create whose profile cannot be read is `CROP_PROFILE_UNAVAILABLE`, one whose profile has no name `CROP_PROFILE_INCOMPLETE`; both were `CROP_VALIDATION`, which now judges only the operation and is permanent on mobile. Nothing else changes |
+| 1.19.0 | 2026-11-27 | `farmerReliability`, retired in 1.12.0 (ESC-30), leaves the read model (FUP-186, `match-api.md` 1.6.0, `data-models.md` 1.25.0): `CropDto` no longer returns it, also for a listing that still stores it (the stored attribute is left on old rows, and `/sync` still drops a client value). Every app reads it as an optional number, so none fails on its absence; the apps no longer read or store it |
 
 ---
 

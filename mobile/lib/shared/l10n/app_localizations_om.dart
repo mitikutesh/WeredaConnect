@@ -1180,6 +1180,11 @@ class AppLocalizationsOm extends AppLocalizations {
   }
 
   @override
+  String escrowFailedSection(int count) {
+    return 'Kan hin milkoofne ($count)';
+  }
+
+  @override
   String get escrowHistorySection => 'Seenaa';
 
   @override
@@ -1767,6 +1772,9 @@ class AppLocalizationsOm extends AppLocalizations {
 
   @override
   String get escrowQueuedStatus => 'Tarree irra';
+
+  @override
+  String get escrowIntentFailedStatus => 'Hin milkoofne';
 
   @override
   String get genericError => 'Rakkoon uumameera. Maaloo irra deebi\'ii yaali.';
@@ -3492,6 +3500,19 @@ class AppLocalizationsOm extends AppLocalizations {
   String deleteAccountBlockersMore(int count) {
     return 'Fi $count dabalataa.';
   }
+
+  @override
+  String get finishDeletingTitle => 'Haquun herrega keessanii haa xumuramu?';
+
+  @override
+  String get finishDeletingBody =>
+      'Herrega kana haquu jalqabdaniittu, garuu haquun ammallee hin xumuramne. Hanga xumuramutti, appiin jijjiirama keessan olkaa\'uu hin danda\'u.';
+
+  @override
+  String get finishDeletingButton => 'Haquu xumuri';
+
+  @override
+  String get finishDeletingLater => 'Amma miti';
 
   @override
   String get deletedUser => 'Fayyadamaa haqame';

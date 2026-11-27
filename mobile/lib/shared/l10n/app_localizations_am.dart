@@ -1139,6 +1139,11 @@ class AppLocalizationsAm extends AppLocalizations {
   }
 
   @override
+  String escrowFailedSection(int count) {
+    return 'ያልተሳኩ ($count)';
+  }
+
+  @override
   String get escrowHistorySection => 'ታሪክ';
 
   @override
@@ -1706,6 +1711,9 @@ class AppLocalizationsAm extends AppLocalizations {
 
   @override
   String get escrowQueuedStatus => 'ተራ ላይ';
+
+  @override
+  String get escrowIntentFailedStatus => 'አልተሳካም';
 
   @override
   String get genericError => 'ችግር ተፈጥሯል። እባክዎ እንደገና ይሞክሩ።';
@@ -3350,6 +3358,19 @@ class AppLocalizationsAm extends AppLocalizations {
   String deleteAccountBlockersMore(int count) {
     return 'እና $count ተጨማሪ።';
   }
+
+  @override
+  String get finishDeletingTitle => 'የመለያዎ ስረዛ ይጠናቀቅ?';
+
+  @override
+  String get finishDeletingBody =>
+      'ይህን መለያ መሰረዝ ጀምረዋል፣ ግን ስረዛው ገና አልተጠናቀቀም። እስኪጠናቀቅ ድረስ መተግበሪያው ለውጦችዎን ማስቀመጥ አይችልም።';
+
+  @override
+  String get finishDeletingButton => 'ስረዛውን ጨርስ';
+
+  @override
+  String get finishDeletingLater => 'አሁን አይደለም';
 
   @override
   String get deletedUser => 'የተሰረዘ ተጠቃሚ';

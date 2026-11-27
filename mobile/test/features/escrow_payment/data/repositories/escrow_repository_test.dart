@@ -64,6 +64,7 @@ Future<PaymentIntent> _insertTestIntent(
   double amount = 15000.0,
   IntentStatus status = IntentStatus.pendingSync,
   DateTime? createdAt,
+  DateTime? lastAttemptAt,
 }) async {
   final intent = PaymentIntent()
     ..idempotencyKey = idempotencyKey
@@ -72,7 +73,8 @@ Future<PaymentIntent> _insertTestIntent(
     ..farmerId = farmerId
     ..amount = amount
     ..status = status
-    ..createdAt = createdAt ?? DateTime.now().toUtc();
+    ..createdAt = createdAt ?? DateTime.now().toUtc()
+    ..lastAttemptAt = lastAttemptAt;
 
   await isar.writeTxn(() async {
     await isar.paymentIntents.put(intent);
@@ -1040,10 +1042,14 @@ void main() {
     // ── getPendingIntents tests ──
 
     group('getPendingIntents', () {
-      test('returns only pendingSync intents', () async {
+      test(
+          'returns the waiting and the recently failed intents, never the '
+          'completed or cancelled ones', () async {
+        final now = DateTime.now().toUtc();
         await _insertTestIntent(
           isar,
           idempotencyKey: 'key-1',
+          createdAt: now.subtract(const Duration(minutes: 2)),
         );
         await _insertTestIntent(
           isar,
@@ -1056,15 +1062,87 @@ void main() {
           idempotencyKey: 'key-3',
           deliveryId: 'del-003',
           status: IntentStatus.failed,
+          createdAt: now.subtract(const Duration(minutes: 1)),
+          lastAttemptAt: now,
+        );
+        await _insertTestIntent(
+          isar,
+          idempotencyKey: 'key-4',
+          deliveryId: 'del-004',
+          status: IntentStatus.cancelled,
         );
 
-        final pending = await repository.getPendingIntents();
-        expect(pending.length, 1);
-        expect(pending.first.idempotencyKey, 'key-1');
+        final pending = await repository.getPendingIntents(userId: 'buyer-001');
+        expect(
+          pending.map((intent) => intent.idempotencyKey),
+          ['key-3', 'key-1'],
+        );
+      });
+
+      test(
+          'lists a failed intent for 24 hours from its failure, however long '
+          'it waited (FUP-182)', () async {
+        final now = DateTime.now().toUtc();
+        final queuedLongAgo = now.subtract(const Duration(days: 3));
+        await _insertTestIntent(
+          isar,
+          idempotencyKey: 'key-failed-recently',
+          status: IntentStatus.failed,
+          createdAt: queuedLongAgo,
+          lastAttemptAt: now.subtract(const Duration(hours: 23)),
+        );
+        await _insertTestIntent(
+          isar,
+          idempotencyKey: 'key-failed-yesterday',
+          deliveryId: 'del-002',
+          status: IntentStatus.failed,
+          createdAt: queuedLongAgo,
+          lastAttemptAt: now.subtract(const Duration(hours: 25)),
+        );
+
+        final pending = await repository.getPendingIntents(userId: 'buyer-001');
+        expect(
+          pending.map((intent) => intent.idempotencyKey),
+          ['key-failed-recently'],
+        );
+      });
+
+      test(
+          "never returns another user's intents, waiting or failed, on a "
+          'shared phone (FUP-182)', () async {
+        final now = DateTime.now().toUtc();
+        await _insertTestIntent(
+          isar,
+          idempotencyKey: 'key-other-waiting',
+          buyerId: 'buyer-002',
+        );
+        await _insertTestIntent(
+          isar,
+          idempotencyKey: 'key-other-failed',
+          deliveryId: 'del-002',
+          buyerId: 'buyer-002',
+          status: IntentStatus.failed,
+          lastAttemptAt: now,
+        );
+        await _insertTestIntent(
+          isar,
+          idempotencyKey: 'key-mine',
+          deliveryId: 'del-003',
+        );
+
+        final mine = await repository.getPendingIntents(userId: 'buyer-001');
+        expect(mine.map((intent) => intent.idempotencyKey), ['key-mine']);
+
+        // The farmer and the trucker never pay, so they see none at all,
+        // not even an intent that names them as the payee.
+        expect(
+          await repository.getPendingIntents(userId: 'farmer-001'),
+          isEmpty,
+        );
       });
 
       test('returns empty list when no pending intents', () async {
-        final pending = await repository.getPendingIntents();
+        final pending = await repository.getPendingIntents(userId: 'buyer-001');
         expect(pending, isEmpty);
       });
     });

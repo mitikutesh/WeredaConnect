@@ -70,7 +70,7 @@ public class SyncFunctionCheckInEffectsTests
         _deliveries.TryMarkInTransitAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>()).Returns(true);
         _deliveries.TryStampNearbyAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<double>(), Arg.Any<int?>())
             .Returns(true);
-        _orders.GetByIdAsync(OrderId).Returns(new Dictionary<string, object>
+        OrderReads(new Dictionary<string, object>
         {
             ["orderId"] = OrderId,
             ["status"] = "pickup_confirmed",
@@ -85,6 +85,13 @@ public class SyncFunctionCheckInEffectsTests
         {
             LocationClock = () => Now
         };
+    }
+
+    /// <summary>The order as both read modes return it: the order advance reads it strongly consistent (FUP-76).</summary>
+    private void OrderReads(Dictionary<string, object> order)
+    {
+        _orders.GetByIdAsync(OrderId).Returns(order);
+        _orders.GetByIdAsync(OrderId, true).Returns(order);
     }
 
     // ===== auto in transit =====
@@ -213,7 +220,7 @@ public class SyncFunctionCheckInEffectsTests
     [Fact]
     public async Task AnOrderAlreadyInTransit_IsNeverMovedBack()
     {
-        _orders.GetByIdAsync(OrderId).Returns(new Dictionary<string, object>
+        OrderReads(new Dictionary<string, object>
         {
             ["orderId"] = OrderId,
             ["status"] = "in_transit",

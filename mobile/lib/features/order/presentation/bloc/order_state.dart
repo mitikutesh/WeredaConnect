@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import 'package:wereda_connect/core/errors/app_error.dart';
 import 'package:wereda_connect/core/models/order.dart';
+import 'package:wereda_connect/features/order/presentation/bloc/order_event.dart';
 
 /// Base class for order states.
 abstract class OrderState extends Equatable {
@@ -35,14 +36,23 @@ class OrdersLoaded extends OrderState {
 /// Error state when an operation fails. [code] drives the localized,
 /// user-facing message (via `localizeErrorCode`); [message] is the raw detail
 /// kept for logging — do NOT show it directly to users.
+///
+/// [stepUpRetry] is set when the server asked for a fresh password (AUTH_040)
+/// before a cancel or a drop-out sent at once (web, FUP-552): the same event,
+/// for the screen to send again once the user confirmed it is them.
 class OrderError extends OrderState {
   final String message;
   final AppErrorCode code;
+  final OrderEvent? stepUpRetry;
 
-  const OrderError({required this.message, this.code = AppErrorCode.unknown});
+  const OrderError({
+    required this.message,
+    this.code = AppErrorCode.unknown,
+    this.stepUpRetry,
+  });
 
   @override
-  List<Object?> get props => [message, code];
+  List<Object?> get props => [message, code, stepUpRetry];
 }
 
 /// State after an order has been accepted.

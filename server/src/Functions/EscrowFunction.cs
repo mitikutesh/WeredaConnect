@@ -758,10 +758,12 @@ public class EscrowFunction
 
         try
         {
+            // FUP-108: an old app's status filter also lists the rows it is shown under that status.
             var result = await _escrowService.GetHistoryAsync(
-                userId, status, role, fromDate, toDate, limit, nextToken);
+                userId, status, role, fromDate, toDate, limit, nextToken,
+                EscrowStatusCompat.HistoryFilterStatuses(status, request));
 
-            // FUP-61: old apps get statuses they parse; the status filter still matches the stored value.
+            // FUP-61: old apps get statuses they parse.
             return MapResult(result,
                 value => LambdaResponse.Ok(
                     EscrowStatusCompat.ForCaller(value, request), AppJsonContext.Default.GetEscrowHistoryResponse));

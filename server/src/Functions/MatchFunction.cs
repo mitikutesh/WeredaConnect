@@ -309,7 +309,6 @@ public partial class MatchFunction
             Longitude = candidate.Longitude,
             Score = score,
             IsSubstitute = isSubstitute,
-            FarmerReliability = GetDouble(item, "farmerReliability"),
         };
     }
 

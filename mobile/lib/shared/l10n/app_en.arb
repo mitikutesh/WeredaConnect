@@ -1468,6 +1468,16 @@
       }
     }
   },
+  "escrowFailedSection": "Failed ({count})",
+  "@escrowFailedSection": {
+    "description": "Section header for the buyer's queued payments that failed, listed for 24 hours (FUP-182), with count",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
   "escrowHistorySection": "History",
   "@escrowHistorySection": {
     "description": "Section header for confirmed payment history"
@@ -2277,6 +2287,10 @@
   "escrowQueuedStatus": "Queued",
   "@escrowQueuedStatus": {
     "description": "Status label for queued payment intent"
+  },
+  "escrowIntentFailedStatus": "Failed",
+  "@escrowIntentFailedStatus": {
+    "description": "Status label for a queued payment intent that failed and will not be sent again (FUP-182)"
   },
 
   "@@p1ErrorLocalizationFixes": "=== P1 Error Localization Fixes (FIX-019 to FIX-023) ===",
@@ -4141,6 +4155,22 @@
         "type": "int"
       }
     }
+  },
+  "finishDeletingTitle": "Finish deleting your account?",
+  "@finishDeletingTitle": {
+    "description": "FUP-104 prompt title: a request was refused with 410 ACCOUNT_004 while the account deletion is still in_progress"
+  },
+  "finishDeletingBody": "You started deleting this account, but the deletion is not finished. Until it is, the app cannot save your changes.",
+  "@finishDeletingBody": {
+    "description": "FUP-104 prompt body: why the prompt shows and what happens until the deletion finishes"
+  },
+  "finishDeletingButton": "Finish deleting",
+  "@finishDeletingButton": {
+    "description": "FUP-104 prompt: opens Delete account, which sends the deletion again so the server resumes it"
+  },
+  "finishDeletingLater": "Not now",
+  "@finishDeletingLater": {
+    "description": "FUP-104 prompt: closes it; it does not ask again for 10 minutes"
   },
   "deletedUser": "Deleted user",
   "@deletedUser": {

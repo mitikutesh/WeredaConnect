@@ -647,12 +647,43 @@ public class AdminFunctionTests
     }
 
     // Regression: revenue analytics counted the transient 'released' state; the
-    // terminal settled state is 'completed'. Pin the escrow filter value.
+    // terminal settled state is 'completed'. Pin the escrow status counted.
     [Fact]
     public async Task RevenueAnalytics_CountsCompletedEscrows_NotReleased()
     {
+        var (fn, scans, reads) = CountingAdmin();
+
+        var response = await fn.FunctionHandler(AdminGet("/admin/analytics/revenue"), _context);
+
+        response.StatusCode.Should().Be(200);
+        var escrowStatusValues = reads
+            .Where(r => r.Table == EscrowsTable && r.Index == "StatusExpiresIndex")
+            .Select(r => r.Status)
+            .ToList();
+        escrowStatusValues.Should().Contain("completed");
+        escrowStatusValues.Should().NotContain("released");
+        JsonDocument.Parse(response.Body).RootElement.GetProperty("transactionCount").GetInt32().Should().Be(5);
+        StatusFilteredScans(scans).Should().BeEmpty();
+    }
+
+    // ──────────────────────────────────────────────
+    // FUP-555: the status counts read one index partition each, never a Scan
+    // ──────────────────────────────────────────────
+
+    private const string CropsTable = "crops-test";
+
+    /// <summary>One page of a status count Query, as it was sent (the request is reused across its pages).</summary>
+    private sealed record CountRead(string Table, string? Index, string Status, Select? Select, bool Resumed);
+
+    /// <summary>
+    /// An admin function over mocked tables whose status partitions each answer two pages, 2 rows then 3, so a
+    /// count that stops after the first page reads 2 instead of 5. Scans answer nothing.
+    /// </summary>
+    private static (AdminFunction Fn, List<ScanRequest> Scans, List<CountRead> Reads) CountingAdmin()
+    {
         var db = Substitute.For<IAmazonDynamoDB>();
         var scans = new List<ScanRequest>();
+        var reads = new List<CountRead>();
         db.ScanAsync(Arg.Do<ScanRequest>(scans.Add), Arg.Any<CancellationToken>())
             .Returns(new ScanResponse
             {
@@ -660,19 +691,106 @@ public class AdminFunctionTests
                 Items = new List<Dictionary<string, AttributeValue>>(),
                 LastEvaluatedKey = new Dictionary<string, AttributeValue>(),
             });
+        db.QueryAsync(Arg.Any<QueryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                var query = ci.ArgAt<QueryRequest>(0);
+                var status = query.ExpressionAttributeValues.TryGetValue(":status", out var s) ? s.S : "";
+                var resumed = query.ExclusiveStartKey is { Count: > 0 };
+                reads.Add(new CountRead(query.TableName, query.IndexName, status, query.Select, resumed));
+                return resumed
+                    ? new QueryResponse { Count = 3, LastEvaluatedKey = new Dictionary<string, AttributeValue>() }
+                    : new QueryResponse
+                    {
+                        Count = 2,
+                        LastEvaluatedKey = new Dictionary<string, AttributeValue> { ["status"] = new() { S = status } }
+                    };
+            });
 
         var fn = new AdminFunction(
-            db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable);
-        var response = await fn.FunctionHandler(AdminGet("/admin/analytics/revenue"), _context);
+            db, UsersTable, OrdersTable, EscrowsTable, DeliveriesTable, AuditTable, TxAuditTable,
+            cropsTable: CropsTable);
+        return (fn, scans, reads);
+    }
 
-        response.StatusCode.Should().Be(200);
-        var escrowStatusValues = scans
-            .Where(s => s.TableName == EscrowsTable
-                && s.ExpressionAttributeNames.ContainsValue("status"))
-            .Select(s => s.ExpressionAttributeValues[":value"].S)
-            .ToList();
-        escrowStatusValues.Should().Contain("completed");
-        escrowStatusValues.Should().NotContain("released");
+    /// <summary>The Scans of the escrows or crops tables filtered on a status: none should be left.</summary>
+    private static List<ScanRequest> StatusFilteredScans(List<ScanRequest> scans) => scans
+        .Where(s => (s.TableName == EscrowsTable || s.TableName == CropsTable)
+            && !string.IsNullOrEmpty(s.FilterExpression))
+        .ToList();
+
+    /// <summary>The statuses counted on <paramref name="index"/> of <paramref name="table"/>, each with two pages.</summary>
+    private static List<string> CountedStatuses(List<CountRead> reads, string table, string index)
+    {
+        var mine = reads.Where(r => r.Table == table && r.Index == index).ToList();
+        mine.Should().OnlyContain(r => r.Select == Select.COUNT);
+        var statuses = mine.Select(r => r.Status).Distinct().ToList();
+        foreach (var status in statuses)
+        {
+            // Paged until LastEvaluatedKey is empty: the first page, then one resumed from its key.
+            mine.Where(r => r.Status == status).Select(r => r.Resumed).Should().Equal(false, true);
+        }
+
+        return statuses;
+    }
+
+    [Fact]
+    public async Task DashboardStats_EscrowAndListingCounts_QueryTheStatusIndexes_OverEveryPage()
+    {
+        var (fn, scans, reads) = CountingAdmin();
+
+        var response = await fn.FunctionHandler(AdminGet("/admin/dashboard/stats"), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var body = JsonDocument.Parse(response.Body).RootElement;
+        body.GetProperty("activeEscrows").GetInt32().Should().Be(5);
+        body.GetProperty("disputedEscrows").GetInt32().Should().Be(5);
+        body.GetProperty("activeListings").GetInt32().Should().Be(5);
+        body.GetProperty("heldEscrows").GetInt32().Should().Be(5);
+        CountedStatuses(reads, EscrowsTable, "StatusExpiresIndex")
+            .Should().BeEquivalentTo("escrowed", "disputed", "held");
+        CountedStatuses(reads, CropsTable, "StatusCreatedAtIndex").Should().Equal("available");
+        StatusFilteredScans(scans).Should().BeEmpty();
+        // The users counts by role have no index and stay filtered Scans.
+        scans.Where(s => s.TableName == UsersTable && !string.IsNullOrEmpty(s.FilterExpression))
+            .Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task ComplianceSummary_DisputeCounts_QueryTheEscrowStatusIndex()
+    {
+        var (fn, scans, reads) = CountingAdmin();
+
+        var response = await fn.FunctionHandler(AdminGet("/admin/compliance/summary"), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var body = JsonDocument.Parse(response.Body).RootElement;
+        body.GetProperty("disputesOpen").GetInt32().Should().Be(5);
+        body.GetProperty("disputesResolved").GetInt32().Should().Be(5);
+        CountedStatuses(reads, EscrowsTable, "StatusExpiresIndex")
+            .Should().BeEquivalentTo("disputed", "dispute_resolved");
+        StatusFilteredScans(scans).Should().BeEmpty();
+        // faydaVerified has no index: the two users counts stay filtered Scans.
+        scans.Where(s => s.TableName == UsersTable && !string.IsNullOrEmpty(s.FilterExpression))
+            .Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task TransactionAnalytics_StatusCounts_QueryTheEscrowStatusIndex()
+    {
+        var (fn, scans, reads) = CountingAdmin();
+
+        var response = await fn.FunctionHandler(AdminGet("/admin/analytics/transactions"), _context);
+
+        response.StatusCode.Should().Be(200, response.Body);
+        var body = JsonDocument.Parse(response.Body).RootElement;
+        body.GetProperty("completedTransactions").GetInt32().Should().Be(5);
+        body.GetProperty("pendingTransactions").GetInt32().Should().Be(5);
+        body.GetProperty("disputedTransactions").GetInt32().Should().Be(5);
+        body.GetProperty("refundedTransactions").GetInt32().Should().Be(5);
+        CountedStatuses(reads, EscrowsTable, "StatusExpiresIndex")
+            .Should().BeEquivalentTo("completed", "escrowed", "disputed", "refunded");
+        StatusFilteredScans(scans).Should().BeEmpty();
     }
 
     // ──────────────────────────────────────────────

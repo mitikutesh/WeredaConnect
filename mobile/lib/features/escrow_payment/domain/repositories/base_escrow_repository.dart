@@ -49,5 +49,19 @@ abstract class BaseEscrowRepository {
     String? nextToken,
   });
 
-  Future<List<PaymentIntent>> getPendingIntents();
+  /// This party's `held` escrows for the order list (FRD-06, FUP-79):
+  /// `GET /escrow/history?status=held&role=<role>`, page after page
+  /// (`readHeldPages` in `escrow_hold.dart`). [role] is the caller's
+  /// `UserRole.name`.
+  Future<List<Payment>> refreshHeldEscrows({
+    required String userId,
+    required String role,
+  });
+
+  /// The queued delivery payments of the buyer [userId] for the payment
+  /// history, newest first: those waiting to be sent, and those that failed
+  /// (a permanent refusal or the last retry) within the last 24 hours
+  /// (FUP-182). Read by buyer, so on a shared phone nobody is shown another
+  /// user's payments. Web keeps no queue and answers none.
+  Future<List<PaymentIntent>> getPendingIntents({required String userId});
 }

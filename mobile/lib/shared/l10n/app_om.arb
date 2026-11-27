@@ -1408,6 +1408,16 @@
       }
     }
   },
+  "escrowFailedSection": "Kan hin milkoofne ({count})",
+  "@escrowFailedSection": {
+    "description": "Section header for the buyer's queued payments that failed, listed for 24 hours (FUP-182), with count",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
   "escrowHistorySection": "Seenaa",
   "@escrowHistorySection": {
     "description": "Section header for confirmed payment history"
@@ -2088,6 +2098,10 @@
   "@escrowQueuedStatus": {
     "description": "Status label for queued payment intent"
   },
+  "escrowIntentFailedStatus": "Hin milkoofne",
+  "@escrowIntentFailedStatus": {
+    "description": "Status label for a queued payment intent that failed and will not be sent again (FUP-182)"
+  },
 
   "@@p1ErrorLocalizationFixes": "=== P1 Error Localization Fixes (FIX-019 to FIX-023) ===",
 
@@ -2732,6 +2746,10 @@
   "deleteAccountBlockerPaymentReview": "Kaffaltiiwwan deebii eeggatan: {count}. Deebii xumuruuf deeggarsa qunnamaa.",
   "deleteAccountBlockerOther": "Wantoota biroo hojii irra jiran: {count}",
   "deleteAccountBlockersMore": "Fi {count} dabalataa.",
+  "finishDeletingTitle": "Haquun herrega keessanii haa xumuramu?",
+  "finishDeletingBody": "Herrega kana haquu jalqabdaniittu, garuu haquun ammallee hin xumuramne. Hanga xumuramutti, appiin jijjiirama keessan olkaa'uu hin danda'u.",
+  "finishDeletingButton": "Haquu xumuri",
+  "finishDeletingLater": "Amma miti",
   "deletedUser": "Fayyadamaa haqame",
   "unnamedUser": "Fayyadamaa",
   "statusAwaitingTransport": "Geejjibni hin argamne",

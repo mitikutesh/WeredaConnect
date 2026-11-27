@@ -136,6 +136,90 @@ void main() {
         isEmpty,
       );
     });
+
+    // FUP-79: the server applies the limit before the status filter, so a
+    // held escrow older than the party's 50 newest is on a later page.
+    List<Map<String, dynamic>> answerPages(
+      List<Map<String, dynamic>> pages,
+    ) {
+      final asked = <Map<String, dynamic>>[];
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/escrow/history',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((call) async {
+        asked.add(
+          call.namedArguments[#queryParameters] as Map<String, dynamic>,
+        );
+        return pages[asked.length - 1];
+      });
+      return asked;
+    }
+
+    for (final role in const ['buyer', 'farmer', 'trucker']) {
+      test('$role: a held escrow on a later page is flagged', () async {
+        final asked = answerPages([
+          {'escrows': <Object>[], 'hasMore': true, 'nextToken': 't-1'},
+          {
+            'escrows': [_escrow(escrowId: 'e-9', orderId: 'ord-9')],
+            'hasMore': false,
+          },
+        ]);
+
+        final held = await heldOrderIds(repo, userId: '$role-001', role: role);
+
+        expect(held, {'ord-9'});
+        expect(asked, hasLength(2));
+        expect(asked.first.containsKey('nextToken'), isFalse);
+        expect(asked.last['nextToken'], 't-1');
+        for (final params in asked) {
+          expect(params['status'], 'held');
+          expect(params['role'], role);
+          expect(params['limit'], '50');
+        }
+      });
+    }
+
+    test('stops after $heldHistoryMaxPages pages', () async {
+      final asked = answerPages([
+        for (var i = 0; i < heldHistoryMaxPages + 1; i++)
+          {
+            'escrows': [_escrow(escrowId: 'e-$i', orderId: 'ord-$i')],
+            'hasMore': true,
+            'nextToken': 't-$i',
+          },
+      ]);
+
+      final held = await heldOrderIds(repo, userId: 'buyer-001', role: 'buyer');
+
+      expect(asked, hasLength(heldHistoryMaxPages));
+      expect(held, {for (var i = 0; i < heldHistoryMaxPages; i++) 'ord-$i'});
+    });
+
+    test('a failed later page flags nothing (web keeps no cache)', () async {
+      var calls = 0;
+      when(
+        () => api.get<Map<String, dynamic>>(
+          '/escrow/history',
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).thenAnswer((_) async {
+        if (++calls == 1) {
+          return {
+            'escrows': [_escrow()],
+            'hasMore': true,
+            'nextToken': 't-1',
+          };
+        }
+        throw const NetworkException();
+      });
+
+      expect(
+        await heldOrderIds(repo, userId: 'buyer-001', role: 'buyer'),
+        isEmpty,
+      );
+    });
   });
 
   group('isOrderEscrowHeld', () {

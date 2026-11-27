@@ -503,6 +503,8 @@ export class ApiStack extends cdk.Stack {
     const timeoutPenalties = envConfig.timeoutPenalties ? "true" : "false";
     // ESC-29: buyers get the public tier, the effective rating and the reliability (off everywhere).
     const reputationPublicTags = envConfig.reputationPublicTags ? "true" : "false";
+    // GCR-04: the reputation reads carry the verified handoffs figure from the conduct stamps (off everywhere).
+    const conductRewards = envConfig.conductRewards ? "true" : "false";
     // ESC-34: the pickup judgement by arrival check-ins (sync takes the check-ins, order-cron judges); off
     // everywhere until its app build is the minimum. It only works with COMMITMENTS_ENABLED.
     const pickupClassification = envConfig.pickupClassification ? "true" : "false";
@@ -2106,6 +2108,9 @@ export class ApiStack extends cdk.Stack {
         REPUTATION_PENALTIES_ENABLED: reputationPenalties,
         // Off: the public summary carries only the raw rating average and count.
         REPUTATION_PUBLIC_TAGS_ENABLED: reputationPublicTags,
+        // GCR-04 (reputation-api.md 1.10.0 section 1.9): on, the two reads add verifiedPct and verifiedOrders90d
+        // from the party's HANDOFF# stamps (the Query grant below covers it); off, no stamp is read.
+        CONDUCT_REWARDS_ENABLED: conductRewards,
       },
       timeout: cdk.Duration.seconds(10),
       memorySize: 256,

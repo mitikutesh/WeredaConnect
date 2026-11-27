@@ -3,6 +3,7 @@ using Amazon.Lambda.TestUtilities;
 using FluentAssertions;
 using NSubstitute;
 using WeredaConnect.Server.Data;
+using WeredaConnect.Server.Functions;
 using WeredaConnect.Server.Helpers;
 using WeredaConnect.Server.Models;
 using WeredaConnect.Server.Services;
@@ -193,5 +194,53 @@ public sealed class ConductStampDynamoDbTests
             new ConductResult("buyer", 0, 0, Array.Empty<ConductStep>()), null, T0);
         (await Repo().PutNewAsync(nobody)).Should().Be(ConductWriteOutcome.Skipped);
         (await Repo().ReplaceOnceAsync(stamp with { OrderId = "o-none" })).Should().Be(ConductWriteOutcome.Exists);
+    }
+
+    [LocalDynamoDbFact]
+    public async Task VerifiedFigure_ReadsOnlyCountedStampsInThe90DayWindow_AndReachesTheOwnRead()
+    {
+        // GCR-04 (reputation-api.md 1.10.0 section 1.9): the filtered Query as the table runs it, then GET /reputation/me.
+        var farmer = await NewUser("farmer");
+        var buyer = await NewUser("buyer");
+        await Record(farmer, "farmer", "CANCEL#o-x", ReputationCodes.LateCancel, T0.AddDays(-3), buyer);
+        async Task Put(string orderId, int offered, int earned, DateTime settledAt, string? notCounted = null)
+            => (await Repo().PutNewAsync(ConductScoring.Stamp(
+                    Order(orderId, farmer, $"trucker-{orderId}", $"buyer-{orderId}", settledAt), farmer,
+                    new ConductResult("farmer", offered, earned, Array.Empty<ConductStep>()), notCounted, settledAt)))
+                .Should().Be(ConductWriteOutcome.Written);
+
+        var edge = T0 - TimeSpan.FromDays(90);
+        await Put("o-a", 4, 4, T0.AddDays(-1));
+        await Put("o-b", 4, 3, T0.AddDays(-30));
+        await Put("o-c", 4, 2, edge.AddMilliseconds(1));
+        await Put("o-d", 4, 0, T0.AddDays(-5), ConductScoring.NotCountedReasons.PairCap);
+        await Put("o-e", 4, 0, edge);
+        await Put("o-f", 4, 0, T0.AddDays(-120));
+
+        var (rows, truncated) = await Repo().QueryCountedStampsAsync(farmer, edge, ConductScoring.VerifiedReadCap);
+        rows.Select(r => r.OrderId).Should().BeEquivalentTo(new[] { "o-a", "o-b", "o-c" }, "counted, and settled after the edge");
+        truncated.Should().BeFalse();
+        ConductScoring.Verified(rows, T0).Should().Be(new ConductVerified(75, 3), "9 of 12 steps");
+        (await Repo().QueryCountedStampsAsync(farmer, edge, 2)).Truncated.Should().BeTrue();
+
+        var function = new ReputationFunction(Repo(), Reputation(), stamps: Repo()) { ConductRewards = true, Clock = () => T0 };
+        var request = new Amazon.Lambda.APIGatewayEvents.APIGatewayProxyRequest
+        {
+            HttpMethod = "GET",
+            Path = "/reputation/me",
+            RequestContext = new Amazon.Lambda.APIGatewayEvents.APIGatewayProxyRequest.ProxyRequestContext
+            {
+                Authorizer = new Amazon.Lambda.APIGatewayEvents.APIGatewayCustomAuthorizerContext
+                {
+                    { "sub", farmer }, { "custom:role", "farmer" }
+                }
+            }
+        };
+        var response = await function.FunctionHandler(request, new TestLambdaContext());
+        response.StatusCode.Should().Be(200, response.Body);
+        var reputation = System.Text.Json.JsonDocument.Parse(response.Body).RootElement.GetProperty("reputation");
+        reputation.GetProperty("verifiedPct").GetInt32().Should().Be(75);
+        reputation.GetProperty("verifiedOrders90d").GetInt32().Should().Be(3);
+        reputation.GetProperty("faultCancels90d").GetInt32().Should().Be(1, "the penalty read is unchanged beside the stamps");
     }
 }

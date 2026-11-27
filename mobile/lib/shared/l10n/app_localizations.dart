@@ -2254,6 +2254,12 @@ abstract class AppLocalizations {
   /// **'Pending ({count})'**
   String escrowPendingSection(int count);
 
+  /// Section header for the buyer's queued payments that failed, listed for 24 hours (FUP-182), with count
+  ///
+  /// In en, this message translates to:
+  /// **'Failed ({count})'**
+  String escrowFailedSection(int count);
+
   /// Section header for confirmed payment history
   ///
   /// In en, this message translates to:
@@ -3285,6 +3291,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Queued'**
   String get escrowQueuedStatus;
+
+  /// Status label for a queued payment intent that failed and will not be sent again (FUP-182)
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get escrowIntentFailedStatus;
 
   /// Generic error message shown when an unexpected error occurs
   ///
@@ -6165,6 +6177,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'And {count} more.'**
   String deleteAccountBlockersMore(int count);
+
+  /// FUP-104 prompt title: a request was refused with 410 ACCOUNT_004 while the account deletion is still in_progress
+  ///
+  /// In en, this message translates to:
+  /// **'Finish deleting your account?'**
+  String get finishDeletingTitle;
+
+  /// FUP-104 prompt body: why the prompt shows and what happens until the deletion finishes
+  ///
+  /// In en, this message translates to:
+  /// **'You started deleting this account, but the deletion is not finished. Until it is, the app cannot save your changes.'**
+  String get finishDeletingBody;
+
+  /// FUP-104 prompt: opens Delete account, which sends the deletion again so the server resumes it
+  ///
+  /// In en, this message translates to:
+  /// **'Finish deleting'**
+  String get finishDeletingButton;
+
+  /// FUP-104 prompt: closes it; it does not ask again for 10 minutes
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get finishDeletingLater;
 
   /// Shown instead of the name of a party whose account was deleted (server sentinel 'Deleted user')
   ///

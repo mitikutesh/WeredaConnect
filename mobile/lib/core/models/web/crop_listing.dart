@@ -16,7 +16,6 @@ class CropListing {
   late String locationName;
   String? placeId;
   late String description;
-  double? farmerReliability;
 
   /// ESC-30: the farmer's reliability in whole percent (see the Isar schema).
   int? ownerReliabilityPct;

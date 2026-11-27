@@ -82,9 +82,14 @@ void main() {
         .thenAnswer((_) async => queue.removeAt(0));
   }
 
+  /// The blockers the screen asked to open (FUP-106).
+  late List<AccountDeletionBlocker> opened;
+  setUp(() => opened = []);
+
   Future<void> pump(
     WidgetTester tester, {
     Locale locale = const Locale('en'),
+    bool resume = false,
     bool appPasswordPrompt = false,
   }) async {
     tester.view.physicalSize = const Size(800, 2400);
@@ -112,6 +117,8 @@ void main() {
                     passwordPrompts++;
                     return passwordConfirmed;
                   },
+            openBlocker: (_, blocker) async => opened.add(blocker),
+            resume: resume,
           ),
         ),
       ),
@@ -239,6 +246,99 @@ void main() {
     expect(find.text('Other active items: 2'), findsOneWidget);
     expect(find.text('And 3 more.'), findsOneWidget);
     expect(deletedWipes(), 0);
+  });
+
+  testWidgets('FUP-106: a tap on a blocker opens its order or delivery',
+      (tester) async {
+    const order = AccountDeletionBlocker(
+      type: 'order',
+      id: 'o1',
+      status: 'accepted',
+      role: 'farmer',
+    );
+    const escrow = AccountDeletionBlocker(
+      type: 'escrow',
+      id: 'escrow-order-ord-123456789',
+      status: 'escrowed',
+      role: 'buyer',
+    );
+    const delivery = AccountDeletionBlocker(
+      type: 'delivery',
+      id: 'd1',
+      status: 'pickedUp',
+      role: 'trucker',
+    );
+    const dispute = AccountDeletionBlocker(type: 'dispute', id: 'o3');
+    const review = AccountDeletionBlocker(type: 'payment_review', id: 'o4');
+    answer([
+      const DeleteAccountBlocked(
+        blockers: [
+          order,
+          escrow,
+          // An escrow from before order-funded escrows names no order.
+          AccountDeletionBlocker(type: 'escrow', id: 'esc-legacy-1'),
+          delivery,
+          dispute,
+          review,
+          AccountDeletionBlocker(type: 'loan', id: 'x2'),
+        ],
+        blockerCount: 7,
+      ),
+    ]);
+    await pump(tester);
+
+    await deleteAndConfirm(tester);
+
+    final rows = {
+      'order_o1': 'Order #o1',
+      'escrow_escrow-order-ord-123456789': 'Order #ord-1234',
+      'delivery_d1': 'Delivery #d1',
+      'dispute_o3': 'Order #o3',
+      'payment_review_o4': 'Order #o4',
+    };
+    for (final MapEntry(:key, :value) in rows.entries) {
+      final row = find.byKey(Key('delete_account_open_$key'));
+      expect(row, findsOneWidget, reason: key);
+      expect(
+        find.descendant(of: row, matching: find.text(value)),
+        findsOneWidget,
+        reason: key,
+      );
+      expect(tester.getSize(row).height, greaterThanOrEqualTo(48));
+    }
+    expect(
+      find.byKey(const Key('delete_account_open_escrow_esc-legacy-1')),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('delete_account_open_loan_x2')), findsNothing);
+
+    for (final key in rows.keys) {
+      await tester.tap(find.byKey(Key('delete_account_open_$key')));
+      await tester.pumpAndSettle();
+    }
+    expect(opened, [order, escrow, delivery, dispute, review]);
+    expect(deletedWipes(), 0);
+  });
+
+  testWidgets(
+      'FUP-104: opened to finish a started deletion, it sends at once '
+      'without asking', (tester) async {
+    answer([const DeleteAccountDone()]);
+    await pump(tester, resume: true);
+
+    expect(find.text('Delete your account?'), findsNothing);
+    expect(passwordPrompts, 0);
+    verify(() => repository.deleteAccount(userId: _me, bearer: _token))
+        .called(1);
+    expect(deletedWipes(), 1);
+  });
+
+  testWidgets('without resume nothing is sent until the user confirms',
+      (tester) async {
+    answer([const DeleteAccountDone()]);
+    await pump(tester);
+
+    verifyNever(() => repository.deleteAccount(userId: _me, bearer: _token));
   });
 
   testWidgets('offline: explains it and retries without asking again',

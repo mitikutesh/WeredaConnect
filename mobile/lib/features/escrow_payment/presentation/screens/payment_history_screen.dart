@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:wereda_connect/core/models/payment.dart';
+import 'package:wereda_connect/core/models/payment_intent.dart';
 import 'package:wereda_connect/core/utils/date_locale.dart';
 import 'package:wereda_connect/core/utils/etb_format.dart';
 import 'package:wereda_connect/core/utils/ethiopia_time.dart';
@@ -34,7 +35,8 @@ import 'package:wereda_connect/shared/widgets/role_sketch.dart';
 ///
 /// Features:
 /// - Status filter (All / Escrowed / Released / Completed / Disputed / Refunded)
-/// - Pending intents section with cancel button
+/// - Pending intents section with cancel button, and the buyer's failed
+///   ones with their reason for 24 hours (FUP-182)
 /// - Pull-to-refresh
 class PaymentHistoryScreen extends StatefulWidget {
   /// When true, skips Scaffold/AppBar for use as embedded tab content.
@@ -363,6 +365,15 @@ class _HistoryContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    // A failed intent (FUP-182) is listed apart, under its own label.
+    final waiting = [
+      for (final intent in state.pendingIntents)
+        if (intent.status != IntentStatus.failed) intent,
+    ];
+    final failed = [
+      for (final intent in state.pendingIntents)
+        if (intent.status == IntentStatus.failed) intent,
+    ];
 
     return RefreshIndicator(
       onRefresh: () async {
@@ -389,16 +400,25 @@ class _HistoryContent extends StatelessWidget {
               ),
             ),
           // Pending intents section
-          if (state.pendingIntents.isNotEmpty) ...[
+          if (waiting.isNotEmpty) ...[
             FwSectionLabel(
-              l10n.escrowPendingSection(state.pendingIntents.length),
+              l10n.escrowPendingSection(waiting.length),
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 5),
             ),
-            for (final intent in state.pendingIntents)
+            for (final intent in waiting)
               PendingIntentCard(
                 intent: intent,
                 onCancel: () => onCancelIntent(intent.idempotencyKey),
               ),
+            const SizedBox(height: 8),
+          ],
+          // Failed intents section: each with its reason, for 24 hours
+          if (failed.isNotEmpty) ...[
+            FwSectionLabel(
+              l10n.escrowFailedSection(failed.length),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 5),
+            ),
+            for (final intent in failed) PendingIntentCard(intent: intent),
             const SizedBox(height: 8),
           ],
           // History section

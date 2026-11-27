@@ -381,7 +381,8 @@ public partial class SyncFunctionTests
             FastRowTo(GpsAddis, TimeSpan.FromHours(6), TimeSpan.FromHours(6)));
 
         Assert.Contains("\"status\":\"success\"", body);
-        await _mockOrderRepo.DidNotReceive().GetByIdAsync(BoundOrderId, consistentRead: true);
+        // The one read is the order's own advance to delivered (FUP-76); the guard reads none.
+        await _mockOrderRepo.Received(1).GetByIdAsync(BoundOrderId, consistentRead: true);
         await NoDeliveryTimeRowAsync();
     }
 

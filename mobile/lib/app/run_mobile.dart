@@ -12,6 +12,7 @@ import 'package:uuid/uuid.dart';
 import 'package:wereda_connect/core/auth/offline_auth_cache.dart';
 import 'package:wereda_connect/core/database/contact_phone_purge.dart';
 import 'package:wereda_connect/core/database/isar_service.dart';
+import 'package:wereda_connect/core/models/user.dart';
 import 'package:wereda_connect/core/network/api_client.dart';
 import 'package:wereda_connect/core/network/data_usage_auth_binding.dart';
 import 'package:wereda_connect/core/network/data_usage_tracker.dart';
@@ -74,6 +75,7 @@ import 'package:wereda_connect/features/messaging/presentation/widgets/message_a
 import 'package:wereda_connect/features/rating/data/repositories/rating_repository.dart';
 import 'package:wereda_connect/features/rating/presentation/bloc/rating_bloc.dart';
 import 'package:wereda_connect/features/reputation/data/reputation_repository.dart';
+import 'package:wereda_connect/features/reputation/presentation/screens/my_reputation_screen.dart';
 import 'package:wereda_connect/features/trip_listing/data/repositories/trip_listing_repository.dart';
 import 'package:wereda_connect/features/trip_listing/presentation/bloc/trip_listing_bloc.dart';
 import 'package:wereda_connect/shared/l10n/app_localizations.dart';
@@ -627,9 +629,11 @@ class WeredaConnectApp extends StatelessWidget {
                   final notifications =
                       context.read<BaseNotificationRepository>();
                   final orders = context.read<OrderBloc>().repository;
+                  final reputation = context.read<ReputationRepository>();
                   final sync = marketplaceSync;
                   // ESC-21: an order event pulls the inbox and the order, with
-                  // one follow-up like the chat pull.
+                  // one follow-up like the chat pull. A reputation event
+                  // (FUP-205) has no order: it pulls the inbox alone.
                   void pullOrderEvent(String? orderId) {
                     final state = auth.state;
                     if (state is! AuthAuthenticated) return;
@@ -650,6 +654,24 @@ class WeredaConnectApp extends StatelessWidget {
                       await pullOrderIfMissing(orders, sync, orderId);
                       await navigatorKey.currentState
                           ?.push(orderDetailRoute(orders, orderId));
+                    },
+                    // FUP-205: a tapped reputation push opens My reputation
+                    // of the signed-in farmer or trucker (the server sends
+                    // these only to the party; buyers have no reputation).
+                    onOpenReputation: () {
+                      final signedIn = auth.state;
+                      if (signedIn is! AuthAuthenticated ||
+                          signedIn.role == UserRole.buyer) {
+                        return;
+                      }
+                      navigatorKey.currentState?.push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => MyReputationScreen(
+                            userId: signedIn.userId,
+                            repository: reputation,
+                          ),
+                        ),
+                      );
                     },
                     // FUP-90: a tapped chat push opens its thread, only for
                     // the account it was sent to.

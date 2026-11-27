@@ -60,12 +60,6 @@ class CropListing {
   /// Supports Amharic, Afan Oromo, and English
   late String description;
 
-  /// The old listing-conversion reliability in [0, 1]. Kept only so rows the
-  /// server still returns it for parse as before: since ESC-30 the server no
-  /// longer writes it and the matcher no longer reads it (see
-  /// [ownerReliabilityPct]). Never client-set.
-  double? farmerReliability;
-
   /// ESC-30: the farmer's reliability in whole percent (0 to 100), the
   /// server's `ownerReliabilityPct` copy on the row (reputation-api.md
   /// section 7). Null when the server sent none: the public reputation flag
